@@ -19,7 +19,11 @@ REPO=""; source release/config
 [[ -n "$REPO" ]] || die "set REPO=\"owner/name\" in release/config first"
 command -v gh >/dev/null || die "the GitHub CLI (gh) isn't installed"
 gh auth status >/dev/null 2>&1 || die "sign in to GitHub first: gh auth login"
-[[ -f "$KEY" ]] || die "no release key at $KEY (restore it from your backup; without it, updates can't be signed)"
+if [[ ! -f "$KEY" ]]; then                         # restore it from the Keychain backup if the file is gone
+  K=$(security find-generic-password -s "Rehearsal release key" -w 2>/dev/null || true)
+  [[ -n "$K" ]] || die "no release key at $KEY or in the Keychain (restore it from your backup; without it, updates can't be signed)"
+  mkdir -p "${KEY:h}" && (umask 077; print -r -- "$K" > "$KEY") && echo "Restored the release key from the Keychain."
+fi
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 
 bump=patch
