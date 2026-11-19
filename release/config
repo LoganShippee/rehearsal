@@ -1,0 +1,2 @@
+# GitHub repository that hosts Rehearsal's releases (owner/name). The app checks it for updates.
+REPO="LoganShippee/rehearsal"
