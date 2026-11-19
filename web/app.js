@@ -84,61 +84,43 @@ function newClass(name = 'New class', themeIdx = 0) {
     agenda: [], warmup: '', resources: [], roster: [], automations: [], points: [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }], notes: {},
   };
 }
+// What a new copy of Rehearsal starts with: a basic music-classroom template to edit or replace.
+// No students, events or files: each teacher adds their own.
 function sampleData() {
-  const roster = ['Avery', 'Jordan', 'Mia', 'Liam', 'Sofia', 'Noah', 'Emma', 'Lucas', 'Zoe', 'Ethan', 'Aria', 'Mason'];
-  const math = Object.assign(newClass('Math', 0), {
-    subtitle: '1st Period', roster: [...roster],
-    agenda: [{ text: 'Number Talk', min: 8 }, { text: 'Mini Lesson', min: 12 }, { text: 'Independent Practice', min: 20 }, { text: 'Exit Ticket', min: 5 }],
-    warmup: 'Which is greater: 2/3 or 3/5?\nDraw a quick model to prove your answer.',
+  const music = (name, period, themeIdx, warmup) => Object.assign(newClass(name, themeIdx), {
+    subtitle: period,
+    agenda: [{ text: 'Warm-up', min: 8 }, { text: 'Sight-reading', min: 10 }, { text: 'Rehearsal', min: 25 }, { text: 'Pack up', min: 5 }],
+    warmup,
   });
-  const sci = Object.assign(newClass('Science', 1), {
-    subtitle: '2nd Period', roster: [...roster].reverse(),
-    agenda: [{ text: 'Warm-up Question', min: 5 }, { text: 'Partner Lab', min: 22 }, { text: 'Share Observations', min: 13 }, { text: 'Exit Ticket', min: 5 }],
-    warmup: 'What structures do plant and animal cells have in common?',
-  });
-  const ela = Object.assign(newClass('English', 3), {
-    subtitle: '3rd Period', roster: [...roster],
-    agenda: [{ text: 'Quick Write', min: 7 }, { text: 'Read Aloud', min: 15 }, { text: 'Book Clubs', min: 18 }, { text: 'Share Out', min: 5 }],
-    warmup: 'Describe a place you know well using all five senses.',
-  });
-  for (const c of [math, sci, ela]) {
+  const p1 = music('Choir', 'Period 1', 0, 'Hum a comfortable note, then slide up and down an octave.\nWhat key signature has one sharp?');
+  const p2 = music('Band', 'Period 2', 1, 'Assemble your instrument and play your concert B♭ scale.\nHow many beats does a dotted half note get in 4/4?');
+  const p3 = music('Orchestra', 'Period 3', 3, 'Tune with the drone, then play a D major scale.\nName the notes of the open strings on your instrument.');
+  const p4 = music('General Music', 'Period 4', 5, 'Clap the rhythm on the board.\nWhat is the difference between beat and rhythm?');
+  const classes = [p1, p2, p3, p4];
+  for (const c of classes) {
     c.automations = [
       { id: uid(), enabled: true, anchor: 'start', offset: 0, action: 'sound', sound: 'chime' },
-      { id: uid(), enabled: true, anchor: 'start', offset: 0, action: 'message', text: `Welcome to ${c.name}! Grab your materials and start the warm-up.`, seconds: 8 },
-      { id: uid(), enabled: true, anchor: 'start', offset: 1, action: 'timer', label: 'Warm-up', minutes: 3, sound: 'bell', endMessage: 'Pencils down — eyes up front.' },
-      { id: uid(), enabled: true, anchor: 'end', offset: 3, action: 'timer', label: 'Clean-up', minutes: 3, sound: 'bell', endMessage: 'Have a great day!' },
-      { id: uid(), enabled: true, anchor: 'end', offset: 3, action: 'signal', text: '🧹 Clean-up time', color: '#2a9d8f' },
-      { id: uid(), enabled: true, anchor: 'end', offset: 0, action: 'clearSignal' },
+      { id: uid(), enabled: true, anchor: 'start', offset: 0, action: 'message', text: `Welcome to ${c.name}! Get your music and start the warm-up.`, seconds: 8 },
+      { id: uid(), enabled: true, anchor: 'end', offset: 5, action: 'timer', label: 'Pack up', minutes: 4, sound: 'bell', endMessage: 'Instruments and folders away. See you next time!' },
     ];
   }
-  const tRegular = { id: uid(), name: 'Regular Day', periods: [
-    { id: uid(), classId: math.id, start: '08:00', end: '08:50' },
-    { id: uid(), classId: sci.id, start: '08:55', end: '09:45' },
-    { id: uid(), classId: ela.id, start: '09:50', end: '10:40' },
-  ] };
-  const tEarly = { id: uid(), name: 'Early Release', periods: [
-    { id: uid(), classId: math.id, start: '08:00', end: '08:35' },
-    { id: uid(), classId: sci.id, start: '08:40', end: '09:15' },
-    { id: uid(), classId: ela.id, start: '09:20', end: '09:55' },
-  ] };
-  const today = new Date();
+  // a simple bell schedule: four 50-minute periods (and a shorter early-release day)
+  const day = (name, times) => ({ id: uid(), name, periods: classes.map((c, i) => ({ id: uid(), classId: c.id, start: times[i][0], end: times[i][1] })) });
+  const tRegular = day('Regular Day', [['08:00', '08:50'], ['08:55', '09:45'], ['09:50', '10:40'], ['10:45', '11:35']]);
+  const tEarly = day('Early Release', [['08:00', '08:35'], ['08:40', '09:15'], ['09:20', '09:55'], ['10:00', '10:35']]);
   return {
     version: 1,
     settings: {
-      welcome: "Good morning! Check the board, find your seat, and follow today's agenda.",
+      welcome: "Good morning! Find your seat, get your music, and check today's agenda.",
       afterSchool: 'See you tomorrow!', use24h: false, showSeconds: true, hideDockAfter: 3,
       sim: { on: false, time: '08:58', setAt: 0 }, subInfo: '',
     },
-    classes: [math, sci, ela],
+    classes,
     templates: [tRegular, tEarly],
     weekdays: { 0: '', 1: tRegular.id, 2: tRegular.id, 3: tRegular.id, 4: tRegular.id, 5: tRegular.id, 6: '' },
     overrides: {},
-    routines: [
-      { id: uid(), enabled: true, time: '07:55', days: [1, 2, 3, 4, 5], action: 'musicStop' },
-    ],
-    events: [
-      { id: uid(), date: dateKey(today), title: 'Avery', kind: 'birthday', time: '', yearly: true },
-    ],
+    routines: [],
+    events: [],
     files: {},
   };
 }
@@ -2704,7 +2686,7 @@ function settingsTab() {
     <div class="row"><button class="btn" data-action="backup-now">Back up now</button><span class="grow"></span></div>
     <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
   <div class="card"><h2>Backup</h2><p class="desc">Your data is saved on this Mac automatically. Make a backup file to move it to another Mac. Library files aren't included.</p>
-    <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Reset to sample data</button></div></div>`;
+    <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
 }
 
 // ---------- updates (the Mac app checks GitHub; see native/updater.swift)
@@ -3034,7 +3016,7 @@ const A = {
   // settings
   export: () => { const text = JSON.stringify(S, null, 2), name = `rehearsal-backup-${dateKey(new Date())}.json`; if (!native('saveText', { name, text })) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; a.click(); } },
   import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.classes) throw 0; if (!confirm('Replace all current data with this backup?')) return; S = migrate(d); save(); renderEditor(); toast('Backup imported.'); } catch { alert('That file is not a Rehearsal backup.'); } },
-  reset: () => { if (!confirm('Erase everything and start over with the sample classes?')) return; S = sampleData(); save(); renderEditor(); },
+  reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; S = sampleData(); save(); renderEditor(); },
 };
 const CHANGE = {
   pin: el => { P.pinned = el.value || null; P.layoutKey = ''; renderDock(); },
