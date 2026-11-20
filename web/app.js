@@ -352,17 +352,25 @@ function ac() { if (!AC) { audioSession('playback'); AC = new (window.AudioConte
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !window.webkit?.messageHandlers?.native);
 function audioSession(type) { if (!IS_IOS) return; try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { } }
 (() => {
-  const md = navigator.mediaDevices; if (!IS_IOS || !md?.getUserMedia || !navigator.audioSession) return;   // iPad / iPhone only: the Mac app manages its own audio
+  const md = navigator.mediaDevices; if (!md?.getUserMedia || !navigator.audioSession) return;
   const live = new Set(), gum = md.getUserMedia.bind(md);
   md.getUserMedia = async c => {
     if (c?.audio) audioSession('play-and-record');
-    let s; try { s = await gum(c); } catch (e) { audioSession('auto'); s = await gum(c); }
+    let s;
+    try { s = await gum(c); }
+    catch (e) {
+      // "AudioSession category is not compatible with audio capture": the audio mode is stuck on playback
+      // (it is shared by the whole app, so it can outlast a page reload). Ask for record mode and try again.
+      if (!c?.audio || !/AudioSession|category/i.test(e?.message || '')) throw e;
+      try { navigator.audioSession.type = 'play-and-record'; } catch { }
+      s = await gum(c);
+    }
     s.getAudioTracks().forEach(t => live.add(t));
     if (AC && AC.state !== 'running') AC.resume().catch(() => { });   // switching modes can pause the sound engine
     return s;
   };
   const stop = MediaStreamTrack.prototype.stop;
-  MediaStreamTrack.prototype.stop = function () { stop.call(this); if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) { live.clear(); setTimeout(() => { if (!live.size) audioSession('playback'); }, 50); } };
+  MediaStreamTrack.prototype.stop = function () { stop.call(this); if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) { live.clear(); setTimeout(() => { if (live.size) return; if (IS_IOS) audioSession('playback'); else try { if (navigator.audioSession.type !== 'auto') navigator.audioSession.type = 'auto'; } catch { } }, 50); } };
 })();
 document.addEventListener('pointerdown', () => audioSession(document.hidden ? 'auto' : (navigator.audioSession?.type === 'play-and-record' ? 'play-and-record' : 'playback')), { once: true, capture: true });
 // Sound / playhead sync: extra delay (ms) between the audio clock and what you hear. Kept per device,
@@ -378,16 +386,16 @@ function avDelayMs() {
 // so it can be turned up on quiet laptop / iPad speakers without distorting. Kept per device.
 const VOL_KEY = 'rehearsal-volume';
 function musicVol() { try { const v = +localStorage.getItem(VOL_KEY); if (v > 0) return v; } catch { } return IS_NATIVE ? 1 : 1.8; }
-function musicOut() {
-  const c = ac();
+const MUSIC_OUTS = new Set();
+function musicOut(c = ac()) {        // one per sound engine (grading has its own); nodes can't cross engines
   if (!c.__music) {
     const g = c.createGain(), lim = c.createDynamicsCompressor();
     lim.threshold.value = -6; lim.knee.value = 4; lim.ratio.value = 12; lim.attack.value = 0.002; lim.release.value = 0.12;
-    g.gain.value = musicVol(); g.connect(lim).connect(c.destination); c.__music = g;
+    g.gain.value = musicVol(); g.connect(lim).connect(c.destination); c.__music = g; MUSIC_OUTS.add(g);
   }
   return c.__music;
 }
-function setMusicVol(v) { try { localStorage.setItem(VOL_KEY, String(v)); } catch { } if (AC?.__music) AC.__music.gain.setTargetAtTime(v, AC.currentTime, 0.03); }
+function setMusicVol(v) { try { localStorage.setItem(VOL_KEY, String(v)); } catch { } for (const g of MUSIC_OUTS) try { g.gain.setTargetAtTime(v, g.context.currentTime, 0.03); } catch { } }
 function setAvDelay(ms) { ms = Math.round(Math.max(-200, Math.min(600, ms)) / 10) * 10; try { localStorage.setItem(AV_KEY, String(ms)); } catch { } S.settings.avDelay = ms; save(); return ms; }
 function tone(freq, start, dur, type = 'sine', gain = 0.2) {
   const c = ac(), t0 = c.currentTime + start;

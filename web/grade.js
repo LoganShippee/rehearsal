@@ -506,7 +506,9 @@ async function grMicReady(m, btn) {
   while (performance.now() < until()) await new Promise(r => setTimeout(r, 50));
   try {
     const AC = window.AudioContext || window.webkitAudioContext, c = new AC();
-    await c.resume();
+    // a sound engine made outside a click may never be allowed to start: give up after 1.5 s
+    const started = await Promise.race([c.resume().then(() => c.state === 'running'), new Promise(r => setTimeout(() => r(false), 1500))]);
+    if (!started) { try { c.close(); } catch { } throw new Error('new sound engine did not start'); }
     try { m.sp.disconnect(); m.src.disconnect(); } catch { }
     grMicGraph(m, c); m.own = true;
     srKeepAwake(c);
@@ -539,6 +541,8 @@ function grStop(show = true) {
 
 // Button handler: starts a count-in and records; pressing again stops early and grades what was heard.
 // input: 'mic' (sing / clap into the microphone) or 'tap' (space bar, rhythm only, no microphone)
+// resume a sound engine, but never wait more than 1.5 s for it (some browsers leave the promise pending)
+const grResume = c => Promise.race([c.resume().catch(() => { }), new Promise(r => setTimeout(r, 1500))]);
 async function grStart(host, st, timeline, btn, input = 'mic') {
   if (GR.on) { grStop(true); return; }
   if (GR.starting) return;                                     // already getting ready (a second press does nothing)
@@ -550,12 +554,12 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   GR.starting = true;
   let mic, c0;
   try {
-    c0 = ac(); await c0.resume();
+    c0 = ac(); await grResume(c0);
     if (c0.state !== 'running') return toast(`Sound is not running yet. Press ${tap ? 'Tap' : 'Grade'} again.`);
     if (!tap) {
       try { mic = await grMic(); } catch (e) { return toast('Microphone not available: ' + e.message); }
       await grMicReady(mic, btn);
-      await mic.c.resume();
+      await grResume(mic.c);
     }
   } finally { GR.starting = false; }
   const o = st[st.mode] || {};
@@ -565,7 +569,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   document.getElementById('gr-card')?.remove();
   host.__grResult = null; grClearMarks(host);
   srKeepAwake(c);
-  GR.out = c.createGain(); GR.out.connect(musicOut());
+  GR.out = c.createGain(); GR.out.connect(musicOut(c));
   const t0 = c.currentTime + 0.3;
   // Count-in: the Count-in setting (at least 1 bar, so the singer hears the tempo)
   const cueMode = st.mode === 'solfege' ? (o.countPitch ?? 'do') : 'none';
@@ -783,7 +787,7 @@ function grListen(host, mix, btn) {
   const clock = host.__listen(take.tempo);                       // the example from bar 1, at the tempo you performed
   if (!clock) return;
   if (mix === 'rec' && SR_PLAY.master) SR_PLAY.master.gain.value = 0;   // keep the playhead, mute the example
-  const out = c.createGain(); out.connect(musicOut());
+  const out = c.createGain(); out.connect(musicOut(c));
   SR_PLAY.extra = [out];
   const when0 = clock.timeAt(0);                                // when bar 1, beat 1 sounds
   if (A) {

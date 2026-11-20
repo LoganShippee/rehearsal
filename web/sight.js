@@ -146,16 +146,20 @@ function srGenMelody(o) {
   // ---- phrase plan (Patterns): a motif, then the same rhythm and shape a step higher or lower
   // (a sequence), maybe once more, then something new and a cadence. 8+ measures = two phrases:
   // the first ends open (sol / re), the second starts like the first and ends on do.
-  const patterns = o.melodyStyle !== 'free' && nM >= 3;
+  // Melody style: 'patterns' = every phrase uses a sequence; 'mixed' (default) = each phrase is a coin
+  // toss between a sequence and freely written measures, so not everything is a sequence; 'free' = none.
+  const style = o.melodyStyle || 'mixed';
+  const patterns = style !== 'free' && nM >= 3;
   const phraseLen = nM >= 8 ? Math.floor(nM / 2) : nM;
   const plan = new Array(nM).fill(null);
   const clone = cells => cells.map(c => ({ ...c, tie: false, ev: c.ev.map(e => e.slice()) }));
   if (patterns) {
     for (let start = 0; start < nM; start += phraseLen) {
       const end = Math.min(start + phraseLen, nM) - 1;              // the phrase's last (cadence) measure
-      if (start > 0) plan[start] = { src: 0, echo: true };          // answer phrase begins like the first
-      if (start + 1 < end) plan[start + 1] = { src: start };
-      if (start + 2 < end && Math.random() < .55) plan[start + 2] = { src: start };
+      const seq = style !== 'mixed' || Math.random() < .5;            // mixed: this phrase sequenced or free
+      if (start > 0 && (style !== 'mixed' || Math.random() < .5)) plan[start] = { src: 0, echo: true };   // answer phrase begins like the first
+      if (seq && start + 1 < end) plan[start + 1] = { src: start };
+      if (seq && start + 2 < end && Math.random() < (style === 'mixed' ? .3 : .55)) plan[start + 2] = { src: start };
     }
     for (let m = 0; m < nM - 1; m++) if (plan[m]) rhythm[m] = clone(rhythm[plan[m].src]);
   }
@@ -649,7 +653,7 @@ function srKeepAwake(c) {
 function srPlay(st, timeline, onEnd) {
   srStop();
   const c = ac(); c.resume && c.resume(); srKeepAwake(c);
-  const master = c.createGain(); master.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9; master.connect(musicOut()); SR_PLAY.master = master;
+  const master = c.createGain(); master.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9; master.connect(musicOut(c)); SR_PLAY.master = master;
   const o = st[st.mode]; const [beats, kind] = SR_METERS[o.ts];
   const beatQ = kind === 'compound' ? 1.5 : 1;                  // tempo counts the beat (dotted quarter in compound)
   const q = 60 / o.tempo / beatQ;                              // seconds per quarter-note unit
@@ -900,7 +904,7 @@ function srSettingsHTML(st) {
     <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
     <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
     <label>Range <select data-k="range">${Object.entries(SR_RANGES).map(([k, v]) => opt(k, o.range, v[0])).join('')}</select></label>
-    <label title="Patterns: a short idea repeated a step higher or lower (a sequence), then a cadence">Melody <select data-k="melodyStyle">${opt('patterns', o.melodyStyle || 'patterns', 'Patterns (sequences)')}${opt('free', o.melodyStyle || 'patterns', 'Free')}</select></label>
+    <label title="Sequences: a short idea repeated a step higher or lower, then a cadence. Mixed: some phrases use a sequence, others are written freely. Free: no sequences.">Melody <select data-k="melodyStyle">${opt('patterns', o.melodyStyle || 'mixed', 'Sequences')}${opt('mixed', o.melodyStyle || 'mixed', 'Mixed')}${opt('free', o.melodyStyle || 'mixed', 'Free')}</select></label>
     <label>Motion <select data-k="leap">${Object.entries(SR_LEAPS).map(([k, v]) => opt(k, o.leap, v)).join('')}</select></label>
     <label class="srchk"><input type="checkbox" data-k="startDo" ${o.startDo ? 'checked' : ''}> Start on do</label>
     <label>Parts <select data-k="parts">${opt(1, o.parts || 1, '1 line')}${opt(2, o.parts || 1, '2 parts')}${opt(3, o.parts || 1, '3 parts')}</select></label>

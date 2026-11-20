@@ -301,7 +301,7 @@ function spHoldChord(ctl, q, build) {
     && (st.focus == null || true));
   const notes = [...new Set(sounding.map(e => e.midi))].sort((a, b) => a - b);
   if (!notes.length) { toast('No voices are singing at that spot.'); return; }
-  const out = c.createGain(); out.gain.value = 0.0001; out.connect(musicOut());
+  const out = c.createGain(); out.gain.value = 0.0001; out.connect(musicOut(c));
   out.gain.setTargetAtTime(0.5 / Math.sqrt(notes.length), c.currentTime, 0.05);
   SP_HOLD.out = out;
   notes.forEach((m, k) => {
@@ -373,7 +373,7 @@ function spFirstNotes(sc, li, R) {
 async function spGivePitch(ctl, which) {
   const { sc } = ctl, c = ac(); c.resume && c.resume();
   await spPianoReady(sc.events.map(e => e.midi));
-  const R = spRange(ctl), out = c.createGain(); out.gain.value = 0.9; out.connect(musicOut());
+  const R = spRange(ctl), out = c.createGain(); out.gain.value = 0.9; out.connect(musicOut(c));
   const t = c.currentTime + 0.05, vocal = sc.lines.map((L, i) => i).filter(i => !sc.lines[i].acc);
   if (which === 'together') vocal.forEach(i => spFirstNotes(sc, i, R).forEach(m => spPianoNote(out, t, m, 2.2, 0.6)));
   else if (which === 'order') {
@@ -385,7 +385,7 @@ function spPlay(ctl) {
   spStop();
   const { sc, st } = ctl, c = ac(); c.resume && c.resume();
   SP_ACTIVE = ctl;
-  const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut());
+  const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut(c));
   const gains = sc.lines.map((_, i) => { const g = c.createGain(); g.gain.value = spLineVol(ctl, i); g.connect(master); return g; });
   Object.assign(SP_PLAY, { ctl, master });
   ctl.gains = gains; ctl.playing = true; ctl.iter = 0; ctl.updateBar();
