@@ -3074,6 +3074,7 @@ document.addEventListener('wheel', e => {
 }, { capture: true, passive: true });
 function setupInk() {
   const host = $('#ink'); if (!host) return;
+  document.querySelectorAll('#ink-bar').forEach(b => b.remove());   // a moved (floating) bar from the last screen
   host.innerHTML = `<canvas></canvas><div class="ink-cursor" id="ink-cursor" hidden></div><div class="ink-bar" id="ink-bar"></div>`;
   inkPrev = null; inkPrevCtx = null;
   inkCanvas = host.querySelector('canvas'); inkCtx = inkCanvas.getContext('2d');
@@ -3172,11 +3173,22 @@ function placeInkBar() {
   const b = $('#ink-bar'); if (!b) return;
   const pos = (S.settings.inkBar ||= { mode: 'home' });
   const float = pos.mode === 'float';
+  // A moved bar lives on the Present screen itself, above the main toolbar: inside the drawing layer it
+  // could never rise above the header (the layer is stacked under it), so the toolbar covered it.
+  const home = $('#ink'), top = $('#present');
+  if (float && top && b.parentElement !== top) top.appendChild(b);
+  if (!float && home && b.parentElement !== home) home.appendChild(b);
+  b.style.display = float && !P.ink.on ? 'none' : '';
   b.classList.toggle('floating', float); b.classList.toggle('vertical', float && !!pos.vertical);
   if (!float) { b.style.left = b.style.top = ''; return; }
   const w = b.offsetWidth, h = b.offsetHeight;
-  b.style.left = clamp(pos.x * innerWidth - w / 2, 4, innerWidth - w - 4) + 'px';
-  b.style.top = clamp(pos.y * innerHeight - h / 2, 4, innerHeight - h - 4) + 'px';
+  let x = clamp(pos.x * innerWidth - w / 2, 4, innerWidth - w - 4), y = clamp(pos.y * innerHeight - h / 2, 4, innerHeight - h - 4);
+  // left on top of the main toolbar? sit just below it (or above it, if there's no room below)
+  const d = $('.p-dock'), dr = d && !INKDRAG ? d.getBoundingClientRect() : null;
+  if (dr && dr.width && x < dr.right && x + w > dr.left && y < dr.bottom && y + h > dr.top) {
+    y = dr.bottom + 8 + h <= innerHeight - 4 ? dr.bottom + 8 : Math.max(4, dr.top - 8 - h);
+  }
+  b.style.left = x + 'px'; b.style.top = y + 'px';
 }
 let INKDRAG = false;
 function inkBarFollow(px, py) {

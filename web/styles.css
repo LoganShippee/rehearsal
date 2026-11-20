@@ -626,7 +626,7 @@ body.dock-dragging iframe { pointer-events: none; }
 
 /* movable annotation toolbar */
 .ink-bar .ink-grip { cursor: grab; color: rgba(255,255,255,.55); padding: 0 4px; letter-spacing: -2px; user-select: none; }
-.ink-bar.floating { position: fixed; transform: none; z-index: 57; max-width: calc(100vw - 8px); flex-wrap: wrap; }
+.ink-bar.floating { position: fixed; transform: none; z-index: 60; max-width: calc(100vw - 8px); flex-wrap: wrap; }
 .ink-bar.vertical { flex-direction: column; max-height: calc(100vh - 8px); overflow-y: auto; flex-wrap: nowrap; }
 .ink-bar.snap-home { outline: 3px dashed var(--accent); outline-offset: 4px; }
 /* panels get a soft blur behind them so text stays readable on photos */
