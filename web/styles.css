@@ -1370,3 +1370,8 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .sr-syncbar .av-v { font-variant-numeric: tabular-nums; min-width: 4.2em; }
 .sr-syncbar .ico { width: 16px; height: 16px; }
 .sr-settings .sr-syncbar { margin: 4px 0; flex-basis: 100%; }
+.sr-sync { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; opacity: .9; }
+.sr-sync > span { display: flex; align-items: center; gap: 6px; }
+.sr-sync input[type=range] { width: 110px; accent-color: var(--accent); }
+.sr-sync .av-v { font-variant-numeric: tabular-nums; min-width: 3.6em; font-weight: 600; }
+.sr-sync button { padding: 3px 8px; font-size: 12px; }

@@ -632,6 +632,52 @@ function srDraw(el, st) {
 
 // ---------- playback
 const SR_PLAY = { stopAt: 0, nodes: [], master: null, timer: null };
+// ---------- playback instruments
+const SR_INSTRUMENTS = [['soft', 'Soft tone'], ['piano', 'Piano'], ['organ', 'Organ'], ['mallet', 'Marimba']];
+// partials [wave, multiple, level], attack, envelope ('hold' sustains for the note; 'decay' rings and fades
+// like a struck string or bar), sustain level, decay time, vibrato depth, low-pass (× pitch)
+const SR_INS = {
+  soft: { p: [['triangle', 1, .35], ['sine', 2, .08], ['sine', 3, .03]], atk: .012, env: 'hold', sus: .7 },
+  piano: { p: [['sine', 1, .42], ['sine', 2, .12], ['sine', 3, .04], ['sine', 4, .015]], atk: .014, env: 'decay', tc: .6 },
+  organ: { p: [['sine', 1, .22], ['sine', 2, .14], ['sine', 3, .07], ['sine', 4, .05], ['sine', 6, .02]], atk: .015, env: 'hold', sus: 1 },
+  mallet: { p: [['sine', 1, .45], ['sine', 3.93, .07], ['sine', 9.4, .015]], atk: .002, env: 'decay', tc: .22 },
+};
+function srVoice(c, dest, time, midi, dur, ins = 'soft', cue = false) {
+  const I = SR_INS[ins] || SR_INS.soft, f = 440 * Math.pow(2, (midi - 69) / 12), end = time + dur;
+  const rel = Math.min(0.08, dur * 0.25), hold = Math.max(time + I.atk + 0.01, end - rel);
+  let out = dest, lp = null;
+  if (I.lp) { lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(12000, f * I.lp); lp.Q.value = 0.5; lp.connect(dest); out = lp; }
+  let lfo = null, lfoG = null;
+  if (I.vib && dur > 0.35 && !cue) {   // vibrato fades in after the start, like a player would
+    lfo = c.createOscillator(); lfoG = c.createGain(); lfo.frequency.value = 5.2;
+    lfoG.gain.setValueAtTime(0, time); lfoG.gain.setValueAtTime(0, time + 0.2); lfoG.gain.linearRampToValueAtTime(f * I.vib, time + 0.6);
+    lfo.connect(lfoG); lfo.start(time); lfo.stop(end + 0.1);
+  }
+  // count-in pitches always ring and fade (never a held note); slow attacks are kept short there
+  const env = cue ? 'decay' : I.env, atk = cue ? Math.min(I.atk, 0.02) : I.atk;
+  for (const [type, mul, amp0] of I.p) {
+    const os = c.createOscillator(), g = c.createGain(), amp = amp0 * (cue && env !== I.env ? 0.9 : 1);
+    os.type = type; os.frequency.value = f * mul;
+    if (lfoG) lfoG.connect(os.frequency);
+    g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + atk);
+    if (env === 'hold') {
+      g.gain.setTargetAtTime(amp * I.sus, time + atk, 0.08);
+      g.gain.setValueAtTime(amp * I.sus, hold); g.gain.exponentialRampToValueAtTime(0.0001, end);
+    } else {
+      // upper partials die away faster; low notes ring longer
+      const tc = (I.tc || 0.35) * (cue ? 0.7 : 1) * Math.min(1.6, Math.max(0.6, 300 / f)) / Math.sqrt(mul);
+      g.gain.setTargetAtTime(0.0001, time + atk, tc);
+      g.gain.setTargetAtTime(0.0001, hold, rel / 3 + 0.005);
+    }
+    os.connect(g).connect(out); os.start(time); os.stop(end + 0.1);
+  }
+  if (I.breath && !cue && SR_PLAY.noise && SR_PLAY.noise.sampleRate === c.sampleRate) {   // a little air at the start
+    const src = c.createBufferSource(), bf = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = SR_PLAY.noise; bf.type = 'bandpass'; bf.frequency.value = Math.min(9000, f * 3); bf.Q.value = 1.2;
+    g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(0.05, time + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.18);
+    src.connect(bf).connect(g).connect(dest); src.start(time, Math.random() * 0.5); src.stop(time + 0.2);
+  }
+}
 function srStop() {
   try { SR_PLAY.master && SR_PLAY.master.disconnect(); } catch { }
   SR_PLAY.master = null; clearInterval(SR_PLAY.timer); SR_PLAY.timer = null;
@@ -694,19 +740,12 @@ function srPlay(st, timeline, onEnd) {
     g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(0.9, time + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.12);
     os.connect(f).connect(g).connect(master); os.start(time); os.stop(time + 0.14);
   };
-  const tone = (time, midi, dur) => {
-    const f = 440 * Math.pow(2, (midi - 69) / 12);
-    for (const [type, mul, amp] of [['triangle', 1, .35], ['sine', 2, .08], ['sine', 3, .03]]) {
-      const os = c.createOscillator(), g = c.createGain();
-      os.type = type; os.frequency.value = f * mul;
-      // sung-style envelope: quick start, settles to a steady level and holds it for the whole note,
-      // then a short release right at the end (long notes sustain instead of fading away)
-      const rel = Math.min(0.08, dur * 0.25), end = time + dur, hold = Math.max(time + 0.02, end - rel);
-      g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + 0.012);
-      g.gain.setTargetAtTime(amp * 0.7, time + 0.012, 0.08);
-      g.gain.setValueAtTime(amp * 0.7, hold); g.gain.exponentialRampToValueAtTime(0.0001, end);
-      os.connect(g).connect(master); os.start(time); os.stop(end + 0.02);
-    }
+  // notes use the chosen instrument and note length (read each time, so changes apply right away);
+  // count-in pitches are short and fade, so they never ring into the music
+  const tone = (time, midi, dur, cue = false) => {
+    const oo = st[st.mode] || o;
+    if (!cue && oo.artic === 'detached') dur = Math.max(0.06, Math.min(dur * 0.6, dur - 0.05));
+    srVoice(c, master, time, midi, cue ? Math.min(dur, 0.9) : dur, oo.instrument || 'soft', cue);
   };
   // count-in: 0, 1 or 2 bars of clicks (beat 1 accented)
   // Solfege can sound a reference during the count-in: do, the starting note, or the do chord.
@@ -723,11 +762,11 @@ function srPlay(st, timeline, onEnd) {
     const sp = d => srSpell(o.key, o.scale, d, o.clef), first = sp(st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0), barSec = beats * beatSec;
     if (cuePitch === 'start') {
       if ((timeline.parts || 1) > 1) {                         // each part hears its own first note
-        for (let pp = 0; pp < timeline.parts; pp++) { const e = timeline.find(x => x.part === pp && !x.rest && x.t >= tStart - 1e-6); if (e) tone(t0 + pp * 0.12, e.midi, barSec * 0.95); }
-      } else tone(t0, first.midi, barSec * 0.95);
+        for (let pp = 0; pp < timeline.parts; pp++) { const e = timeline.find(x => x.part === pp && !x.rest && x.t >= tStart - 1e-6); if (e) tone(t0 + pp * 0.12, e.midi, beatSec, true); }
+      } else tone(t0, first.midi, beatSec, true);
     }
-    else if (cuePitch === 'chord') { [0, 2, 4].forEach((d, i) => tone(t0 + i * Math.min(beatSec, barSec / 3) * 0.5, sp(d).midi, barSec * 0.95)); }
-    else tone(t0, sp(0).midi, barSec * 0.95);
+    else if (cuePitch === 'chord') { [0, 2, 4].forEach((d, i) => tone(t0 + i * Math.min(beatSec, barSec / 3) * 0.5, sp(d).midi, beatSec * 1.5, true)); }
+    else tone(t0, sp(0).midi, beatSec, true);
     cue = { heard: cuePitch === 'start' ? first.syl : cuePitch === 'chord' ? 'do – mi – sol' : 'do', start: first.syl };
   } else if (st.mode === 'solfege' && st.ex.solfege) {
     cue = { heard: null, start: srSpell(o.key, o.scale, st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0, o.clef).syl };
@@ -902,11 +941,11 @@ function srSettingsHTML(st) {
     <label>Measures <span class="sr-step"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer">−</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More">+</button></span></label>
     <label>Tempo <span class="sr-step"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower">−</button><input type="number" min="30" max="200" data-k="tempo" value="${o.tempo}"><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster">+</button></span></label>
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
-    <div class="sr-syncbar"><b>Playhead sync</b><span>If the playhead is ahead of or behind the sound on this device, slide it or press Calibrate and tap along with 8 clicks.</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></div>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
-    ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}</select></label>` : ''}`;
+    ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}</select></label>` : ''}
+    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
   const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
     <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
     <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
@@ -914,6 +953,8 @@ function srSettingsHTML(st) {
     <label title="Sequences: a short idea repeated a step higher or lower, then a cadence. Mixed: some phrases use a sequence, others are written freely. Free: no sequences.">Melody <select data-k="melodyStyle">${opt('patterns', o.melodyStyle || 'mixed', 'Sequences')}${opt('mixed', o.melodyStyle || 'mixed', 'Mixed')}${opt('free', o.melodyStyle || 'mixed', 'Free')}</select></label>
     <label>Motion <select data-k="leap">${Object.entries(SR_LEAPS).map(([k, v]) => opt(k, o.leap, v)).join('')}</select></label>
     <label class="srchk"><input type="checkbox" data-k="startDo" ${o.startDo ? 'checked' : ''}> Start on do</label>
+    <label>Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, o.instrument || 'soft', l)).join('')}</select></label>
+    <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', o.artic || 'full', 'Full')}${opt('detached', o.artic || 'full', 'Detached')}</select></label>
     <label>Parts <select data-k="parts">${opt(1, o.parts || 1, '1 line')}${opt(2, o.parts || 1, '2 parts')}${opt(3, o.parts || 1, '3 parts')}</select></label>
     ${(o.parts || 1) > 1 ? `<label>Type <select data-k="texture">${opt('harmony', o.texture || 'harmony', 'Harmony')}${opt('canon', o.texture || 'harmony', 'Canon (round)')}</select></label>
       ${(o.texture || 'harmony') === 'canon' ? `<label>Next part enters after <select data-k="canonDelay">${opt(1, o.canonDelay || 1, '1 measure')}${opt(2, o.canonDelay || 1, '2 measures')}</select></label>`
@@ -1134,6 +1175,8 @@ function srBuildSettingsHTML(st) {
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, b.countIn ?? 1, l)).join('')}</select></label>
     <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, b.countPitch ?? 'do', l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
+    <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
+    <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
     <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}</select></label>
   </div>`;
 }
@@ -1502,7 +1545,7 @@ function mountSight(host, st, onChange) {
       o.__kindTs = SR_METERS[o.ts][1];
       srStop(); onChange && onChange(st); render(); return;
     }
-    if (!['tempo', 'metronome', 'sound', 'measureNums', 'countIn', 'countPitch', 'gradeVoice'].includes(el.dataset.k)) { srStop(); regen(); }
+    if (!['tempo', 'metronome', 'sound', 'measureNums', 'countIn', 'countPitch', 'gradeVoice', 'instrument', 'artic'].includes(el.dataset.k)) { srStop(); regen(); }
     onChange && onChange(st); render();
   };
   // redraw notation when the window is resized
