@@ -143,7 +143,7 @@ function migrate(d) {
   for (const k of ['weekdays', 'overrides', 'files', 'windows']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   for (const c of d.classes) {
     c.theme ||= { ...THEMES[0] }; c.agenda ||= []; c.resources ||= []; c.roster ||= []; c.automations ||= [];
-    c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {};
+    c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {}; c.screenNotes ||= {};
   }
   return d;
 }
@@ -305,6 +305,24 @@ function context(t) {
   if (cur) return { mode: 'class', cls: cur.cls, period: cur, next, periods, template, key: dateKey(t) + ':' + cur.id };
   if (next) return { mode: prev ? 'between' : 'before', next, prev, periods, template, key: 'between' };
   return { mode: periods.length ? 'after' : 'none', periods, template, key: 'off' };
+}
+/** Time left in the current step, when the agenda runs by the clock (not after ‹ › moved it by hand). */
+function stepTiming(ctx, t, step) {
+  const items = ctx.cls.agenda, cur = items[step];
+  if (!ctx.period || !cur || !(Number(cur.min) > 0) || ctx.key in P.agendaOverride) return null;
+  let before = 0; for (let i = 0; i < step; i++) before += Number(items[i].min) || 0;
+  const start = +ctx.period.startAt + before * 60000, len = Number(cur.min) * 60000;
+  return { left: Math.max(0, start + len - +t), frac: clamp((+t - start) / len, 0, 1) };
+}
+function tickStepLeft(ctx, t, step) {
+  const li = $('#p-side .agenda li.cur'); if (!li || P.editMode) return;
+  const m = li.querySelector('.m'), tm = stepTiming(ctx, t, step);
+  if (!m || !tm) { li.querySelector('.ag-prog')?.remove(); return; }
+  const sec = Math.ceil(tm.left / 1000);
+  m.textContent = sec >= 60 ? `${Math.ceil(sec / 60)} min left` : `${sec} s left`;
+  let bar = li.querySelector('.ag-prog');
+  if (!bar) { bar = document.createElement('span'); bar.className = 'ag-prog'; bar.innerHTML = '<i></i>'; li.appendChild(bar); }
+  bar.firstChild.style.width = (tm.frac * 100).toFixed(1) + '%';
 }
 function agendaStep(ctx, t) {
   const items = ctx.cls.agenda;
@@ -521,6 +539,7 @@ function kindIcon(k) { return icoCfg().kind?.[k] ?? KIND_ICON[k] ?? 'ico:attach'
 function resIcon(r) { return r.icon || kindIcon(resKind(r)); }
 function tabIcon(r) { return iconOn('tabs') ? icoSp(resIcon(r)) : ''; }
 function resKind(r) {
+  if (r.music) return r.music.kind;              // a pinned tuner / metronome
   if (r.sight) return 'sight';
   if (r.score) return 'score';
   if (r.fileId) { const f = S.files[r.fileId]; return f ? (f.mime.startsWith('image/') ? 'image' : f.mime === 'application/pdf' ? 'pdf' : f.mime.startsWith('video/') ? 'video' : f.mime.startsWith('audio/') ? 'audio' : 'file') : 'missing'; }
@@ -534,7 +553,7 @@ function resKind(r) {
   if (/canva\.com/.test(u)) return 'canva';
   return 'web';
 }
-const KIND_ICON = { sight: 'ico:sight', score: 'ico:score', slides: 'ico:slides', doc: 'ico:doc', sheet: 'ico:sheet', form: 'ico:form', drive: 'ico:folder', youtube: 'ico:youtube', canva: 'ico:look', web: 'ico:web', pdf: 'ico:file', image: 'ico:image', video: 'ico:video', audio: 'ico:audio', file: 'ico:attach', missing: 'ico:warn' };
+const KIND_ICON = { tuner: 'ico:tuner', metro: 'ico:metro', sight: 'ico:sight', score: 'ico:score', slides: 'ico:slides', doc: 'ico:doc', sheet: 'ico:sheet', form: 'ico:form', drive: 'ico:folder', youtube: 'ico:youtube', canva: 'ico:look', web: 'ico:web', pdf: 'ico:file', image: 'ico:image', video: 'ico:video', audio: 'ico:audio', file: 'ico:attach', missing: 'ico:warn' };
 const isGoogle = r => /google\.com/.test(r.url || '');
 
 // ============================================================ render root
@@ -583,6 +602,10 @@ function applyTheme(el, theme) {
   else { el.style.removeProperty('--card'); el.style.removeProperty('--panel-blur'); }
   el.classList.toggle('panel-blur', th.panel != null && th.panel <= 0.4);
   el.style.setProperty('--bg', th.bg); el.style.setProperty('--accent', th.accent); el.style.setProperty('--text', th.text || '#fff');
+  if (!IS_NATIVE && el.id === 'present' && document.documentElement.dataset.bg !== th.bg) {   // browser: page edges and Safari's bar match the class
+    document.documentElement.dataset.bg = th.bg; document.documentElement.style.backgroundColor = th.bg;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', th.bg);
+  }
   const bg = el.querySelector('#p-bg') || el;
   const dim = th.dim ?? 0.25;
   bg.style.backgroundImage = th.image ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim})), url("${th.image.startsWith('file:') ? fileDirectURL(th.image.slice(5)) : th.image}")` : '';
@@ -651,6 +674,7 @@ function fitDock() {
   const d = $('#p-dock'); if (!d) return;
   P.dockOverflow = [];
   const kids = [...d.children];
+  requestAnimationFrame(() => { d.style.setProperty('--dock-h', d.offsetHeight + 'px'); d.style.setProperty('--dock-w', d.offsetWidth + 'px'); });
   kids.forEach(k => { k.style.display = ''; });
   const over = () => d.classList.contains('vertical') ? d.scrollHeight > d.clientHeight + 1 : d.scrollWidth > d.clientWidth + 1;
   if (!over()) return;
@@ -812,13 +836,13 @@ function tick() {
     title = ieTitle(ctx, tmplName, testChip);
     if (ctx.period) { left = `Ends in ${fmtDur(ctx.period.endAt - t)}`; frac = (t - ctx.period.startAt) / (ctx.period.endAt - ctx.period.startAt); }
   } else if (ctx.mode === 'class') {
-    title = `<div class="t1">${esc(ctx.cls.name)}</div><div class="t2">${ctx.cls.subtitle ? esc(ctx.cls.subtitle) : ''}${tmplName ? `<span class="chip">${tmplName}</span>` : ''}${ctx.pinned ? `<span class="chip">${IC('ico:pin')} pinned</span>` : ''}${testChip}</div>`;
+    title = `<div class="t1">${esc(ctx.cls.name)}</div><div class="t2">${ctx.cls.subtitle ? esc(ctx.cls.subtitle) : ''}${testChip}</div>`;
     if (ctx.period) {
       left = `Ends in ${fmtDur(ctx.period.endAt - t)}`;
       frac = (t - ctx.period.startAt) / (ctx.period.endAt - ctx.period.startAt);
     }
   } else {
-    title = `<div class="t1">${longDate(t)}</div><div class="t2">${tmplName ? `<span class="chip">${tmplName}</span>` : 'No classes scheduled'}${testChip}</div>`;
+    title = `<div class="t1">${longDate(t)}</div><div class="t2">${tmplName ? '' : 'No classes scheduled'}${testChip}</div>`;
     if (ctx.next) left = `${esc(ctx.next.cls.name)} in ${fmtDur(ctx.next.startAt - t)}`;
   }
   if (!ieFocused('#p-title')) setHTML('#p-title', title);
@@ -868,7 +892,8 @@ function buildLayout(ctx) {
 function updateClassBody(ctx, t) {
   const cls = ctx.cls, step = agendaStep(ctx, t);
   const evs = eventsOn(t, ctx.cls);
-  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name]);
+  const pubNote = (cls.screenNotes || {})[dateKey(t)]?.trim() || '';
+  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name, pubNote]);
   if (sideKey !== P.sideKey && !ieFocused('#p-side') && !AGDRAG) {
     P.sideKey = sideKey;
     const agenda = cls.agenda.length ? `<ol class="agenda">${cls.agenda.map((a, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span class="n">${i + 1}</span><span>${esc(a.text)}</span>${a.min ? `<span class="m">${a.min}m</span>` : ''}</li>`).join('')}</ol>` : '<div style="opacity:.7">No agenda yet.</div>';
@@ -876,13 +901,15 @@ function updateClassBody(ctx, t) {
     else $('#p-side').innerHTML = `
       <div class="p-card"><h4>Agenda <span class="mini-btns"><button data-action="agenda-prev">‹</button><button data-action="agenda-next">›</button></span></h4>${agenda}</div>
       ${evs.length ? `<div class="p-card"><h4>Today</h4><ul class="ev-list">${evs.map(e => `<li>${esc(eventLabel(e))}${e.time ? ` <span style="opacity:.7">${fmtHM(e.time)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+      ${pubNote ? `<div class="p-card"><h4>Notes</h4><div class="pub-note">${esc(pubNote)}</div></div>` : ''}
       ${ctx.next && !ctx.pinned ? `<div class="p-card"><h4>Up next</h4><div>${esc(ctx.next.cls.name)} · ${fmtHM(ctx.next.start)}</div></div>` : ''}`;
   }
+  tickStepLeft(ctx, t, step);
   let sel = P.stageSel[ctx.key] || 'warmup';
   // warm-up tab removed for this class: show the first tab instead
   if (cls.hideWarmup && !cls.resources.some(r => r.id === sel)) sel = cls.resources[0]?.id || 'warmup';
   const res = cls.resources.find(r => r.id === sel);
-  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.native], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup]);
+  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.music, !!res.native], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup]);
   if (stageKey !== P.stageKey && !ieFocused('#stage-content')) {
     P.stageKey = stageKey;
     $('#stage-tabs').innerHTML = `
@@ -895,6 +922,8 @@ function updateClassBody(ctx, t) {
     const sc = $('#stage-content');
     if (res && res.sight) {
       sc.innerHTML = `<div class="sr-host stage-sr" data-sr-res="${res.id}"></div>`; mountSightHosts(sc);
+    } else if (res && res.music) {
+      sc.innerHTML = `<div class="mu-host stage-mu" data-mu-win="r-${res.id}" data-mu-res="${res.id}"></div>`; mountSightHosts(sc);
     } else if (res && res.score) {
       sc.innerHTML = `<div class="score-host stage-sp" data-score-res="${res.id}"></div>`;
     } else if (!res) {
@@ -963,9 +992,10 @@ function mountSightHosts(root = document) {
     }
   }
   if (typeof mountTuner === 'function') for (const h of root.querySelectorAll('[data-mu-win]')) {
-    const w = findWin(h.dataset.muWin); if (!w) continue;
-    w.mu ||= muDefaults(w.kind);
-    (w.kind === 'tuner' ? mountTuner : mountMetronome)(h, w.mu, () => save(), w.id);
+    const id = h.dataset.muWin; let kind, st;
+    if (h.dataset.muRes) { const r = findRes(h.dataset.muRes); if (!r?.music) continue; kind = r.music.kind; st = (r.music.mu ||= muDefaults(kind)); }   // pinned to a class
+    else { const w = findWin(id); if (!w) continue; w.mu ||= muDefaults(w.kind); kind = w.kind; st = w.mu; }
+    (kind === 'tuner' ? mountTuner : mountMetronome)(h, st, () => save(), id);
   }
 }
 function winTitle(w) {
@@ -1020,6 +1050,7 @@ function winBodyHTML(w) {
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
+  if (w.kind === 'res' && winRes(w)?.music) return `<div class="mu-host" data-mu-win="r-${w.resId}-w${w.id}" data-mu-res="${w.resId}"></div>`;
   if (w.kind === 'res' && winRes(w)?.sight) return `<div class="sr-host" data-sr-res="${w.resId}"></div>`;
   if (w.kind === 'warmup') { const cls = currentClass(); return `<div class="warmup"><div class="lbl">Warm-up question</div><div class="q">${esc(cls?.warmup || 'Welcome!')}</div></div>`; }
   if (w.kind === 'file' || (w.kind === 'res' && winRes(w)?.fileId)) {
@@ -1047,7 +1078,7 @@ function winHTML(w) {
       <button data-action="win-close" data-id="${w.id}" title="Close">${IC('ico:close')}</button></div>
     <div class="win-body"></div></div>`;
   const url = winURL(w), canNative = IS_NATIVE && (w.kind === 'web' || (w.kind === 'res' && !!url));
-  const pinned = ['res', 'warmup', 'tuner', 'metro'].includes(w.kind);
+  const pinned = ['res', 'warmup'].includes(w.kind);
   const nav = WIN.nav[w.id] || {};
   return `<div class="win ${w.native ? 'native' : ''}" data-win="${w.id}">
     <div class="win-bar" data-wdrag="${w.id}">
@@ -1329,14 +1360,16 @@ function ieSide(ctx, step, evs) {
         <input data-ie-evtext placeholder="Announcement or name…"><input type="time" data-ie-evtime title="Pop up at (optional)">
         <select data-ie-evwho title="Which classes see it"><option value="this">This class</option><option value="all">All classes</option></select>
         <button data-action="ie-ev-add">Add</button></div></div>
-    <div class="p-card"><h4>${IC('ico:notes')} Today's notes <span style="opacity:.6;text-transform:none;letter-spacing:0">(only shown while editing)</span></h4>
+    <div class="p-card"><h4>${IC('ico:notes')} Notes on screen <span style="opacity:.6;text-transform:none;letter-spacing:0">(students see these, under Today)</span></h4>
+      <textarea class="ie-notes" data-ie-pubnotes rows="3" placeholder="Reminders for students: bring your folder, concert dress, …">${esc((cls.screenNotes || {})[today] || '')}</textarea></div>
+    <div class="p-card"><h4>${IC('ico:notes')} Today's notes <span style="opacity:.6;text-transform:none;letter-spacing:0">(private, only shown while editing)</span></h4>
       <textarea class="ie-notes" data-ie-notes rows="5" placeholder="What you covered, reminders for next time…">${esc(cls.notes[today] || '')}</textarea></div>`;
 }
 function ieTitle(ctx, tmplName, testChip) {
   const cls = ctx.cls, p = ctx.period;
   return `<div class="t1" contenteditable="true" data-ie="name">${esc(cls.name)}</div>
     <div class="t2"><span contenteditable="true" data-ie="subtitle" class="ie-sub" data-ph="Subtitle (period, room…)">${esc(cls.subtitle || '')}</span>
-      ${tmplName ? `<span class="chip">${tmplName}</span>` : ''}${ctx.pinned ? `<span class="chip">${IC('ico:pin')} pinned</span>` : ''}${testChip}
+      ${testChip}
       ${p ? `<span class="ie-times" title="Changes this period on the ${tmplName} bell schedule"><input type="time" data-ie-time="start" value="${p.start}"> – <input type="time" data-ie-time="end" value="${p.end}"></span>` : ''}</div>`;
 }
 // events: which classes see them
@@ -1401,6 +1434,13 @@ document.addEventListener('change', e => {
   }
 });
 let ieNotesT = null;
+let iePubT = null;
+document.addEventListener('input', e => {
+  if (e.target.dataset?.iePubnotes == null) return;
+  const c = ieClass(); if (!c) return;
+  const k = dateKey(now()), v = e.target.value;
+  clearTimeout(iePubT); iePubT = setTimeout(() => { const n = (c.cls.screenNotes ||= {}); if (v.trim()) n[k] = v; else delete n[k]; save(); }, 400);
+});
 document.addEventListener('input', e => {
   if (e.target.dataset?.ieNotes == null) return;
   const c = ieClass(); if (!c) return;
@@ -2178,6 +2218,27 @@ function renderTools() {
     <div class="tool-head" data-drag="${name}">${TOOL_TITLES[name]}<button class="x" data-action="tool-close" data-tool="${name}">${IC('ico:close')}</button></div>
     <div class="tool-body">${toolBody(name)}</div></div>`).join('');
 }
+/** Put a tool where it was last left; if that's taken (or it's new), into the first free spot over the stage. */
+function placeTool(n, fresh) {
+  const el = $(`[data-toolwin="${n}"]`); if (!el) return;
+  const w = el.offsetWidth, h = el.offsetHeight, gap = 12;
+  const others = Object.keys(P.tools).filter(k => k !== n).map(k => $(`[data-toolwin="${k}"]`)?.getBoundingClientRect()).filter(Boolean);
+  const hits = (x, y) => others.some(r => x < r.right + gap && x + w + gap > r.left && y < r.bottom + gap && y + h + gap > r.top);
+  const fit = (x, y) => ({ x: clamp(x, 8, innerWidth - w - 8), y: clamp(y, 8, innerHeight - h - 8) });
+  let p = fit(P.tools[n].x, P.tools[n].y);
+  if (fresh || hits(p.x, p.y)) {
+    const st = $('#p-stage')?.getBoundingClientRect() || $('.p-body')?.getBoundingClientRect() || { left: 40, top: 110, right: innerWidth, bottom: innerHeight };
+    let found = null;
+    // left to right, top to bottom over the stage, then anywhere on screen
+    for (const area of [st, { left: 8, top: 80, right: innerWidth - 8, bottom: innerHeight - 8 }]) {
+      for (let y = area.top + gap; !found && y + h <= area.bottom; y += 24)
+        for (let x = area.left + gap; x + w <= area.right; x += 24) if (!hits(x, y)) { found = { x, y }; break; }
+      if (found) break;
+    }
+    p = fit((found || p).x, (found || p).y);
+  }
+  P.tools[n] = p; el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+}
 function rerenderTool(name) { const el = $(`[data-toolwin="${name}"] .tool-body`); if (el) el.innerHTML = toolBody(name); }
 const R = { last: '', used: new Set(), groups: null, groupN: 4 };
 const NOISE = { stream: null, analyser: null, level: 0, limit: 60, warnAt: 0, beep: true };
@@ -2308,7 +2369,7 @@ function classesTab() {
       <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your Mac. They appear as tabs on the Present screen.</p>
       ${cls.resources.map((r, k) => `<div class="res-item"><span style="font-size:18px">${resIcon(r) === '-' ? '' : resIcon(r)}</span>
         <div class="row" style="gap:6px"><input class="grow" data-bind="${base}.resources.${k}.title" value="${esc(r.title)}" placeholder="Title">
-        ${r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
+        ${r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
         ${resKind(r) === 'slides' || resKind(r) === 'doc' ? `<select data-bind="${base}.resources.${k}.mode" title="How it appears"><option value="embed" ${r.mode !== 'edit' ? 'selected' : ''}>Presenter view</option><option value="edit" ${r.mode === 'edit' ? 'selected' : ''}>Editor view</option></select>` : ''}</div>
         <span class="row" style="gap:2px"><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="-1">${IC('ico:up')}</button><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="1">${IC('ico:down')}</button><button class="iconbtn" data-action="res-del" data-k="${k}">${IC('ico:close')}</button></span></div>`).join('') || '<div class="empty">No resources yet.</div>'}
     </div>
@@ -2659,6 +2720,7 @@ function notesTab() {
       <button class="btn small" data-action="print-note">${IC('ico:print')} Print this note</button></div>
     <div style="margin-top:6px" class="small muted">${longDate(parseKey(NOTE_DATE))}${templateFor(parseKey(NOTE_DATE)) ? ' · ' + esc(templateFor(parseKey(NOTE_DATE)).name) : ' · no school'}</div>
     <textarea class="notes-area" style="margin-top:8px" data-bind="classes.${i}.notes.${NOTE_DATE}" placeholder="Objectives, materials, what you covered, reminders for next time…">${esc(cls.notes[NOTE_DATE] || '')}</textarea>
+    <label class="fld" style="margin-top:10px"><span>Notes on screen this day (students see these on the Present screen, under Today)</span><textarea rows="3" data-bind="classes.${i}.screenNotes.${NOTE_DATE}" placeholder="Bring your folder, concert dress, …">${esc((cls.screenNotes || {})[NOTE_DATE] || '')}</textarea></label>
     ${dates.length ? `<div style="margin-top:10px"><div class="small muted" style="margin-bottom:6px">Days with notes</div><div class="note-dates">${dates.slice(0, 40).map(d => `<button class="btn small ${d === NOTE_DATE ? 'primary' : ''}" data-action="note-go" data-d="${d}">${d}</button>`).join('')}</div></div>` : ''}
   </div>
   <div class="card"><h2>Print & export</h2>
@@ -2877,7 +2939,13 @@ const A = {
   edit: () => { exitFullscreen(); go('edit'); },
   fullscreen: () => { if (!native('fullscreen')) { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); } },
   // dock / tools
-  tool: el => { const n = el.dataset.tool; if (P.tools[n]) delete P.tools[n]; else { const k = Object.keys(P.tools).length; P.tools[n] = { x: 40 + k * 30, y: 110 + k * 30 }; } renderTools(); renderDock(); },
+  tool: el => {
+    const n = el.dataset.tool;
+    if (P.tools[n]) { delete P.tools[n]; renderTools(); renderDock(); return; }
+    const saved = S.settings.toolPos?.[n];
+    P.tools[n] = saved ? { x: saved.x * innerWidth, y: saved.y * innerHeight } : { x: 40, y: 110 };
+    renderTools(); placeTool(n, !saved); renderDock();
+  },
   'tool-close': el => { const n = el.dataset.tool; delete P.tools[n]; if (n === 'noise') noiseStop(); renderTools(); renderDock(); },
   'quick-timer': el => { const m = Number(el.dataset.m); startTimer({ label: m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`, minutes: m, sound: 'bell' }); },
   'custom-timer': () => startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: $('#tt-sound').value }),
@@ -3062,9 +3130,10 @@ const A = {
     const r = w.kind === 'file' ? { id: uid(), title: winTitle(w).replace(/\.[^.]+$/, ''), fileId: w.fileId }
       : w.kind === 'sight' ? { id: uid(), title: (w.sr?.mode === 'solfege' ? 'Solfege' : 'Rhythm') + ' reading', sight: JSON.parse(JSON.stringify({ ...w.sr, settingsOpen: false })) }
       : w.kind === 'score' ? { id: uid(), title: winTitle(w), score: JSON.parse(JSON.stringify(w.score)) }
+      : w.kind === 'tuner' || w.kind === 'metro' ? { id: uid(), title: w.kind === 'tuner' ? 'Tuner' : 'Metronome', music: { kind: w.kind, mu: JSON.parse(JSON.stringify(w.mu || muDefaults(w.kind))) } }
       : { id: uid(), title: winTitle(w), url: w.url, mode: 'embed', native: !!(IS_NATIVE && w.native) };
     if (w.kind === 'web' && !w.url) return toast('Open a page first.');
-    cls.resources.push(r); Object.assign(w, { kind: 'res', resId: r.id }); delete w.fileId; delete w.sr; delete w.score;
+    cls.resources.push(r); Object.assign(w, { kind: 'res', resId: r.id }); delete w.fileId; delete w.sr; delete w.score; delete w.mu;
     save(); P.stageKey = ''; renderWins(context(now()), true); toast(`Saved “${r.title}” to ${cls.name}`);
   },
   // ink
@@ -3238,7 +3307,10 @@ document.addEventListener('pointermove', e => {
   const x = clamp(e.clientX - drag.dx, 0, innerWidth - 80), y = clamp(e.clientY - drag.dy, 0, innerHeight - 40);
   drag.win.style.left = x + 'px'; drag.win.style.top = y + 'px'; P.tools[drag.name] = { x, y };
 });
-document.addEventListener('pointerup', () => { drag = null; });
+document.addEventListener('pointerup', () => {
+  if (drag && P.tools[drag.name]) { const p = P.tools[drag.name]; (S.settings.toolPos ||= {})[drag.name] = { x: p.x / innerWidth, y: p.y / innerHeight }; save(); }   // remember where you put it
+  drag = null;
+});
 document.addEventListener('keydown', e => {
   P.lastMove = Date.now();
   if (VIEW !== 'present' || e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
