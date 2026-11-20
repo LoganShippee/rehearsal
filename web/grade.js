@@ -447,6 +447,9 @@ function grSaveLog(rec, meta, frames, res) {
 // a stutter). So the mic is opened once, the first count-in waits until it is really listening,
 // and it closes after 2 minutes without a take.
 const GR_MIC_IDLE = 120000, GR_MIC_MAX_WAIT = 4500;
+// iPad / iPhone (iPadOS reports itself as a Mac, but with touch): no macOS mic switch to wait for, and
+// a sound engine made away from a tap starts paused there, so grading stays on the app's own engine.
+const GR_IOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 // Mic graph in a given audio context: low-pass + analyser for grading, and the raw signal for the
 // troubleshooting recording (and, while starting, for spotting the moment macOS finishes switching).
 function grMicGraph(mic, c) {
@@ -497,6 +500,7 @@ function grMicClose() {
 // (only the first take after opening the mic waits)
 async function grMicReady(m, btn) {
   if (m.ready) return;
+  if (GR_IOS) { m.ready = true; return; }
   const until = () => m.liveAt ?? m.openedAt + GR_MIC_MAX_WAIT;
   if (btn) btn.innerHTML = IC('ico:mic') + ' Mic starting…';
   while (performance.now() < until()) await new Promise(r => setTimeout(r, 50));

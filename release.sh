@@ -71,7 +71,17 @@ build/cpsign sign "$KEY" "$OUT/latest.json" > "$OUT/latest.json.sig"
 build/cpsign verify "$(cat release/public-key.txt)" "$OUT/latest.json" "$OUT/latest.json.sig" || die "signature check failed"
 
 git push -q origin HEAD --tags
+
+# The iPad / browser version: the same web folder, published on GitHub Pages (branch gh-pages).
+PAGES=build/pages; rm -rf "$PAGES"; mkdir -p "$PAGES"
+cp -R "build/Rehearsal.app/Contents/Resources/web/." "$PAGES/"
+touch "$PAGES/.nojekyll"
+( cd "$PAGES" && git init -q -b gh-pages && git add -A \
+  && git -c user.name="$(git -C "$OLDPWD" config user.name)" -c user.email="$(git -C "$OLDPWD" config user.email)" commit -q -m "Rehearsal $NEW (web)" \
+  && git push -q -f "https://github.com/$REPO.git" gh-pages )
+gh api "repos/$REPO/pages" >/dev/null 2>&1 || gh api -X POST "repos/$REPO/pages" -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null
 gh release create "v$NEW" "$OUT/Rehearsal.zip" "$OUT/web.zip" "$OUT/latest.json" "$OUT/latest.json.sig" \
   --repo "$REPO" --title "Rehearsal $NEW" --notes "$NOTES" --latest
 echo "Published: https://github.com/$REPO/releases/tag/v$NEW"
 echo "New users download: https://github.com/$REPO/releases/latest/download/Rehearsal.zip"
+OWNER=${REPO%%/*}; echo "iPad / browser version: https://${OWNER:l}.github.io/${REPO#*/}/"

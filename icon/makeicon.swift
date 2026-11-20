@@ -5,9 +5,11 @@
 import Cocoa
 
 let args = CommandLine.arguments
+// swift icon/makeicon.swift --square <out.png> <px> [style]   full-bleed square (iPad Home Screen; iPadOS rounds it)
+let square = args.count > 1 && args[1] == "--square"
 let preview = args.count > 1 && args[1] == "--preview"
-let out = preview ? args[2] : args[1]
-let style = (preview ? (args.count > 3 ? args[3] : "R") : (args.count > 2 ? args[2] : "R"))
+let out = (preview || square) ? args[2] : args[1]
+let style = square ? (args.count > 4 ? args[4] : "R") : (preview ? (args.count > 3 ? args[3] : "R") : (args.count > 2 ? args[2] : "R"))
 
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> NSColor { NSColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) }
 
@@ -30,8 +32,8 @@ func shadow(_ s: CGFloat, _ alpha: CGFloat = 0.28) {
 }
 
 func draw(_ s: CGFloat) {
-    let inset = s * 0.09, r = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
-    let tile = NSBezierPath(roundedRect: r, xRadius: r.width * 0.225, yRadius: r.width * 0.225)
+    let inset = square ? 0 : s * 0.09, r = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
+    let tile = square ? NSBezierPath(rect: r) : NSBezierPath(roundedRect: r, xRadius: r.width * 0.225, yRadius: r.width * 0.225)
     let u = r.width, ox = r.minX, oy = r.minY                    // drawing units inside the tile
     let P = { (x: CGFloat, y: CGFloat) in NSPoint(x: ox + x * u, y: oy + y * u) }
     let white = NSColor.white
@@ -175,7 +177,9 @@ func render(_ px: Int) -> NSBitmapImageRep {
     return rep
 }
 
-if preview {
+if square {
+    try! render(Int(args[3]) ?? 180).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))
+} else if preview {
     try! render(512).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))
 } else {
     try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)

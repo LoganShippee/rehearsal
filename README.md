@@ -1,17 +1,22 @@
 # Rehearsal
 
-A Mac app for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
+A Mac (and iPad) app for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
 
 ## Install (for teachers)
 1. Download **Rehearsal.zip** from the latest release: `https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip`.
-2. Double-click the zip and drag **Rehearsal** into Applications.
+2. Double-click the zip and drag **Rehearsal** into Applications. Open it from Applications, not from Downloads: macOS runs apps left in Downloads from a hidden read-only copy, which can block the microphone and updates.
 3. Open it. macOS says it can't check the developer, because the app isn't registered with Apple: click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. This is needed only once.
 
 **Updates are automatic.** Rehearsal checks GitHub when it opens and every few hours. Most updates download quietly and are used the next time it opens (or click **Restart now**). Updates to the app itself show **Install and reopen**. Settings → Updates shows the version and has **Check for updates**. Every update is signed; the app refuses one whose signature doesn't match. Your classes and files are never touched by an update.
 
+## iPad
+Open **https://loganshippee.github.io/rehearsal/** in Safari, tap **Share → Add to Home Screen**, then open Rehearsal from the Home Screen. It runs full screen and works offline after the first visit. It's built for an iPad with a keyboard for now (touch controls come later). It updates itself: each new release is live the next time it's opened online.
+
+The iPad version keeps its classes and files on that iPad only, in Safari's storage. Use Settings → Export backup to move data between devices. Mac-only features: windows from other apps, MuseScore files (.mscz; MusicXML works), Google Drive browsing, and automatic dated backups.
+
 ## For the developer
 - `./build.sh --install` builds `build/Rehearsal.app` and copies it into Applications (for trying changes on your own Mac).
-- `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds, signs and uploads. If anything in `native/` or `build.sh` changed, users get a full app update; otherwise only the web files.
+- `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds, signs and uploads, and publishes the web folder to GitHub Pages (the iPad version). If anything in `native/` or `build.sh` changed, users get a full app update; otherwise only the web files.
 - **Release key:** `~/.rehearsal/release-key` signs every update. **Back it up** (e.g. in a password manager). Without it you can't publish updates that existing copies will accept. Never put it in the repository. The matching public key is `release/public-key.txt`.
 - `tests/run.sh` runs the grader tests. `swift icon/makeicon.swift --preview out.png <style>` previews icon designs.
 - The app's internal ID (`local.classpilot.app`) and data folder (`~/Library/Application Support/ClassPilot/`) keep the app's old name on purpose, so permissions, sign-ins and data carry over.

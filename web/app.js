@@ -172,13 +172,40 @@ async function saveNow() {
 window.__externalUpdate = async client => { if (client === CLIENT) return; await loadData(); render(); };
 
 // ---------- files (PDFs, images, audio)
+// In the Mac app they're stored by the app; in a browser (iPad) they're kept in the browser's own
+// database (IndexedDB) on the device, and loaded into memBlobs when Rehearsal opens.
 const memBlobs = {}; const blobUrls = {};
+let IDB_DB = null;
+function idbOpen() {
+  return IDB_DB ||= new Promise((res, rej) => {
+    const r = indexedDB.open('rehearsal-files', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('files');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode), req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  });
+}
+async function loadBrowserFiles() {
+  if (HAS_SERVER || !window.indexedDB) return;
+  try {
+    for (const id of Object.keys(S.files)) { const b = await idbDo('readonly', st => st.get(id)); if (b) memBlobs[id] = b; }
+    navigator.storage?.persist?.();                            // ask the browser not to clear them when space is low
+  } catch (e) { console.warn('files', e); }
+}
 async function storeFile(file) {
   const id = uid();
   if (HAS_SERVER) {
     const r = await fetch(`/api/file?id=${id}`, { method: 'POST', headers: { 'X-Token': TOKEN }, body: file });
     if (!r.ok) throw new Error('upload failed');
-  } else memBlobs[id] = file;
+  } else {
+    memBlobs[id] = file;
+    try { await idbDo('readwrite', st => st.put(file, id)); } catch (e) { toast('Could not save the file on this device (storage may be full).'); throw e; }
+  }
   S.files[id] = { name: file.name, mime: file.type || guessMime(file.name), size: file.size, added: Date.now() };
   save(); return id;
 }
@@ -201,6 +228,7 @@ async function fileBlobURL(id) {
 async function deleteFile(id) {
   delete S.files[id];
   if (HAS_SERVER) fetch(`/api/file?id=${id}`, { method: 'DELETE', headers: { 'X-Token': TOKEN } });
+  else { delete memBlobs[id]; if (blobUrls[id]) URL.revokeObjectURL(blobUrls[id]); delete blobUrls[id]; idbDo('readwrite', st => st.delete(id)).catch(() => { }); }
   save();
 }
 const audioFiles = () => Object.entries(S.files).filter(([, f]) => f.mime.startsWith('audio/'));
@@ -3117,6 +3145,9 @@ document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC
 // ============================================================ boot
 (async function boot() {
   await loadData();
+  await loadBrowserFiles();
+  // in a browser (iPad): an offline copy of the app, refreshed from the web whenever there's a connection
+  if (!IS_NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => { });
   native('hello');   // native replies with notch spacing if we're covering the screen
   native('updateStatus');
   // grading recordings are only kept on disk when troubleshooting is turned on (then the newest 20)

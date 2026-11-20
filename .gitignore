@@ -2,3 +2,4 @@ build/
 backups-*/
 .DS_Store
 *.key
+.claude/
