@@ -294,6 +294,8 @@ function metClick(time, kind, sound = 'click') {
   let type = kind === 'sub' ? 'sine' : 'triangle', dec = kind === 'sub' ? 0.035 : 0.07;
   if (sound === 'wood') { f *= 0.45; type = 'sine'; dec = 0.06; }          // soft wood-block knock
   if (sound === 'beep') { type = 'square'; amp *= 0.5; dec = 0.1; }        // electronic beep
+  amp *= typeof metVol === 'function' ? metVol() : 1;                      // the metronome's own volume
+  if (amp < 0.0005) return;
   o.type = type; o.frequency.value = f;
   g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, time + dec);
   o.connect(g).connect(c.destination); o.start(time); o.stop(time + dec + 0.02);
@@ -398,6 +400,7 @@ function metRender(host, st) {
       <details class="me-more" ${more ? 'open' : ''}><summary>More options</summary>
         <div class="mu-row">
           <label>Sound <select data-mu="sound">${[['click', 'Click'], ['wood', 'Wood block'], ['beep', 'Beep']].map(([v, l]) => `<option value="${v}" ${(st.sound || 'click') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          ${typeof metVolSlider === 'function' ? metVolSlider('Volume') : ''}
           <label class="mu-chk"><input type="checkbox" data-mu="mute" ${st.mute ? 'checked' : ''}> Flash only (no sound)</label>
           <label class="mu-chk"><input type="checkbox" data-mu="voice" ${st.voice ? 'checked' : ''}> Count out loud</label></div>
         <div class="me-opt"><b>Speed trainer</b><label class="mu-chk"><input type="checkbox" data-mu="trOn" ${tr.on ? 'checked' : ''}> On</label>

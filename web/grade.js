@@ -394,6 +394,7 @@ function grShowCard(res, gradePitch, hist = [], host = null) {
 // Sounds go through GR.out, so stopping early silences clicks that are already scheduled.
 const grOut = c => GR.out || c.destination;
 function grClick(c, time, accent, gain = 1) {
+  gain *= typeof metVol === 'function' ? metVol() : 1; if (gain < 0.002) return;   // the metronome's own volume
   const os = c.createOscillator(), g = c.createGain();
   os.frequency.value = accent ? 3200 : 2500;
   g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(0.22 * gain, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);

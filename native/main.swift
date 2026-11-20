@@ -153,6 +153,34 @@ final class LocalServer {
         }
     }
 
+    /// The videos on a YouTube results page: the page embeds them as JSON in `var ytInitialData = {…};`.
+    static func ytResults(_ page: Data) -> [[String: String]] {
+        guard let html = String(data: page, encoding: .utf8),
+              let start = html.range(of: "var ytInitialData = ") ?? html.range(of: "ytInitialData = ") else { return [] }
+        let rest = html[start.upperBound...]
+        guard let end = rest.range(of: ";</script>") else { return [] }
+        guard let root = try? JSONSerialization.jsonObject(with: Data(rest[..<end.lowerBound].utf8)) else { return [] }
+        var out: [[String: String]] = [], seen = Set<String>()
+        func text(_ o: Any?) -> String {
+            guard let d = o as? [String: Any] else { return "" }
+            if let s = d["simpleText"] as? String { return s }
+            return ((d["runs"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined()
+        }
+        func walk(_ o: Any) {
+            if out.count >= 24 { return }
+            if let d = o as? [String: Any] {
+                if let v = d["videoRenderer"] as? [String: Any], let id = v["videoId"] as? String, !seen.contains(id) {
+                    seen.insert(id)
+                    out.append(["id": id, "title": text(v["title"]), "len": text(v["lengthText"]), "ch": text(v["ownerText"])])
+                    return
+                }
+                for (_, x) in d { walk(x) }
+            } else if let a = o as? [Any] { for x in a { walk(x) } }
+        }
+        walk(root)
+        return out
+    }
+
     private func safeId(_ s: String?) -> String? {
         guard let s, !s.isEmpty, s.count < 64, s.allSatisfy({ $0.isLetter || $0.isNumber }) else { return nil }
         return s
@@ -232,6 +260,23 @@ final class LocalServer {
                 guard let d = try? Data(contentsOf: outF) else { return self.send(c, 400, "text/plain", Data("conversion failed".utf8)) }
                 self.send(c, 200, "application/xml", d)
             }
+            return
+        case ("GET", "/api/ytsearch"):
+            // YouTube search for the YouTube window: reads the public results page (no account, no API key)
+            // and returns the videos on it as [{id, title, len, ch}].
+            let q = (req.query["q"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !q.isEmpty, q.count < 200, var comps = URLComponents(string: "https://www.youtube.com/results") else { return send(c, 400, "text/plain", Data()) }
+            comps.queryItems = [URLQueryItem(name: "search_query", value: q)]
+            guard let url = comps.url else { return send(c, 400, "text/plain", Data()) }
+            var r = URLRequest(url: url, timeoutInterval: 15)
+            r.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+            r.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+            r.setValue("CONSENT=YES+1", forHTTPHeaderField: "Cookie")
+            URLSession.shared.dataTask(with: r) { data, _, _ in
+                let list = Self.ytResults(data ?? Data())
+                let d = (try? JSONSerialization.data(withJSONObject: list)) ?? Data("[]".utf8)
+                self.send(c, 200, "application/json", d)
+            }.resume()
             return
         case ("POST", "/api/purge-grlogs"):
             // grading troubleshooting recordings: keep only the newest `keep` takes (0 = none)

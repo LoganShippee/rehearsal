@@ -633,7 +633,7 @@ function srDraw(el, st) {
 // ---------- playback
 const SR_PLAY = { stopAt: 0, nodes: [], master: null, timer: null };
 // ---------- playback instruments
-const SR_INSTRUMENTS = [['soft', 'Soft tone'], ['piano', 'Piano'], ['organ', 'Organ'], ['mallet', 'Marimba']];
+const SR_INSTRUMENTS = [['soft', 'Soft tone'], ['piano', 'Piano'], ['organ', 'Organ'], ['mallet', 'Marimba'], ['none', 'Playhead only (no sound)']];
 // partials [wave, multiple, level], attack, envelope ('hold' sustains for the note; 'decay' rings and fades
 // like a struck string or bar), sustain level, decay time, vibrato depth, low-pass (× pitch)
 const SR_INS = {
@@ -706,6 +706,7 @@ function srPlay(st, timeline, onEnd) {
   const t0 = c.currentTime + (c.state === 'running' ? 0.25 : 0.4);   // room for the output to start
   // count-in & metronome: a light, high electronic tick (accent on beat 1)
   const click = (time, accent, gain = 1) => {
+    gain *= metVol(); if (gain < 0.002) return;                 // the metronome's own volume
     const os = c.createOscillator(), g = c.createGain();
     os.type = 'sine'; os.frequency.value = accent ? 3200 : 2500;
     g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(0.22 * gain, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
@@ -744,6 +745,7 @@ function srPlay(st, timeline, onEnd) {
   // count-in pitches are short and fade, so they never ring into the music
   const tone = (time, midi, dur, cue = false) => {
     const oo = st[st.mode] || o;
+    if (!cue && oo.instrument === 'none') return;               // "Playhead only": the music is silent, the playhead still moves
     if (!cue && oo.artic === 'detached') dur = Math.max(0.06, Math.min(dur * 0.6, dur - 0.05));
     srVoice(c, master, time, midi, cue ? Math.min(dur, 0.9) : dur, oo.instrument || 'soft', cue);
   };
@@ -799,7 +801,7 @@ function srPlay(st, timeline, onEnd) {
     while (nextEv < evs.length && clock.timeAt(evs[nextEv].t) < horizon) {
       const e = evs[nextEv++]; if (e.rest) continue;
       const at = Math.max(now, clock.timeAt(e.t));
-      if (st.mode === 'rhythm') ({ clap, drum, woodblock: block }[oo.sound] || clap)(at); else tone(at, e.midi, e.len * clock.q);
+      if (st.mode === 'rhythm') { if (oo.sound !== 'none') ({ clap, drum, woodblock: block }[oo.sound] || clap)(at); } else tone(at, e.midi, e.len * clock.q);
     }
     if (nextEv >= evs.length && clock.pos(now) > total + 0.4) { srStop(); onEnd && onEnd(); }
   }, 25);
@@ -943,7 +945,8 @@ function srSettingsHTML(st) {
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
-    ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}</select></label>` : ''}
+    ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>` : ''}
+    ${metVolSlider()}
     <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
   const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
     <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
@@ -1175,7 +1178,7 @@ function srBuildSettingsHTML(st) {
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
     <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
     <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
-    <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}</select></label>
+    <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
   </div>`;
 }
 

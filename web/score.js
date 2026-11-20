@@ -279,9 +279,10 @@ function spPianoNote(dest, time, midi, dur, vel = 0.8) {
   src.connect(g).connect(dest); src.start(time, buf.lead || 0); src.stop(time + Math.max(0.05, dur) + 0.6);
 }
 function spClick(dest, time, accent) {
+  const v = metVol(); if (v < 0.002) return;                      // the metronome's own volume
   const c = ac(), os = c.createOscillator(), g = c.createGain();
   os.type = 'sine'; os.frequency.value = accent ? 3200 : 2500;
-  g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(accent ? 0.3 : 0.2, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
+  g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime((accent ? 0.3 : 0.2) * v, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
   os.connect(g).connect(dest); os.start(time); os.stop(time + 0.04);
 }
 
@@ -689,6 +690,7 @@ function mountScore(host, st, onChange0, key) {
     </div>
     <div class="sp-parts" data-ctl="mixer">${(ctl.sc?.lines || []).map((p, i) => `<label class="sp-part"><input type="checkbox" data-sppart="${i}" ${st.parts[i]?.on === false ? '' : 'checked'}> <span>${esc(p.name)}</span>
       <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${st.parts[i]?.vol ?? 1}" title="Volume"></label>`).join('')}</div>
+    <div data-ctl="mixer">${metVolSlider()}</div>
     <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
     <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
     <div class="sp-note" data-ctl="help">Speed-up starts at that percentage of the tempo slider and adds the step each time the loop repeats, until it reaches the full tempo. Repeat signs and 1st / 2nd endings are followed (D.C. / D.S. / Coda are not yet).</div>`;

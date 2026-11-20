@@ -218,6 +218,26 @@ async function storeFile(file) {
   S.files[id] = { name: file.name, mime: file.type || guessMime(file.name), size: file.size, added: Date.now() };
   save(); return id;
 }
+// PDF marks are kept per Library file (S.pdfInk[fileId] = { page: [strokes] }), so every tab or window of
+// that PDF shows them. "Save copy" stores a new PDF with the marks burned in and opens it next to the original.
+function pdfInkOpts(fid, where) {
+  return {
+    key: fid,
+    ink: () => ((S.pdfInk ||= {})[fid] ||= {}),
+    saveInk: () => { const m = S.pdfInk?.[fid]; if (m) for (const p of Object.keys(m)) if (!m[p]?.length) delete m[p]; if (m && !Object.keys(m).length) delete S.pdfInk[fid]; save(); },
+    saveCopy: async blob => {
+      const base = (S.files[fid]?.name || 'PDF').replace(/\.pdf$/i, '');
+      const name = `${base} (annotated ${new Date().toLocaleDateString()}).pdf`.replace(/[\/\\:]/g, '-');
+      const id = await storeFile(new File([blob], name, { type: 'application/pdf' }));
+      if (where.res) {
+        const cls = S.classes.find(c => c.resources.includes(where.res));
+        if (cls) { const r = { ...JSON.parse(JSON.stringify(where.res)), id: uid(), fileId: id, title: (where.res.title || base) + ' (annotated)', pdf: {} }; cls.resources.splice(cls.resources.indexOf(where.res) + 1, 0, r); P.stageKey = ''; }
+        toast(`Saved “${name}” to the Library and added it as a tab next to the original.`, 4500);
+      } else { addWindow({ kind: 'file', fileId: id }); toast(`Saved “${name}” to the Library and opened it.`, 4000); }
+      save();
+    },
+  };
+}
 function guessMime(n) {
   const e = n.split('.').pop().toLowerCase();
   return { pdf: 'application/pdf', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac', ogg: 'audio/ogg', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', mp4: 'video/mp4', mov: 'video/quicktime' }[e] || 'application/octet-stream';
@@ -235,7 +255,7 @@ async function fileBlobURL(id) {
   return (blobUrls[id] = URL.createObjectURL(blob));
 }
 async function deleteFile(id) {
-  delete S.files[id];
+  delete S.files[id]; if (S.pdfInk) delete S.pdfInk[id];
   if (HAS_SERVER) fetch(`/api/file?id=${id}`, { method: 'DELETE', headers: { 'X-Token': TOKEN } });
   else { delete memBlobs[id]; if (blobUrls[id]) URL.revokeObjectURL(blobUrls[id]); delete blobUrls[id]; idbDo('readwrite', st => st.delete(id)).catch(() => { }); }
   save();
@@ -269,9 +289,28 @@ function periodsFor(date) {
   })).sort((a, b) => a.startAt - b.startAt);
 }
 // cls: the class showing (its events + school-wide ones); null = school-wide only; undefined = all
+// Repeating events/announcements: e.repeat = '' | 'daily' (school days) | 'weekdays' | 'weekly' | 'biweekly' | 'monthly' | 'yearly',
+// from e.date until e.until (optional); e.skip lists days taken out of the series. Old events used e.yearly.
+const REPEATS = [['', 'Once'], ['daily', 'Every school day'], ['weekdays', 'Every weekday'], ['weekly', 'Every week'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Every month'], ['yearly', 'Every year']];
+const evRepeat = e => e.repeat != null ? e.repeat : (e.yearly ? 'yearly' : '');
+const repeatSel = (e, attr) => `<select ${attr} title="Repeat">${REPEATS.map(([v, l]) => `<option value="${v}" ${evRepeat(e) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+function evOnDay(e, d, k) {
+  if (!e.date || (e.skip || []).includes(k)) return false;
+  if (e.date === k) return true;
+  const r = evRepeat(e);
+  if (r === 'yearly') return e.date.slice(5) === k.slice(5) && (!e.until || k <= e.until);   // birthdays: any year
+  if (!r || k < e.date || (e.until && k > e.until)) return false;
+  const s = parseKey(e.date);
+  if (r === 'daily') return !!templateFor(d);
+  if (r === 'weekdays') return d.getDay() > 0 && d.getDay() < 6;
+  if (r === 'weekly') return d.getDay() === s.getDay();
+  if (r === 'biweekly') return d.getDay() === s.getDay() && Math.round((parseKey(k) - s) / 864e5) % 14 === 0;
+  if (r === 'monthly') return d.getDate() === s.getDate();
+  return false;
+}
 function eventsOn(date, cls) {
   const k = dateKey(date);
-  return S.events.filter(e => (e.date === k || (e.yearly && e.date && e.date.slice(5) === k.slice(5)))
+  return S.events.filter(e => evOnDay(e, date, k)
     && (cls === undefined || !e.classes?.length || (cls && e.classes.includes(cls.id))));
 }
 const evWhere = e => !e.classes?.length ? 'All classes' : e.classes.map(id => S.classes.find(c => c.id === id)?.name).filter(Boolean).join(', ') || 'All classes';
@@ -395,6 +434,18 @@ function musicOut(c = ac()) {        // one per sound engine (grading has its ow
   }
   return c.__music;
 }
+// Metronome / count-in clicks have their own volume (0–200%), separate from the music, in every tool
+// (Metronome, sight reading, score practice, grading count-ins, Recorder click). Kept per device.
+// Every click is scheduled with metVol() as a multiplier, so a change applies from the next click.
+const MET_VOL_KEY = 'rehearsal-metvol';
+function metVol() { try { const s = localStorage.getItem(MET_VOL_KEY); if (s != null && s !== '' && isFinite(+s)) return Math.max(0, +s); } catch { } return 1; }
+function setMetVol(v) {
+  v = Math.max(0, Math.min(2, +v || 0)); try { localStorage.setItem(MET_VOL_KEY, String(v)); } catch { }
+  document.querySelectorAll('input[data-metvol]').forEach(i => { if (+i.value !== v) i.value = v; const b = i.parentElement?.querySelector('.mv-v'); if (b) b.textContent = Math.round(v * 100) + '%'; });
+}
+// a small "Metronome volume" slider that any tool can drop into its settings
+const metVolSlider = (label = 'Metronome volume') => `<label class="metvol" title="Volume of the metronome and count-in clicks only (the music keeps its own volume)">${IC('ico:metro')} ${label} <input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol><b class="mv-v">${Math.round(metVol() * 100)}%</b></label>`;
+document.addEventListener('input', e => { if (e.target.matches?.('input[data-metvol]')) { e.stopPropagation(); setMetVol(e.target.value); } }, true);
 function setMusicVol(v) { try { localStorage.setItem(VOL_KEY, String(v)); } catch { } for (const g of MUSIC_OUTS) try { g.gain.setTargetAtTime(v, g.context.currentTime, 0.03); } catch { } }
 function setAvDelay(ms) { ms = Math.round(Math.max(-200, Math.min(600, ms)) / 10) * 10; try { localStorage.setItem(AV_KEY, String(ms)); } catch { } S.settings.avDelay = ms; save(); return ms; }
 function tone(freq, start, dur, type = 'sine', gain = 0.2) {
@@ -507,7 +558,7 @@ function tickTimers() {
   for (const tm of P.timers) {
     if (!tm.doneAt && tm.pausedLeft == null && timerLeft(tm) <= 0) {
       tm.doneAt = Date.now();
-      playSound(tm.sound);
+      if (!tm.muted) playSound(tm.sound);
       if (tm.stopMusic) stopMusic();
       if (tm.endMessage) queueMessage(tm.endMessage, 8);
     }
@@ -525,7 +576,8 @@ function renderTimers() {
   const el = $('#p-timers'); if (!el) return;
   el.innerHTML = P.timers.map(tm => `<div class="p-timer" data-tid="${tm.id}">
     <span class="ringwrap"></span><div><div class="tl">${esc(tm.label)}</div><div class="tv"></div></div>
-    <div class="tbtns"><button data-action="timer-pause" data-id="${tm.id}">${IC('ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}">+1</button><button data-action="timer-x" data-id="${tm.id}">${IC('ico:close')}</button></div></div>`).join('');
+    <div class="tbtns tb1"><button data-action="timer-pause" data-id="${tm.id}" title="Pause / resume">${IC('ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}" title="Add a minute">+1</button></div>
+    <div class="tbtns"><button data-action="timer-mute" data-id="${tm.id}" class="${tm.muted || tm.sound === 'none' ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}">${IC(tm.muted || tm.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><button data-action="timer-x" data-id="${tm.id}" title="Remove timer">${IC('ico:close')}</button></div></div>`).join('');
   updateTimers();
 }
 function updateTimers() {
@@ -668,6 +720,11 @@ function applyTheme(el, theme) {
   if (th.panel != null) { el.style.setProperty('--card', hexA(th.bg, th.panel)); el.style.setProperty('--panel-blur', th.panel > 0.4 ? '0px' : '8px'); }
   else { el.style.removeProperty('--card'); el.style.removeProperty('--panel-blur'); }
   el.classList.toggle('panel-blur', th.panel != null && th.panel <= 0.4);
+  // side panel: its own text size and background strength, unless linked to the other panels
+  if (th.sideLinked === false) {
+    el.style.setProperty('--side-fs', (th.sideFont ?? 1) + 'em');
+    el.style.setProperty('--side-card', hexA(th.bg, th.sidePanel ?? th.panel ?? 0.1));
+  } else { el.style.removeProperty('--side-fs'); el.style.removeProperty('--side-card'); }
   el.style.setProperty('--bg', th.bg); el.style.setProperty('--accent', th.accent); el.style.setProperty('--text', th.text || '#fff');
   if (!IS_NATIVE && el.id === 'present' && document.documentElement.dataset.bg !== th.bg) {   // browser: page edges and Safari's bar match the class
     document.documentElement.dataset.bg = th.bg; document.documentElement.style.backgroundColor = th.bg;
@@ -996,17 +1053,18 @@ function buildLayout(ctx) {
 }
 
 // the class's Progress tracker as a small card in the side panel (click to open the full tracker)
+// ▾ on the card expands it to show every step with its check box (click a box to tick it off).
 function sideProgCard(cls) {
-  const items = cls.progress || [];
-  return `<div class="p-card side-prog" data-action="wm-prog" title="Open the Progress tracker"><h4>Progress</h4>${items.length ? `<ul>${items.map(it => {
+  const items = cls.progress || [], exp = !!cls.sideProgOpen;
+  return `<div class="p-card side-prog ${exp ? 'exp' : ''}" data-action="wm-prog" title="Open the Progress tracker"><h4>Progress <span class="mini-btns"><button data-action="side-prog-exp" title="${exp ? 'Show less' : 'Show the steps and check boxes'}">${exp ? '▴' : '▾'}</button></span></h4>${items.length ? `<ul>${items.map(it => {
     const st = it.steps || [], d = st.filter(x => x.done).length;
-    return `<li title="${esc(progLabel(cls, it.status))}"><i class="light ${it.status}"></i><span class="sp-t">${esc(it.title || 'Untitled')}</span>${st.length ? `<span class="sp-bar" title="${d}/${st.length} steps"><i style="width:${Math.round(d / st.length * 100)}%"></i></span>` : ''}</li>`; }).join('')}</ul>` : '<div style="opacity:.7">Nothing yet. Click to add pieces.</div>'}</div>`;
+    return `<li title="${esc(progLabel(cls, it.status))}"><div class="sp-row"><i class="light ${it.status}"></i><span class="sp-t">${esc(it.title || 'Untitled')}</span>${st.length ? `<span class="sp-bar" title="${d}/${st.length} steps"><i style="width:${Math.round(d / st.length * 100)}%"></i></span>` : ''}</div>${exp && st.length ? `<div class="sp-steps">${st.map(s => `<button class="sp-step ${s.done ? 'done' : ''}" data-action="side-prog-chk" data-iid="${it.id}" data-sid="${s.id}" title="${s.done ? 'Mark not done' : 'Mark done'}"><span class="sp-box">${s.done ? '✓' : ''}</span><span>${esc(s.text || 'Step')}</span></button>`).join('')}</div>` : ''}</li>`; }).join('')}</ul>` : '<div style="opacity:.7">Nothing yet. Click to add pieces.</div>'}</div>`;
 }
 function updateClassBody(ctx, t) {
   const cls = ctx.cls, step = agendaStep(ctx, t);
   const evs = eventsOn(t, ctx.cls);
   const pubNote = (cls.screenNotes || {})[dateKey(t)]?.trim() || '';
-  const progSide = cls.sideProgress ? (cls.progress || []).map(i => [i.title, i.status, (i.steps || []).length, (i.steps || []).filter(x => x.done).length]) : null;
+  const progSide = cls.sideProgress ? [!!cls.sideProgOpen, (cls.progress || []).map(i => [i.title, i.status, (i.steps || []).map(x => [x.text, !!x.done])])] : null;
   const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name, pubNote, progSide, cls.progLabels]);
   if (sideKey !== P.sideKey && !ieFocused('#p-side') && !AGDRAG) {
     P.sideKey = sideKey;
@@ -1102,10 +1160,10 @@ function mountSightHosts(root = document) {
   for (const h of root.querySelectorAll('[data-sr-win]')) { const w = findWin(h.dataset.srWin); if (w) { w.sr ||= srDefaults(); mountSight(h, w.sr, () => save()); } }
   for (const h of root.querySelectorAll('[data-sr-res]')) { const r = findRes(h.dataset.srRes); if (r?.sight) mountSight(h, r.sight, () => save()); }
   if (typeof mountPdf === 'function') {
-    for (const h of root.querySelectorAll('[data-pdf-res]')) { const r = findRes(h.dataset.pdfRes); if (r?.fileId) mountPdf(h, fileDirectURL(r.fileId), (r.pdf ||= {}), () => save()); }
+    for (const h of root.querySelectorAll('[data-pdf-res]')) { const r = findRes(h.dataset.pdfRes); if (r?.fileId) mountPdf(h, fileDirectURL(r.fileId), (r.pdf ||= {}), () => save(), pdfInkOpts(r.fileId, { res: r })); }
     for (const h of root.querySelectorAll('[data-pdf-win]')) {
       const w = findWin(h.dataset.pdfWin); if (!w) continue;
-      const fid = w.kind === 'file' ? w.fileId : winRes(w)?.fileId; if (fid) mountPdf(h, fileDirectURL(fid), (w.pdf ||= {}), () => save());
+      const fid = w.kind === 'file' ? w.fileId : winRes(w)?.fileId; if (fid) mountPdf(h, fileDirectURL(fid), (w.pdf ||= {}), () => save(), pdfInkOpts(fid, { win: w }));
     }
   }
   mountWidgets(root);
@@ -1121,7 +1179,15 @@ const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title:
 const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt })[k];
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
-const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => WG_RENDER(kind)(h));
+// Re-render keeps each widget's scroll position (rebuilding the HTML would otherwise jump to the top).
+const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => keepScroll(h, () => WG_RENDER(kind)(h)));
+function keepScroll(h, fn) {
+  const inner = [...h.querySelectorAll('*')].filter(x => x.scrollTop > 0).map(x => [x.className, x.scrollTop]);
+  const top = h.scrollTop, left = h.scrollLeft;
+  fn();
+  h.scrollTop = top; h.scrollLeft = left;
+  for (const [c, t] of inner) { try { const x = c && typeof c === 'string' && h.querySelector('.' + c.trim().split(/\s+/).map(CSS.escape).join('.')); if (x) x.scrollTop = t; } catch { } }
+}
 
 // Re-render every open copy of a widget, keeping the cursor in the field you were typing in.
 function refreshWidgetsKeep(kind) {
@@ -1130,7 +1196,7 @@ function refreshWidgetsKeep(kind) {
   refreshWidgets(kind);
   if (!key) return;
   const sel = `[data-f="${key.f}"]`, el = [...host.querySelectorAll(sel)].find(x => (x.closest('[data-id]')?.dataset.id) === key.id);
-  if (el) { el.focus(); try { if (key.s != null) el.setSelectionRange(key.s, key.s); } catch {} }
+  if (el) { el.focus({ preventScroll: true }); try { if (key.s != null) el.setSelectionRange(key.s, key.s); } catch {} }
 }
 const CAL_COLORS = ['#e5484d', '#f2994a', '#f2c230', '#2fbf5b', '#3b9eff', '#a970ff', '#e05fae'];
 const calDays = () => (S.calDays ||= {});
@@ -1148,7 +1214,8 @@ function renderCal(h) {
   for (let i = 0; i < weeks * 7; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     const k = dateKey(d), tmpl = templateFor(d), special = k in S.overrides, mark = calDays()[k];
-    const evs = eventsOn(d, cls || undefined), note = cls?.screenNotes?.[k]?.trim();
+    const hide = S.settings.calHide || {};
+    const evs = eventsOn(d, cls || undefined).filter(e => !hide[e.kind || 'event']), note = cls?.screenNotes?.[k]?.trim();
     cells += `<div class="cal-d ${d.getMonth() !== month ? 'out' : ''} ${k === todayK ? 'today' : ''} ${tmpl ? '' : 'off'} ${k === sel ? 'sel' : ''}" data-day="${k}"
       ${mark?.color ? `style="--mark:${mark.color}"` : ''}>
       <div class="cal-n">${d.getDate()}</div>
@@ -1159,12 +1226,14 @@ function renderCal(h) {
   }
   h.innerHTML = `<div class="cal ${sel ? 'has-day' : ''}"><div class="cal-month">
     <div class="cal-top"><button data-cal="-1" title="Previous month">‹</button><b>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button data-cal="1" title="Next month">›</button>
-      <span class="grow"></span>${off ? '<button data-cal="0">Today</button>' : ''}</div>
+      <span class="grow"></span><span class="cal-show" title="Choose what shows on the month (the day panel still lists everything)">${[['announcement', 'Announcements'], ['event', 'Events'], ['birthday', 'Birthdays']].map(([kd, l]) => `<button data-calhide="${kd}" class="${(S.settings.calHide || {})[kd] ? '' : 'on'}">${IC(EVENT_ICON[kd])} ${l}</button>`).join('')}</span>${off ? '<button data-cal="0">Today</button>' : ''}</div>
     <div class="cal-grid" style="grid-template-rows: auto repeat(${weeks}, minmax(0, 1fr))">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="cal-w">${w}</div>`).join('')}${cells}</div>
     <div class="cal-key">Click a day to add events or change it. Grey days have no school.</div></div>
     ${sel ? calDayPanel(sel, cls) : ''}</div>`;
 
   h.onclick = e => {
+    const hb = e.target.closest('[data-calhide]');
+    if (hb) { e.stopPropagation(); const hd = (S.settings.calHide ||= {}), kd = hb.dataset.calhide; hd[kd] = !hd[kd]; save(); return refreshWidgetsKeep('cal'); }
     const b = e.target.closest('[data-cal], [data-day], [data-cd]'); if (!b) return; e.stopPropagation();
     if (b.dataset.cal != null) { const v = Number(b.dataset.cal); h.__off = v ? off + v : 0; return renderCal(h); }
     if (b.dataset.day) { h.__sel = h.__sel === b.dataset.day ? null : b.dataset.day; return renderCal(h); }
@@ -1177,7 +1246,12 @@ function renderCal(h) {
       S.events.push({ id: uid(), kind, date: k, title: '', time: '', yearly: kind === 'birthday', classes: cls && kind !== 'birthday' ? [cls.id] : [] });
       const id2 = S.events.at(-1).id; calChanged(h); h.querySelector(`[data-id="${id2}"] [data-f="title"]`)?.focus(); return;
     }
-    if (act === 'del') { S.events = S.events.filter(x => x.id !== id); }
+    if (act === 'del') {
+      const ev = S.events.find(x => x.id === id);
+      if (ev && evRepeat(ev) && !confirm(`Remove “${ev.title || 'this'}” on every day it repeats? (Use “Skip this day” to remove just one day.)`)) return;
+      S.events = S.events.filter(x => x.id !== id);
+    }
+    if (act === 'skip') { const ev = S.events.find(x => x.id === id); if (ev) (ev.skip ||= []).push(k); }
     calChanged(h);
   };
   h.onchange = e => {
@@ -1187,7 +1261,8 @@ function renderCal(h) {
     else if (f === 'label') { const m = calDays()[k] ||= {}; m.label = el.value.trim(); if (!m.label) delete m.label; if (!m.color && !m.label) delete calDays()[k]; }
     else if (f === 'note') { if (!cls) return; const n = (cls.screenNotes ||= {}); if (el.value.trim()) n[k] = el.value; else delete n[k]; }
     else if (ev && f === 'who') ev.classes = el.value ? [el.value] : [];
-    else if (ev && f === 'yearly') ev.yearly = el.checked;
+    else if (ev && f === 'repeat') { ev.repeat = el.value; ev.yearly = el.value === 'yearly'; }
+    else if (ev && f === 'until') { if (el.value) ev.until = el.value; else delete ev.until; }
     else if (ev) ev[f] = el.value;
     calChanged(h);
   };
@@ -1211,7 +1286,8 @@ function calDayPanel(k, cls) {
     <div class="cal-sec">Events</div>
     ${evs.map(e => `<div class="cal-evrow" data-id="${e.id}">
       <div class="cal-er1">${IC(EVENT_ICON[e.kind] || 'ico:events')}<input data-f="title" value="${esc(e.title)}" placeholder="${e.kind === 'birthday' ? 'Name' : 'What'}"><button data-cd="del" title="Remove">${IC('ico:trash')}</button></div>
-      <div class="cal-er2">${kindSel(e)}<input type="time" data-f="time" value="${e.time || ''}" title="Time (optional)">${whoSel(e)}<label title="Every year on this date"><input type="checkbox" data-f="yearly" ${e.yearly ? 'checked' : ''}> yearly</label></div></div>`).join('')
+      <div class="cal-er2">${kindSel(e)}<input type="time" data-f="time" value="${e.time || ''}" title="Time (optional)">${whoSel(e)}${repeatSel(e, 'data-f="repeat"')}</div>
+      ${evRepeat(e) ? `<div class="cal-er2"><label title="Last day it repeats (empty = forever)">until <input type="date" data-f="until" value="${e.until || ''}"></label>${e.date !== k ? `<button data-cd="skip" title="Take only this day out of the series">Skip this day</button>` : ''}</div>` : ''}</div>`).join('')
       || '<div class="cal-none">Nothing on this day.</div>'}
     <div class="cal-adds"><button data-cd="add" data-kind="event">＋ Event</button><button data-cd="add" data-kind="announcement">＋ Announcement</button><button data-cd="add" data-kind="birthday">＋ Birthday</button></div>
     ${cls ? `<div class="cal-sec">Note on screen for ${esc(cls.name)}</div><textarea data-f="note" rows="2" placeholder="Shows under the announcement that day">${esc(cls.screenNotes?.[k] || '')}</textarea>` : ''}
@@ -1226,6 +1302,7 @@ function renderProg(h) {
   const cls = currentClass();
   if (!cls) { h.innerHTML = '<div class="prog"><div class="prog-empty">Progress is kept for each class. Show a class first (Class picker in the toolbar).</div></div>'; return; }
   const items = (cls.progress ||= []), count = k => items.filter(i => i.status === k).length, L = k => esc(progLabel(cls, k));
+  const keepTop = h.scrollTop;
   const lights = it => ['red', 'yellow', 'green'].map(k => `<button class="pick ${k} ${it.status === k ? 'on' : ''}" data-pg="set" data-s="${k}"><i class="light ${k}"></i>${L(k)}</button>`).join('');
   h.innerHTML = `<div class="prog">
     <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${L(k)} <b>${count(k)}</b></span>`).join('')}
@@ -1250,6 +1327,7 @@ function renderProg(h) {
       </div></div>`; }).join('')
       || `<div class="prog-empty">Nothing yet. Press ＋ Add for each piece you're working on, add the steps it needs and check them off as you go. Click the light to change its colour.</div>`}</div></div>`;
   h.querySelectorAll('.prog-notes').forEach(fitNotes);
+  h.scrollTop = keepTop;
   const touch = it => { if (it) it.updated = Date.now(); };
   h.onclick = e => {
     const b = e.target.closest('[data-pg]'); if (!b) return; e.stopPropagation();
@@ -1267,7 +1345,7 @@ function renderProg(h) {
     if (act === 'del') items.splice(items.indexOf(it), 1);
     if (act === 'addstep') {
       const s = { id: uid(), text: '', done: false }; (it.steps ||= []).push(s); it.open = true; touch(it);
-      save(); renderProg(h); h.querySelector(`[data-sid="${s.id}"] input`)?.focus(); refreshOthers(h); return;
+      save(); renderProg(h); h.querySelector(`[data-sid="${s.id}"] input`)?.focus({ preventScroll: true }); refreshOthers(h); return;
     }
     const st = it.steps?.find(s => s.id === sid);
     if (act === 'check' && st) { st.done = !st.done; touch(it); if (st.done && it.status === 'red') it.status = 'yellow'; }
@@ -1346,63 +1424,150 @@ function ytStep(h, dir) {
 function renderYt(h) {
   const d = ytData();
   if (!h.querySelector('.yt')) {
-    h.innerHTML = `<div class="yt"><form class="yt-bar"><input data-yt-url placeholder="Paste a YouTube link (video or playlist)…"><button>${IC('ico:play')} Play</button><button type="button" data-yt="side" title="Recent and playlists">${IC('ico:scroll')}</button></form>
+    h.innerHTML = `<div class="yt"><form class="yt-bar"><input data-yt-url placeholder="Search YouTube, or paste a link…" enterkeyhint="search"><button>${IC('ico:play')} Go</button><button type="button" data-yt="side" title="Search results, recent and playlists">${IC('ico:scroll')}</button></form>
       <div class="yt-main"><div class="yt-player"></div><div class="yt-side"></div></div></div>`;
-    h.querySelector('form').onsubmit = e => { e.preventDefault(); const inp = h.querySelector('[data-yt-url]'), v = ytParse(inp.value); if (!v) return toast('That doesn\'t look like a YouTube link.'); inp.value = ''; ytPlay(h, v, null); };
+    h.querySelector('form').onsubmit = e => {
+      e.preventDefault(); const inp = h.querySelector('[data-yt-url]'), raw = inp.value.trim(); if (!raw) return;
+      const v = ytParse(raw);
+      if (v) { inp.value = ''; return ytPlay(h, v, null); }
+      ytSearch(h, raw);
+    };
     h.onclick = e => ytClick(h, e);
-    h.onchange = e => { if (e.target.dataset.yt === 'pick') { h.__tab = 'list'; h.__showList = e.target.value; renderYtSide(h); } if (e.target.dataset.yt === 'auto') { h.__auto = e.target.checked; } };
+    h.onchange = e => {
+      if (e.target.dataset.yt === 'pick') { h.__tab = 'list'; h.__showList = e.target.value; h.__sel = null; renderYtSide(h); }
+      if (e.target.dataset.yt === 'auto') { h.__auto = e.target.checked; }
+      if (e.target.dataset.yt === 'chk') { ytToggleSel(h, e.target.closest('[data-k]')?.dataset.k, e.target.checked); }
+    };
+    h.onkeydown = e => { if (e.key === 'Enter' && e.target.dataset.yt === 'newname') { e.preventDefault(); h.querySelector('[data-yt="pnew"]')?.click(); } };
     if (d.last && !h.__cur) { h.__cur = { ...d.last }; const box = h.querySelector('.yt-player'); box.innerHTML = `<button class="yt-resume" data-yt="resume">${d.last.id ? `<img src="${ytThumb(d.last)}" alt="">` : ''}<span>${IC('ico:play')} ${esc(d.last.title || 'Play the last video')}</span></button>`; }
-    else if (!d.last) h.querySelector('.yt-player').innerHTML = `<div class="yt-empty">${IC('ico:youtube')}<div>Paste a YouTube link above.<br><small>Videos you play are kept under Recent. Make playlists to switch between them in class.</small></div></div>`;
+    else if (!d.last) h.querySelector('.yt-player').innerHTML = `<div class="yt-empty">${IC('ico:youtube')}<div>Search or paste a YouTube link above.<br><small>Videos you play are kept under Recent. Make playlists to switch between them in class.</small></div></div>`;
   }
   h.querySelector('.yt').classList.toggle('side-off', !!h.__sideOff);
+  renderYtSide(h);
+}
+// Search YouTube from the window (Mac app: through Rehearsal's own helper; browser/iPad: opens YouTube's search)
+async function ytSearch(h, q) {
+  if (!HAS_SERVER) {
+    const url = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
+    native('openExternal', { url }) || window.open(url, '_blank');
+    return toast('Search opened in YouTube. Copy the video’s link and paste it here.', 4000);
+  }
+  h.__tab = 'search'; h.__results = null; h.__q = q; h.__sel = null; h.__sideOff = false; renderYt(h);
+  try {
+    const r = await fetch('/api/ytsearch?q=' + encodeURIComponent(q), { headers: { 'X-Token': TOKEN } });
+    const list = r.ok ? await r.json() : [];
+    if (h.__q !== q) return;                                    // a newer search replaced this one
+    h.__results = list.map(x => ({ id: x.id, title: x.title, len: x.len, ch: x.ch }));
+  } catch { h.__results = []; }
+  renderYtSide(h);
+}
+// the videos shown in the side panel's current tab
+function ytTabItems(h) {
+  const d = ytData(), tab = h.__tab || 'recent';
+  if (tab === 'search') return h.__results || [];
+  if (tab === 'recent') return d.recent;
+  const show = d.lists.find(l => l.id === (h.__showList || h.__list)) || d.lists[0];
+  return show ? show.items : [];
+}
+function ytToggleSel(h, k, on) {
+  if (!k) return; const s = (h.__sel ||= new Set());
+  if (on ?? !s.has(k)) s.add(k); else s.delete(k);
   renderYtSide(h);
 }
 function renderYtSide(h) {
   const side = h.querySelector('.yt-side'); if (!side) return;
   const d = ytData(), tab = h.__tab || 'recent', cur = h.__cur, curK = cur && ytKey(cur);
   const show = d.lists.find(l => l.id === (h.__showList || h.__list)) || d.lists[0];
-  const item = (v, i, list) => `<div class="yt-item ${ytKey(v) === curK && (!list || h.__list === list.id) ? 'cur' : ''}" data-k="${esc(ytKey(v))}" data-i="${i}">
-      <button class="yt-th" data-yt="${list ? 'lplay' : 'rplay'}">${v.id ? `<img src="${ytThumb(v)}" alt="" loading="lazy">` : IC('ico:youtube')}</button>
-      <button class="yt-t" data-yt="${list ? 'lplay' : 'rplay'}">${esc(v.title || (v.id ? 'Video ' + v.id : 'YouTube playlist'))}</button>
-      <span class="yt-acts">${list ? `<button data-yt="up" title="Move up">${IC('ico:up')}</button><button data-yt="lrm" title="Remove from playlist">${IC('ico:close')}</button>` : `<button data-yt="radd" title="Add to a playlist">＋</button><button data-yt="rrm" title="Remove from Recent">${IC('ico:close')}</button>`}</span></div>`;
+  const sel = h.__sel, selMode = !!sel, inList = tab === 'list';
+  const keepTop = side.querySelector('.yt-list')?.scrollTop || 0;
+  const item = (v, i) => {
+    const k = ytKey(v), on = sel?.has(k);
+    return `<div class="yt-item ${k === curK && (!inList || h.__list === show?.id) ? 'cur' : ''} ${on ? 'sel' : ''}" data-k="${esc(k)}" data-i="${i}">
+      ${selMode ? `<label class="yt-chk" title="Select"><input type="checkbox" data-yt="chk" ${on ? 'checked' : ''}></label>` : ''}
+      <button class="yt-th" data-yt="${selMode ? 'tsel' : 'play'}">${v.id ? `<img src="${ytThumb(v)}" alt="" loading="lazy">` : IC('ico:youtube')}${v.len ? `<i class="yt-len">${esc(v.len)}</i>` : ''}</button>
+      <button class="yt-t" data-yt="${selMode ? 'tsel' : 'play'}">${esc(v.title || (v.id ? 'Video ' + v.id : 'YouTube playlist'))}${v.ch ? `<small>${esc(v.ch)}</small>` : ''}</button>
+      ${selMode ? '' : `<span class="yt-acts">${inList ? `<button data-yt="up" title="Move up">${IC('ico:up')}</button><button data-yt="add1" title="Add to another playlist">＋</button><button data-yt="rm1" title="Remove from playlist">${IC('ico:close')}</button>`
+        : `<button data-yt="add1" title="Add to a playlist">＋</button>${tab === 'recent' ? `<button data-yt="rm1" title="Remove from Recent">${IC('ico:close')}</button>` : ''}`}</span>`}</div>`;
+  };
+  const items = ytTabItems(h);
+  const listBody = tab === 'search'
+    ? (h.__results == null ? '<div class="yt-none">Searching…</div>' : items.map(item).join('') || '<div class="yt-none">No videos found. Try other words.</div>')
+    : tab === 'recent' ? items.map(item).join('') || '<div class="yt-none">Nothing yet.</div>'
+    : show ? items.map(item).join('') || '<div class="yt-none">Empty. Add videos with ＋ from Search or Recent.</div>' : '<div class="yt-none">No playlists yet. Press ＋ New.</div>';
+  const n = sel?.size || 0;
   side.innerHTML = `
-    <div class="yt-tabs"><button data-yt="tab" data-v="recent" class="${tab === 'recent' ? 'on' : ''}">Recent</button><button data-yt="tab" data-v="list" class="${tab === 'list' ? 'on' : ''}">Playlists</button></div>
+    <div class="yt-tabs">${h.__results || tab === 'search' ? `<button data-yt="tab" data-v="search" class="${tab === 'search' ? 'on' : ''}" title="${esc(h.__q || '')}">Search</button>` : ''}<button data-yt="tab" data-v="recent" class="${tab === 'recent' ? 'on' : ''}">Recent</button><button data-yt="tab" data-v="list" class="${tab === 'list' ? 'on' : ''}">Playlists</button></div>
     ${h.__list && cur ? `<div class="yt-now">${IC('ico:play')} <span>${esc(d.lists.find(l => l.id === h.__list)?.name || '')}</span><button data-yt="prev" title="Previous">${IC('ico:chevleft')}</button><button data-yt="next" title="Next">${IC('ico:chevright')}</button><label title="Play the next video when one ends"><input type="checkbox" data-yt="auto" ${h.__auto !== false ? 'checked' : ''}> auto</label></div>` : ''}
-    ${cur ? `<button class="yt-addcur" data-yt="addcur">＋ Add this video to a playlist</button>` : ''}
-    ${tab === 'recent'
-      ? `<div class="yt-list">${d.recent.map((v, i) => item(v, i)).join('') || '<div class="yt-none">Nothing yet.</div>'}</div>${d.recent.length ? '<button class="yt-clear" data-yt="rclear">Clear recent</button>' : ''}`
-      : `<div class="yt-lhead">${d.lists.length ? `<select data-yt="pick">${d.lists.map(l => `<option value="${l.id}" ${l === show ? 'selected' : ''}>${esc(l.name)} (${l.items.length})</option>`).join('')}</select>` : ''}<button data-yt="lnew">＋ New</button>${show ? `<button data-yt="lplayall" title="Play from the start">${IC('ico:play')}</button><button data-yt="lren" title="Rename">${IC('ico:edit')}</button><button data-yt="ldel" title="Delete playlist">${IC('ico:trash')}</button>` : ''}</div>
-         <div class="yt-list">${show ? show.items.map((v, i) => item(v, i, show)).join('') || '<div class="yt-none">Empty. Play a video, then “＋ Add this video”.</div>' : '<div class="yt-none">No playlists yet. Press ＋ New.</div>'}</div>`}`;
+    ${cur && !selMode ? `<button class="yt-addcur" data-yt="addcur">＋ Add this video to a playlist</button>` : ''}
+    ${inList ? `<div class="yt-lhead">${d.lists.length ? `<select data-yt="pick">${d.lists.map(l => `<option value="${l.id}" ${l === show ? 'selected' : ''}>${esc(l.name)} (${l.items.length})</option>`).join('')}</select>` : ''}<button data-yt="lnew">＋ New</button>${show ? `<button data-yt="lplayall" title="Play from the start">${IC('ico:play')}</button><button data-yt="lren" title="Rename">${IC('ico:edit')}</button><button data-yt="ldel" title="Delete playlist">${IC('ico:trash')}</button>` : ''}</div>` : ''}
+    ${tab === 'search' && h.__q ? `<div class="yt-q">Results for “${esc(h.__q)}”</div>` : ''}
+    ${items.length ? `<div class="yt-selbar">${selMode
+      ? `<button data-yt="selall">${n === items.length ? 'None' : 'All'}</button><span class="grow">${n} selected</span><button data-yt="seladd" ${n ? '' : 'disabled'}>＋ Add to playlist</button>${tab !== 'search' ? `<button data-yt="selrm" ${n ? '' : 'disabled'} title="${inList ? 'Remove from this playlist' : 'Remove from Recent'}">${IC('ico:trash')}</button>` : ''}<button data-yt="seldone">Done</button>`
+      : `<span class="grow"></span><button data-yt="selon" title="Select several videos to add or remove them together">${IC('ico:check')} Select</button>${tab === 'recent' ? '<button data-yt="rclear">Clear recent</button>' : ''}`}</div>` : ''}
+    <div class="yt-list">${listBody}</div>
+    ${h.__picker ? ytPickerHTML(h) : ''}`;
+  const L = side.querySelector('.yt-list'); if (L) L.scrollTop = keepTop;
+  if (h.__picker && h.__picker.focusNew) { h.__picker.focusNew = false; side.querySelector('[data-yt="newname"]')?.focus(); }
 }
-function ytPickList(h, v) {
-  const d = ytData();
-  let name = d.lists.length ? prompt(`Add to which playlist? Type its name (new name = new playlist):\n${d.lists.map(l => '• ' + l.name).join('\n')}`, h.__showList ? d.lists.find(l => l.id === h.__showList)?.name || '' : d.lists[0].name) : prompt('Name for the new playlist:', 'Concert pieces');
-  name = name?.trim(); if (!name) return;
-  let l = d.lists.find(x => x.name.toLowerCase() === name.toLowerCase());
-  if (!l) d.lists.push(l = { id: uid(), name, items: [] });
-  if (l.items.some(x => ytKey(x) === ytKey(v))) return toast(`Already in “${l.name}”.`);
-  l.items.push({ ...v, at: undefined }); delete l.items.at(-1).at;
-  h.__showList = l.id; save(); toast(`Added to “${l.name}”.`); refreshWidgets('yt');
+// "Add to playlist": pick an existing playlist (✓ = already has all of them) or type a name for a new one
+function ytPickerHTML(h) {
+  const d = ytData(), vs = h.__picker.items, ks = vs.map(ytKey);
+  const has = l => ks.every(k => l.items.some(x => ytKey(x) === k));
+  return `<div class="yt-picker"><div class="yt-pk-head"><b>Add ${vs.length === 1 ? 'this video' : vs.length + ' videos'} to…</b><button data-yt="pclose" title="Close">${IC('ico:close')}</button></div>
+    <div class="yt-pk-list">${d.lists.map(l => `<button data-yt="padd" data-l="${l.id}" class="${has(l) ? 'has' : ''}"><span>${esc(l.name)}</span><small>${l.items.length}</small>${has(l) ? IC('ico:check') : ''}</button>`).join('') || '<div class="yt-none">No playlists yet: make one below.</div>'}</div>
+    <div class="yt-pk-new"><input data-yt="newname" placeholder="New playlist name…"><button data-yt="pnew">＋ Create</button></div></div>`;
+}
+function ytAddTo(h, l, vs) {
+  let added = 0;
+  for (const v of vs) { if (l.items.some(x => ytKey(x) === ytKey(v))) continue; const n = { ...v }; delete n.at; l.items.push(n); added++; }
+  for (const v of vs) if (!v.title) ytTitle(v).then(t => { if (!t) return; for (const x of l.items) if (ytKey(x) === ytKey(v)) x.title = t; save(); refreshWidgets('yt'); });
+  h.__picker = null; h.__sel = null; save();
+  toast(added ? `Added ${added === 1 ? '1 video' : added + ' videos'} to “${l.name}”.` : `Already in “${l.name}”.`);
+  refreshWidgets('yt');
 }
 function ytClick(h, e) {
   const b = e.target.closest('[data-yt]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return; e.stopPropagation();
-  const d = ytData(), act = b.dataset.yt, row = b.closest('[data-i]'), i = row ? +row.dataset.i : -1;
+  const d = ytData(), act = b.dataset.yt, row = b.closest('[data-i]'), i = row ? +row.dataset.i : -1, tab = h.__tab || 'recent';
   const show = d.lists.find(l => l.id === (h.__showList || h.__list)) || d.lists[0];
+  const items = ytTabItems(h), v = i >= 0 ? items[i] : null;
+  const selected = () => items.filter(x => h.__sel?.has(ytKey(x)));
   if (act === 'side') { h.__sideOff = !h.__sideOff; return renderYt(h); }
   if (act === 'resume') return ytPlay(h, d.last, null);
-  if (act === 'tab') { h.__tab = b.dataset.v; return renderYtSide(h); }
-  if (act === 'rplay') return ytPlay(h, d.recent[i], null);
-  if (act === 'lplay') return ytPlay(h, show.items[i], show.id);
+  if (act === 'tab') { h.__tab = b.dataset.v; h.__sel = null; h.__picker = null; return renderYtSide(h); }
+  if (act === 'play' && v) return ytPlay(h, v, tab === 'list' ? show.id : null);
+  if (act === 'tsel' && v) return ytToggleSel(h, ytKey(v));
   if (act === 'lplayall' && show?.items.length) return ytPlay(h, show.items[0], show.id);
   if (act === 'prev' || act === 'next') return ytStep(h, act === 'next' ? 1 : -1);
-  if (act === 'addcur' && h.__cur) return ytPickList(h, h.__cur);
-  if (act === 'radd') return ytPickList(h, d.recent[i]);
-  if (act === 'rrm') d.recent.splice(i, 1);
+  // selecting several
+  if (act === 'selon') { h.__sel = new Set(); h.__picker = null; return renderYtSide(h); }
+  if (act === 'seldone') { h.__sel = null; h.__picker = null; return renderYtSide(h); }
+  if (act === 'selall') { h.__sel = h.__sel?.size === items.length ? new Set() : new Set(items.map(ytKey)); return renderYtSide(h); }
+  // add to a playlist (one video, the playing one, or the selection)
+  if (act === 'addcur' && h.__cur) { h.__picker = { items: [h.__cur] }; return renderYtSide(h); }
+  if (act === 'add1' && v) { h.__picker = { items: [v] }; return renderYtSide(h); }
+  if (act === 'seladd') { const vs = selected(); if (vs.length) h.__picker = { items: vs }; return renderYtSide(h); }
+  if (act === 'pclose') { h.__picker = null; return renderYtSide(h); }
+  if (act === 'padd' && h.__picker) { const l = d.lists.find(x => x.id === b.dataset.l); if (l) ytAddTo(h, l, h.__picker.items); return; }
+  if (act === 'pnew' && h.__picker) {
+    const inp = h.querySelector('[data-yt="newname"]'), name = inp?.value.trim();
+    if (!name) { h.__picker.focusNew = true; renderYtSide(h); return toast('Type a name for the new playlist.'); }
+    let l = d.lists.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (!l) d.lists.push(l = { id: uid(), name, items: [] });
+    return ytAddTo(h, l, h.__picker.items);
+  }
+  // remove
+  if (act === 'rm1' && v) { if (tab === 'list' && show) show.items.splice(i, 1); else if (tab === 'recent') d.recent.splice(i, 1); }
+  if (act === 'selrm') {
+    const ks = new Set(selected().map(ytKey)); if (!ks.size) return;
+    if (tab === 'list' && show) show.items = show.items.filter(x => !ks.has(ytKey(x)));
+    else if (tab === 'recent') d.recent = d.recent.filter(x => !ks.has(ytKey(x)));
+    h.__sel = new Set();
+  }
   if (act === 'rclear' && confirm('Clear the recently watched list?')) d.recent = [];
-  if (act === 'lnew') { const n = prompt('Name for the new playlist:', ''); if (!n?.trim()) return; const l = { id: uid(), name: n.trim(), items: [] }; d.lists.push(l); h.__showList = l.id; h.__tab = 'list'; }
+  // playlists
+  if (act === 'lnew') { h.__tab = 'list'; h.__picker = null; const n = prompt('Name for the new playlist:', ''); if (!n?.trim()) return renderYtSide(h); const l = { id: uid(), name: n.trim(), items: [] }; d.lists.push(l); h.__showList = l.id; }
   if (act === 'lren' && show) { const n = prompt('Rename the playlist:', show.name); if (n?.trim()) show.name = n.trim(); }
   if (act === 'ldel' && show && confirm(`Delete the playlist “${show.name}”? (The videos stay in Recent.)`)) { d.lists = d.lists.filter(l => l !== show); h.__showList = null; if (h.__list === show.id) h.__list = null; }
-  if (act === 'lrm' && show) show.items.splice(i, 1);
   if (act === 'up' && show && i > 0) [show.items[i - 1], show.items[i]] = [show.items[i], show.items[i - 1]];
   save(); refreshWidgets('yt');
 }
@@ -1428,7 +1593,7 @@ async function recMeter(on) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     const an = ac().createAnalyser(); an.fftSize = 1024; ac().createMediaStreamSource(stream).connect(an); ac().resume();
-    REC.meter = { stream, an }; refreshRec();
+    REC.meter = { stream, an, openedAt: Date.now() }; refreshRec();
     const buf = new Float32Array(an.fftSize);
     const loop = () => {
       if (!REC.meter || REC.meter.an !== an) return;
@@ -1443,19 +1608,35 @@ async function recMeter(on) {
 }
 
 // --- recording
+const REC_WARM_MS = 1200;   // how long a freshly opened microphone gets to reach its level before recording
 async function recBegin() {
   if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return toast('Recording is not supported here.');
-  if (REC.meter) recMeter(false);
   playAu().pause(); closePlayer();
   const o = recOpts();
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: !!o.aec, noiseSuppression: false, autoGainControl: false } }); }
-  catch { return toast('Rehearsal needs the microphone to record. Allow it and try again.'); }
+  let stream, openedAt;
+  // A microphone that has just been switched on starts quiet and takes a moment to reach its level
+  // (the device and macOS settle its gain). Reuse the stream from "Check mic level" when we can, and
+  // otherwise let a new one warm up before recording starts, so the first notes aren't too soft.
+  if (REC.meter && !o.aec && REC.meter.stream.getAudioTracks().some(t => t.readyState === 'live')) { stream = REC.meter.stream; openedAt = REC.meter.openedAt || 0; REC.meter = null; }
+  else {
+    if (REC.meter) recMeter(false);
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: !!o.aec, noiseSuppression: false, autoGainControl: false } }); }
+    catch { return toast('Rehearsal needs the microphone to record. Allow it and try again.'); }
+    openedAt = Date.now();
+  }
   if (ac().state === 'suspended') await ac().resume();
   REC.stream = stream;
-  if (o.count === 'none') return recGo();
-  // count-in: one bar of clicks, then recording starts (the click can keep going with "count + click")
-  const { tempo, beats } = recTempo(), c = ac(), beat = 60 / tempo, t0 = c.currentTime + 0.15;
+  const warm = Math.max(0, openedAt + REC_WARM_MS - Date.now()) / 1000;   // seconds still needed
+  if (o.count === 'none') {
+    if (warm <= 0.05) return recGo();
+    REC.state = 'countin'; REC.warm = true; refreshRec();
+    REC.countT = setTimeout(() => { REC.warm = false; if (REC.state === 'countin') recGo(); }, warm * 1000);
+    return;
+  }
+  // count-in: one bar of clicks, then recording starts (the click can keep going with "count + click");
+  // if the mic still needs to warm up, the count-in starts a little later so recording begins after it
+  const { tempo, beats } = recTempo(), c = ac(), beat = 60 / tempo, t0 = c.currentTime + Math.max(0.15, warm - beats * beat);
+  REC.warm = false;
   for (let i = 0; i < beats; i++) metClick(t0 + i * beat, i === 0 ? 'down' : 'beat');
   REC.state = 'countin'; REC.count = beats; refreshRec();
   for (let i = 0; i < beats; i++) setTimeout(() => { REC.count = beats - i; recHosts().forEach(h => { const n = h.querySelector('.rec-count b'); if (n) { n.textContent = i + 1; n.classList.remove('hit'); void n.offsetWidth; n.classList.add('hit'); } }); }, (t0 - c.currentTime + i * beat) * 1000);
@@ -1656,7 +1837,7 @@ function renderRec(h) {
     </div>`;
   };
   let top;
-  if (st === 'countin') top = `<div class="rec-live rec-count"><div>Get ready…</div><b>1</b><button data-rc="stop">Cancel</button></div>`;
+  if (st === 'countin') top = `<div class="rec-live rec-count"><div>${REC.warm ? 'Getting the microphone ready…' : 'Get ready…'}</div><b>${REC.warm ? '…' : 1}</b><button data-rc="stop">Cancel</button></div>`;
   else if (st === 'rec' || st === 'stopping') top = `<div class="rec-live ${REC.paused ? 'paused' : ''}">
       <div class="rec-status"><i class="rec-dot"></i>${REC.paused ? 'Paused' : 'Recording'}${REC.marks?.length ? ` <span class="rec-nm">${REC.marks.length} mark${REC.marks.length > 1 ? 's' : ''}</span>` : ''} <b class="rec-time">${fmtSec(recElapsed() / 1000)}</b></div>
       <canvas class="rec-wave rec-live-wave"></canvas>
@@ -1669,6 +1850,7 @@ function renderRec(h) {
         <label>Start <select data-rc-opt="count"><option value="none" ${o.count === 'none' ? 'selected' : ''}>Right away</option><option value="count" ${o.count === 'count' ? 'selected' : ''}>After a count-in</option><option value="click" ${o.count === 'click' ? 'selected' : ''}>Count-in + click</option></select></label>
         ${o.count !== 'none' ? `<label><input type="number" data-rc-opt="tempo" value="${tempo}" min="30" max="240"> BPM</label><label><input type="number" data-rc-opt="beats" value="${beats}" min="1" max="12"> beats</label>` : ''}
         ${o.count === 'click' ? `<label class="mu-chk" title="Uses echo cancellation to remove the click Rehearsal plays. It can make the music sound a little thinner."><input type="checkbox" data-rc-opt="aec" ${o.aec ? 'checked' : ''}> Keep the click out of the recording</label>` : ''}
+        ${o.count !== 'none' ? metVolSlider('Click volume') : ''}
       </div>
       <div class="rec-meter">${REC.meter ? `<span class="rec-lvl"><i></i></span><span class="rec-lvl-t"></span><button data-rc="meter" class="on">Stop check</button>` : `<button data-rc="meter">${IC('ico:mic')} Check mic level</button>`}</div></div>`;
   }
@@ -2119,6 +2301,7 @@ function ieSide(ctx, step, evs) {
       <div class="ie-ev"><select data-ie-evkind><option value="announcement">Announcement</option><option value="birthday">Birthday</option><option value="event">Event</option></select>
         <input data-ie-evtext placeholder="Announcement or name…"><input type="time" data-ie-evtime title="Pop up at (optional)">
         <select data-ie-evwho title="Which classes see it"><option value="this">This class</option><option value="all">All classes</option></select>
+        ${repeatSel({}, 'data-ie-evrep')}
         <button data-action="ie-ev-add">Add</button></div></div>
     <div class="p-card"><h4>${IC('ico:notes')} Notes on screen <span style="opacity:.6;text-transform:none;letter-spacing:0">(students see these, under Today)</span></h4>
       <textarea class="ie-notes" data-ie-pubnotes rows="3" placeholder="Reminders for students: bring your folder, concert dress, …">${esc((cls.screenNotes || {})[today] || '')}</textarea></div>
@@ -2132,6 +2315,12 @@ function ieTitle(ctx, tmplName, testChip) {
       ${testChip}
       ${p ? `<span class="ie-times" title="Changes this period on the ${tmplName} bell schedule"><input type="time" data-ie-time="start" value="${p.start}"> – <input type="time" data-ie-time="end" value="${p.end}"></span>` : ''}</div>`;
 }
+// events: how often they repeat (Setup → Events)
+document.addEventListener('change', e => {
+  const id = e.target.dataset?.evRepeat; if (!id) return;
+  const ev = S.events.find(x => x.id === id); if (!ev) return;
+  ev.repeat = e.target.value; ev.yearly = ev.repeat === 'yearly'; save(); P.sideKey = ''; renderEditor();
+});
 // events: which classes see them
 document.addEventListener('change', e => {
   const el = e.target, id = el.dataset?.evCls || el.dataset?.evAll; if (!id) return;
@@ -2356,19 +2545,49 @@ document.addEventListener('dblclick', e => {
   const r = winRes(w);
   renameInline(t, winTitle(w), v => { if (r) { r.title = v; P.stageKey = ''; } else w.customTitle = v; save(); WIN.sig = ''; });
 }, true);
-// ---------- copy / paste class items (pinned tabs, agenda, warm-up, look) between classes
+// ---------- copy / paste class items between classes: pinned tabs (with their folders), agenda, warm-up,
+// look, Progress tracker, notes on screen, automations and side panel settings. Lists can be added to or replace
+// what the class already has.
 const clipClass = () => VIEW === 'present' ? ieClass()?.cls : selClass();
+// the things that can be copied, besides tabs; `list` ones can be added to the end or replace what's there
+const CLIP_KINDS = [
+  { k: 'agenda', label: 'Agenda', ico: 'ico:agenda', list: true, has: c => c.agenda.length, n: c => c.agenda.length, unit: 'step' },
+  { k: 'warmup', label: 'Warm-up question', ico: 'ico:warmup', has: c => !!c.warmup },
+  { k: 'progress', label: 'Progress tracker', ico: 'ico:check', list: true, has: c => (c.progress || []).length, n: c => (c.progress || []).length, unit: 'piece' },
+  { k: 'screenNotes', label: 'Notes on screen', ico: 'ico:notes', list: true, has: c => Object.values(c.screenNotes || {}).some(v => v && v.trim()), n: c => Object.values(c.screenNotes || {}).filter(v => v && v.trim()).length, unit: 'day' },
+  { k: 'automations', label: 'Automations', ico: 'ico:auto', list: true, has: c => (c.automations || []).length, n: c => (c.automations || []).length, unit: 'automation' },
+  { k: 'side', label: 'Side panel settings (width, progress in side panel)', ico: 'ico:agenda', has: () => true },
+  { k: 'look', label: 'Look (theme, colours, picture)', ico: 'ico:look', has: () => true },
+];
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 function clipSel(cls) {
-  if (!P.clipSel || P.clipSel.cls !== cls.id) P.clipSel = { cls: cls.id, tabs: new Set(cls.resources.map(r => r.id)), agenda: cls.agenda.length > 0, warmup: !!cls.warmup, look: false };
+  if (!P.clipSel || P.clipSel.cls !== cls.id) {
+    P.clipSel = { cls: cls.id, tabs: new Set(cls.resources.map(r => r.id)) };
+    for (const d of CLIP_KINDS) P.clipSel[d.k] = d.k !== 'look' && d.k !== 'side' && !!d.has(cls);
+  }
   return P.clipSel;
 }
 function clipSummary(c) {
   const p = [];
-  if (c.tabs.length) p.push(c.tabs.length + (c.tabs.length === 1 ? ' tab' : ' tabs'));
-  if (c.agenda) p.push(`agenda (${c.agenda.length} step${c.agenda.length === 1 ? '' : 's'})`);
+  if (c.tabs?.length) p.push(plural(c.tabs.length, 'tab'));
+  if (c.agenda) p.push(`agenda (${plural(c.agenda.length, 'step')})`);
   if (c.warmup != null) p.push('warm-up');
+  if (c.progress) p.push(`progress (${plural(c.progress.items.length, 'piece')})`);
+  if (c.screenNotes) p.push(`notes on screen (${plural(Object.keys(c.screenNotes).length, 'day')})`);
+  if (c.automations) p.push(plural(c.automations.length, 'automation'));
+  if (c.side) p.push('side panel settings');
   if (c.theme) p.push('look');
   return p.join(', ');
+}
+// what the copied item conflicts with in this class (shown as Add / Replace choices)
+function clipConflicts(cls, c) {
+  const out = [];
+  if (c.tabs?.length && cls.resources.length) out.push({ k: 'tabs', label: 'Pinned tabs', have: plural(cls.resources.length, 'tab') });
+  if (c.agenda && cls.agenda.length) out.push({ k: 'agenda', label: 'Agenda', have: plural(cls.agenda.length, 'step') });
+  if (c.progress && (cls.progress || []).length) out.push({ k: 'progress', label: 'Progress tracker', have: plural(cls.progress.length, 'piece') });
+  if (c.screenNotes && Object.values(cls.screenNotes || {}).some(v => v && v.trim())) out.push({ k: 'screenNotes', label: 'Notes on screen', have: 'some days', addLabel: 'Keep both (copied days win)' });
+  if (c.automations && (cls.automations || []).length) out.push({ k: 'automations', label: 'Automations', have: plural(cls.automations.length, 'automation') });
+  return out;
 }
 function renderClip() {
   $('#clip-panel')?.remove();
@@ -2381,52 +2600,98 @@ function renderClip() {
   }
   const s = clipSel(cls), C = S.clip;
   const chk = (k, label, on, extra = '') => `<label class="cp-item"><input type="checkbox" data-clip="${k}" ${extra} ${on ? 'checked' : ''}> ${label}</label>`;
-  const askAgenda = C && C.agenda && cls.agenda.length;
+  const modes = (P.clipMode ||= {});
+  const conf = C ? clipConflicts(cls, C) : [];
   p.innerHTML = `<div class="dc-head"><b>${IC('ico:clip')} Copy / paste — ${esc(cls.name)}</b><span class="grow"></span><button data-action="clip-open">Done</button></div>
     <div class="cp-h">Copy from this class</div>
     <div class="cp-list">
       ${cls.resources.map(r => chk('tab', `${icoSp(resIcon(r))}${esc(r.title || 'Tab')}`, s.tabs.has(r.id), `data-id="${r.id}"`)).join('') || '<div class="dc-note">No pinned tabs.</div>'}
-      ${chk('agenda', `${IC('ico:agenda')} Agenda <span class="muted">(${cls.agenda.length} step${cls.agenda.length === 1 ? '' : 's'})</span>`, s.agenda, cls.agenda.length ? '' : 'disabled')}
-      ${chk('warmup', `${IC('ico:warmup')} Warm-up question`, s.warmup, cls.warmup ? '' : 'disabled')}
-      ${chk('look', `${IC('ico:look')} Look (theme, colours, picture)`, s.look)}
+      ${CLIP_KINDS.map(d => chk(d.k, `${IC(d.ico)} ${d.label}${d.n ? ` <span class="muted">(${plural(d.n(cls), d.unit)})</span>` : ''}`, s[d.k], d.has(cls) ? '' : 'disabled')).join('')}
     </div>
     <div class="lp-row"><button data-action="clip-all">Select all</button><button data-action="clip-none">None</button><span class="grow"></span><button class="cp-go" data-action="clip-copy">${IC('ico:clip')} Copy</button></div>
     <div class="cp-h">Paste into this class</div>
-    ${C ? `<div class="dc-note">Copied from <b>${esc(C.from)}</b>: ${esc(clipSummary(C)) || 'nothing'}.${C.theme ? ' The look replaces this class’s look.' : ''}${C.warmup != null ? ' The warm-up replaces this class’s warm-up.' : ''}</div>
-      <div class="lp-row">${askAgenda
-        ? `<span>This class already has an agenda:</span><button class="cp-go" data-action="clip-paste" data-ag="add">Paste — add steps to the end</button><button class="cp-go" data-action="clip-paste" data-ag="replace">Paste — replace agenda</button>`
-        : `<button class="cp-go" data-action="clip-paste" data-ag="add">${IC('ico:clip')} Paste</button>`}</div>`
+    ${C ? `<div class="dc-note">Copied from <b>${esc(C.from)}</b>: ${esc(clipSummary(C)) || 'nothing'}.${C.theme ? ' The look replaces this class’s look.' : ''}${C.warmup != null ? ' The warm-up replaces this class’s warm-up.' : ''}${C.side ? ' Side panel settings replace this class’s.' : ''}</div>
+      ${conf.length ? `<div class="cp-modes">${conf.map(x => `<div class="cp-mode"><span><b>${x.label}</b> <span class="muted">(this class has ${x.have})</span></span>
+        <label><input type="radio" name="cpm-${x.k}" data-clip-mode="${x.k}" value="add" ${modes[x.k] !== 'replace' ? 'checked' : ''}> ${x.addLabel || 'Add to the end'}</label>
+        <label><input type="radio" name="cpm-${x.k}" data-clip-mode="${x.k}" value="replace" ${modes[x.k] === 'replace' ? 'checked' : ''}> Replace</label></div>`).join('')}</div>` : ''}
+      <div class="lp-row"><button class="cp-go" data-action="clip-paste">${IC('ico:clip')} Paste</button></div>`
       : `<div class="dc-note">Nothing copied yet. Tick what you want above and press Copy, then switch to another class and paste.</div>`}`;
   document.body.appendChild(p);
   p.addEventListener('change', e => {
+    const m = e.target.dataset.clipMode; if (m) { modes[m] = e.target.value; return; }
     const k = e.target.dataset.clip; if (!k) return;
     if (k === 'tab') e.target.checked ? s.tabs.add(e.target.dataset.id) : s.tabs.delete(e.target.dataset.id);
     else s[k] = e.target.checked;
   });
 }
+function clipSelectAll(on) {
+  const c = clipClass(); if (!c) return;
+  P.clipSel = { cls: c.id, tabs: new Set(on ? c.resources.map(r => r.id) : []) };
+  for (const d of CLIP_KINDS) P.clipSel[d.k] = on && !!d.has(c);
+  renderClip();
+}
 function clipCopy() {
   const cls = clipClass(); if (!cls) return;
   const s = clipSel(cls), clone = o => JSON.parse(JSON.stringify(o));
+  const tabs = cls.resources.filter(r => s.tabs.has(r.id)).map(clone);
+  const gids = new Set(tabs.map(r => r.group).filter(Boolean));
+  const notes = Object.fromEntries(Object.entries(cls.screenNotes || {}).filter(([, v]) => v && v.trim()));
   const c = {
     from: cls.name,
-    tabs: cls.resources.filter(r => s.tabs.has(r.id)).map(clone),
+    tabs, groups: (cls.groups || []).filter(g => gids.has(g.id)).map(clone),
     agenda: s.agenda && cls.agenda.length ? clone(cls.agenda) : null,
     warmup: s.warmup && cls.warmup ? cls.warmup : null,
+    progress: s.progress && (cls.progress || []).length ? { items: clone(cls.progress), labels: cls.progLabels ? clone(cls.progLabels) : null } : null,
+    screenNotes: s.screenNotes && Object.keys(notes).length ? notes : null,
+    automations: s.automations && (cls.automations || []).length ? clone(cls.automations) : null,
+    side: s.side ? { layout: cls.layout ? clone(cls.layout) : null, sideProgress: !!cls.sideProgress, sideProgOpen: !!cls.sideProgOpen } : null,
     theme: s.look ? clone(cls.theme) : null,
   };
-  if (!c.tabs.length && !c.agenda && c.warmup == null && !c.theme) return toast('Tick at least one thing to copy.');
-  S.clip = c; save(); renderClip();
+  if (!clipSummary(c)) return toast('Tick at least one thing to copy.');
+  S.clip = c; P.clipMode = {}; save(); renderClip();
   toast(`Copied ${clipSummary(c)} from ${cls.name}. Switch class and press Paste.`, 3500);
 }
-function clipPaste(mode) {
+function clipPaste() {
   const cls = clipClass(), c = S.clip; if (!cls || !c) return;
-  const clone = o => JSON.parse(JSON.stringify(o));
-  for (const r of c.tabs) cls.resources.push({ ...clone(r), id: uid() });
-  if (c.agenda) { const steps = clone(c.agenda).map(a => (a.id ? { ...a, id: uid() } : a)); cls.agenda = mode === 'replace' ? steps : cls.agenda.concat(steps); }
+  const clone = o => JSON.parse(JSON.stringify(o)), mode = k => (P.clipMode || {})[k] === 'replace' ? 'replace' : 'add';
+  const resMap = {};
+  if (c.tabs?.length) {
+    // folders come along with their tabs (matched by name if this class already has one)
+    const gmap = {};
+    if (mode('tabs') === 'replace') { cls.resources = []; cls.groups = []; }
+    for (const g of c.groups || []) {
+      const have = (cls.groups ||= []).find(x => x.name === g.name);
+      if (have) gmap[g.id] = have.id; else { const n = { ...clone(g), id: uid() }; cls.groups.push(n); gmap[g.id] = n.id; }
+    }
+    for (const r of c.tabs) {
+      const n = { ...clone(r), id: uid() }; resMap[r.id] = n.id;
+      if (n.group) { if (gmap[n.group]) n.group = gmap[n.group]; else delete n.group; }
+      cls.resources.push(n);
+    }
+  }
+  if (c.agenda) { const steps = clone(c.agenda).map(a => (a.id ? { ...a, id: uid() } : a)); cls.agenda = mode('agenda') === 'replace' ? steps : cls.agenda.concat(steps); }
   if (c.warmup != null) cls.warmup = c.warmup;
+  if (c.progress) {
+    const items = clone(c.progress.items).map(it => ({ ...it, id: uid(), steps: (it.steps || []).map(st => ({ ...st, id: uid() })) }));
+    cls.progress = mode('progress') === 'replace' ? items : (cls.progress || []).concat(items);
+    if (c.progress.labels) cls.progLabels = clone(c.progress.labels);
+  }
+  if (c.screenNotes) cls.screenNotes = mode('screenNotes') === 'replace' ? clone(c.screenNotes) : { ...(cls.screenNotes || {}), ...clone(c.screenNotes) };
+  if (c.automations) {
+    const autos = clone(c.automations).map(a => {
+      const n = { ...a, id: uid() };
+      if (n.resourceId) n.resourceId = resMap[n.resourceId] || (cls.resources.some(r => r.id === n.resourceId) ? n.resourceId : '');
+      return n;
+    });
+    cls.automations = mode('automations') === 'replace' ? autos : (cls.automations || []).concat(autos);
+  }
+  if (c.side) {
+    if (c.side.layout) cls.layout = clone(c.side.layout); else delete cls.layout;
+    cls.sideProgress = c.side.sideProgress; cls.sideProgOpen = c.side.sideProgOpen;
+  }
   if (c.theme) cls.theme = clone(c.theme);
-  save(); P.stageKey = P.sideKey = P.layoutKey = '';
-  if (VIEW !== 'present') renderEditor();
+  save(); P.stageKey = P.sideKey = P.layoutKey = ''; WIN.sig = '';
+  if (VIEW !== 'present') renderEditor(); else applySide(cls);
   renderClip(); toast(`Pasted ${clipSummary(c)} into ${cls.name}.`, 3000);
 }
 // ---------- icons panel: which emojis show, and which ones
@@ -2471,14 +2736,24 @@ function renderLook() {
     <div class="lp-row"><button data-action="look-pic">${IC('ico:image')} ${img ? 'Change picture…' : 'Use a picture…'}</button>${img ? `<button data-action="look-pic-clear">Remove picture</button>` : ''}</div>
     <label class="lp-dim">Dim background <input type="range" min="0" max="0.85" step="0.05" data-look="dim" value="${th.dim ?? 0.25}"><span>${Math.round((th.dim ?? 0.25) * 100)}%</span></label>
     <label class="lp-dim" data-for="panel">Panel background <input type="range" min="0" max="1" step="0.05" data-look="panel" value="${th.panel ?? 0.1}"><span>${Math.round((th.panel ?? 0.1) * 100)}%</span></label>
-    <div class="dc-note">Dimming darkens the picture; a more solid panel background makes the agenda, Today panel and tabs easier to read over a busy picture.</div>`;
+    <label class="chk lp-link"><input type="checkbox" data-look-link ${th.sideLinked !== false ? 'checked' : ''}> Side panel matches the other panels</label>
+    ${th.sideLinked === false ? `<label class="lp-dim">Side panel text size <input type="range" min="0.6" max="2" step="0.05" data-look="sideFont" value="${th.sideFont ?? 1}"><span>${Math.round((th.sideFont ?? 1) * 100)}%</span></label>
+    <label class="lp-dim">Side panel background <input type="range" min="0" max="1" step="0.05" data-look="sidePanel" value="${th.sidePanel ?? th.panel ?? 0.1}"><span>${Math.round((th.sidePanel ?? th.panel ?? 0.1) * 100)}%</span></label>` : ''}
+    <div class="dc-note">Dimming darkens the picture; a more solid panel background makes the agenda, Today panel and tabs easier to read over a busy picture. Untick “Side panel matches” to give the side panel its own text size and background.</div>`;
   $('#present').appendChild(p);
   const host = p;
+  const NUM = ['dim', 'panel', 'sideFont', 'sidePanel'];
   host.addEventListener('input', e => {
     const k = e.target.dataset.look; if (!k) return;
-    th[k] = k === 'dim' || k === 'panel' ? Number(e.target.value) : e.target.value;
-    if (k === 'dim' || k === 'panel') e.target.nextElementSibling.textContent = Math.round(th[k] * 100) + '%';
+    th[k] = NUM.includes(k) ? Number(e.target.value) : e.target.value;
+    if (NUM.includes(k)) e.target.nextElementSibling.textContent = Math.round(th[k] * 100) + '%';
     save();
+  });
+  host.addEventListener('change', e => {
+    if (!e.target.matches('[data-look-link]')) return;
+    if (e.target.checked) delete th.sideLinked;
+    else { th.sideLinked = false; th.sideFont ??= 1; th.sidePanel ??= th.panel ?? 0.1; }
+    save(); renderLook();
   });
 }
 function applyDim(el, th) {
@@ -2550,7 +2825,7 @@ function stageNativeRes(any) {
 }
 function syncNative() {
   const items = [];
-  if (VIEW === 'present' && !P.stageMax) for (const el of $$('.win.native')) {
+  if (VIEW === 'present') for (const el of $$('.win.native')) {
     const w = findWin(el.dataset.win); if (!w) continue;
     const r = rectOf(el.querySelector('.win-body'));
     if (r[2] > 0 && r[3] > 0) items.push(w.kind === 'app'
@@ -2771,6 +3046,26 @@ document.addEventListener('pointermove', e => {
   if (!inkPrevRaf) inkPrevRaf = requestAnimationFrame(() => { inkPrevRaf = 0; if (inkPrevEv) inkPreview(inkPrevEv); });
 }, true);
 document.addEventListener('pointerdown', e => { if (VIEW === 'present' && P.ink.on) inkPreview(e); }, true);
+// The drawing layer steps aside (pointer-events: none) while the pointer is over a button, so it can be
+// clicked. A fast move can leave a button and land on embedded slides or a web page before the next
+// check runs; that page then gets every mouse event and the pen never came back. Two guards:
+const inkArmed = () => VIEW === 'present' && P.ink.on && !P.ink.interact && inkCanvas && !inkDrawing;
+const inkInside = e => { const r = $('#ink')?.getBoundingClientRect(); return r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+// 1) as soon as the pointer enters something that isn't a control (an iframe included), the pen is back
+document.addEventListener('pointerover', e => {
+  if (!inkArmed() || inkCanvas.style.pointerEvents !== 'none' || e.target === inkCanvas) return;
+  if (!e.target.closest?.(INK_UI) && inkInside(e)) { inkCanvas.style.pointerEvents = ''; inkPreview(e); }
+}, true);
+// 2) a press that still slipped past the drawing layer onto the page below starts drawing anyway
+document.addEventListener('pointerdown', e => {
+  if (!inkArmed() || e.target === inkCanvas || e.button > 0 || !inkInside(e)) return;
+  if (e.target.closest?.(INK_UI) || e.target.closest?.('#ink-bar')) return;
+  e.preventDefault(); e.stopPropagation();
+  inkCanvas.style.pointerEvents = '';
+  inkDown(e);
+}, true);
+// 3) leaving the window / switching apps mid-stroke never leaves the pen stuck "off"
+window.addEventListener('blur', () => { if (inkCanvas && P.ink.on && !P.ink.interact) inkCanvas.style.pointerEvents = ''; });
 let inkWheelT = 0;
 document.addEventListener('wheel', e => {
   if (!inkCanvas || e.target !== inkCanvas || !P.ink.on || P.ink.interact) return;
@@ -3093,17 +3388,27 @@ const NOISE = { stream: null, analyser: null, level: 0, limit: 60, warnAt: 0, be
 function toolBody(name) {
   const cls = currentClass();
   switch (name) {
-    case 'timer': return `<div class="presets">${[0.5, 1, 2, 3, 5, 10, 15].map(m => `<button class="btn" data-action="quick-timer" data-m="${m}">${m < 1 ? '30s' : m + 'm'}</button>`).join('')}</div>
-      <div class="row"><input id="tt-min" type="number" min="0.1" step="0.5" value="4" style="width:70px"> min <input id="tt-label" placeholder="Label" class="grow" value="Work time"></div>
-      <div class="row"><select id="tt-sound" class="grow">${soundOptions('bell')}</select><button class="btn primary" data-action="custom-timer">Start</button></div>`;
+    case 'timer': {
+      const T = (S.settings.timerTool ||= { min: 4, label: 'Work time', sound: 'bell' });
+      return `<div class="tt">
+      <div class="tt-presets">${[0.5, 1, 2, 3, 5, 10, 15].map(m => `<button data-action="quick-timer" data-m="${m}"><b>${m < 1 ? '30' : m}</b><small>${m < 1 ? 'sec' : 'min'}</small></button>`).join('')}</div>
+      <div class="tt-custom">
+        <div class="tt-step"><button data-action="tt-step" data-d="-1" title="1 minute less">−</button><label><input id="tt-min" type="number" min="0.1" step="0.5" value="${T.min}" data-action-input="tt-field" data-k="min"><span>min</span></label><button data-action="tt-step" data-d="1" title="1 minute more">+</button></div>
+        <input id="tt-label" placeholder="Label" value="${esc(T.label)}" data-action-input="tt-field" data-k="label">
+        <div class="tt-row"><button class="tt-snd ${T.sound === 'none' ? 'off' : ''}" data-action="tt-mute" title="${T.sound === 'none' ? 'Sound off: click to turn on' : 'Click for no sound at the end'}">${IC(T.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><select id="tt-sound" data-action-change="tt-sound">${soundOptions(T.sound === 'none' ? (T.lastSound || 'bell') : T.sound)}</select></div>
+        <button class="tt-go" data-action="custom-timer">${IC('ico:play')} Start</button>
+      </div></div>`;
+    }
     case 'points': {
       if (!cls) return '<div class="muted">Points are kept per class. Show a class first.</div>';
       return cls.points.map((t, i) => `<div class="team"><input value="${esc(t.name)}" data-bind="${clsPath(cls)}.points.${i}.name"><button class="btn" data-action="pt" data-i="${i}" data-d="-1">−</button><span class="score">${t.score}</span><button class="btn primary" data-action="pt" data-i="${i}" data-d="1">+</button></div>`).join('') +
         `<div class="row"><button class="btn small" data-action="pt-add">+ Team</button><button class="btn small" data-action="pt-reset">Reset scores</button>${cls.points.length > 1 ? '<button class="btn small" data-action="pt-del">− Team</button>' : ''}</div>`;
     }
     case 'noise': return `<div class="meter" id="nm"><div></div><span class="lim" style="left:${NOISE.limit}%"></span></div>
+      ${S.settings.noiseDyn ? `<div class="dyn-scale">${DYNAMICS.map(d => `<span>${d}</span>`).join('')}</div>` : ''}
       <div class="meter-label" id="nm-label">${NOISE.stream ? '…' : 'Microphone off'}</div>
-      <label class="fld"><span>Too-loud limit</span><input type="range" min="10" max="100" value="${NOISE.limit}" data-action-input="noise-limit"></label>
+      <label class="fld"><span>Too-loud limit${S.settings.noiseDyn ? ` <b class="dyn" id="nm-limdyn">${dynOf(NOISE.limit)}</b>` : ''}</span><input type="range" min="10" max="100" value="${NOISE.limit}" data-action-input="noise-limit"></label>
+      <label class="chk"><input type="checkbox" ${S.settings.noiseDyn ? 'checked' : ''} data-action-change="noise-dyn"> Show as dynamics (pp p mp mf f ff)</label>
       <label class="chk"><input type="checkbox" ${NOISE.beep ? 'checked' : ''} data-action-change="noise-beep"> Chime when too loud</label>
       ${NOISE.stream ? '<button class="btn" data-action="noise-stop">Stop microphone</button>' : '<button class="btn primary" data-action="noise-start">Start microphone</button>'}`;
     case 'random': {
@@ -3136,6 +3441,9 @@ async function noiseStart() {
   rerenderTool('noise');
 }
 function noiseStop() { NOISE.stream?.getTracks().forEach(t => t.stop()); NOISE.stream = null; NOISE.analyser = null; rerenderTool('noise'); }
+// noise level (0–100) as a music dynamic, pp … ff, in six equal bands
+const DYNAMICS = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
+const dynOf = L => DYNAMICS[clamp(Math.floor(L / (100 / 6)), 0, 5)];
 function tickNoise() {
   if (!NOISE.analyser || !P.tools.noise) return;
   NOISE.analyser.getFloatTimeDomainData(NOISE.buf);
@@ -3147,7 +3455,10 @@ function tickNoise() {
   const L = NOISE.level, lim = NOISE.limit;
   bar.style.width = L + '%';
   bar.style.background = L > lim ? '#e63946' : L > lim * 0.75 ? '#f4a261' : '#2a9d8f';
-  lab.innerHTML = L > lim ? IC('ico:loud') + ' Too loud!' : L > lim * 0.75 ? IC('ico:mid') + ' Getting loud' : L > lim * 0.4 ? IC('ico:good') + ' Good' : IC('ico:mute') + ' Quiet';
+  const html = S.settings.noiseDyn
+    ? `<span class="dyn">${dynOf(L)}</span>${L > lim ? ` <span class="dyn-warn">${IC('ico:loud')} Too loud (limit ${dynOf(lim)})</span>` : ''}`
+    : L > lim ? IC('ico:loud') + ' Too loud!' : L > lim * 0.75 ? IC('ico:mid') + ' Getting loud' : L > lim * 0.4 ? IC('ico:good') + ' Good' : IC('ico:mute') + ' Quiet';
+  if (lab.__h !== html) { lab.__h = html; lab.innerHTML = html; }
   if (L > lim && NOISE.beep && Date.now() - NOISE.warnAt > 5000) { NOISE.warnAt = Date.now(); playSound('ding'); }
 }
 
@@ -3611,10 +3922,10 @@ function eventsTab() {
       <button class="btn small" data-action="ev-add" data-kind="birthday">+ Birthday</button><button class="btn small" data-action="ev-add" data-kind="announcement">+ Announcement</button><button class="btn small" data-action="ev-add" data-kind="event">+ Event</button>
       <button class="btn small" data-action="ev-ics">Import calendar (.ics)…</button></div>
     <p class="desc">Today's events show on the Present screen — for all classes, or only the classes you tick under "Show in". Add a time to pop it up full-screen at that moment (birthdays get confetti). Tip: in Google Calendar, use Settings → Import & export → Export to get an .ics file.</p>
-    ${list.length ? `<table class="tbl"><tr><th style="width:130px">Type</th><th style="width:150px">Date</th><th>Title / name</th><th style="width:120px">Pop-up time</th><th style="width:80px">Yearly</th><th style="width:170px">Show in</th><th style="width:30px"></th></tr>
+    ${list.length ? `<table class="tbl"><tr><th style="width:130px">Type</th><th style="width:150px">Date</th><th>Title / name</th><th style="width:120px">Pop-up time</th><th style="width:170px">Repeats</th><th style="width:170px">Show in</th><th style="width:30px"></th></tr>
     ${list.map(e => { const k = S.events.indexOf(e); return `<tr><td><select data-bind="events.${k}.kind"><option value="birthday" ${e.kind === 'birthday' ? 'selected' : ''}>Birthday</option><option value="announcement" ${e.kind === 'announcement' ? 'selected' : ''}>Announcement</option><option value="event" ${e.kind === 'event' ? 'selected' : ''}>Event</option></select></td>
       <td><input type="date" data-bind="events.${k}.date" value="${e.date || ''}"></td><td><input data-bind="events.${k}.title" value="${esc(e.title)}"></td>
-      <td><input type="time" data-bind="events.${k}.time" value="${e.time || ''}"></td><td><input type="checkbox" data-bind="events.${k}.yearly" ${e.yearly ? 'checked' : ''}></td>
+      <td><input type="time" data-bind="events.${k}.time" value="${e.time || ''}"></td><td>${repeatSel(e, `data-ev-repeat="${e.id}"`)}${evRepeat(e) && evRepeat(e) !== 'yearly' ? `<div class="small muted" style="margin-top:3px">until <input type="date" data-bind="events.${k}.until" value="${e.until || ''}" title="Last day (empty = forever)"></div>` : ''}</td>
       <td><details class="ev-cls"><summary>${esc(evWhere(e))}</summary><label><input type="checkbox" data-ev-all="${e.id}" ${!e.classes?.length ? 'checked' : ''}> All classes</label>
         ${S.classes.map(c => `<label><input type="checkbox" data-ev-cls="${e.id}" data-c="${c.id}" ${e.classes?.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</details></td>
       <td><button class="iconbtn" data-action="ev-del" data-k="${k}">${IC('ico:close')}</button></td></tr>`; }).join('')}</table>` : '<div class="empty">No events yet.</div>'}
@@ -3679,7 +3990,8 @@ function settingsTab() {
     <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
   <div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
     <div class="row"><span style="width:9em">Playhead delay</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay" style="flex:1;max-width:320px"><b class="av-val">${avDelayMs()} ms</b><button class="btn" data-action="av-cal">Calibrate…</button></div>
-    <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button></div></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div></div>
   <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or iPad (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
     <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
 }
@@ -3808,8 +4120,11 @@ const A = {
     renderTools(); placeTool(n, !saved); renderDock();
   },
   'tool-close': el => { const n = el.dataset.tool; delete P.tools[n]; if (n === 'noise') noiseStop(); renderTools(); renderDock(); },
-  'quick-timer': el => { const m = Number(el.dataset.m); startTimer({ label: m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`, minutes: m, sound: 'bell' }); },
-  'custom-timer': () => startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: $('#tt-sound').value }),
+  'quick-timer': el => { const m = Number(el.dataset.m), T = S.settings.timerTool || {}; startTimer({ label: m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`, minutes: m, sound: T.sound || 'bell' }); },
+  'custom-timer': () => { const T = S.settings.timerTool || {}; startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: T.sound || $('#tt-sound').value }); },
+  'tt-step': el => { const T = (S.settings.timerTool ||= {}), i = $('#tt-min'); T.min = Math.max(0.5, Math.round(((Number(i?.value) || 0) + Number(el.dataset.d)) * 2) / 2); if (i) i.value = T.min; save(); },
+  'tt-mute': () => { const T = (S.settings.timerTool ||= {}); if (T.sound === 'none') T.sound = T.lastSound || 'bell'; else { T.lastSound = T.sound || 'bell'; T.sound = 'none'; } save(); rerenderTool('timer'); },
+  'timer-mute': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; if (tm.sound === 'none') { tm.sound = S.settings.timerTool?.lastSound || 'bell'; tm.muted = false; } else tm.muted = !tm.muted; renderTimers(); },
   'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); },
   'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); },
   'timer-x': el => { P.timers = P.timers.filter(t => t.id !== el.dataset.id); renderTimers(); },
@@ -3865,6 +4180,12 @@ const A = {
   'vol-test': () => { const c = ac(); c.resume?.(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut()); o.start(t); o.stop(t + 0.55); }); },
   'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
   'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'rec' }); w.w = 0.42; w.h = 0.7; save(); applyWinGeom(); },
+  'side-prog-exp': () => { const c = context(now()).cls; if (!c) return; c.sideProgOpen = !c.sideProgOpen; save(); P.sideKey = ''; },
+  'side-prog-chk': el => {
+    const c = context(now()).cls, it = c?.progress?.find(i => i.id === el.dataset.iid), s = it?.steps?.find(x => x.id === el.dataset.sid); if (!s) return;
+    s.done = !s.done; it.updated = Date.now(); if (s.done && it.status === 'red') it.status = 'yellow';
+    save(); P.sideKey = ''; refreshWidgetsKeep('prog');
+  },
   'wm-prog': () => { const ex = winList().find(w => w.kind === 'prog'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
@@ -3974,14 +4295,15 @@ const A = {
     const kind = $('[data-ie-evkind]').value, title = $('[data-ie-evtext]').value.trim(), time = $('[data-ie-evtime]').value;
     if (!title) return toast('Type the announcement or name first.');
     const who = $('[data-ie-evwho]')?.value, c = ieClass();
-    S.events.push({ id: uid(), kind, date: dateKey(now()), title, time, yearly: kind === 'birthday', classes: who === 'this' && c ? [c.cls.id] : [] }); save(); P.sideKey = '';
+    const rep = $('[data-ie-evrep]')?.value || (kind === 'birthday' ? 'yearly' : '');
+    S.events.push({ id: uid(), kind, date: dateKey(now()), title, time, repeat: rep, yearly: rep === 'yearly', classes: who === 'this' && c ? [c.cls.id] : [] }); save(); P.sideKey = '';
   },
   'ie-ev-del': el => { document.activeElement?.blur?.(); S.events = S.events.filter(e => e.id !== el.dataset.id); save(); P.sideKey = ''; },
   'clip-open': () => { P.clipOpen = !P.clipOpen; P.clipSel = null; renderClip(); if (VIEW === 'present') renderDock(); },
   'clip-copy': () => clipCopy(),
-  'clip-paste': el => clipPaste(el.dataset.ag),
-  'clip-all': () => { const c = clipClass(); if (!c) return; P.clipSel = { cls: c.id, tabs: new Set(c.resources.map(r => r.id)), agenda: c.agenda.length > 0, warmup: !!c.warmup, look: true }; renderClip(); },
-  'clip-none': () => { const c = clipClass(); if (!c) return; P.clipSel = { cls: c.id, tabs: new Set(), agenda: false, warmup: false, look: false }; renderClip(); },
+  'clip-paste': () => clipPaste(),
+  'clip-all': () => clipSelectAll(true),
+  'clip-none': () => clipSelectAll(false),
   'icons-open': () => { P.iconsOpen = !P.iconsOpen; P.dockCustom = false; if (typeof renderDockCustom === 'function') renderDockCustom(); renderIcons(); },
   'icons-reset': () => { if (!confirm('Put every icon back to the default?')) return; S.settings.icons = {}; for (const c of S.classes) for (const r of c.resources) delete r.icon; save(); P.stageKey = ''; P.sideKey = ''; WIN.sig = ''; renderDock(); renderIcons(); },
   'look-open': () => { P.lookOpen = !P.lookOpen; P.autoDrawer = false; renderAutoDrawer(); renderLook(); },
@@ -4072,7 +4394,7 @@ const A = {
   // events
   'ev-add': el => { const kind = el.dataset.kind; S.events.push({ id: uid(), kind, date: dateKey(new Date()), title: '', time: '', yearly: kind === 'birthday' }); save(); renderEditor(); const ins = $$('input[data-bind$=".title"]'); },
   'ev-del': el => { S.events.splice(el.dataset.k, 1); save(); renderEditor(); },
-  'ev-clear-past': () => { const k = dateKey(new Date()); S.events = S.events.filter(e => e.yearly || !e.date || e.date >= k); save(); renderEditor(); },
+  'ev-clear-past': () => { const k = dateKey(new Date()); S.events = S.events.filter(e => (evRepeat(e) && (!e.until || e.until >= k)) || !e.date || e.date >= k); save(); renderEditor(); },
   'ev-ics': async () => {
     const [f] = await pickFile('.ics,text/calendar'); if (!f) return;
     const evs = parseICS(await f.text()); const existing = new Set(S.events.map(e => e.date + '|' + e.title));
@@ -4142,6 +4464,8 @@ const CHANGE = {
   pin: el => { P.pinned = el.value || null; P.layoutKey = ''; renderDock(); },
   'ink-size': el => { P.ink.size = Number(el.value); },
   'noise-beep': el => { NOISE.beep = el.checked; },
+  'noise-dyn': el => { S.settings.noiseDyn = el.checked; save(); rerenderTool('noise'); },
+  'tt-sound': el => { const T = (S.settings.timerTool ||= {}); T.sound = el.value; if (el.value !== 'none') T.lastSound = el.value; save(); rerenderTool('timer'); },
   'rand-norep': el => { R.noRepeat = el.checked; R.used.clear(); },
   'note-class': el => { NOTE_CLASS = el.value; renderEditor(); },
   'note-date': el => { if (el.value) { NOTE_DATE = el.value; renderEditor(); } },
@@ -4155,8 +4479,9 @@ const CHANGE = {
 const INPUT = {
   'music-vol': el => { setMusicVol(+el.value); el.nextElementSibling.textContent = Math.round(+el.value * 100) + '%'; },
   'av-delay': el => { const ms = setAvDelay(+el.value); el.nextElementSibling.textContent = ms + ' ms'; },
-  'noise-limit': el => { NOISE.limit = Number(el.value); const l = $('#nm .lim'); if (l) l.style.left = NOISE.limit + '%'; },
+  'noise-limit': el => { NOISE.limit = Number(el.value); const l = $('#nm .lim'); if (l) l.style.left = NOISE.limit + '%'; const d = $('#nm-limdyn'); if (d) d.textContent = dynOf(NOISE.limit); },
   'rand-n': el => { R.groupN = clamp(Number(el.value) || 4, 2, 12); },
+  'tt-field': el => { const T = (S.settings.timerTool ||= {}); T[el.dataset.k] = el.dataset.k === 'min' ? (Number(el.value) || T.min) : el.value; save(); },
 };
 let DRIVE_TARGET = null;
 const selClass = () => S.classes.find(c => c.id === SEL_CLASS);
