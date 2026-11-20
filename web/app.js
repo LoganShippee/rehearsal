@@ -350,11 +350,17 @@ function ac() { if (!AC) { audioSession('playback'); AC = new (window.AudioConte
 // it stays in a record mode that makes everything quieter. Ask for normal playback, switch to record mode
 // only while a microphone is actually on, and switch back when the last one stops.
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !window.webkit?.messageHandlers?.native);
-function audioSession(type) { try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { } }
+function audioSession(type) { if (!IS_IOS) return; try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { } }
 (() => {
-  const md = navigator.mediaDevices; if (!md?.getUserMedia || !navigator.audioSession) return;
+  const md = navigator.mediaDevices; if (!IS_IOS || !md?.getUserMedia || !navigator.audioSession) return;   // iPad / iPhone only: the Mac app manages its own audio
   const live = new Set(), gum = md.getUserMedia.bind(md);
-  md.getUserMedia = async c => { if (c?.audio) audioSession('play-and-record'); const s = await gum(c); s.getAudioTracks().forEach(t => live.add(t)); return s; };
+  md.getUserMedia = async c => {
+    if (c?.audio) audioSession('play-and-record');
+    let s; try { s = await gum(c); } catch (e) { audioSession('auto'); s = await gum(c); }
+    s.getAudioTracks().forEach(t => live.add(t));
+    if (AC && AC.state !== 'running') AC.resume().catch(() => { });   // switching modes can pause the sound engine
+    return s;
+  };
   const stop = MediaStreamTrack.prototype.stop;
   MediaStreamTrack.prototype.stop = function () { stop.call(this); if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) { live.clear(); setTimeout(() => { if (!live.size) audioSession('playback'); }, 50); } };
 })();
@@ -4031,7 +4037,7 @@ function calibrateSync() {
     const m = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
     const ms = setAvDelay(m * 1000);
     st.innerHTML = `Done: <b>${ms} ms</b> on this ${DEVICE}.`; pad.disabled = true; box.querySelector('[data-av="close"]').textContent = 'Close';
-    const v = document.querySelector('[data-action-input="av-delay"]'); if (v) { v.value = ms; v.nextElementSibling.textContent = ms + ' ms'; }
+    document.querySelectorAll('[data-action-input="av-delay"]').forEach(v => { v.value = ms; v.nextElementSibling.textContent = ms + ' ms'; });
   };
   pad.addEventListener('pointerdown', e => { e.preventDefault(); tap(e); });
   box.querySelector('[data-av="close"]').onclick = () => box.remove();
