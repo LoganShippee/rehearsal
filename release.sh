@@ -7,7 +7,7 @@
 #
 # What it does: runs the grader tests, raises the version, commits everything, builds, zips the app and
 # the web/ folder, writes latest.json (signed with your release key) and uploads them as a GitHub
-# release. If anything in native/ or build.sh changed since the last release, the "native" number goes
+# release. If anything in native/, build.sh or the Mac icon changed since the last release, the "native" number goes
 # up too, and users get "Install and reopen" instead of a quiet web update.
 set -e
 cd "$(dirname "$0")"
@@ -37,7 +37,8 @@ if git rev-parse -q --verify "refs/tags/v$OLD" >/dev/null; then
   IFS=. read -r MA MI PA <<< "$OLD"
   case $bump in major) NEW="$((MA + 1)).0.0";; minor) NEW="$MA.$((MI + 1)).0";; *) NEW="$MA.$MI.$((PA + 1))";; esac
   # the app shell changed since the last release → users need the whole app, not just web files
-  git diff --quiet "v$OLD" -- native build.sh || NATIVE=$((NATIVE + 1))
+  # (the Mac icon lives inside the app too)
+  git diff --quiet "v$OLD" -- native build.sh icon/AppIcon.icns || NATIVE=$((NATIVE + 1))
   [[ -n "$NOTES" ]] || NOTES=$(git log --format='- %s' "v$OLD"..HEAD | grep -v '^- Release v' || true)
 else
   NEW="$OLD"                                     # the very first release

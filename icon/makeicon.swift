@@ -1,7 +1,7 @@
 // Renders Rehearsal's app icon. Several designs; pick one with the style argument.
 //   swift icon/makeicon.swift <out.iconset> <style>        all sizes, for iconutil
 //   swift icon/makeicon.swift --preview <out.png> <style>   one 512 px preview
-// Styles: R (in use), rbaton, baton, stand, notes, check
+// Styles: R, rbaton, baton, stand, notes, check (older designs; the icon in use is made by icon/fromimage.swift)
 import Cocoa
 
 let args = CommandLine.arguments

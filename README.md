@@ -20,7 +20,7 @@ The web version keeps its classes and files in that browser on that device only.
 - `./build.sh --install` builds `build/Rehearsal.app` and copies it into Applications (for trying changes on your own Mac).
 - `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds, signs and uploads, and publishes the web folder to GitHub Pages (the iPad version). If anything in `native/` or `build.sh` changed, users get a full app update; otherwise only the web files.
 - **Release key:** `~/.rehearsal/release-key` signs every update. **Back it up** (e.g. in a password manager). Without it you can't publish updates that existing copies will accept. Never put it in the repository. The matching public key is `release/public-key.txt`.
-- `tests/run.sh` runs the grader tests. `swift icon/makeicon.swift --preview out.png <style>` previews icon designs.
+- `tests/run.sh` runs the grader tests. The app icon's artwork is `icon/source-1024.png` (made with IconKitchen; its web icons are in `web/`). To rebuild the Mac icon from it: `swift icon/fromimage.swift icon/source-1024.png build/AppIcon.iconset && iconutil -c icns build/AppIcon.iconset -o icon/AppIcon.icns`.
 - The app's internal ID (`local.classpilot.app`) and data folder (`~/Library/Application Support/ClassPilot/`) keep the app's old name on purpose, so permissions, sign-ins and data carry over.
 
 ## What's in it
