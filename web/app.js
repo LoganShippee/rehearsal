@@ -2836,6 +2836,7 @@ async function webUpdateCheck(manual) {
   if (IS_NATIVE) return;
   if (!WEB_VERSION) { if (manual) { UPD = { ...UPD, state: 'error', message: "This copy has no version number (it wasn't built by release.sh)." }; refreshUpdateUI(); } return; }
   if (manual) { UPD = { ...UPD, state: 'checking' }; refreshUpdateUI(); }
+  WEB_CHECKED = Date.now();
   try {
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
     const v = await r.json();
@@ -2844,7 +2845,15 @@ async function webUpdateCheck(manual) {
   } catch { if (manual) UPD = { ...UPD, state: 'error', message: "Couldn't check for updates. Check the internet connection and try again." }; }
   refreshUpdateUI();
 }
-if (!IS_NATIVE) setInterval(() => webUpdateCheck(false), 4 * 3600 * 1000);   // open all day: still notice new releases
+// A Home Screen app left open isn't reloaded when you switch back to it, so check when it comes back on screen
+// (at most every 10 minutes) and every 4 hours while it stays open.
+let WEB_CHECKED = Date.now();
+if (!IS_NATIVE) {
+  setInterval(() => webUpdateCheck(false), 4 * 3600 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - WEB_CHECKED > 10 * 60 * 1000) webUpdateCheck(false);
+  });
+}
 window.__updateState = st => { const dismissed = UPD.dismissed; UPD = { ...st, dismissed }; refreshUpdateUI(); };
 
 function backupLabel(n) {
