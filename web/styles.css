@@ -966,3 +966,56 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .agenda li .ag-prog { position: absolute; left: .6em; right: .6em; bottom: 3px; height: 3px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 25%, transparent); overflow: hidden; }
 .agenda li .ag-prog i { display: block; height: 100%; background: var(--bg); opacity: .7; border-radius: 3px; transition: width 1s linear; }
 .pub-note { white-space: pre-wrap; font-size: 1.05em; line-height: 1.4; }
+
+/* ---------- Setup header: the tabs wrap instead of running off a narrow screen; the version next to the name */
+.e-top { flex-wrap: wrap; row-gap: 6px; }
+.tabs { min-width: 0; flex-wrap: wrap; }
+html.web .e-top { padding-left: 16px; }
+.brand { white-space: nowrap; }
+.brand .ver { font-weight: 500; font-size: 12px; color: var(--e-muted); margin-left: 4px; }
+
+/* ---------- calendar & progress windows (same surface as the tuner / metronome) */
+.wg-host { position: absolute; inset: 0; overflow: auto; background: var(--surface, var(--card)); color: var(--text); }
+.wg-host button { font: inherit; color: inherit; background: rgba(255,255,255,.1); border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.wg-host button:hover { background: rgba(255,255,255,.2); }
+.cal { display: flex; flex-direction: column; height: 100%; padding: 12px; box-sizing: border-box; gap: 8px; }
+.cal-top { display: flex; align-items: center; gap: 10px; font-size: 1.25em; }
+.cal-top button { font-size: .8em; min-width: 36px; }
+.cal-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; min-height: 0; }
+.cal-w { font-size: .75em; font-weight: 700; opacity: .6; text-transform: uppercase; letter-spacing: .05em; padding: 0 4px; }
+.cal-d { background: rgba(255,255,255,.07); border-radius: 8px; padding: 4px 6px; overflow: hidden; min-height: 52px; font-size: .8em; display: flex; flex-direction: column; gap: 2px; }
+.cal-d.off { background: rgba(0,0,0,.18); }
+.cal-d.out { opacity: .4; }
+.cal-d.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-d.today .cal-n { background: var(--accent); color: var(--bg); border-radius: 99px; padding: 0 7px; align-self: flex-start; }
+.cal-n { font-weight: 700; font-size: 1.1em; }
+.cal-sp { font-size: .85em; font-weight: 700; color: var(--accent); }
+.cal-ev { display: flex; gap: 4px; align-items: flex-start; overflow: hidden; line-height: 1.2; max-height: 2.4em; }
+.cal-ev .ico { margin-top: 1px; }
+.cal-ev .ico { width: 12px; height: 12px; flex: none; }
+.cal-ev.note { opacity: .75; font-style: italic; }
+.cal-key { font-size: .75em; opacity: .55; }
+
+.prog { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.prog-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: .9em; }
+.prog-sum { display: inline-flex; align-items: center; gap: 6px; }
+.prog-add { font-weight: 700; }
+.prog-list { display: flex; flex-direction: column; gap: 8px; }
+.prog-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.07); border-left: 6px solid transparent; }
+.prog-item.green { border-left-color: #2fbf5b; }
+.prog-item.yellow { border-left-color: #f2c230; }
+.prog-item.red { border-left-color: #e5484d; }
+.light { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+.light.green { background: #2fbf5b; box-shadow: 0 0 10px #2fbf5b88; }
+.light.yellow { background: #f2c230; box-shadow: 0 0 10px #f2c23088; }
+.light.red { background: #e5484d; box-shadow: 0 0 10px #e5484d88; }
+.wg-host button.light { width: 34px; height: 34px; padding: 0; border-radius: 50%; margin-top: 2px; }
+.wg-host button.light.green { background: #2fbf5b; } .wg-host button.light.yellow { background: #f2c230; } .wg-host button.light.red { background: #e5484d; }
+.prog-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.prog-row { display: flex; align-items: center; gap: 10px; }
+.prog-title { flex: 1; min-width: 0; font: inherit; font-size: 1.2em; font-weight: 700; background: transparent; border: none; color: inherit; padding: 2px 0; outline: none; }
+.prog-title:focus, .prog-notes:focus { background: rgba(255,255,255,.08); border-radius: 6px; }
+.prog-st { font-size: .8em; font-weight: 700; opacity: .8; white-space: nowrap; }
+.prog-x { opacity: .45; padding: 4px 6px !important; }
+.prog-notes { font: inherit; font-size: .95em; background: transparent; border: none; color: inherit; opacity: .85; resize: none; outline: none; padding: 2px 0; overflow: hidden; }
+.prog-empty { opacity: .65; padding: 12px 4px; line-height: 1.5; }

@@ -143,7 +143,7 @@ function migrate(d) {
   for (const k of ['weekdays', 'overrides', 'files', 'windows']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   for (const c of d.classes) {
     c.theme ||= { ...THEMES[0] }; c.agenda ||= []; c.resources ||= []; c.roster ||= []; c.automations ||= [];
-    c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {}; c.screenNotes ||= {};
+    c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {}; c.screenNotes ||= {}; c.progress ||= [];
   }
   return d;
 }
@@ -539,7 +539,8 @@ function kindIcon(k) { return icoCfg().kind?.[k] ?? KIND_ICON[k] ?? 'ico:attach'
 function resIcon(r) { return r.icon || kindIcon(resKind(r)); }
 function tabIcon(r) { return iconOn('tabs') ? icoSp(resIcon(r)) : ''; }
 function resKind(r) {
-  if (r.music) return r.music.kind;              // a pinned tuner / metronome
+  if (r.music) return r.music.kind;
+  if (r.widget) return r.widget.kind;               // a pinned calendar / progress tracker              // a pinned tuner / metronome
   if (r.sight) return 'sight';
   if (r.score) return 'score';
   if (r.fileId) { const f = S.files[r.fileId]; return f ? (f.mime.startsWith('image/') ? 'image' : f.mime === 'application/pdf' ? 'pdf' : f.mime.startsWith('video/') ? 'video' : f.mime.startsWith('audio/') ? 'audio' : 'file') : 'missing'; }
@@ -553,7 +554,7 @@ function resKind(r) {
   if (/canva\.com/.test(u)) return 'canva';
   return 'web';
 }
-const KIND_ICON = { tuner: 'ico:tuner', metro: 'ico:metro', sight: 'ico:sight', score: 'ico:score', slides: 'ico:slides', doc: 'ico:doc', sheet: 'ico:sheet', form: 'ico:form', drive: 'ico:folder', youtube: 'ico:youtube', canva: 'ico:look', web: 'ico:web', pdf: 'ico:file', image: 'ico:image', video: 'ico:video', audio: 'ico:audio', file: 'ico:attach', missing: 'ico:warn' };
+const KIND_ICON = { cal: 'ico:events', prog: 'ico:gauge', tuner: 'ico:tuner', metro: 'ico:metro', sight: 'ico:sight', score: 'ico:score', slides: 'ico:slides', doc: 'ico:doc', sheet: 'ico:sheet', form: 'ico:form', drive: 'ico:folder', youtube: 'ico:youtube', canva: 'ico:look', web: 'ico:web', pdf: 'ico:file', image: 'ico:image', video: 'ico:video', audio: 'ico:audio', file: 'ico:attach', missing: 'ico:warn' };
 const isGoogle = r => /google\.com/.test(r.url || '');
 
 // ============================================================ render root
@@ -566,7 +567,7 @@ function render() {
   if (VIEW === 'present') renderPresent(); else { renderEditor(); syncNative(); }
 }
 function go(view) {
-  VIEW = view; P.winMenu = false; P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
+  VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
   if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; }
   render();
 }
@@ -622,6 +623,8 @@ const DOCK_ITEMS = {
   tuner: { icon: 'ico:tuner', label: 'Tuner', act: 'open-music', kind: 'tuner', on: () => winList().some(w => w.kind === 'tuner') },
   metro: { icon: 'ico:metro', label: 'Metronome', act: 'open-music', kind: 'metro', on: () => winList().some(w => w.kind === 'metro') },
   sight: { icon: 'ico:sight', label: 'Sight read', act: 'wm-sight' },
+  cal: { icon: 'ico:events', label: 'Calendar', act: 'wm-cal', on: () => winList().some(w => w.kind === 'cal') },
+  prog: { icon: 'ico:gauge', label: 'Progress', act: 'wm-prog', on: () => winList().some(w => w.kind === 'prog') },
   score: { icon: 'ico:score', label: 'Scores', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
   window: { icon: '＋', label: 'Window', act: 'win-menu', on: () => P.winMenu },
@@ -636,9 +639,10 @@ const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate'
 function dockCfg() {
   const d = (S.settings.dock ||= {});
   d.order ||= [...DOCK_DEFAULT];
+  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
-  d.menu ||= ['score', 'clip', 'tile'];                // shown in the ⋯ menu instead of on the bar
+  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog'];                // shown in the ⋯ menu instead of on the bar
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
   return d;
@@ -868,7 +872,7 @@ function tick() {
   // auto-hide dock & cursor
   const hideAfter = S.settings.hideDockAfter ?? 3, since = Date.now() - P.lastMove;
   const anyTool = Object.keys(P.tools).length || P.ink.on || P.winMenu || WIN.drag || P.dockCustom || P.dockMore || DOCKDRAG || P.editMode || P.iconsOpen;
-  $('#p-dock').classList.toggle('hidden', hideAfter > 0 && since > hideAfter * 1000 && !anyTool);
+  $('#p-dock').classList.toggle('hidden', hideAfter > 0 && Date.now() - (P.dockNear || 0) > hideAfter * 1000 && !anyTool);
   root.classList.toggle('hide-cursor', since > 3000 && !anyTool);
   if (!!P.music !== !!$('#p-dock [data-action="music-stop"]')) renderDock();
 }
@@ -909,7 +913,7 @@ function updateClassBody(ctx, t) {
   // warm-up tab removed for this class: show the first tab instead
   if (cls.hideWarmup && !cls.resources.some(r => r.id === sel)) sel = cls.resources[0]?.id || 'warmup';
   const res = cls.resources.find(r => r.id === sel);
-  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.music, !!res.native], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup]);
+  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.music, !!res.widget, !!res.native], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup]);
   if (stageKey !== P.stageKey && !ieFocused('#stage-content')) {
     P.stageKey = stageKey;
     $('#stage-tabs').innerHTML = `
@@ -922,6 +926,8 @@ function updateClassBody(ctx, t) {
     const sc = $('#stage-content');
     if (res && res.sight) {
       sc.innerHTML = `<div class="sr-host stage-sr" data-sr-res="${res.id}"></div>`; mountSightHosts(sc);
+    } else if (res && res.widget) {
+      sc.innerHTML = widgetHost(res.widget.kind, 'stage-wg'); mountWidgets(sc);
     } else if (res && res.music) {
       sc.innerHTML = `<div class="mu-host stage-mu" data-mu-win="r-${res.id}" data-mu-res="${res.id}"></div>`; mountSightHosts(sc);
     } else if (res && res.score) {
@@ -991,6 +997,7 @@ function mountSightHosts(root = document) {
       const fid = w.kind === 'file' ? w.fileId : winRes(w)?.fileId; if (fid) mountPdf(h, fileDirectURL(fid), (w.pdf ||= {}), () => save());
     }
   }
+  mountWidgets(root);
   if (typeof mountTuner === 'function') for (const h of root.querySelectorAll('[data-mu-win]')) {
     const id = h.dataset.muWin; let kind, st;
     if (h.dataset.muRes) { const r = findRes(h.dataset.muRes); if (!r?.music) continue; kind = r.music.kind; st = (r.music.mu ||= muDefaults(kind)); }   // pinned to a class
@@ -998,12 +1005,78 @@ function mountSightHosts(root = document) {
     (kind === 'tuner' ? mountTuner : mountMetronome)(h, st, () => save(), id);
   }
 }
+// ============================================================ calendar & progress windows
+const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' } };
+const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
+function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) (h.dataset.wg === 'cal' ? renderCal : renderProg)(h); }
+const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => (kind === 'cal' ? renderCal : renderProg)(h));
+
+/** Month view: today, days off, special bell schedules, and events / birthdays / announcements. */
+function renderCal(h) {
+  const t = now(), off = h.__off || 0, cls = currentClass();
+  const first = new Date(t.getFullYear(), t.getMonth() + off, 1), month = first.getMonth();
+  const start = new Date(first); start.setDate(1 - first.getDay());
+  const last = new Date(first.getFullYear(), month + 1, 0), weeks = Math.ceil((first.getDay() + last.getDate()) / 7);
+  const todayK = dateKey(t);
+  let cells = '';
+  for (let i = 0; i < weeks * 7; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const k = dateKey(d), tmpl = templateFor(d), special = k in S.overrides;
+    const evs = eventsOn(d, cls || undefined), note = cls?.screenNotes?.[k]?.trim();
+    cells += `<div class="cal-d ${d.getMonth() !== month ? 'out' : ''} ${k === todayK ? 'today' : ''} ${tmpl ? '' : 'off'}">
+      <div class="cal-n">${d.getDate()}</div>
+      ${special ? `<div class="cal-sp">${esc(tmpl ? tmpl.name : 'No school')}</div>` : ''}
+      ${evs.map(e => `<div class="cal-ev ${e.kind || ''}">${IC(EVENT_ICON[e.kind] || 'ico:events')}${esc(eventLabel(e))}</div>`).join('')}
+      ${note ? `<div class="cal-ev note">${IC('ico:notes')}${esc(note.split('\n')[0])}</div>` : ''}</div>`;
+  }
+  h.innerHTML = `<div class="cal">
+    <div class="cal-top"><button data-cal="-1">‹</button><b>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button data-cal="1">›</button>
+      <span class="grow"></span>${off ? '<button data-cal="0">Today</button>' : ''}</div>
+    <div class="cal-grid" style="grid-template-rows: auto repeat(${weeks}, 1fr)">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="cal-w">${w}</div>`).join('')}${cells}</div>
+    <div class="cal-key">Grey days have no school. Add events, birthdays and special days in Setup (Events, Bell schedule).</div></div>`;
+  h.onclick = e => { const b = e.target.closest('[data-cal]'); if (!b) return; e.stopPropagation(); const v = Number(b.dataset.cal); h.__off = v ? off + v : 0; renderCal(h); };
+}
+
+/** Pieces (or anything) with a traffic light: green = concert ready, yellow = still working, red = haven't started. */
+const PROG = { green: 'Concert ready', yellow: 'Still working', red: "Haven't started" };
+function renderProg(h) {
+  const cls = currentClass();
+  if (!cls) { h.innerHTML = '<div class="prog"><div class="prog-empty">Progress is kept for each class. Show a class first (Class picker in the toolbar).</div></div>'; return; }
+  const items = (cls.progress ||= []), count = k => items.filter(i => i.status === k).length;
+  h.innerHTML = `<div class="prog">
+    <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${PROG[k]} <b>${count(k)}</b></span>`).join('')}
+      <span class="grow"></span><button class="prog-add" data-pg="add">＋ Add</button></div>
+    <div class="prog-list">${items.map(it => `<div class="prog-item ${it.status}" data-pg-id="${it.id}">
+      <button class="light ${it.status}" data-pg="cycle" title="${PROG[it.status]}: click to change"></button>
+      <div class="prog-main"><div class="prog-row"><input class="prog-title" data-pg-f="title" value="${esc(it.title)}" placeholder="Piece or task"><span class="prog-st">${PROG[it.status]}</span>
+        <button class="prog-x" data-pg="del" title="Remove">${IC('ico:close')}</button></div>
+        <textarea class="prog-notes" data-pg-f="notes" rows="1" placeholder="What still needs to be done…">${esc(it.notes || '')}</textarea></div></div>`).join('')
+      || '<div class="prog-empty">Nothing yet. Press ＋ Add for each piece you\'re working on, then click its light: red (haven\'t started) → yellow (still working) → green (concert ready).</div>'}</div></div>`;
+  h.querySelectorAll('.prog-notes').forEach(fitNotes);
+  h.onclick = e => {
+    const b = e.target.closest('[data-pg]'); if (!b) return; e.stopPropagation();
+    const id = b.closest('[data-pg-id]')?.dataset.pgId, it = items.find(i => i.id === id);
+    if (b.dataset.pg === 'add') { items.push({ id: uid(), title: '', status: 'red', notes: '' }); save(); refreshWidgets('prog'); h.querySelector('.prog-item:last-child .prog-title')?.focus(); return; }
+    if (b.dataset.pg === 'cycle' && it) it.status = { red: 'yellow', yellow: 'green', green: 'red' }[it.status] || 'red';
+    if (b.dataset.pg === 'del' && it && (!it.title && !it.notes || confirm(`Remove “${it.title || 'this item'}”?`))) items.splice(items.indexOf(it), 1);
+    save(); refreshWidgets('prog');
+  };
+  h.oninput = e => {
+    const f = e.target.dataset.pgF; if (!f) return;
+    const it = items.find(i => i.id === e.target.closest('[data-pg-id]')?.dataset.pgId); if (!it) return;
+    it[f] = e.target.value; if (f === 'notes') fitNotes(e.target); save();
+  };
+}
+function fitNotes(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
   if (w.kind === 'tuner') return 'Tuner & drone';
   if (w.kind === 'metro') return 'Metronome';
+  if (w.kind === 'cal') return 'Calendar';
+  if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
   if (w.kind === 'file') return S.files[w.fileId]?.name || 'File';
@@ -1021,6 +1094,7 @@ function winIcon0(w) {
   if (w.kind === 'score') return 'ico:score';
   if (w.kind === 'tuner') return 'ico:tuner';
   if (w.kind === 'metro') return 'ico:metro';
+  if (w.kind === 'cal' || w.kind === 'prog') return WIDGETS[w.kind].icon;
   if (w.kind === 'app') return 'ico:app';
   if (w.kind === 'warmup') return 'ico:warmup';
   if (w.kind === 'file') { const r = { fileId: w.fileId }; return kindIcon(resKind(r)); }
@@ -1050,6 +1124,8 @@ function winBodyHTML(w) {
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
+  if (w.kind === 'cal' || w.kind === 'prog') return widgetHost(w.kind);
+  if (w.kind === 'res' && winRes(w)?.widget) return widgetHost(winRes(w).widget.kind);
   if (w.kind === 'res' && winRes(w)?.music) return `<div class="mu-host" data-mu-win="r-${w.resId}-w${w.id}" data-mu-res="${w.resId}"></div>`;
   if (w.kind === 'res' && winRes(w)?.sight) return `<div class="sr-host" data-sr-res="${w.resId}"></div>`;
   if (w.kind === 'warmup') { const cls = currentClass(); return `<div class="warmup"><div class="lbl">Warm-up question</div><div class="q">${esc(cls?.warmup || 'Welcome!')}</div></div>`; }
@@ -1877,6 +1953,8 @@ function renderWinMenu() {
     <button data-action="wm-file">${IC('ico:file')} PDF, picture or video from this ${DEVICE}…</button>
     <button data-action="wm-sight">${IC('ico:sight')} Sight-reading generator</button>
     <button data-action="wm-score">${IC('ico:score')} Score practice (MusicXML / MuseScore)</button>
+    <button data-action="wm-cal">${IC('ico:events')} Calendar</button>
+    <button data-action="wm-prog">${IC('ico:gauge')} Progress tracker (concert ready / still working / not started)</button>
     ${IS_NATIVE ? `<button data-action="wm-apps">${IC('ico:app')} Window from another app (MuseScore…)</button>${appPickerHTML()}` : ''}
     ${cls ? `<div class="wm-h">${esc(cls.name)}</div><button data-action="wm-warmup">${IC('ico:warmup')} Warm-up question</button>
       ${cls.resources.map(r => `<button data-action="wm-res" data-id="${r.id}">${icoSp(resIcon(r))}${esc(r.title || 'Resource')}</button>`).join('')}` : ''}
@@ -2309,7 +2387,7 @@ function renderEditor() {
   setTimeout(loadBackups, 0);                         // fills the backup list if Settings is showing
   const scroll = $('#e-main')?.scrollTop || 0;
   app().innerHTML = `<div class="editor">
-    <header class="e-top"><div class="brand">${IC('ico:music')} Rehearsal</div>
+    <header class="e-top"><div class="brand">${IC('ico:music')} Rehearsal <span class="ver" title="The version you're using (Settings → Updates)">${esc(WEB_VERSION)}</span></div>
       <nav class="tabs">${TABS.map(([k, v]) => `<button class="tab ${TAB === k ? 'on' : ''}" data-action="tab" data-tab="${k}">${v}</button>`).join('')}</nav>
       <button class="btn primary" data-action="present">${IC('ico:play')} Present</button></header>
     <div class="e-main" id="e-main"><div class="e-wrap">${tabHTML()}</div></div></div>`;
@@ -2369,7 +2447,7 @@ function classesTab() {
       <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your Mac. They appear as tabs on the Present screen.</p>
       ${cls.resources.map((r, k) => `<div class="res-item"><span style="font-size:18px">${resIcon(r) === '-' ? '' : resIcon(r)}</span>
         <div class="row" style="gap:6px"><input class="grow" data-bind="${base}.resources.${k}.title" value="${esc(r.title)}" placeholder="Title">
-        ${r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
+        ${r.widget ? `<span class="pill">${IC(WIDGETS[r.widget.kind].icon)} ${WIDGETS[r.widget.kind].title}</span>` : r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
         ${resKind(r) === 'slides' || resKind(r) === 'doc' ? `<select data-bind="${base}.resources.${k}.mode" title="How it appears"><option value="embed" ${r.mode !== 'edit' ? 'selected' : ''}>Presenter view</option><option value="edit" ${r.mode === 'edit' ? 'selected' : ''}>Editor view</option></select>` : ''}</div>
         <span class="row" style="gap:2px"><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="-1">${IC('ico:up')}</button><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="1">${IC('ico:down')}</button><button class="iconbtn" data-action="res-del" data-k="${k}">${IC('ico:close')}</button></span></div>`).join('') || '<div class="empty">No resources yet.</div>'}
     </div>
@@ -2832,7 +2910,7 @@ function settingsTab() {
 
 // ---------- updates (the Mac app checks GitHub; see native/updater.swift)
 let UPD = { state: 'idle' }, WEB_VERSION = '';
-fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => { if (v) { WEB_VERSION = v.version; refreshUpdateUI(); noteUpdated(); } }).catch(() => { });
+fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => { if (v) { WEB_VERSION = v.version; settleUpdate(); refreshUpdateUI(); noteUpdated(); document.querySelectorAll('.brand .ver').forEach(el => { el.textContent = WEB_VERSION; }); } }).catch(() => { });
 // After an update (Mac restart, or the iPad loading a new release), say so once.
 function noteUpdated() {
   let last = null; try { last = localStorage.getItem('rehearsal-version'); localStorage.setItem('rehearsal-version', WEB_VERSION); } catch { return; }
@@ -2872,7 +2950,7 @@ function updatesCard() {
       ${u.state === 'web-ready' ? '<button class="btn primary" data-action="upd-apply">Reload now</button>' : ''}</div>
     ${updateBadge()}</div>`;
   return `<div class="card" id="upd-card"><h2>Updates</h2>
-    <p class="desc">Version <b>${esc(WEB_VERSION || u.current || '?')}</b>${u.app && u.app !== (WEB_VERSION || u.current) ? ` <span class="small muted">(app ${esc(u.app)})</span>` : ''}. Updates are downloaded from GitHub and checked against Rehearsal's signature before they're used. Your classes and files are never touched.</p>
+    <p class="desc">Version <b>${esc(WEB_VERSION || u.current || '?')}</b>. Updates are downloaded from GitHub and checked against Rehearsal's signature before they're used. Your classes and files are never touched.</p>
     <div class="row"><button class="btn" data-action="upd-check" ${['off', 'checking', 'downloading', 'installing'].includes(u.state) ? 'disabled' : ''}>${u.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>
       ${u.state === 'web-ready' ? '<button class="btn primary" data-action="upd-apply">Restart now</button>' : ''}
       ${u.state === 'app' && !u.manual ? '<button class="btn primary" data-action="upd-install">Install and reopen</button>' : ''}</div>
@@ -2916,7 +2994,12 @@ if (!IS_NATIVE) {
     if (document.visibilityState === 'visible' && Date.now() - WEB_CHECKED > 10 * 60 * 1000) webUpdateCheck(false);
   });
 }
-window.__updateState = st => { const dismissed = UPD.dismissed; UPD = { ...st, dismissed }; refreshUpdateUI(); };
+window.__updateState = st => { const dismissed = UPD.dismissed; UPD = { ...st, dismissed }; settleUpdate(); refreshUpdateUI(); };
+// The Mac app can still remember "ready, restart" after the page has already switched to that version: once the
+// version running is the one that was waiting, it's done.
+function settleUpdate() {
+  if (UPD.state === 'web-ready' && UPD.version && WEB_VERSION && !verNewer(UPD.version, WEB_VERSION)) UPD = { ...UPD, state: 'none', version: '' };
+}
 
 function backupLabel(n) {
   const m = n.match(/data-(\d{4})-(\d{2})-(\d{2})(?:-(\d{2})(\d{2})(\d{2}))?(-manual)?/); if (!m) return n;
@@ -2999,6 +3082,8 @@ const A = {
   perm: el => native('requestPermission', { which: el.dataset.which }),
   'app-done': () => { /* clicking Rehearsal already ended editing; this just re-renders */ WIN.sig = ''; },
   'app-front': el => { const w = findWin(el.dataset.id); if (!w) return; if (w.status === 'not-running') native('launchApp', { bundleId: w.bundleId }); else native('webCmd', { id: w.id, action: 'front' }); },
+  'wm-cal': () => { const w = addWindow({ kind: 'cal' }); w.w = 0.62; w.h = 0.8; save(); applyWinGeom(); },
+  'wm-prog': () => { const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id, native: false }),
@@ -3130,6 +3215,7 @@ const A = {
     const r = w.kind === 'file' ? { id: uid(), title: winTitle(w).replace(/\.[^.]+$/, ''), fileId: w.fileId }
       : w.kind === 'sight' ? { id: uid(), title: (w.sr?.mode === 'solfege' ? 'Solfege' : 'Rhythm') + ' reading', sight: JSON.parse(JSON.stringify({ ...w.sr, settingsOpen: false })) }
       : w.kind === 'score' ? { id: uid(), title: winTitle(w), score: JSON.parse(JSON.stringify(w.score)) }
+      : w.kind === 'cal' || w.kind === 'prog' ? { id: uid(), title: WIDGETS[w.kind].title, widget: { kind: w.kind } }
       : w.kind === 'tuner' || w.kind === 'metro' ? { id: uid(), title: w.kind === 'tuner' ? 'Tuner' : 'Metronome', music: { kind: w.kind, mu: JSON.parse(JSON.stringify(w.mu || muDefaults(w.kind))) } }
       : { id: uid(), title: winTitle(w), url: w.url, mode: 'embed', native: !!(IS_NATIVE && w.native) };
     if (w.kind === 'web' && !w.url) return toast('Open a page first.');
@@ -3320,6 +3406,20 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape') { if (P.overlay) A['overlay-dismiss'](); else if (P.ink.on) A['ink-close'](); else P.signal = null; }
   else if (e.key === 'e' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); go('edit'); }
 });
+// The toolbar wakes only when the pointer comes near it (near the small square while it's shrunk), not on any
+// mouse move or key press, and stays open while the pointer is over or near it.
+function dockNearCheck(e) {
+  const d = $('#p-dock'); if (!d || VIEW !== 'present') return;
+  const r = d.getBoundingClientRect(), m = 40;
+  let L = r.left, R = r.right, T = r.top, B = r.bottom;
+  if (d.classList.contains('hidden')) {
+    if (d.classList.contains('vertical')) { const c = (T + B) / 2, h = r.width / 2; T = c - h; B = c + h; }
+    else { const c = (L + R) / 2, h = r.height / 2; L = c - h; R = c + h; }
+  }
+  if (e.clientX > L - m && e.clientX < R + m && e.clientY > T - m && e.clientY < B + m) P.dockNear = Date.now();
+}
+document.addEventListener('pointermove', dockNearCheck, true);
+document.addEventListener('pointerdown', dockNearCheck, true);
 document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC && AC.state === 'suspended') AC.resume().then(() => $('.sound-chip')?.remove()); }, true);
 
 // ============================================================ boot
