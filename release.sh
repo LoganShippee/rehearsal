@@ -72,7 +72,7 @@ build/cpsign verify "$(cat release/public-key.txt)" "$OUT/latest.json" "$OUT/lat
 
 git push -q origin HEAD --tags
 
-# The iPad / browser version: the same web folder, published on GitHub Pages (branch gh-pages).
+# The web version (any browser): the same web folder, published on GitHub Pages (branch gh-pages).
 PAGES=build/pages; rm -rf "$PAGES"; mkdir -p "$PAGES"
 cp -R "build/Rehearsal.app/Contents/Resources/web/." "$PAGES/"
 touch "$PAGES/.nojekyll"
@@ -84,4 +84,4 @@ gh release create "v$NEW" "$OUT/Rehearsal.zip" "$OUT/web.zip" "$OUT/latest.json"
   --repo "$REPO" --title "Rehearsal $NEW" --notes "$NOTES" --latest
 echo "Published: https://github.com/$REPO/releases/tag/v$NEW"
 echo "New users download: https://github.com/$REPO/releases/latest/download/Rehearsal.zip"
-OWNER=${REPO%%/*}; echo "iPad / browser version: https://${OWNER:l}.github.io/${REPO#*/}/"
+OWNER=${REPO%%/*}; echo "Web version (any browser): https://${OWNER:l}.github.io/${REPO#*/}/"

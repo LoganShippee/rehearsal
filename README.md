@@ -2,7 +2,7 @@
 
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/loganshippee)
 
-A Mac (and iPad) app for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
+A Mac app (with a web version for any browser) for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
 
 ## Install (for teachers)
 1. Download **Rehearsal.zip** from the latest release: `https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip`.
@@ -11,10 +11,10 @@ A Mac (and iPad) app for your classroom screen and music rehearsals. It switches
 
 **Updates are automatic.** Rehearsal checks GitHub when it opens and every few hours. Most updates download quietly and are used the next time it opens (or click **Restart now**). Updates to the app itself show **Install and reopen**. Settings → Updates shows the version and has **Check for updates**. Every update is signed; the app refuses one whose signature doesn't match. Your classes and files are never touched by an update.
 
-## iPad
-Open **https://loganshippee.github.io/rehearsal/** in Safari, tap **Share → Add to Home Screen**, then open Rehearsal from the Home Screen. It runs full screen and works offline after the first visit. It's built for an iPad with a keyboard for now (touch controls come later). It updates itself: each new release is live the next time it's opened online. Settings → Updates (at the top) has **Check for updates**; if a newer version is out, **Reload now** switches to it.
+## Web version (any browser)
+Open **https://loganshippee.github.io/rehearsal/** in any browser: Chrome, Safari, Edge or Firefox, on a Windows PC, Chromebook, Mac or iPad. It works offline after the first visit. To make it feel like an app, install it: in Chrome or Edge use **Install Rehearsal** in the address bar (or the ⋮ menu); on an iPad tap **Share → Add to Home Screen** in Safari, then open it from the Home Screen to run it full screen. On an iPad it works best with a keyboard for now (touch controls come later). It updates itself: each new release is live the next time it's opened online. Settings → Updates (at the top) has **Check for updates**; if a newer version is out, **Reload now** switches to it.
 
-The iPad version keeps its classes and files on that iPad only, in Safari's storage. Use Settings → Export backup to move data between devices. Mac-only features: windows from other apps, MuseScore files (.mscz; MusicXML works), Google Drive browsing, and automatic dated backups.
+The web version keeps its classes and files in that browser on that device only. Use Settings → Export backup to move data between devices. Mac-only features: windows from other apps, MuseScore files (.mscz; MusicXML works), Google Drive browsing, and automatic dated backups.
 
 ## For the developer
 - `./build.sh --install` builds `build/Rehearsal.app` and copies it into Applications (for trying changes on your own Mac).

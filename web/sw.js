@@ -1,4 +1,4 @@
-// Rehearsal in a browser (iPad Home Screen): keeps an offline copy of the app.
+// Rehearsal's web version (any browser, or installed to a Home Screen / desktop): keeps an offline copy of the app.
 // Network first, so a new release is used as soon as there's a connection; the saved copy is used
 // when offline. Only Rehearsal's own files are cached; classes and library files live elsewhere
 // (browser storage / IndexedDB) and are never touched here.
