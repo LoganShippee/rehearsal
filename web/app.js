@@ -650,6 +650,11 @@ function renderPresent() {
   P.layoutKey = P.sideKey = P.stageKey = ''; WIN.key = null; WIN.sig = '';
   setupInk();
   renderDock(); renderTimers(); renderTools(); tick();
+  // The header's title and clock change width (Quick edit adds time fields, the class name changes…):
+  // re-fit the toolbar so ⋯ never gets pushed out of reach
+  let fitQueued = false;
+  const refit = new ResizeObserver(() => { if (fitQueued) return; fitQueued = true; requestAnimationFrame(() => { fitQueued = false; fitDock(); }); });
+  ['#p-title', '#p-clock'].forEach(s => { const el = $(s); if (el) refit.observe(el); });
   if (AC && AC.state === 'suspended') showSoundChip();
   else if (!AC) { try { if (ac().state === 'suspended') showSoundChip(); } catch { } }
 }
@@ -683,21 +688,24 @@ const DOCK_ITEMS = {
   board: { icon: 'ico:board', label: 'Board', act: 'board-toggle', on: () => P.ink.on && P.ink.blank },
   tuner: { icon: 'ico:tuner', label: 'Tuner', act: 'open-music', kind: 'tuner', on: () => winList().some(w => w.kind === 'tuner') },
   metro: { icon: 'ico:metro', label: 'Metronome', act: 'open-music', kind: 'metro', on: () => winList().some(w => w.kind === 'metro') },
-  sight: { icon: 'ico:sight', label: 'Sight read', act: 'wm-sight' },
+  sight: { icon: 'ico:sight', label: 'Sight reading', act: 'wm-sight' },
   cal: { icon: 'ico:events', label: 'Calendar', act: 'wm-cal', on: () => winList().some(w => w.kind === 'cal') },
   prog: { icon: 'ico:gauge', label: 'Progress', act: 'wm-prog', on: () => winList().some(w => w.kind === 'prog') },
   yt: { icon: 'ico:youtube', label: 'YouTube', act: 'wm-yt', on: () => winList().some(w => w.kind === 'yt') },
-  rec: { icon: 'ico:mic', label: 'Record', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
-  score: { icon: 'ico:score', label: 'Scores', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
+  rec: { icon: 'ico:mic', label: 'Recorder', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
+  score: { icon: 'ico:score', label: 'Score practice', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
-  window: { icon: '＋', label: 'Window', act: 'win-menu', on: () => P.winMenu },
+  window: { icon: '＋', label: 'Open', act: 'win-menu', on: () => P.winMenu },
   tile: { icon: 'ico:tile', label: 'Tile', act: 'win-tile' },
   classpick: { icon: 'ico:pin', label: 'Class picker', special: 'classpick' },
   fullscreen: { icon: 'ico:fullscreen', label: 'Full screen', act: 'fullscreen' },
-  editmode: { icon: 'ico:annotate', label: 'Quick edit', act: 'edit-mode', on: () => !!P.editMode },
+  editmode: { icon: 'ico:quickedit', label: 'Quick edit', act: 'edit-mode', on: () => !!P.editMode },
   edit: { icon: 'ico:edit', label: 'Setup', act: 'edit', locked: true },
   sep1: { sep: true, label: '— divider —' }, sep2: { sep: true, label: '— divider —' }, sep3: { sep: true, label: '— divider —' },
 };
+// Tools that ＋ Open always lists: on the bar or off, never repeated in ⋯ (unless they don't fit on the bar)
+const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt'];
+const DOCK_GROUP = { tile: 'screen', fullscreen: 'screen', classpick: 'screen', editmode: 'cls', clip: 'cls', edit: 'setup' };
 const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'window', 'tile', 'sep2', 'classpick', 'sep3', 'fullscreen', 'editmode', 'edit'];
 function dockCfg() {
   const d = (S.settings.dock ||= {});
@@ -736,7 +744,7 @@ function dockClassPick(id = 'classpick') {
       <option value="">Follow schedule</option>
       ${S.classes.map(c => `<option value="${c.id}" ${P.pinned === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>`;
 }
-/** When the bar doesn't fit (small screens, iPad), tuck buttons from the end into the ⋯ menu. Setup always stays. */
+/** When the bar doesn't fit (small screens, iPad), tuck buttons from the end into the ⋯ menu. Setup is tucked away last, so ⋯ is always visible. */
 function fitDock() {
   const d = $('#p-dock'); if (!d) return;
   P.dockOverflow = [];
@@ -745,7 +753,10 @@ function fitDock() {
   kids.forEach(k => { k.style.display = ''; });
   const over = () => d.classList.contains('vertical') ? d.scrollHeight > d.clientHeight + 1 : d.scrollWidth > d.clientWidth + 1;
   if (!over()) return;
-  const items = kids.filter(k => k.dataset.dockId && k.dataset.dockId !== 'edit').reverse();
+  // Setup goes last: only when nothing else is left, so the ⋯ button itself always stays reachable
+  // Buttons that are switched on (Quick edit, Annotate…) go after the others, so you can always switch them off
+  const tuck = kids.filter(k => k.dataset.dockId && k.dataset.dockId !== 'edit').reverse();
+  const items = [...tuck.filter(k => !k.classList.contains('on')), ...tuck.filter(k => k.classList.contains('on')), ...kids.filter(k => k.dataset.dockId === 'edit')];
   for (const k of items) {
     if (!over()) break;
     k.style.display = 'none'; P.dockOverflow.unshift(k.dataset.dockId);
@@ -762,13 +773,18 @@ function renderDockMore() {
   $('#dock-more-menu')?.remove();
   if (!P.dockMore) return;
   const cfg = dockCfg();
-  const ids = [...new Set([...cfg.order.filter(id => cfg.menu.includes(id) && !cfg.hidden.includes(id)), ...(P.dockOverflow || [])])].filter(id => DOCK_ITEMS[id] && !DOCK_ITEMS[id].sep);
+  const over = P.dockOverflow || [];
+  // launchers are always in ＋ Open, so ⋯ only shows them when they were meant for the bar but didn't fit
+  const ids = [...new Set([...cfg.order.filter(id => cfg.menu.includes(id) && !cfg.hidden.includes(id) && !DOCK_LAUNCHERS.includes(id)), ...over])].filter(id => DOCK_ITEMS[id] && !DOCK_ITEMS[id].sep);
   const m = document.createElement('div'); m.id = 'dock-more-menu'; m.className = 'dock-more-menu';
-  m.innerHTML = ids.map(id => { const it = DOCK_ITEMS[id];
-    if (it.special === 'classpick') return `<div class="dm-row">${IC('ico:pin')} ${dockClassPick('classpick-menu')}</div>`;
+  const row = id => { const it = DOCK_ITEMS[id];
+    if (it.special === 'classpick') return `<div class="dm-row">${IC('ico:pin')} <span class="dm-lbl">Showing</span> ${dockClassPick('classpick-menu')}</div>`;
     const on = it.tool ? !!P.tools[it.tool] : it.on?.();
-    return `<button class="dm-item ${on ? 'on' : ''}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}><span class="i">${IC(icoCfg().dock?.[id] && icoCfg().dock[id] !== '-' ? icoCfg().dock[id] : it.icon)}</span>${esc(it.label)}</button>`; }).join('')
-    + `${ids.length ? '<div class="dm-sep"></div>' : ''}<button class="dm-item" data-action="dock-custom"><span class="i">⋯</span>Customize toolbar…</button>`;
+    return `<button class="dm-item ${on ? 'on' : ''}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}><span class="i">${IC(icoCfg().dock?.[id] && icoCfg().dock[id] !== '-' ? icoCfg().dock[id] : it.icon)}</span>${esc(it.label)}</button>`; };
+  const groups = [['tools', over.length ? "Didn't fit on the bar" : 'More tools'], ['screen', 'Screen'], ['cls', 'This class'], ['setup', '']]
+    .map(([g, title]) => [title, ids.filter(id => (DOCK_GROUP[id] || 'tools') === g)]).filter(([, list]) => list.length);
+  m.innerHTML = groups.map(([title, list]) => `${title ? `<div class="dm-head">${title}</div>` : ''}${list.map(row).join('')}`).join('<div class="dm-sep"></div>')
+    + `${groups.length ? '<div class="dm-sep"></div>' : ''}<button class="dm-item" data-action="dock-custom"><span class="i">⋯</span>Customize toolbar…</button>`;
   $('#present').appendChild(m);
   const r = $('#p-dock .dock-more').getBoundingClientRect();
   m.style.left = clamp(r.right - m.offsetWidth, 8, innerWidth - m.offsetWidth - 8) + 'px';
@@ -831,28 +847,37 @@ document.addEventListener('pointerup', () => {
   placeDock(); save();
 });
 // ---------- customize panel: checklist + drag to reorder
+/** A labelled row of segmented buttons for the Customize toolbar panel. */
+function dcSeg(label, key, opts, cur) {
+  return `<div class="dc-lrow"><span>${label}</span><span class="dc-seg" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button type="button" data-dc-opt="${key}" data-v="${v}" aria-pressed="${String(v) === String(cur)}">${l}</button>`).join('')}</span></div>`;
+}
 function renderDockCustom() {
   $('#dock-custom')?.remove();
   if (!P.dockCustom) return;
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
   panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
-    <div class="dc-note">Tick what to show. "in ⋯" keeps a button in the ⋯ menu instead of on the bar. Drag ≡ to reorder.</div>
-    <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id]; return `<div class="dc-row ${it.sep ? 'sep' : ''}" draggable="true" data-id="${id}">
+    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in the <b>⋯</b> menu, or <b>Off</b>. Drag ≡ to reorder. Music and class tools are always in ＋ Open too.</div>
+    <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id];
+      const place = cfg.hidden.includes(id) ? 'off' : cfg.menu.includes(id) ? (DOCK_LAUNCHERS.includes(id) ? 'off' : 'menu') : 'bar';   // a tool kept "in ⋯" before is now just in ＋ Open
+      const launcher = DOCK_LAUNCHERS.includes(id);
+      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', '＋ only']] : it.sep ? [['bar', 'Bar'], ['off', 'Off']] : [['bar', 'Bar'], ['menu', '⋯'], ['off', 'Off']];
+      return `<div class="dc-row ${it.sep ? 'sep' : ''} ${place === 'off' && !launcher ? 'is-off' : ''}" draggable="true" data-id="${id}">
       <span class="dc-grip">≡</span>
-      <label><input type="checkbox" data-dock-show="${id}" ${cfg.hidden.includes(id) ? '' : 'checked'} ${it.locked ? 'disabled' : ''}> ${esc(it.label)}</label>
-      ${it.sep || it.locked ? '<span class="dc-inmenu"></span>' : `<label class="dc-inmenu" title="Keep it in the ⋯ menu instead of on the bar"><input type="checkbox" data-dock-menu="${id}" ${cfg.menu.includes(id) ? 'checked' : ''}> in ⋯</label>`}
-      ${it.sep ? '' : `<input class="dc-emoji" data-dock-icon="${id}" value="${esc(icoCfg().dock?.[id] ?? '')}" placeholder="${esc(ICL(it.icon))}" maxlength="8" title="Icon for this button: type an emoji to replace it, or leave empty for the default. - = no icon">`}</div>`; }).join('')}</div>
-    <label class="dc-opt"><input type="checkbox" data-dock-labels ${cfg.labels ? 'checked' : ''}> Show labels under icons</label>
-    <label class="dc-opt"><input type="checkbox" data-dock-emoji ${iconOn('dock') ? 'checked' : ''}> Show emojis</label>
+      <span class="dc-ico">${it.sep ? '' : dockIcon(id, it) || ''}</span>
+      <span class="dc-name">${esc(it.label)}</span>
+      <span class="dc-seg" role="group" aria-label="Where ${esc(it.label)} goes">${opts.map(([v, l]) => `<button type="button" data-dock-place="${id}" data-v="${v}" aria-pressed="${place === v}">${l}</button>`).join('')}</span></div>`; }).join('')}</div>
     <div class="dc-look">
-      <label>Size <select data-dock-opt="size">${[['s', 'Small'], ['m', 'Medium'], ['l', 'Large']].map(([v, l]) => `<option value="${v}" ${(cfg.size || 'm') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label>Colour <select data-dock-opt="color">${[['dark', 'Dark'], ['light', 'Light'], ['class', 'Class colour']].map(([v, l]) => `<option value="${v}" ${(cfg.color || 'dark') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label>See-through <input type="range" min="25" max="100" step="5" data-dock-opt="alpha" value="${cfg.alpha ?? 82}"></label>
-      <label>Shrink when idle <select data-dock-hide>${[[0, 'Never'], [3, 'After 3 s'], [10, 'After 10 s'], [30, 'After 30 s']].map(([v, l]) => `<option value="${v}" ${(S.settings.hideDockAfter ?? 3) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${dcSeg('Size', 'size', [['s', 'S'], ['m', 'M'], ['l', 'L']], cfg.size || 'm')}
+      ${dcSeg('Colour', 'color', [['dark', 'Dark'], ['light', 'Light'], ['class', 'Class']], cfg.color || 'dark')}
+      ${dcSeg('Shrink when idle', 'hide', (() => { const cur = Number(S.settings.hideDockAfter ?? 3), o = [[0, 'Never'], [3, '3 s'], [10, '10 s'], [30, '30 s']]; if (!o.some(([v]) => v === cur)) o.push([cur, `${cur} s`]); return o.sort((a, b) => a[0] - b[0]); })(), Number(S.settings.hideDockAfter ?? 3))}
+      <div class="dc-lrow"><span>See-through</span><input type="range" min="25" max="100" step="5" data-dock-opt="alpha" value="${cfg.alpha ?? 82}"></div>
+      <label class="dc-lrow"><span>Labels under icons</span><input type="checkbox" class="dc-sw" role="switch" data-dock-labels ${cfg.labels ? 'checked' : ''}></label>
+      <label class="dc-lrow"><span>Emojis</span><input type="checkbox" class="dc-sw" role="switch" data-dock-emoji ${iconOn('dock') ? 'checked' : ''}></label>
+      <div class="dc-lrow"><span>Icon for each button</span><button data-action="icons-open">${IC('ico:icons')} Icons…</button></div>
     </div>
     <div class="dc-spots"><span>Move to</span><button data-action="dock-spot" data-spot="top">Top (header)</button><button data-action="dock-spot" data-spot="bottom">Bottom</button><button data-action="dock-spot" data-spot="left">Left side</button><button data-action="dock-spot" data-spot="right">Right side</button></div>
-    <div class="dc-btns"><button data-action="dock-home">Put toolbar back at the top</button><button data-action="dock-reset">Reset</button><button data-action="icons-open">${IC('ico:icons')} Icons…</button></div>`;
+    <div class="dc-btns"><button data-action="dock-home">Put toolbar back at the top</button><button data-action="dock-reset">Reset</button></div>`;
   $('#present').appendChild(panel);
   const r = $('#p-dock').getBoundingClientRect();
   panel.style.left = clamp(r.left + r.width / 2 - panel.offsetWidth / 2, 8, innerWidth - panel.offsetWidth - 8) + 'px';
@@ -874,6 +899,20 @@ function renderDockCustom() {
     save(); renderDock();
   });
   panel.addEventListener('input', e => { if (e.target.dataset.dockOpt === 'alpha') { cfg.alpha = Number(e.target.value); applyDockLook(); } });
+  // Bar / ⋯ / Off for each button, and the segmented look options
+  panel.addEventListener('click', e => {
+    const b = e.target.closest('button[data-dock-place], button[data-dc-opt]'); if (!b) return;
+    if (b.dataset.dockPlace) {
+      const id = b.dataset.dockPlace, v = b.dataset.v, hid = new Set(cfg.hidden), menu = new Set(cfg.menu);
+      hid.delete(id); menu.delete(id);
+      if (v === 'off') hid.add(id); if (v === 'menu') menu.add(id);
+      cfg.hidden = [...hid]; cfg.menu = [...menu];
+    } else if (b.dataset.dcOpt === 'hide') S.settings.hideDockAfter = Number(b.dataset.v);
+    else cfg[b.dataset.dcOpt] = b.dataset.v;
+    const keep = panel.querySelector('.dc-list')?.scrollTop || 0, keepP = panel.scrollTop;
+    save(); renderDock(); renderDockCustom();
+    const np = $('#dock-custom'); if (np) { np.scrollTop = keepP; const l = np.querySelector('.dc-list'); if (l) l.scrollTop = keep; }
+  });
   panel.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.dockShow) { const set = new Set(cfg.hidden); el.checked ? set.delete(el.dataset.dockShow) : set.add(el.dataset.dockShow); cfg.hidden = [...set]; }
@@ -1967,6 +2006,8 @@ function applyStageZoom() {
 window.__pinch = (x, y, mag, phase) => {
   if (VIEW !== 'present') return;
   const hit = document.elementsFromPoint(x, y).find(el => el !== inkCanvas && el !== inkPrev && el.id !== 'ink' && !el.classList?.contains('ink-cursor'));
+  const spRoot = hit?.closest('.sp-root');                // score practice zooms its own music (redrawn sharp)
+  if (spRoot?.__zoomBy) { if (phase !== 'toggle') spRoot.__zoomBy(1 + mag, x, y); return; }
   const winEl = hit?.closest('.win'), stageEl = hit?.closest('#stage-content');
   let st, box, after;
   if (winEl) { const w = findWin(winEl.dataset.win); if (!w || w.native) return; st = w; box = winEl.querySelector('.win-body'); after = () => { applyZoom(w); save(); }; }
@@ -2070,7 +2111,7 @@ function ieSide(ctx, step, evs) {
     <button class="ie-add" data-action="ag-add">＋ Add step</button>`;
   const todays = evs.map(e => `<li>${esc(eventLabel(e))}${e.time ? ` <span style="opacity:.7">${fmtHM(e.time)}</span>` : ''} <span class="ev-where">${e.classes?.length ? '· this class' : '· all classes'}</span><button class="ag-x" data-action="ie-ev-del" data-id="${e.id}" title="Remove">${IC('ico:close')}</button></li>`).join('');
   return `
-    <div class="p-card ie-card"><h4>${IC('ico:annotate')} Editing ${esc(cls.name)} <button class="ie-done" data-action="edit-mode">Done</button></h4>
+    <div class="p-card ie-card"><h4>${IC('ico:quickedit')} Editing ${esc(cls.name)} <button class="ie-done" data-action="edit-mode">Done</button></h4>
       <div class="ie-btns"><button data-action="look-open">${IC('ico:look')} Look & background</button><button data-action="auto-open">${IC('ico:auto')} Automations</button><button data-action="clip-open">${IC('ico:clip')} Copy / paste</button><button data-action="icons-open">${IC('ico:icons')} Icons</button>${ctx.cls.hideWarmup ? `<button data-action="warmup-show">${IC('ico:warmup')} Show warm-up tab</button>` : ''}</div>
       <div class="ie-tip">Click any text to change it.</div></div>
     <div class="p-card"><h4>Agenda <span class="mini-btns"><button data-action="agenda-prev">‹</button><button data-action="agenda-next">›</button></span></h4>${agenda}</div>
@@ -2597,16 +2638,25 @@ function renderWinMenu() {
   const sec = (key, title, n, body) => `<details class="wm-sec" data-sec="${key}" ${open[key] ? 'open' : ''}><summary>${title}<span class="wm-n">${n}</span></summary><div class="wm-items">${body}</div></details>`;
   const many = (cls ? cls.resources.length + 1 : 0) + lib.length > 8;
   host.innerHTML = `<div class="win-menu">
+    <div class="wm-head">Music</div>
+    <div class="wm-grid wm-five">
+      ${tile('wm-sight', 'ico:sight', 'Sight reading')}
+      ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
+      ${tile('open-music', 'ico:tuner', 'Tuner', 'data-kind="tuner"')}
+      ${tile('open-music', 'ico:metro', 'Metronome', 'data-kind="metro"')}
+      ${tile('wm-rec', 'ico:mic', 'Recorder')}
+    </div>
+    <div class="wm-head">Class</div>
+    <div class="wm-grid">
+      ${tile('wm-cal', 'ico:events', 'Calendar')}
+      ${tile('wm-prog', 'ico:gauge', 'Progress')}
+      ${tile('wm-yt', 'ico:youtube', 'YouTube')}
+    </div>
+    <div class="wm-head">Open</div>
     <div class="wm-grid">
       ${tile('wm-web', 'ico:web', 'Web page')}
       ${tile('wm-file', 'ico:file', 'File…', `title="PDF, picture or video from this ${DEVICE}"`)}
-      ${tile('wm-sight', 'ico:sight', 'Sight reading')}
-      ${tile('wm-score', 'ico:score', 'Score', 'title="Score practice (MusicXML / MuseScore)"')}
-      ${tile('wm-cal', 'ico:events', 'Calendar')}
-      ${tile('wm-prog', 'ico:gauge', 'Progress')}
-      ${tile('wm-rec', 'ico:mic', 'Recorder')}
-      ${tile('wm-yt', 'ico:youtube', 'YouTube')}
-      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'Other app', 'title="A window from another app (MuseScore…)"') : ''}
+      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'App window', 'title="A window from another app (MuseScore…)"') : ''}
     </div>
     ${IS_NATIVE ? appPickerHTML() : ''}
     ${many ? `<input class="wm-search" placeholder="Search tabs and files…" data-wm-search>` : ''}
@@ -2757,15 +2807,46 @@ function resizeInk() {
   inkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (copy) inkCtx.drawImage(copy, 0, 0, cw, ch);   // same size as before, anchored top-left — never stretched
 }
-// Board paper: staff lines (or a grid) drawn as a repeating background, so Clear never erases them
+// Clef outlines from the engraving font bundled in vendor/vexflow.js (y flipped for SVG).
+// Units: 360 per staff space; each glyph's origin sits on its clef line (G line / F line).
+const CLEF_G = 'M524 363C557 363 595 360 624 354C639 351 642 350 645 367C662 464 684 589 684 657C684 870 540 896 455 896C377 896 340 873 340 854C340 844 353 840 386 829C431 816 482 778 482 694C482 615 432 547 344 547C248 547 190 624 190 713C190 806 246 948 464 948C560 948 747 904 747 660C747 577 721 441 706 351C703 334 704 336 724 327C870 269 966 147 966 -16C966 -200 831 -363 619 -363C582 -363 582 -363 577 -389L541 -598C539 -615 541 -616 550 -625C706 -770 824 -953 824 -1174C824 -1299 789 -1423 730 -1509C708 -1541 671 -1581 655 -1581C635 -1581 590 -1544 562 -1512C455 -1394 420 -1214 420 -1064C420 -981 431 -887 441 -828C444 -811 445 -808 428 -793C220 -622 0 -416 0 -125C0 125 171 363 524 363ZM115 -29C115 -114 130 -228 249 -363C336 -459 402 -513 469 -567C484 -579 487 -577 490 -562L520 -377C524 -350 524 -351 498 -343C372 -300 289 -186 289 -63C289 66 357 158 455 192C467 196 484 200 494 200C505 200 511 193 511 184C511 174 500 170 490 166C429 140 386 78 386 12C386 -71 442 -132 530 -157C553 -163 556 -161 559 -145L631 284C634 300 632 300 611 304C588 308 559 311 530 311C278 311 115 171 115 -29ZM677 -1358C724 -1358 763 -1319 763 -1240C763 -1080 626 -950 513 -851C503 -842 497 -844 494 -863C488 -900 485 -949 485 -995C485 -1220 589 -1358 677 -1358ZM635 -168C752 -158 848 -60 848 66C848 157 793 230 713 271C696 279 693 279 690 262L619 -148C616 -166 618 -170 635 -168Z';
+const CLEF_F = 'M12 914C19 914 27 912 36 907C390 734 765 478 765 40C765 -210 612 -377 363 -377C112 -377 0 -194 0 -56C0 59 60 158 177 158C268 158 330 95 330 6C330 -86 262 -144 192 -144C153 -144 138 -134 120 -134C101 -134 96 -145 96 -160C96 -217 183 -323 330 -323C482 -323 549 -173 549 53C549 455 350 680 14 871C1 878 -7 886 -7 897C-7 906 -1 914 12 914ZM906 -101C950 -101 985 -135 985 -180C985 -225 950 -259 906 -259C861 -259 827 -225 827 -180C827 -135 861 -101 906 -101ZM907 258C952 258 985 225 985 180C985 135 952 102 907 102C863 102 829 135 829 180C829 225 863 258 907 258Z';
+// Board paper: staff lines (or a grid) drawn as a repeating background, so Clear never erases them.
+// Returns the full CSS background. Grand staff adds a second layer (repeating down the left edge only)
+// with a brace, the barline joining both staves, a treble clef and a bass clef.
 function boardPaper(kind) {
   const svg = (w, h, body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'>${body}</svg>`)}")`;
   const lines = (ys, w = 10) => ys.map(y => `<rect x='0' y='${y}' width='${w}' height='1.6' fill='#6b7385'/>`).join('');
   const sp = 18;                                              // space between staff lines
-  if (kind === 'staff') return svg(10, 4 * sp + 96, lines([0, 1, 2, 3, 4].map(i => 40 + i * sp)));
-  if (kind === 'grand') { const a = [0, 1, 2, 3, 4].map(i => 40 + i * sp), b = a.map(y => y + 4 * sp + 64); return svg(10, 2 * 4 * sp + 64 + 110, lines([...a, ...b])); }
-  if (kind === 'grid') return svg(32, 32, `<path d='M32 0H0V32' fill='none' stroke='#c9ced8' stroke-width='1'/>`);
+  const tiled = url => `${url} 0 0 / auto repeat content-box, #ffffff`;
+  if (kind === 'staff') return tiled(svg(10, 4 * sp + 96, lines([0, 1, 2, 3, 4].map(i => 40 + i * sp))));
+  if (kind === 'grand') {
+    // One wide tile repeated downward only (the right side is clipped at the paper's edge), so the
+    // brace and clefs stay inside the paper and never peek out above the first system.
+    const a = [0, 1, 2, 3, 4].map(i => 40 + i * sp), b = a.map(y => y + 4 * sp + 64), H = 2 * 4 * sp + 64 + 110, W = 6000;
+    const top = a[0], bot = b[4] + 1.6, mid = (top + bot) / 2, h = bot - top;
+    const L = 24;                                             // the left barline: where both staves start
+    const s = sp / 360, ink = '#3d4452';
+    // brace: two thick curves meeting in a point at the middle, thin at both ends
+    const bx = 4, bw = 14, X = f => (bx + f * bw).toFixed(1), Y = v => v.toFixed(1);
+    const brace = `<path fill='${ink}' d='M${X(1)} ${Y(top)}C${X(0.1)} ${Y(top + h * 0.05)} ${X(1.05)} ${Y(mid - h * 0.14)} ${X(0)} ${Y(mid)}C${X(1.05)} ${Y(mid + h * 0.14)} ${X(0.1)} ${Y(bot - h * 0.05)} ${X(1)} ${Y(bot)}C${X(0.55)} ${Y(bot - h * 0.07)} ${X(1.5)} ${Y(mid + h * 0.1)} ${X(0)} ${Y(mid)}C${X(1.5)} ${Y(mid - h * 0.1)} ${X(0.55)} ${Y(top + h * 0.07)} ${X(1)} ${Y(top)}Z'/>`;
+    const bar = `<rect x='${L}' y='${top}' width='2' height='${bot - top}' fill='${ink}'/>`;
+    const clefX = L + 12;
+    const gClef = `<path fill='${ink}' transform='translate(${clefX} ${a[3] + 0.8}) scale(${s})' d='${CLEF_G}'/>`;   // curl on the G line
+    const fClef = `<path fill='${ink}' transform='translate(${clefX} ${b[1] + 0.8}) scale(${s})' d='${CLEF_F}'/>`;   // dots either side of the F line
+    const staffLines = [...a, ...b].map(y => `<rect x='${L}' y='${y}' width='${W - L}' height='1.6' fill='#6b7385'/>`).join('');
+    return `${svg(W, H, staffLines + brace + bar + gClef + fClef)} 0 0 / auto repeat-y content-box, #ffffff`;
+  }
+  if (kind === 'grid') return tiled(svg(32, 32, `<path d='M32 0H0V32' fill='none' stroke='#c9ced8' stroke-width='1'/>`));
   return '';
+}
+// Keep the first staff clear of the drawing bar when the bar sits in its usual top-middle spot
+function inkPaperTop() {
+  const host = $('#ink'), bar = $('#ink-bar'); if (!host) return;
+  host.style.paddingTop = '';
+  if (!host.classList.contains('papered') || !bar || S.settings.inkBar?.mode === 'float') return;
+  const below = bar.getBoundingClientRect().bottom - host.getBoundingClientRect().top + 16;
+  if (below > 72) host.style.paddingTop = Math.ceil(below) + 'px';
 }
 function updateInkUI() {
   const host = $('#ink'); if (!host) return;
@@ -2773,7 +2854,7 @@ function updateInkUI() {
   if (P.ink.on) requestAnimationFrame(inkFit), setTimeout(inkFit, 50);
   host.classList.toggle('passive', P.ink.interact);
   const paper = P.ink.blank ? boardPaper(S.settings.boardPaper) : '';
-  host.style.background = !P.ink.blank ? 'transparent' : paper ? `${paper} repeat content-box, #ffffff` : '#ffffff';
+  host.style.background = !P.ink.blank ? 'transparent' : paper || '#ffffff';
   host.classList.toggle('papered', P.ink.blank && !!S.settings.boardPaper && S.settings.boardPaper !== 'blank');
   const colors = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#7b2cbf', '#111111', '#ffffff', '#ffd60a'];
   const tb = (t, label) => `<button class="${P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}">${label}</button>`;
@@ -2788,6 +2869,7 @@ function updateInkUI() {
     <button data-action="ink-clear">${IC('ico:trash')} Clear</button>
     <button data-action="ink-close">${IC('ico:close')}</button>`;
   placeInkBar();
+  inkPaperTop();
 }
 // Same behaviour as the main toolbar: drag the grip anywhere; near a side it stands up; drop it at
 // the top middle to put it back. Remembered.
@@ -2823,9 +2905,9 @@ document.addEventListener('pointerup', () => {
   if (!INKDRAG) return; INKDRAG = false;
   const b = $('#ink-bar');
   if (b.classList.contains('snap-home')) S.settings.inkBar = { mode: 'home' };
-  b.classList.remove('snap-home'); placeInkBar(); save();
+  b.classList.remove('snap-home'); placeInkBar(); inkPaperTop(); save();
 });
-window.addEventListener('resize', () => placeInkBar());
+window.addEventListener('resize', () => { placeInkBar(); inkPaperTop(); });
 function inkPos(e) { const r = INKRECT || (INKRECT = inkCanvas.getBoundingClientRect()); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 let INKRECT = null;                       // cached during a stroke (reading layout every move is slow)
 let inkPrev = null, inkPrevCtx = null;    // light preview layer for shapes / highlighter while dragging
@@ -3581,7 +3663,7 @@ function settingsTab() {
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
       <label class="chk"><input type="checkbox" data-bind="settings.showSeconds" ${S.settings.showSeconds ? 'checked' : ''}> Show seconds</label>
-      <label class="chk">Shrink the toolbar when idle after <input type="number" min="0" style="width:60px" data-type="num" data-bind="settings.hideDockAfter" value="${S.settings.hideDockAfter ?? 3}"> seconds (0 = never)</label></div></div>
+      <span class="small muted">Toolbar size, labels and shrinking: ⋯ → Customize toolbar on the Present screen.</span></div></div>
   <div class="card"><h2>Test mode</h2><p class="desc">Pretend it's a different time so you can watch your automations run. The Present screen shows a red TEST TIME badge while this is on.</p>
     <div class="row"><label class="chk"><input type="checkbox" data-action-change="sim-on" ${sim.on ? 'checked' : ''}> Pretend the time is</label><input type="time" value="${sim.time}" data-action-change="sim-time">
     <span class="small muted">Tip: set it to a minute before a class starts.</span></div></div>
@@ -3821,6 +3903,7 @@ const A = {
   'bm-clear': () => { if (!confirm('Remove all bookmarks from Rehearsal? (Chrome is not affected.)')) return; S.bookmarks = []; save(); renderEditor(); },
   'side-toggle': () => { const cls = context(now()).cls; if (!cls) return; cls.layout = { ...(cls.layout || {}), collapsed: !cls.layout?.collapsed }; applySide(cls); save(); },
   'open-music': el => {
+    if (P.winMenu) { P.winMenu = false; renderWinMenu(); renderDock(); }
     const kind = el.dataset.kind, ex = winList().find(w => w.kind === kind);
     if (ex) { bringToFront(ex); return; }
     const w = addWindow({ kind, mu: muDefaults(kind) });

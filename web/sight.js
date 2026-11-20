@@ -939,7 +939,6 @@ function srSettingsHTML(st) {
   const table = m === 'rhythm' ? srCellsFor(o.ts) : Object.fromEntries(SR_MEL_CELLS.map(k => [k, SR_SIMPLE[k]]));
   const common = `<label>Time <select data-k="ts">${meters.map(v => opt(v, o.ts)).join('')}</select></label>
     <label>Measures <span class="sr-step"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer">−</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More">+</button></span></label>
-    <label>Tempo <span class="sr-step"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower">−</button><input type="number" min="30" max="200" data-k="tempo" value="${o.tempo}"><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster">+</button></span></label>
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
@@ -1171,7 +1170,6 @@ function srBuildSettingsHTML(st) {
     ${sol ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, b.key, k.replace('b', '♭'))).join('')}</select></label>
       <label>Mode <select data-k="scale">${opt('major', b.scale, 'Major')}${opt('minor', b.scale, 'Minor (do-based)')}</select></label>
       <label>Clef <select data-k="clef">${opt('treble', b.clef, 'Treble')}${opt('bass', b.clef, 'Bass')}</select></label>` : ''}
-    <label>Tempo <span class="sr-step"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower">−</button><input type="number" min="30" max="200" data-k="tempo" value="${b.tempo}"><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster">+</button></span></label>
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, b.countIn ?? 1, l)).join('')}</select></label>
     <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, b.countPitch ?? 'do', l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
@@ -1182,23 +1180,26 @@ function srBuildSettingsHTML(st) {
 }
 
 // the sight-reading bar: items in the order you've arranged (drag to move; "gap" splits left / right)
-const SR_BAR_DEFAULT = ['play', 'new', 'tabs', 'gap', 'rhyonly', 'show', 'counts', 'playhead', 'metro', 'nums', 'grade', 'settings', 'save', 'zoom'];
-function srBarOrder() {
-  const saved = (typeof S !== 'undefined' && S.settings?.srBar) || [];
-  const order = saved.filter(id => SR_BAR_DEFAULT.includes(id));
-  for (const id of SR_BAR_DEFAULT) if (!order.includes(id)) order.splice(Math.min(order.length, SR_BAR_DEFAULT.indexOf(id)), 0, id);
+// ---------- movable button bar, shared by sight reading and score practice ----------
+// Each player passes a cfg: { key: where it's saved in S.settings ('srBar' / 'spBar'), defaults: the standard order,
+// groups: ids that start a new group (a little extra space before them) }. Drag a button anywhere: it stays there.
+const MB_GAP = 6;
+const mbSet = () => (typeof S !== 'undefined' && S.settings) || null;
+function mbarOrder(cfg) {
+  const saved = mbSet()?.[cfg.key] || [];
+  const order = saved.filter(id => cfg.defaults.includes(id));
+  for (const id of cfg.defaults) if (!order.includes(id)) order.splice(Math.min(order.length, cfg.defaults.indexOf(id)), 0, id);
   return order;
 }
-const SR_COLS = 24;
-const srBarPos = () => (typeof S !== 'undefined' && S.settings?.srBarPos) || null;
-// lay the bar out on a snapping grid: each button keeps its spot; nothing overlaps
-const SR_ROW_H = 44, SR_GAP = 6;
-function srBarLayout(bar) {
-  const pos = srBarPos(); if (!bar) return;
+const mbarPos = cfg => mbSet()?.[cfg.key + 'Pos'] || null;
+const mbarRowH = bar => { let h = 0; bar.querySelectorAll(':scope > [data-bar]').forEach(el => { if (el.dataset.bar !== 'gap' && !el.hidden) h = Math.max(h, el.offsetHeight); }); return (h || 30) + MB_GAP; };
+// lay the bar out: each button keeps its saved spot; nothing overlaps
+function mbarLayout(bar, cfg) {
+  const pos = mbarPos(cfg); if (!bar) return;
   bar.classList.toggle('sr-free', !!pos);
   if (!pos) { bar.style.height = ''; return; }
-  const W = bar.clientWidth - 16, last = (typeof S !== 'undefined' && S.settings?.srBarLast) || null;
-  const items = [...bar.querySelectorAll(':scope > [data-bar]')].filter(el => el.dataset.bar !== 'gap');
+  const W = bar.clientWidth - 16, last = mbSet()?.[cfg.key + 'Last'] || null, RH = mbarRowH(bar);
+  const items = [...bar.querySelectorAll(':scope > [data-bar]')].filter(el => el.dataset.bar !== 'gap' && !el.hidden);
   items.forEach(el => { el.style.left = '0px'; });                // measure at full width (not squeezed against the edge)
   const all = items.map(el => {
     const p = pos[el.dataset.bar];
@@ -1207,11 +1208,10 @@ function srBarLayout(bar) {
   // the button you dropped last keeps its exact spot, then the other saved ones, then any new ones
   all.sort((a, b) => (b.id === last) - (a.id === last) || (b.saved - a.saved) || a.r - b.r || a.x - b.x);
   const rows = [];
-  // the free spot in a row nearest to x (or null if the row is full)
-  const fit = (r, x, w) => {
+  const fit = (r, x, w) => {                                        // the free spot in a row nearest to x (null if full)
     const used = (rows[r] || []).slice().sort((m, n) => m[0] - n[0]);
     const gaps = []; let start = 0;
-    for (const [a, b2] of used) { gaps.push([start, a - SR_GAP]); start = b2 + SR_GAP; }
+    for (const [a, b2] of used) { gaps.push([start, a - MB_GAP]); start = b2 + MB_GAP; }
     gaps.push([start, W]);
     let best = null;
     for (const [g0, g1] of gaps) {
@@ -1227,17 +1227,71 @@ function srBarLayout(bar) {
     for (let k = 1; cx == null && k < 8; k++) { r = it.r + k; cx = fit(r, it.saved ? x : 0, it.w); }   // full row: the next row down
     (rows[r] ||= []).push([cx, cx + it.w]);
     maxRow = Math.max(maxRow, r);
-    it.el.style.left = 8 + cx + 'px'; it.el.style.top = 6 + r * SR_ROW_H + 'px';
+    it.el.style.left = 8 + cx + 'px'; it.el.style.top = 5 + r * RH + 'px';
   }
-  bar.style.height = 12 + (maxRow + 1) * SR_ROW_H - 8 + 'px';
+  bar.style.height = 10 + (maxRow + 1) * RH - MB_GAP + 'px';
 }
-function srBarHTML(items) {
-  return srBarOrder().map(id => {
-    if (id === 'gap') return srBarPos() ? '' : '<span class="sr-sp" data-bar="gap"></span>';
+function mbarHTML(cfg, items) {
+  return mbarOrder(cfg).map(id => {
+    if (id === 'gap') return mbarPos(cfg) ? '' : '<span class="sr-sp" data-bar="gap"></span>';
     const html = items[id] ? items[id]() : ''; if (!html) return '';
-    return `<span class="sr-bi" data-bar="${id}">${html}</span>`;
+    return `<span class="sr-bi" data-bar="${id}"${cfg.ctl ? ` data-ctl="${id}"` : ''}${cfg.groups?.includes(id) ? ' data-grp' : ''}>${html}</span>`;
   }).join('');
 }
+// dragging: call drag.down(e) from the player's pointerdown; host.__noClick is set briefly after a drag
+function mbarDrag(host, cfg, barSel, rerender) {
+  let d = null;
+  const bar = () => host.querySelector(barSel);
+  const down = e => { const it = e.target.closest?.(`${barSel} > [data-bar]`); if (!it || e.button !== 0 || e.target.closest('input, select')) return; d = { it, x: e.clientX, y: e.clientY, moved: false }; };
+  const move = e => {
+    if (!d) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 7) return;
+    if (!d.moved) { d.moved = true; d.it.classList.add('dragging'); bar()?.classList.add('show-grid'); }
+    d.it.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  const up = () => {
+    const g = d; d = null; if (!g || !g.moved) return;
+    host.__noClick = true; setTimeout(() => host.__noClick = false, 50);   // this was a drag, not a click
+    const b = bar(); if (!b) return;
+    b.classList.remove('show-grid');
+    const br = b.getBoundingClientRect(), RH = mbarRowH(b);
+    const W = br.width - 16, rowOf = el => Math.max(0, Math.min(3, Math.round((el.getBoundingClientRect().top - br.top - 5) / RH)));
+    let pos = mbarPos(cfg);
+    if (!pos || pos[Object.keys(pos)[0]]?.c != null) {               // first time (or old grid save): keep everything where it is now
+      pos = {};
+      b.querySelectorAll(':scope > [data-bar]').forEach(el => {
+        if (el === g.it || el.dataset.bar === 'gap' || el.hidden) return;
+        const r = el.getBoundingClientRect();
+        pos[el.dataset.bar] = { x: Math.max(0, (r.left - br.left - 8) / W), r: rowOf(el) };
+      });
+    }
+    const ir = g.it.getBoundingClientRect(), row = rowOf(g.it), w = ir.width;
+    let x = Math.round((ir.left - br.left - 8) / 8) * 8;               // 8 px steps
+    b.querySelectorAll(':scope > [data-bar]').forEach(el => {          // magnetic edges: land right next to a neighbour
+      if (el === g.it || el.hidden || rowOf(el) !== row) return;
+      const r = el.getBoundingClientRect(), L = r.left - br.left - 8, R = r.right - br.left - 8;
+      if (Math.abs(x - (R + MB_GAP)) < 16) x = R + MB_GAP;
+      if (Math.abs(x + w - (L - MB_GAP)) < 16) x = L - MB_GAP - w;
+    });
+    pos[g.it.dataset.bar] = { x: Math.max(0, Math.min(1, x / W)), r: row };
+    const set = mbSet(); if (set) { set[cfg.key + 'Last'] = g.it.dataset.bar; set[cfg.key + 'Pos'] = pos; save(); }
+    rerender();
+  };
+  const refs = host.__mbRefs ||= {};
+  if (!refs.hooked) { refs.hooked = true; window.addEventListener('pointermove', e => refs.move?.(e)); window.addEventListener('pointerup', e => refs.up?.(e)); }
+  refs.move = move; refs.up = up;
+  return { down };
+}
+const mbarReset = cfg => { const set = mbSet(); if (set) { delete set[cfg.key]; delete set[cfg.key + 'Pos']; delete set[cfg.key + 'Last']; save(); } };
+
+// Standard layout for both players, left to right: what's on the page → playing it → what's written on the music → tools.
+const SR_BARCFG = { key: 'srBar', defaults: ['tabs', 'new', 'play', 'tempo', 'metro', 'nums', 'show', 'counts', 'rhyonly', 'playhead', 'grade', 'gap', 'save', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'] };
+const SR_BAR_DEFAULT = SR_BARCFG.defaults;
+const srBarOrder = () => mbarOrder(SR_BARCFG);
+const srBarPos = () => mbarPos(SR_BARCFG);
+const srBarLayout = bar => mbarLayout(bar, SR_BARCFG);
+const srBarHTML = items => mbarHTML(SR_BARCFG, items);
 // a button label that always takes the width of its widest wording, so the bar never jumps
 const srTog = (labels, i) => `<span class="sr-tog">${labels.map((l, k) => `<span class="${k === i ? '' : 'h'}">${l}</span>`).join('')}</span>`;
 function mountSight(host, st, onChange) {
@@ -1258,17 +1312,18 @@ function mountSight(host, st, onChange) {
     host.innerHTML = `<div class="sr">
       <div class="sr-top">
         ${srBarHTML({
-          tabs: () => `<div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:metro')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>`,
-          new: () => `<button data-sr="new" class="sr-primary" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>`,
-          play: () => `<button data-sr="play">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
-          rhyonly: () => `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" ${st.mode === 'rhythm' ? 'disabled title="The Rhythm tab is always rhythm only"' : 'title="Show and play just the rhythm (one line)"'}>${IC('ico:metro')} Rhythm only</button>`,
-          show: () => `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="No pitches in a rhythm line"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:eye')} Syllables</button>`,
-          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:hash')} Counts</button>`,
+          tabs: () => `<div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:hand')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>`,
+          tempo: () => `<span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower">−</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster">+</button></span>`,
+          new: () => `<button data-sr="new" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>`,
+          play: () => `<button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
+          rhyonly: () => st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`,
+          show: () => kindNow === 'rhythm' ? '' : `<button data-sr="show" class="${st.show ? 'on' : ''}" title="Write the solfege syllables under the notes">${IC('ico:music')} Solfege</button>`,
+          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:list')} Counts</button>`,
           playhead: () => `<button data-sr="playhead" class="${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} Playhead: Beat`, `${IC('ico:playhead')} Playhead: Note`, `${IC('ico:playhead')} Playhead: Off`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
-          metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:timer')} Metronome</button>`,
+          metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
           nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
-          settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Options</button>`,
+          settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>`,
           zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:zoomout')}</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:zoomin')}</button></span>`,
           save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : ''
         })}
@@ -1278,7 +1333,7 @@ function mountSight(host, st, onChange) {
       <div class="sr-staff"></div></div>`;
     const staffEl = host.querySelector('.sr-staff');
     srBarLayout(host.querySelector('.sr-top'));                // your button arrangement, on every tab
-    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Options to show the building tools.'}</div>`; timeline = []; return; }
+    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Settings to show the building tools.'}</div>`; timeline = []; return; }
     staffEl.__zoom = st.zoom || 1;
     timeline = srDraw(staffEl, V()); drawFrom(); markSel(); host.__grRedraw();
   };
@@ -1351,54 +1406,9 @@ function mountSight(host, st, onChange) {
     else return false;
     onChange && onChange(st); render(); return true;
   };
-  host.onpointerdown = () => { SR_ACTIVE = host; window.__spaceTarget = 'sr'; };
-  // drag any bar button to a new spot: it snaps to the nearest column (and row); saved for every widget
-  let barDrag = null;
-  host.onpointerdown = e => {
-    SR_ACTIVE = host; window.__spaceTarget = 'sr';
-    const it = e.target.closest?.('.sr-top [data-bar]'); if (!it || e.button !== 0) return;
-    barDrag = { it, x: e.clientX, y: e.clientY, moved: false };
-  };
-  const onMove = e => {
-    if (!barDrag) return;
-    const dx = e.clientX - barDrag.x, dy = e.clientY - barDrag.y;
-    if (!barDrag.moved && Math.hypot(dx, dy) < 7) return;
-    if (!barDrag.moved) { barDrag.moved = true; barDrag.it.classList.add('dragging'); host.querySelector('.sr-top')?.classList.add('show-grid'); }
-    barDrag.it.style.transform = `translate(${dx}px, ${dy}px)`;
-  };
-  const onUp = e => {
-    const d = barDrag; barDrag = null; if (!d || !d.moved) return;
-    host.__noClick = true; setTimeout(() => host.__noClick = false, 50);   // this was a drag, not a click
-    const bar = host.querySelector('.sr-top'); if (!bar) return;
-    const br = bar.getBoundingClientRect();
-    // the first time: remember where everything is now, so only the dragged button moves
-    const W = br.width - 16, rowOf = el => Math.max(0, Math.min(3, Math.round((el.getBoundingClientRect().top - br.top - 6) / SR_ROW_H)));
-    let pos = srBarPos();
-    if (!pos || pos[Object.keys(pos)[0]]?.c != null) {               // first time (or old grid save): keep everything where it is now
-      pos = {};
-      bar.querySelectorAll(':scope > [data-bar]').forEach(el => {
-        if (el === d.it || el.dataset.bar === 'gap') return;
-        const r = el.getBoundingClientRect();
-        pos[el.dataset.bar] = { x: Math.max(0, (r.left - br.left - 8) / W), r: rowOf(el) };
-      });
-    }
-    const ir = d.it.getBoundingClientRect(), row = rowOf(d.it), w = ir.width;
-    let x = Math.round((ir.left - br.left - 8) / 8) * 8;                 // 8 px steps
-    // magnetic edges: land right next to a neighbour when close to it
-    bar.querySelectorAll(':scope > [data-bar]').forEach(el => {
-      if (el === d.it || rowOf(el) !== row) return;
-      const r = el.getBoundingClientRect(), L = r.left - br.left - 8, R = r.right - br.left - 8;
-      if (Math.abs(x - (R + SR_GAP)) < 16) x = R + SR_GAP;
-      if (Math.abs(x + w - (L - SR_GAP)) < 16) x = L - SR_GAP - w;
-    });
-    pos[d.it.dataset.bar] = { x: Math.max(0, Math.min(1, x / W)), r: row };
-    if (typeof S !== 'undefined') S.settings.srBarLast = d.it.dataset.bar;
-    if (typeof S !== 'undefined') { S.settings.srBarPos = pos; save(); }
-    render();
-  };
-  if (!host.__barDragHooked) { host.__barDragHooked = true; window.addEventListener('pointermove', e => onMoveRef.fn?.(e)); window.addEventListener('pointerup', e => onUpRef.fn?.(e)); }
-  const onMoveRef = host.__onMoveRef ||= {}, onUpRef = host.__onUpRef ||= {};
-  onMoveRef.fn = onMove; onUpRef.fn = onUp;
+  // drag any bar button to a new spot (shared with score practice); saved for every sight-reading widget
+  const barDrag = mbarDrag(host, SR_BARCFG, '.sr-top', () => render());
+  host.onpointerdown = e => { SR_ACTIVE = host; window.__spaceTarget = 'sr'; barDrag.down(e); };
   // Grade opens a small menu: microphone (rhythm + pitch) or the space bar (rhythm only)
   const closeGradeMenu = () => { host.querySelector('.sr-grmenu')?.remove(); document.removeEventListener('pointerdown', host.__grMenuAway, true); };
   const openGradeMenu = btn => {
@@ -1493,7 +1503,7 @@ function mountSight(host, st, onChange) {
     else if (k === 'counts') st.showCounts = !st.showCounts;
     else if (k === 'zoom') st.zoom = Math.max(0.6, Math.min(2.5, Math.round(((st.zoom || 1) + 0.2 * Number(b.dataset.d)) * 10) / 10));
     else if (k === 'rhyonly') { if (st.mode === 'solfege') st.solRhythm = !st.solRhythm; else if (isBuild()) B.kind = B.kind === 'rhythm' ? 'solfege' : 'rhythm'; }
-    else if (k === 'barreset') { if (typeof S !== 'undefined') { delete S.settings.srBar; delete S.settings.srBarPos; save(); } }
+    else if (k === 'barreset') mbarReset(SR_BARCFG);
     else if (k === 'metro') st[st.mode].metronome = !st[st.mode].metronome;   // live: the next beat follows
     else if (k === 'show') st.show = !st.show;
     else if (k === 'nums') st[st.mode].measureNums = !st[st.mode].measureNums;

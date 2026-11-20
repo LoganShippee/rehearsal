@@ -465,6 +465,9 @@ function spPlay(ctl) {
 
 // ---------- UI
 function spApplyAll() { Object.values(SP_CACHE).forEach(c => c.root?.isConnected && c.applyCtl?.()); }
+// Score practice bar: the same movable bar and standard order as sight reading
+// (what's on the page → playing it → what's written on the music → tools)
+const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums'] };
 const SP_CACHE = {};
 function mountScore(host, st, onChange0, key) {
   spDefaults(st);
@@ -477,22 +480,23 @@ function mountScore(host, st, onChange0, key) {
   }
   if (cached && SP_PLAY.ctl === cached) spStop();
   const root = document.createElement('div'); root.className = 'sp-root';
-  root.innerHTML = `<div class="sp-top">
-      <span data-ctl="file" class="sp-grp"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)">＋ Score</button></span>
-      <button data-ctl="play" data-sp="play" class="sp-primary">${IC('ico:play')} Play</button>
-      <button data-ctl="loop" data-sp="loop" title="Loop a range of measures">${IC('ico:repeat')} Loop</button>
-      <span data-ctl="range" class="sp-range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>
-      <span data-ctl="tempo" class="sp-tempo" title="Tempo">${IC('ico:gauge')} <input type="range" min="30" max="150" step="5" data-spk="tempo"> <b class="sp-bpm"></b></span>
-      <span class="sp-sp"></span>
-      <button data-ctl="layout" data-sp="layout" title="Switch between scrolling down the page and one long line scrolling sideways"></button>
-      <button data-ctl="nums" data-sp="nums" title="Number every measure">${IC('ico:hash')} Measure #</button>
-      <button data-ctl="solfege" data-sp="lbl" data-v="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>
-      <button data-ctl="counts" data-sp="lbl" data-v="counts" title="Rhythm counting above the notes (1 e & a)">${IC('ico:metro')} Counts</button>
-      <button data-ctl="tabs" data-sp="tabs" title="Keep a Scores tab on the class screen of the classes you choose">${IC('ico:layers')} Classes</button>
-      <button data-ctl="spots" data-sp="spots" title="Rehearsal list: saved spots to step through">${IC('ico:agenda')} Spots</button>
-      <span data-ctl="zoom" class="sp-grp"><button data-sp="zoom" data-d="-0.1" title="Smaller">−</button><button data-sp="zoom" data-d="0.1" title="Bigger">＋</button></span>
-      <button data-sp="settings" title="Parts, count-in, metronome, speed-up">${IC('ico:edit')}</button><button data-sp="custom" title="Choose which controls are shown">${IC('ico:annotate')}</button>
-    </div>
+  const BAR = {
+    file: () => `<span class="sp-grp"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)">＋</button></span>`,
+    play: () => `<button data-sp="play" class="sp-primary">${IC('ico:play')} Play</button>`,
+    tempo: () => `<span class="sp-step" title="Tempo (beats per minute). The small number is the speed compared with the score."><button data-sp="tempo-step" data-d="-5" title="Slower">−</button><output class="sp-bpm"></output><button data-sp="tempo-step" data-d="5" title="Faster">+</button></span>`,
+    metronome: () => `<button data-sp="metro" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
+    loop: () => `<button data-sp="loop" title="Loop the selected measures (click or drag on the music to choose them)">${IC('ico:repeat')} <span class="sp-looplbl">Loop</span></button>`,
+    range: () => `<span class="sp-range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
+    spots: () => `<button data-sp="spots" title="Rehearsal list: saved spots to step through">${IC('ico:agenda')} Spots</button>`,
+    nums: () => `<button data-sp="nums" title="Number every measure">${IC('ico:hash')} Measure #</button>`,
+    solfege: () => `<button data-sp="lbl" data-v="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>`,
+    counts: () => `<button data-sp="lbl" data-v="counts" title="Rhythm counting above the notes (1 e & a)">${IC('ico:list')} Counts</button>`,
+    layout: () => `<button data-sp="layout" title="Switch between scrolling down the page and one long line scrolling sideways"></button>`,
+    tabs: () => `<button data-sp="tabs" title="Keep a Scores tab on the class screen of the classes you choose">${IC('ico:layers')} Classes</button>`,
+    zoom: () => `<span class="sp-zoom"><button data-sp="zoom" data-d="-0.1" title="Smaller">${IC('ico:zoomout')}</button><button data-sp="zoom" data-d="0.1" title="Bigger">${IC('ico:zoomin')}</button></span>`,
+    settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
+  };
+  root.innerHTML = `<div class="sp-top">${mbarHTML(SP_BARCFG, BAR)}</div>
     <div class="sp-custom" hidden></div>
     <div class="sp-tabs sp-custom" hidden></div>
     <div class="sp-spots" hidden></div>
@@ -508,16 +512,51 @@ function mountScore(host, st, onChange0, key) {
   const mNum = i => ctl.sc?.measures[i]?.num ?? String(i + 1);
   const mIdx = txt => { const M = ctl.sc?.measures || []; const i = M.findIndex(m => m.num === String(txt).trim()); return i >= 0 ? i : Math.max(0, Math.min(M.length - 1, (parseInt(txt) || 1) - 1)); };
   const SP_CTLS = [
-    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['tempo', 'Tempo slider'], ['layout', 'Down / Sideways'], ['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['spots', 'Spots'], ['tabs', 'Classes (tab)'], ['zoom', 'Size − ＋']]],
+    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['layout', 'Down / Sideways'], ['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['spots', 'Spots'], ['tabs', 'Classes (tab)'], ['zoom', 'Size − ＋']]],
     ['Choir row', [['focus', 'Focus buttons'], ['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
-    ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['metronome', 'Metronome'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Parts & volumes'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
+    ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Parts & volumes'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
   ];
   ctl.applyCtl = () => {
-    const hid = new Set(S.settings.spHidden ?? ['help']);
+    const hid = new Set(S.settings.spHidden ?? ['help', 'range']);
     root.querySelectorAll('[data-ctl]').forEach(el => { el.hidden = hid.has(el.dataset.ctl); });
     const ch = $q('.sp-choir');                                      // hide the choir row if everything in it is hidden
     if (ch && ctl.sc) ch.classList.toggle('sp-empty', ['focus', 'pitches', 'colour', 'show'].every(k => hid.has(k)));
+    mbarLayout($q('.sp-top'), SP_BARCFG);
   };
+  // the bar's buttons can be dragged anywhere, like sight reading (saved for every score)
+  ctl.rebuildBar = () => {
+    $q('.sp-top').innerHTML = mbarHTML(SP_BARCFG, BAR);
+    ctl.fillFiles?.(); ctl.updateBar?.(); ctl.applyCtl();
+  };
+  const barDrag = mbarDrag(root, SP_BARCFG, '.sp-top', () => ctl.rebuildBar());
+  root.addEventListener('pointerdown', e => barDrag.down(e));
+  { let t; new ResizeObserver(() => { clearTimeout(t); t = setTimeout(() => mbarLayout($q('.sp-top'), SP_BARCFG), 60); }).observe(root); }
+  // Zoom the music around the pointer: pinch (trackpad, iPad) or ⌘ / Ctrl + scroll. Two-finger scroll moves around it.
+  // While the fingers move, the drawn music is scaled; when they pause it is redrawn sharp at the new size.
+  ctl.zoomBy = (f, cx, cy) => {
+    const sc = $q('.sp-score'), layers = [$q('.sp-osmd'), $q('.sp-ov')]; if (!ctl.osmd || !sc) return;
+    const z0 = ctl.zPending ?? st.zoom, z = Math.max(0.3, Math.min(2.5, z0 * f)); if (Math.abs(z - z0) < 1e-3) return;
+    ctl.zPending = z;
+    const r = sc.getBoundingClientRect();
+    ctl.zAnchor ||= { px: cx - r.left, py: cy - r.top, sx: sc.scrollLeft, sy: sc.scrollTop, z0: st.zoom };
+    const a = ctl.zAnchor;
+    layers.forEach(el => { if (!el) return; el.style.transformOrigin = `${a.sx + a.px}px ${a.sy + a.py}px`; el.style.transform = `scale(${z / a.z0})`; });
+    clearTimeout(ctl.zT);
+    ctl.zT = setTimeout(() => {
+      const A = ctl.zAnchor, zz = ctl.zPending; ctl.zAnchor = ctl.zPending = null;
+      layers.forEach(el => { if (el) el.style.transform = ''; });
+      st.zoom = +zz.toFixed(2); onChange(); ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout();
+      const k = st.zoom / A.z0;                                        // keep the spot under the fingers where it was
+      sc.scrollLeft = (A.sx + A.px) * k - A.px; sc.scrollTop = (A.sy + A.py) * k - A.py;
+    }, 220);
+  };
+  root.__zoomBy = ctl.zoomBy;                                          // the Mac app's trackpad pinch (app.js → __pinch)
+  { const sc = $q('.sp-score');
+    sc.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); ctl.zoomBy(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); }, { passive: false });
+    let gs = 1;                                                        // Safari / iPad pinch
+    sc.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+    sc.addEventListener('gesturechange', e => { e.preventDefault(); ctl.zoomBy(e.scale / gs, e.clientX, e.clientY); gs = e.scale; });
+    sc.addEventListener('gestureend', e => e.preventDefault()); }
   // which classes always have a Scores tab
   ctl.drawTabs = () => {
     const box = $q('.sp-tabs'); if (box.hidden) return;
@@ -527,10 +566,10 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.drawCustom = () => {
     const box = $q('.sp-custom'); if (box.hidden) return;
-    const hid = new Set(S.settings.spHidden ?? ['help']);
-    box.innerHTML = `<div class="sp-spots-head"><b>${IC('ico:annotate')} Controls to show</b><span class="sp-sp"></span><button data-sp="custom-all">Show all</button><button data-sp="custom" class="sp-primary">Done</button></div>
+    const hid = new Set(S.settings.spHidden ?? ['help', 'range']);
+    box.innerHTML = `<div class="sp-spots-head"><b>${IC('ico:eye')} Buttons to show</b><span class="sp-sp"></span><button data-sp="custom-all">Show all</button><button data-sp="custom" class="sp-primary">Done</button></div>
       <div class="sp-cust-cols">${SP_CTLS.map(([h, items]) => `<div><div class="sp-lbl">${h}</div>${items.map(([k, l]) => `<label class="srchk"><input type="checkbox" data-ctlbox="${k}" ${hid.has(k) ? '' : 'checked'}> ${l}</label>`).join('')}</div>`).join('')}</div>
-      <div class="sp-note">Applies to every score. ${IC('ico:edit')} and ${IC('ico:annotate')} always stay.</div>`;
+      <div class="sp-note">Applies to every score. Settings always stays. Drag any button on the bar to move it. <button data-sp="barreset">Reset layout</button></div>`;
   };
   const short = n => n.length > 14 ? n.slice(0, 13) + '…' : n;
   // ----- score list: switch scores inside this widget; each score keeps its own loop, spots, focus, tempo
@@ -628,9 +667,13 @@ function mountScore(host, st, onChange0, key) {
     const f = $q('[data-spk="from"]'), t = $q('[data-spk="to"]');
     if (document.activeElement !== f) f.value = mNum(Math.min(st.loop.a, st.loop.b));
     if (document.activeElement !== t) t.value = mNum(Math.max(st.loop.a, st.loop.b));
-    $q('[data-spk="tempo"]').value = st.tempo;
     const bpm = ctl.sc ? Math.round(spBpmAt(ctl.sc, ctl.sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0) * st.tempo / 100) : '';
-    $q('.sp-bpm').textContent = `${st.tempo}%${bpm ? ' · ♩=' + bpm : ''}${st.speed.on && ctl.playing ? ` · ramp ${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.iter || 0))}%` : ''}`;
+    const ramp = st.speed.on && ctl.playing ? ` · ramp ${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.iter || 0))}%` : '';
+    $q('.sp-bpm').innerHTML = `${bpm || st.tempo + '%'}<small>${bpm ? 'BPM · ' + st.tempo + '%' : 'tempo'}${ramp}</small>`;
+    $q('[data-sp="metro"]').classList.toggle('on', !!st.metronome);
+    const open = st.settingsOpen !== false; root.classList.toggle('sp-closed', !open); $q('[data-sp="settings"]').classList.toggle('on', open);
+    const la = Math.min(st.loop.a, st.loop.b), lb = Math.max(st.loop.a, st.loop.b);
+    $q('.sp-looplbl').textContent = st.loop.on ? (la === lb ? `Loop m. ${mNum(la)}` : `Loop m. ${mNum(la)}–${mNum(lb)}`) : 'Loop';
     if (!ctl.pick && ctl.sc) { status(''); $q('.sp-score').title = 'Click a measure to select it · Shift-click or drag to select more · ' + (st.loop.on ? 'the selection loops' : 'Play starts at the selection; turn on Loop to repeat it'); }
   };
   const settingsHTML = () => {
@@ -638,7 +681,6 @@ function mountScore(host, st, onChange0, key) {
     return `<div class="sp-form">
       <label data-ctl="countin">Count-in <select data-spk="countIn">${opt(0, st.countIn, 'None')}${opt(1, st.countIn, '1 bar')}${opt(2, st.countIn, '2 bars')}</select></label>
       <label class="srchk" data-ctl="countevery"><input type="checkbox" data-spk="countEvery" ${st.countEvery ? 'checked' : ''}> Count in before every repeat</label>
-      <label class="srchk" data-ctl="metronome"><input type="checkbox" data-spk="metronome" ${st.metronome ? 'checked' : ''}> Metronome</label>
       <label data-ctl="solminor" title="How minor keys are sung">Minor <select data-spk="solMinor">${opt('do', S.settings.solMinor || 'do', 'do-based (do = tonic)')}${opt('la', S.settings.solMinor || 'do', 'la-based (la = tonic)')}</select></label>
       <label data-ctl="startpitch">Starting pitches <select data-spk="pitches">${opt('none', st.pitches, 'None')}${opt('mine', st.pitches, 'Parts that are playing')}${opt('all', st.pitches, 'All parts (chord)')}</select></label>
       <span class="sp-grp" data-ctl="speedup"><label class="srchk"><input type="checkbox" data-spk="speedOn" ${st.speed.on ? 'checked' : ''}> Speed up each repeat</label>
@@ -647,8 +689,8 @@ function mountScore(host, st, onChange0, key) {
     </div>
     <div class="sp-parts" data-ctl="mixer">${(ctl.sc?.lines || []).map((p, i) => `<label class="sp-part"><input type="checkbox" data-sppart="${i}" ${st.parts[i]?.on === false ? '' : 'checked'}> <span>${esc(p.name)}</span>
       <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${st.parts[i]?.vol ?? 1}" title="Volume"></label>`).join('')}</div>
-    <label class="sp-sync" data-ctl="sync">Sound / playhead sync <input type="range" min="-200" max="600" step="10" data-spk="avDelay" value="${avDelayMs()}"> <b>${avDelayMs()} ms</b>
-      <span class="sp-note">If the sound comes after the playhead, slide right (Bluetooth / AirPlay speakers need more). Also used by sight reading.</span></label>
+    <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
+    <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
     <div class="sp-note" data-ctl="help">Speed-up starts at that percentage of the tempo slider and adds the step each time the loop repeats, until it reaches the full tempo. Repeat signs and 1st / 2nd endings are followed (D.C. / D.S. / Coda are not yet).</div>`;
   };
   // ----- geometry from the drawn score
@@ -878,11 +920,14 @@ function mountScore(host, st, onChange0, key) {
   // ----- events
   root.addEventListener('pointerdown', () => { SP_ACTIVE = ctl; window.__spaceTarget = 'sp'; });
   root.addEventListener('click', e => {
+    if (root.__noClick && e.target.closest('.sp-top')) { e.stopPropagation(); return; }   // that was a drag
     const b = e.target.closest('[data-sp]');
     if (b) {
       e.stopPropagation(); SP_ACTIVE = ctl;
       const k = b.dataset.sp;
       if (k === 'play') { if (ctl.playing) spStop(); else if (ctl.sc) spPlay(ctl); }
+      if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); onChange(); }
+      if (k === 'metro') { st.metronome = !st.metronome; onChange(); ctl.updateBar(); }
       if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'focus') {
@@ -899,6 +944,7 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'addscore') { ctl.addScore(); return; }
       if (k === 'tabs') { const t = $q('.sp-tabs'); t.hidden = !t.hidden; ctl.drawTabs(); return; }
       if (k === 'custom') { const c = $q('.sp-custom'); c.hidden = !c.hidden; ctl.drawCustom(); }
+      if (k === 'barreset') { mbarReset(SP_BARCFG); ctl.rebuildBar(); return; }
       if (k === 'custom-all') { S.settings.spHidden = []; save(); ctl.drawCustom(); spApplyAll(); }
       if (k === 'spots') { const sp = $q('.sp-spots'); sp.hidden = !sp.hidden; ctl.drawSpots(); }
       if (k === 'spot-add') {
@@ -914,7 +960,7 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'spot-done') { const x = st.spots.find(y => y.id === b.dataset.id); if (x) { x.done = !x.done; onChange(); ctl.drawSpots(); } }
       if (k === 'spot-del') { st.spots = st.spots.filter(y => y.id !== b.dataset.id); onChange(); ctl.drawSpots(); }
       if (k === 'spot-save') { const x = st.spots.find(y => y.id === b.dataset.id); if (x) { Object.assign(x, { a: Math.min(st.loop.a, st.loop.b), b: Math.max(st.loop.a, st.loop.b), focus: spFoc(st).length ? [...spFoc(st)] : null, tempo: st.tempo }); onChange(); ctl.drawSpots(); toast('Spot updated'); } }
-      if (k === 'settings') { const s = $q('.sp-settings'); s.hidden = !s.hidden; st.settingsOpen = !s.hidden; onChange(); if (!s.hidden) s.innerHTML = settingsHTML(); ctl.applyCtl(); }
+      if (k === 'settings') { const s = $q('.sp-settings'); s.hidden = !s.hidden; st.settingsOpen = !s.hidden; onChange(); if (!s.hidden) s.innerHTML = settingsHTML(); else $q('.sp-custom').hidden = true; ctl.applyCtl(); ctl.updateBar(); }
       return;
     }
     // clicking the music: choose where to play from / the loop's first and last measure
@@ -960,7 +1006,6 @@ function mountScore(host, st, onChange0, key) {
   root.addEventListener('input', e => {
     const el = e.target, k = el.dataset.spk;
     if (k === 'avDelay') { setAvDelay(Number(el.value)); el.nextElementSibling.textContent = el.value + ' ms'; return; }
-    if (k === 'tempo') { st.tempo = Number(el.value); ctl.updateBar(); onChange(); }
     if (el.dataset.spvol != null) { const i = +el.dataset.spvol; (st.parts[i] ||= {}).vol = Number(el.value); onChange(); }
   });
   root.addEventListener('change', e => {
@@ -1014,6 +1059,7 @@ function mountScore(host, st, onChange0, key) {
       await ctl.osmd.load(xml);
       ctl.osmd.zoom = st.zoom; ctl.drawChoir();
       if (st.settingsOpen !== false) { const sp = $q('.sp-settings'); sp.hidden = false; sp.innerHTML = settingsHTML(); }
+      ctl.updateBar();
       ctl.applyCtl();   // controls shown unless you hide them
       if ((st.view || 'all') !== 'all') ctl.applyView(); else { ctl.lastW = 0; ctl.relayout(); }
       status('Loading the piano…');
