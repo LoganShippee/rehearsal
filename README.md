@@ -1,5 +1,7 @@
 # Rehearsal
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/loganshippee)
+
 A Mac (and iPad) app for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
 
 ## Install (for teachers)
@@ -52,6 +54,10 @@ The iPad version keeps its classes and files on that iPad only, in Safari's stor
 - **Tuner:** the gauge now matches the ±50¢ marks, turns green / yellow / red, and locks in (✓ glow) after a second in tune. A trace under it shows the last few seconds of pitch. The full-screen button gives a big view for the whole room. Settings sit behind the sliders button. The drone is a one-octave keyboard (chord notes light up) with chord buttons and an optional slow fade-in.
 - **Metronome:** big tempo (drag it up or down) with its Italian marking; the window edge flashes on each beat (stronger on beat 1). Tap a beat number to accent or silence it. Swing for 8ths, saved tempos per piece, and under More options: speed trainer (+N BPM every N bars), gap-click (play N bars, silent N bars), ramp and sync.
 - Tuner, Metronome and Recorder shrink gracefully: extras hide first, the main controls stay.
+- **YouTube** (＋ Window, or ⋯ in the toolbar): paste a video or playlist link to play it in a window. Videos you play are kept under **Recent**; make **Playlists** and step through them with ‹ › (auto plays the next one when a video ends). The pin button pins it to the class as a tab, or leave it floating.
+- **Board paper:** the Board can show music staff, a grand staff or a grid (the Paper menu on the drawing toolbar). Clear erases your writing, not the lines.
+- **Progress in the side panel:** tick "Show the Progress tracker in the side panel" in Setup → Classes, or press **Side panel** in the Progress window.
+- **Sound and playhead sync** (Settings): music volume for sight reading and scores (with a limiter, so it can go louder without distorting), and the playhead delay, which you can set by tapping along with 8 clicks (Calibrate…). Both are kept per device. On iPad, Rehearsal now asks Safari for normal playback volume and only switches to record mode while a microphone is on.
 - **Window menu:** the window types are a grid of buttons at the top; the class's tabs and the Library are collapsible lists (the Library starts closed), with a search box when there are many.
 - **Events:** birthdays (with confetti), announcements, and school events. You can import Google Calendar `.ics` files.
 - **Library:** music and sound files, PDFs and pictures, stored on this Mac.

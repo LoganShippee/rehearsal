@@ -345,7 +345,44 @@ function agendaStep(ctx, t) {
 
 // ============================================================ sound & music
 let AC = null;
-function ac() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+function ac() { if (!AC) { audioSession('playback'); AC = new (window.AudioContext || window.webkitAudioContext)(); } return AC; }
+// iPad / iPhone: Safari plays web audio in a quiet "ambient" mode, and after the microphone has been used
+// it stays in a record mode that makes everything quieter. Ask for normal playback, switch to record mode
+// only while a microphone is actually on, and switch back when the last one stops.
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !window.webkit?.messageHandlers?.native);
+function audioSession(type) { try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { } }
+(() => {
+  const md = navigator.mediaDevices; if (!md?.getUserMedia || !navigator.audioSession) return;
+  const live = new Set(), gum = md.getUserMedia.bind(md);
+  md.getUserMedia = async c => { if (c?.audio) audioSession('play-and-record'); const s = await gum(c); s.getAudioTracks().forEach(t => live.add(t)); return s; };
+  const stop = MediaStreamTrack.prototype.stop;
+  MediaStreamTrack.prototype.stop = function () { stop.call(this); if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) { live.clear(); setTimeout(() => { if (!live.size) audioSession('playback'); }, 50); } };
+})();
+document.addEventListener('pointerdown', () => audioSession(document.hidden ? 'auto' : (navigator.audioSession?.type === 'play-and-record' ? 'play-and-record' : 'playback')), { once: true, capture: true });
+// Sound / playhead sync: extra delay (ms) between the audio clock and what you hear. Kept per device,
+// because speakers, Bluetooth and the iPad all differ.
+const AV_KEY = 'rehearsal-avdelay';
+function avDelayMs() {
+  try { const v = localStorage.getItem(AV_KEY); if (v != null && v !== '' && isFinite(+v)) return +v; } catch { }
+  if (IS_NATIVE) { const s = Number(S?.settings?.avDelay); return isFinite(s) && S.settings.avDelay != null ? s : 150; }
+  // browsers that report their own output delay (Chrome, Firefox) need little extra; Safari reports less
+  return AC && AC.outputLatency > 0 ? 0 : 60;
+}
+// Music playback (sight reading, scores, grading) goes through one volume control with a limiter,
+// so it can be turned up on quiet laptop / iPad speakers without distorting. Kept per device.
+const VOL_KEY = 'rehearsal-volume';
+function musicVol() { try { const v = +localStorage.getItem(VOL_KEY); if (v > 0) return v; } catch { } return IS_NATIVE ? 1 : 1.8; }
+function musicOut() {
+  const c = ac();
+  if (!c.__music) {
+    const g = c.createGain(), lim = c.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 4; lim.ratio.value = 12; lim.attack.value = 0.002; lim.release.value = 0.12;
+    g.gain.value = musicVol(); g.connect(lim).connect(c.destination); c.__music = g;
+  }
+  return c.__music;
+}
+function setMusicVol(v) { try { localStorage.setItem(VOL_KEY, String(v)); } catch { } if (AC?.__music) AC.__music.gain.setTargetAtTime(v, AC.currentTime, 0.03); }
+function setAvDelay(ms) { ms = Math.round(Math.max(-200, Math.min(600, ms)) / 10) * 10; try { localStorage.setItem(AV_KEY, String(ms)); } catch { } S.settings.avDelay = ms; save(); return ms; }
 function tone(freq, start, dur, type = 'sine', gain = 0.2) {
   const c = ac(), t0 = c.currentTime + start;
   const o = c.createOscillator(), g = c.createGain();
@@ -445,9 +482,12 @@ function runAutomations(t) {
 // ---------- timers
 function startTimer({ label, minutes, sound = 'bell', endMessage = '', stopMusic: sm = false }) {
   const total = minutes * 60000;
-  P.timers.push({ id: uid(), label, total, endAt: Date.now() + total, pausedLeft: null, sound, endMessage, stopMusic: sm, doneAt: 0 });
+  P.timers.push({ id: uid(), label, total, endAt: onClockSecond(Date.now() + total), pausedLeft: null, sound, endMessage, stopMusic: sm, doneAt: 0 });
   renderTimers();
 }
+// Timers end on one of the clock's whole seconds, so their countdown ticks over together with the clock.
+const clockOff = () => now().getTime() - Date.now();
+const onClockSecond = ms => { const o = clockOff(); return Math.round((ms + o) / 1000) * 1000 - o; };
 function timerLeft(tm) { return tm.pausedLeft != null ? tm.pausedLeft : tm.endAt - Date.now(); }
 function tickTimers() {
   for (const tm of P.timers) {
@@ -632,6 +672,7 @@ const DOCK_ITEMS = {
   sight: { icon: 'ico:sight', label: 'Sight read', act: 'wm-sight' },
   cal: { icon: 'ico:events', label: 'Calendar', act: 'wm-cal', on: () => winList().some(w => w.kind === 'cal') },
   prog: { icon: 'ico:gauge', label: 'Progress', act: 'wm-prog', on: () => winList().some(w => w.kind === 'prog') },
+  yt: { icon: 'ico:youtube', label: 'YouTube', act: 'wm-yt', on: () => winList().some(w => w.kind === 'yt') },
   rec: { icon: 'ico:mic', label: 'Record', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
   score: { icon: 'ico:score', label: 'Scores', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
@@ -647,10 +688,10 @@ const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate'
 function dockCfg() {
   const d = (S.settings.dock ||= {});
   d.order ||= [...DOCK_DEFAULT];
-  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
+  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec', 'yt'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
-  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec'];                // shown in the ⋯ menu instead of on the bar
+  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec', 'yt'];                // shown in the ⋯ menu instead of on the bar
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
   return d;
@@ -901,11 +942,19 @@ function buildLayout(ctx) {
   saveInk(); P.inkKey = ctx.key; restoreInk();
 }
 
+// the class's Progress tracker as a small card in the side panel (click to open the full tracker)
+function sideProgCard(cls) {
+  const items = cls.progress || [];
+  return `<div class="p-card side-prog" data-action="wm-prog" title="Open the Progress tracker"><h4>Progress</h4>${items.length ? `<ul>${items.map(it => {
+    const st = it.steps || [], d = st.filter(x => x.done).length;
+    return `<li title="${esc(progLabel(cls, it.status))}"><i class="light ${it.status}"></i><span class="sp-t">${esc(it.title || 'Untitled')}</span>${st.length ? `<span class="sp-bar" title="${d}/${st.length} steps"><i style="width:${Math.round(d / st.length * 100)}%"></i></span>` : ''}</li>`; }).join('')}</ul>` : '<div style="opacity:.7">Nothing yet. Click to add pieces.</div>'}</div>`;
+}
 function updateClassBody(ctx, t) {
   const cls = ctx.cls, step = agendaStep(ctx, t);
   const evs = eventsOn(t, ctx.cls);
   const pubNote = (cls.screenNotes || {})[dateKey(t)]?.trim() || '';
-  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name, pubNote]);
+  const progSide = cls.sideProgress ? (cls.progress || []).map(i => [i.title, i.status, (i.steps || []).length, (i.steps || []).filter(x => x.done).length]) : null;
+  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name, pubNote, progSide, cls.progLabels]);
   if (sideKey !== P.sideKey && !ieFocused('#p-side') && !AGDRAG) {
     P.sideKey = sideKey;
     const agenda = cls.agenda.length ? `<ol class="agenda">${cls.agenda.map((a, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span class="n">${i + 1}</span><span>${esc(a.text)}</span>${a.min ? `<span class="m">${a.min}m</span>` : ''}</li>`).join('')}</ol>` : '<div style="opacity:.7">No agenda yet.</div>';
@@ -914,6 +963,7 @@ function updateClassBody(ctx, t) {
       <div class="p-card"><h4>Agenda <span class="mini-btns"><button data-action="agenda-prev">‹</button><button data-action="agenda-next">›</button></span></h4>${agenda}</div>
       ${evs.length ? `<div class="p-card"><h4>Today</h4><ul class="ev-list">${evs.map(e => `<li>${esc(eventLabel(e))}${e.time ? ` <span style="opacity:.7">${fmtHM(e.time)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
       ${pubNote ? `<div class="p-card"><h4>Notes</h4><div class="pub-note">${esc(pubNote)}</div></div>` : ''}
+      ${progSide ? sideProgCard(cls) : ''}
       ${ctx.next && !ctx.pinned ? `<div class="p-card"><h4>Up next</h4><div>${esc(ctx.next.cls.name)} · ${fmtHM(ctx.next.start)}</div></div>` : ''}`;
   }
   tickStepLeft(ctx, t, step);
@@ -929,7 +979,7 @@ function updateClassBody(ctx, t) {
       ${stageTabsHTML(cls, res)}
       <span class="sp"></span>
       <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
-      <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Restore' : 'Maximize (markup tools still work)'}">${P.stageMax ? '⤡' : '⤢'}</button>
+      <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Back to normal size' : 'Maximize (markup tools still work)'}">${IC(P.stageMax ? 'ico:restore' : 'ico:maximize')}</button>
       ${res && res.url && IS_NATIVE ? `<button class="mode" data-action="stage-native" title="${res.native ? 'Switch back to embedded (drawing works on top)' : 'Page not showing? Show it as a full browser (every site works)'}">${res.native ? 'Embedded' : 'Full browser'}</button>` : ''}${res && res.url ? `<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}`;
     const sc = $('#stage-content');
     if (res && res.sight) {
@@ -1014,8 +1064,8 @@ function mountSightHosts(root = document) {
   }
 }
 // ============================================================ calendar & progress windows
-const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' } };
-const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec })[k];
+const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' } };
+const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt })[k];
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
 const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => WG_RENDER(kind)(h));
@@ -1126,7 +1176,7 @@ function renderProg(h) {
   const lights = it => ['red', 'yellow', 'green'].map(k => `<button class="pick ${k} ${it.status === k ? 'on' : ''}" data-pg="set" data-s="${k}"><i class="light ${k}"></i>${L(k)}</button>`).join('');
   h.innerHTML = `<div class="prog">
     <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${L(k)} <b>${count(k)}</b></span>`).join('')}
-      <span class="grow"></span><button data-pg="labels" class="${h.__labels ? 'on' : ''}" title="Rename the three colours">Labels</button><button class="prog-add" data-pg="add">＋ Add</button></div>
+      <span class="grow"></span><button data-pg="side" class="${cls.sideProgress ? 'on' : ''}" title="Show this list in the class's side panel">Side panel</button><button data-pg="labels" class="${h.__labels ? 'on' : ''}" title="Rename the three colours">Labels</button><button class="prog-add" data-pg="add">＋ Add</button></div>
     ${h.__labels ? `<div class="prog-labels">${['red', 'yellow', 'green'].map(k => `<label><i class="light ${k}"></i><input data-f="lbl-${k}" value="${esc(cls.progLabels?.[k] || '')}" placeholder="${esc(PROG[k])}"></label>`).join('')}</div>` : ''}
     <div class="prog-list">${items.map((it, i) => {
       const steps = it.steps || [], done = steps.filter(s => s.done).length, open = it.open !== false;
@@ -1154,6 +1204,7 @@ function renderProg(h) {
     const act = b.dataset.pg;
     if (act === 'add') { const n = { id: uid(), title: '', status: 'red', notes: '', steps: [], updated: Date.now() }; items.push(n); save(); renderProg(h); h.querySelector(`[data-id="${n.id}"] .prog-title`)?.focus(); refreshOthers(h); return; }
     if (act === 'labels') { h.__labels = !h.__labels; return renderProg(h); }
+    if (act === 'side') { cls.sideProgress = !cls.sideProgress; save(); P.sideKey = ''; return refreshWidgets('prog'); }
     if (act === 'pick') { h.__pick = h.__pick === id ? null : id; return renderProg(h); }
     if (!it) return;
     if (act === 'set') { it.status = b.dataset.s; h.__pick = null; touch(it); }
@@ -1188,6 +1239,120 @@ function renderProg(h) {
 // other open copies of the same widget (a pinned one and a window, say)
 const refreshOthers = h => document.querySelectorAll(`.wg-host[data-wg="${h.dataset.wg}"]`).forEach(x => x !== h && WG_RENDER(x.dataset.wg)(x));
 function fitNotes(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+
+// ---------- YouTube window: paste a link, keep recently watched videos, make playlists and switch between them
+const ytData = () => (S.yt ||= { recent: [], lists: [], last: null });
+function ytParse(raw) {
+  const t = String(raw || '').trim(); if (!t) return null;
+  if (/^[\w-]{11}$/.test(t)) return { id: t };
+  let u; try { u = new URL(/^https?:/.test(t) ? t : 'https://' + t); } catch { return null; }
+  const h = u.hostname.replace(/^(www|m|music)\./, ''), start = parseInt(u.searchParams.get('t') || u.searchParams.get('start') || '0') || 0;
+  if (h === 'youtu.be') return { id: u.pathname.slice(1, 12), start };
+  if (h !== 'youtube.com' && h !== 'youtube-nocookie.com') return null;
+  const v = u.searchParams.get('v'), sh = u.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/), list = u.searchParams.get('list');
+  if (v || sh) return { id: v || sh[1], start };
+  if (list) return { list };
+  return null;
+}
+const ytKey = v => v.id || 'list:' + v.list;
+const ytThumb = v => v.id ? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg` : '';
+async function ytTitle(v) {
+  try { const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(v.id ? 'https://www.youtube.com/watch?v=' + v.id : 'https://www.youtube.com/playlist?list=' + v.list)}`); if (r.ok) return (await r.json()).title || ''; } catch { }
+  return '';
+}
+function ytRemember(v) {
+  const d = ytData(), k = ytKey(v);
+  d.recent = [{ ...v, at: Date.now() }, ...d.recent.filter(x => ytKey(x) !== k)].slice(0, 30);
+  d.last = { ...v };
+  if (!v.title) ytTitle(v).then(t => { if (!t) return; for (const x of [...d.recent, ...d.lists.flatMap(l => l.items)]) if (ytKey(x) === k) x.title = t; if (d.last && ytKey(d.last) === k) d.last.title = t; save(); refreshWidgets('yt'); });
+  save();
+}
+function ytPlay(h, v, listId = null) {
+  h.__cur = { ...v }; h.__list = listId;
+  ytRemember(v);
+  const src = v.id ? `https://www.youtube.com/embed/${v.id}?rel=0&autoplay=1&enablejsapi=1&playsinline=1${v.start ? '&start=' + v.start : ''}` : `https://www.youtube.com/embed/videoseries?list=${v.list}&autoplay=1&enablejsapi=1`;
+  const box = h.querySelector('.yt-player');
+  if (box) { box.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`; ytListen(box.firstElementChild); }
+  renderYtSide(h);
+}
+// ask the player to report its state, so a playlist moves on when a video ends
+function ytListen(f) { f.addEventListener('load', () => { const ping = () => { try { f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch { } }; ping(); setTimeout(ping, 800); }); }
+window.addEventListener('message', e => {
+  if (!/youtube(-nocookie)?\.com$/.test(new URL(e.origin || 'http://x').hostname)) return;
+  let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+  const ended = (d?.event === 'onStateChange' && d.info === 0) || (d?.event === 'infoDelivery' && d.info?.playerState === 0);
+  if (!ended) return;
+  for (const h of document.querySelectorAll('.wg-host[data-wg="yt"]')) if (h.querySelector('.yt-player iframe')?.contentWindow === e.source && h.__list && h.__auto !== false) ytStep(h, 1);
+});
+function ytStep(h, dir) {
+  const l = ytData().lists.find(x => x.id === h.__list); if (!l?.items.length) return;
+  const i = l.items.findIndex(x => ytKey(x) === ytKey(h.__cur || {})), j = i + dir;
+  if (j < 0 || j >= l.items.length) return toast(dir > 0 ? 'That was the last video in the playlist.' : 'This is the first video.');
+  ytPlay(h, l.items[j], l.id);
+}
+function renderYt(h) {
+  const d = ytData();
+  if (!h.querySelector('.yt')) {
+    h.innerHTML = `<div class="yt"><form class="yt-bar"><input data-yt-url placeholder="Paste a YouTube link (video or playlist)…"><button>${IC('ico:play')} Play</button><button type="button" data-yt="side" title="Recent and playlists">${IC('ico:scroll')}</button></form>
+      <div class="yt-main"><div class="yt-player"></div><div class="yt-side"></div></div></div>`;
+    h.querySelector('form').onsubmit = e => { e.preventDefault(); const inp = h.querySelector('[data-yt-url]'), v = ytParse(inp.value); if (!v) return toast('That doesn\'t look like a YouTube link.'); inp.value = ''; ytPlay(h, v, null); };
+    h.onclick = e => ytClick(h, e);
+    h.onchange = e => { if (e.target.dataset.yt === 'pick') { h.__tab = 'list'; h.__showList = e.target.value; renderYtSide(h); } if (e.target.dataset.yt === 'auto') { h.__auto = e.target.checked; } };
+    if (d.last && !h.__cur) { h.__cur = { ...d.last }; const box = h.querySelector('.yt-player'); box.innerHTML = `<button class="yt-resume" data-yt="resume">${d.last.id ? `<img src="${ytThumb(d.last)}" alt="">` : ''}<span>${IC('ico:play')} ${esc(d.last.title || 'Play the last video')}</span></button>`; }
+    else if (!d.last) h.querySelector('.yt-player').innerHTML = `<div class="yt-empty">${IC('ico:youtube')}<div>Paste a YouTube link above.<br><small>Videos you play are kept under Recent. Make playlists to switch between them in class.</small></div></div>`;
+  }
+  h.querySelector('.yt').classList.toggle('side-off', !!h.__sideOff);
+  renderYtSide(h);
+}
+function renderYtSide(h) {
+  const side = h.querySelector('.yt-side'); if (!side) return;
+  const d = ytData(), tab = h.__tab || 'recent', cur = h.__cur, curK = cur && ytKey(cur);
+  const show = d.lists.find(l => l.id === (h.__showList || h.__list)) || d.lists[0];
+  const item = (v, i, list) => `<div class="yt-item ${ytKey(v) === curK && (!list || h.__list === list.id) ? 'cur' : ''}" data-k="${esc(ytKey(v))}" data-i="${i}">
+      <button class="yt-th" data-yt="${list ? 'lplay' : 'rplay'}">${v.id ? `<img src="${ytThumb(v)}" alt="" loading="lazy">` : IC('ico:youtube')}</button>
+      <button class="yt-t" data-yt="${list ? 'lplay' : 'rplay'}">${esc(v.title || (v.id ? 'Video ' + v.id : 'YouTube playlist'))}</button>
+      <span class="yt-acts">${list ? `<button data-yt="up" title="Move up">${IC('ico:up')}</button><button data-yt="lrm" title="Remove from playlist">${IC('ico:close')}</button>` : `<button data-yt="radd" title="Add to a playlist">＋</button><button data-yt="rrm" title="Remove from Recent">${IC('ico:close')}</button>`}</span></div>`;
+  side.innerHTML = `
+    <div class="yt-tabs"><button data-yt="tab" data-v="recent" class="${tab === 'recent' ? 'on' : ''}">Recent</button><button data-yt="tab" data-v="list" class="${tab === 'list' ? 'on' : ''}">Playlists</button></div>
+    ${h.__list && cur ? `<div class="yt-now">${IC('ico:play')} <span>${esc(d.lists.find(l => l.id === h.__list)?.name || '')}</span><button data-yt="prev" title="Previous">${IC('ico:chevleft')}</button><button data-yt="next" title="Next">${IC('ico:chevright')}</button><label title="Play the next video when one ends"><input type="checkbox" data-yt="auto" ${h.__auto !== false ? 'checked' : ''}> auto</label></div>` : ''}
+    ${cur ? `<button class="yt-addcur" data-yt="addcur">＋ Add this video to a playlist</button>` : ''}
+    ${tab === 'recent'
+      ? `<div class="yt-list">${d.recent.map((v, i) => item(v, i)).join('') || '<div class="yt-none">Nothing yet.</div>'}</div>${d.recent.length ? '<button class="yt-clear" data-yt="rclear">Clear recent</button>' : ''}`
+      : `<div class="yt-lhead">${d.lists.length ? `<select data-yt="pick">${d.lists.map(l => `<option value="${l.id}" ${l === show ? 'selected' : ''}>${esc(l.name)} (${l.items.length})</option>`).join('')}</select>` : ''}<button data-yt="lnew">＋ New</button>${show ? `<button data-yt="lplayall" title="Play from the start">${IC('ico:play')}</button><button data-yt="lren" title="Rename">${IC('ico:edit')}</button><button data-yt="ldel" title="Delete playlist">${IC('ico:trash')}</button>` : ''}</div>
+         <div class="yt-list">${show ? show.items.map((v, i) => item(v, i, show)).join('') || '<div class="yt-none">Empty. Play a video, then “＋ Add this video”.</div>' : '<div class="yt-none">No playlists yet. Press ＋ New.</div>'}</div>`}`;
+}
+function ytPickList(h, v) {
+  const d = ytData();
+  let name = d.lists.length ? prompt(`Add to which playlist? Type its name (new name = new playlist):\n${d.lists.map(l => '• ' + l.name).join('\n')}`, h.__showList ? d.lists.find(l => l.id === h.__showList)?.name || '' : d.lists[0].name) : prompt('Name for the new playlist:', 'Concert pieces');
+  name = name?.trim(); if (!name) return;
+  let l = d.lists.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (!l) d.lists.push(l = { id: uid(), name, items: [] });
+  if (l.items.some(x => ytKey(x) === ytKey(v))) return toast(`Already in “${l.name}”.`);
+  l.items.push({ ...v, at: undefined }); delete l.items.at(-1).at;
+  h.__showList = l.id; save(); toast(`Added to “${l.name}”.`); refreshWidgets('yt');
+}
+function ytClick(h, e) {
+  const b = e.target.closest('[data-yt]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return; e.stopPropagation();
+  const d = ytData(), act = b.dataset.yt, row = b.closest('[data-i]'), i = row ? +row.dataset.i : -1;
+  const show = d.lists.find(l => l.id === (h.__showList || h.__list)) || d.lists[0];
+  if (act === 'side') { h.__sideOff = !h.__sideOff; return renderYt(h); }
+  if (act === 'resume') return ytPlay(h, d.last, null);
+  if (act === 'tab') { h.__tab = b.dataset.v; return renderYtSide(h); }
+  if (act === 'rplay') return ytPlay(h, d.recent[i], null);
+  if (act === 'lplay') return ytPlay(h, show.items[i], show.id);
+  if (act === 'lplayall' && show?.items.length) return ytPlay(h, show.items[0], show.id);
+  if (act === 'prev' || act === 'next') return ytStep(h, act === 'next' ? 1 : -1);
+  if (act === 'addcur' && h.__cur) return ytPickList(h, h.__cur);
+  if (act === 'radd') return ytPickList(h, d.recent[i]);
+  if (act === 'rrm') d.recent.splice(i, 1);
+  if (act === 'rclear' && confirm('Clear the recently watched list?')) d.recent = [];
+  if (act === 'lnew') { const n = prompt('Name for the new playlist:', ''); if (!n?.trim()) return; const l = { id: uid(), name: n.trim(), items: [] }; d.lists.push(l); h.__showList = l.id; h.__tab = 'list'; }
+  if (act === 'lren' && show) { const n = prompt('Rename the playlist:', show.name); if (n?.trim()) show.name = n.trim(); }
+  if (act === 'ldel' && show && confirm(`Delete the playlist “${show.name}”? (The videos stay in Recent.)`)) { d.lists = d.lists.filter(l => l !== show); h.__showList = null; if (h.__list === show.id) h.__list = null; }
+  if (act === 'lrm' && show) show.items.splice(i, 1);
+  if (act === 'up' && show && i > 0) [show.items[i - 1], show.items[i]] = [show.items[i], show.items[i - 1]];
+  save(); refreshWidgets('yt');
+}
 
 // ---------- recorder: record the group, listen back, then save it or delete it
 // REC = the recording in progress; PLAY = what the player at the top of the window is showing.
@@ -1537,6 +1702,7 @@ function winTitle(w) {
   if (w.kind === 'metro') return 'Metronome';
   if (w.kind === 'cal') return 'Calendar';
   if (w.kind === 'rec') return 'Recorder';
+  if (w.kind === 'yt') return 'YouTube';
   if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
@@ -1629,7 +1795,7 @@ function winHTML(w) {
       ${url ? `<button data-action="open-external" data-url="${esc(url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}
       <button class="zoom-badge" data-action="win-zoom-reset" data-id="${w.id}" title="Pinch to zoom · click to reset" hidden>100%</button>
       <button data-action="win-snap" data-id="${w.id}" title="Tile this window">${IC('ico:tile')}</button>
-      <button data-action="win-max" data-id="${w.id}" title="Maximize">⤢</button>
+      <button class="max-btn ${w.max ? 'on' : ''}" data-action="win-max" data-id="${w.id}" title="${w.max ? 'Back to normal size' : 'Maximize'}">${IC(w.max ? 'ico:restore' : 'ico:maximize')}</button>
       <button data-action="win-close" data-id="${w.id}" title="Close">${IC('ico:close')}</button>
     </div>
     ${w.kind === 'web' ? bmBarHTML(w) : ''}
@@ -1660,6 +1826,8 @@ function applyWinGeom() {
     el.style.width = g.w * 100 + '%'; el.style.height = g.h * 100 + '%';
     el.style.zIndex = w.z || 1;
     el.classList.toggle('front', w.z === top && list.length > 1);
+    const mb = el.querySelector('.max-btn');
+    if (mb && mb.classList.contains('on') !== !!w.max) { mb.classList.toggle('on', !!w.max); mb.title = w.max ? 'Back to normal size' : 'Maximize'; mb.innerHTML = IC(w.max ? 'ico:restore' : 'ico:maximize'); }
   }
   WIN.cutSig = '';
   // Move real browser/app views in the same frame as the page, not on the next 250 ms tick.
@@ -2423,6 +2591,7 @@ function renderWinMenu() {
       ${tile('wm-cal', 'ico:events', 'Calendar')}
       ${tile('wm-prog', 'ico:gauge', 'Progress')}
       ${tile('wm-rec', 'ico:mic', 'Recorder')}
+      ${tile('wm-yt', 'ico:youtube', 'YouTube')}
       ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'Other app', 'title="A window from another app (MuseScore…)"') : ''}
     </div>
     ${IS_NATIVE ? appPickerHTML() : ''}
@@ -2574,12 +2743,24 @@ function resizeInk() {
   inkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (copy) inkCtx.drawImage(copy, 0, 0, cw, ch);   // same size as before, anchored top-left — never stretched
 }
+// Board paper: staff lines (or a grid) drawn as a repeating background, so Clear never erases them
+function boardPaper(kind) {
+  const svg = (w, h, body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'>${body}</svg>`)}")`;
+  const lines = (ys, w = 10) => ys.map(y => `<rect x='0' y='${y}' width='${w}' height='1.6' fill='#6b7385'/>`).join('');
+  const sp = 18;                                              // space between staff lines
+  if (kind === 'staff') return svg(10, 4 * sp + 96, lines([0, 1, 2, 3, 4].map(i => 40 + i * sp)));
+  if (kind === 'grand') { const a = [0, 1, 2, 3, 4].map(i => 40 + i * sp), b = a.map(y => y + 4 * sp + 64); return svg(10, 2 * 4 * sp + 64 + 110, lines([...a, ...b])); }
+  if (kind === 'grid') return svg(32, 32, `<path d='M32 0H0V32' fill='none' stroke='#c9ced8' stroke-width='1'/>`);
+  return '';
+}
 function updateInkUI() {
   const host = $('#ink'); if (!host) return;
   host.classList.toggle('on', P.ink.on);
   if (P.ink.on) requestAnimationFrame(inkFit), setTimeout(inkFit, 50);
   host.classList.toggle('passive', P.ink.interact);
-  host.style.background = P.ink.blank ? '#ffffff' : 'transparent';
+  const paper = P.ink.blank ? boardPaper(S.settings.boardPaper) : '';
+  host.style.background = !P.ink.blank ? 'transparent' : paper ? `${paper} repeat content-box, #ffffff` : '#ffffff';
+  host.classList.toggle('papered', P.ink.blank && !!S.settings.boardPaper && S.settings.boardPaper !== 'blank');
   const colors = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#7b2cbf', '#111111', '#ffffff', '#ffd60a'];
   const tb = (t, label) => `<button class="${P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}">${label}</button>`;
   $('#ink-bar').innerHTML = `<span class="ink-grip" title="Drag to move this toolbar">⋮⋮</span>
@@ -2588,6 +2769,7 @@ function updateInkUI() {
     ${colors.map(c => `<button class="dot ${P.ink.color === c ? 'on' : ''}" style="background:${c}" data-action="ink-color" data-c="${c}"></button>`).join('')}
     <select data-action-change="ink-size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
       ${[2, 4, 8, 14].map(s => `<option value="${s}" ${P.ink.size === s ? 'selected' : ''} style="color:#000">${s}px</option>`).join('')}</select>
+    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${(S.settings.boardPaper || 'blank') === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
     ${P.ink.blank ? '' : `<button class="${P.ink.interact ? 'on' : ''}" data-action="ink-interact" title="Click through to the slide underneath; drawings stay visible">${IC('ico:pointer')} Click slides</button>`}
     <button data-action="ink-clear">${IC('ico:trash')} Clear</button>
     <button data-action="ink-close">${IC('ico:close')}</button>`;
@@ -2932,6 +3114,7 @@ function classesTab() {
     </div>
     <div class="card"><h2>Warm-up question</h2><p class="desc">Shown big on the screen when no resource is selected.</p>
       <label class="chk" style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><input type="checkbox" data-bind="${base}.hideWarmup" ${cls.hideWarmup ? 'checked' : ''}> Hide the warm-up tab for this class</label>
+      <label class="chk" style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><input type="checkbox" data-bind="${base}.sideProgress" ${cls.sideProgress ? 'checked' : ''}> Show the Progress tracker in the side panel</label>
       <textarea rows="3" data-bind="${base}.warmup" placeholder="What do you notice? What do you wonder?">${esc(cls.warmup)}</textarea></div>
     <div class="card"><div class="card-head"><h2>Resources</h2><span class="grow"></span>
         ${IS_NATIVE ? '<button class="btn small primary" data-action="drive-browse">Browse Google Drive…</button>' : ''}
@@ -3377,7 +3560,9 @@ function libraryTab() {
 // ---------- settings
 function settingsTab() {
   const sim = S.settings.sim;
-  return `${updatesCard()}<div class="card"><h2>Present screen</h2>
+  return `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
+    <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}
+  ${updatesCard()}<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
@@ -3396,9 +3581,14 @@ function settingsTab() {
   ${HAS_SERVER ? `<div class="card"><h2>Automatic backups</h2><p class="desc">Each day you use Rehearsal it keeps a dated copy of your classes, tabs, agendas and settings (the newest 30). If something goes missing, restore an earlier day here. Restoring first saves what you have now, so you can always undo it.</p>
     <div class="row"><button class="btn" data-action="backup-now">Back up now</button><span class="grow"></span></div>
     <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
+  <div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
+    <div class="row"><span style="width:9em">Playhead delay</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay" style="flex:1;max-width:320px"><b class="av-val">${avDelayMs()} ms</b><button class="btn" data-action="av-cal">Calibrate…</button></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button></div></div>
   <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or iPad (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
     <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
 }
+// your Buy Me a Coffee page (shown in Settings when set)
+const COFFEE_URL = 'https://buymeacoffee.com/loganshippee';
 
 // ---------- updates (the Mac app checks GitHub; see native/updater.swift)
 let UPD = { state: 'idle' }, WEB_VERSION = '';
@@ -3524,7 +3714,7 @@ const A = {
   'tool-close': el => { const n = el.dataset.tool; delete P.tools[n]; if (n === 'noise') noiseStop(); renderTools(); renderDock(); },
   'quick-timer': el => { const m = Number(el.dataset.m); startTimer({ label: m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`, minutes: m, sound: 'bell' }); },
   'custom-timer': () => startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: $('#tt-sound').value }),
-  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = Date.now() + tm.pausedLeft; tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); },
+  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); },
   'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); },
   'timer-x': el => { P.timers = P.timers.filter(t => t.id !== el.dataset.id); renderTimers(); },
   'overlay-dismiss': () => { if (P.overlay) P.overlay.until = 0; },
@@ -3575,8 +3765,11 @@ const A = {
   'app-done': () => { /* clicking Rehearsal already ended editing; this just re-renders */ WIN.sig = ''; },
   'app-front': el => { const w = findWin(el.dataset.id); if (!w) return; if (w.status === 'not-running') native('launchApp', { bundleId: w.bundleId }); else native('webCmd', { id: w.id, action: 'front' }); },
   'wm-cal': () => { const w = addWindow({ kind: 'cal' }); w.w = 0.62; w.h = 0.8; save(); applyWinGeom(); },
+  'av-cal': () => calibrateSync(),
+  'vol-test': () => { const c = ac(); c.resume?.(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut()); o.start(t); o.stop(t + 0.55); }); },
+  'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
   'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'rec' }); w.w = 0.42; w.h = 0.7; save(); applyWinGeom(); },
-  'wm-prog': () => { const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
+  'wm-prog': () => { const ex = winList().find(w => w.kind === 'prog'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id, native: false }),
@@ -3812,7 +4005,43 @@ const A = {
   'upd-install': () => native('updateInstallApp'),
   'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },
 };
+// tap along with clicks; the median gap between a click and your tap is the extra delay to allow for
+function calibrateSync() {
+  $('#av-cal')?.remove();
+  const c = ac(); c.resume?.();
+  const box = document.createElement('div'); box.id = 'av-cal'; box.className = 'av-cal';
+  box.innerHTML = `<div class="av-card"><h3>Tap along with the clicks</h3><p>4 clicks to get ready, then tap the circle (or press Space) exactly on each of the next 8.</p>
+    <button class="av-pad" data-av="tap"><span>Tap</span></button><div class="av-st">Starting…</div><button class="btn" data-av="close">Cancel</button></div>`;
+  document.body.appendChild(box);
+  const beat = 60 / 90, t0 = c.currentTime + 0.6, lead = 4, n = 8, clicks = [];
+  for (let i = 0; i < lead + n; i++) { const t = t0 + i * beat; metClick(t, i % 4 === 0 ? 'down' : 'beat'); if (i >= lead) clicks.push(t); }
+  const diffs = [], st = box.querySelector('.av-st'), pad = box.querySelector('.av-pad');
+  const tap = e => {
+    const t = typeof grTapTime === 'function' ? grTapTime(c, e) : c.currentTime;
+    const k = clicks.reduce((b, x) => Math.abs(x - t) < Math.abs(b - t) ? x : b, Infinity);
+    if (Math.abs(k - t) < beat / 2) diffs.push(t - k);
+    pad.classList.remove('hit'); void pad.offsetWidth; pad.classList.add('hit');
+    st.textContent = `${diffs.length} of ${n}`;
+  };
+  const key = e => { if (e.code === 'Space') { e.preventDefault(); tap(e); } if (e.key === 'Escape') done(true); };
+  const done = cancel => {
+    document.removeEventListener('keydown', key, true); clearTimeout(timer);
+    if (cancel) return box.remove();
+    if (diffs.length < 5) { st.textContent = 'Not enough taps. Try again.'; pad.disabled = true; return; }
+    const m = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
+    const ms = setAvDelay(m * 1000);
+    st.innerHTML = `Done: <b>${ms} ms</b> on this ${DEVICE}.`; pad.disabled = true; box.querySelector('[data-av="close"]').textContent = 'Close';
+    const v = document.querySelector('[data-action-input="av-delay"]'); if (v) { v.value = ms; v.nextElementSibling.textContent = ms + ' ms'; }
+  };
+  pad.addEventListener('pointerdown', e => { e.preventDefault(); tap(e); });
+  box.querySelector('[data-av="close"]').onclick = () => box.remove();
+  document.addEventListener('keydown', key, true);
+  setTimeout(() => { st.textContent = 'Get ready…'; }, 500);
+  setTimeout(() => { st.textContent = 'Tap now!'; }, (t0 - c.currentTime + lead * beat - 0.2) * 1000);
+  const timer = setTimeout(() => done(false), (t0 - c.currentTime + (lead + n) * beat + 0.6) * 1000);
+}
 const CHANGE = {
+  'board-paper': el => { S.settings.boardPaper = el.value; save(); updateInkUI(); },
   pin: el => { P.pinned = el.value || null; P.layoutKey = ''; renderDock(); },
   'ink-size': el => { P.ink.size = Number(el.value); },
   'noise-beep': el => { NOISE.beep = el.checked; },
@@ -3827,6 +4056,8 @@ const CHANGE = {
   'sim-time': el => { const s = S.settings.sim; s.time = el.value || s.time; s.setAt = Date.now(); P.fired.clear(); save(); },
 };
 const INPUT = {
+  'music-vol': el => { setMusicVol(+el.value); el.nextElementSibling.textContent = Math.round(+el.value * 100) + '%'; },
+  'av-delay': el => { const ms = setAvDelay(+el.value); el.nextElementSibling.textContent = ms + ' ms'; },
   'noise-limit': el => { NOISE.limit = Number(el.value); const l = $('#nm .lim'); if (l) l.style.left = NOISE.limit + '%'; },
   'rand-n': el => { R.groupN = clamp(Number(el.value) || 4, 2, 12); },
 };
@@ -3933,7 +4164,9 @@ document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC
   if (HAS_SERVER) fetch(`/api/purge-grlogs?keep=${S.settings.saveGradeRecordings ? 20 : 0}`, { method: 'POST', headers: { 'X-Token': TOKEN } }).catch(() => { });
   if (S.settings.sim.on && !S.settings.sim.setAt) S.settings.sim.setAt = Date.now();
   render();
-  setInterval(tick, 250);
+  // tick 4× a second, and right after each of the clock's whole seconds, so the clock and timers change together
+  const loop = () => { tick(); const o = clockOff(), toNext = 1000 - ((Date.now() + o) % 1000 + 1000) % 1000; setTimeout(loop, Math.min(250, toNext + 8)); };
+  loop();
 })();
 
 // ---------- free-window dragging, resizing, focus, address bar

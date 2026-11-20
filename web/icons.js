@@ -105,6 +105,11 @@ const ICON_PATHS = {
  "movevert": "<path d=\"M12 2v20\" /> <path d=\"m8 18 4 4 4-4\" /> <path d=\"m8 6 4-4 4 4\" />",
  "chevleft": "<path d=\"m15 18-6-6 6-6\" />",
  "check": "<path d=\"M20 6 9 17l-5-5\" />",
+ "coffee": "<path d=\"M10 2v2\" /> <path d=\"M14 2v2\" /> <path d=\"M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1\" /> <path d=\"M6 2v2\" />",
+ "zoomin": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <line x1=\"21\" x2=\"16.65\" y1=\"21\" y2=\"16.65\" /> <line x1=\"11\" x2=\"11\" y1=\"8\" y2=\"14\" /> <line x1=\"8\" x2=\"14\" y1=\"11\" y2=\"11\" />",
+ "zoomout": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <line x1=\"21\" x2=\"16.65\" y1=\"21\" y2=\"16.65\" /> <line x1=\"8\" x2=\"14\" y1=\"11\" y2=\"11\" />",
+ "maximize": "<polyline points=\"15 3 21 3 21 9\" /> <polyline points=\"9 21 3 21 3 15\" /> <line x1=\"21\" x2=\"14\" y1=\"3\" y2=\"10\" /> <line x1=\"3\" x2=\"10\" y1=\"21\" y2=\"14\" />",
+ "restore": "<polyline points=\"4 14 10 14 10 20\" /> <polyline points=\"20 10 14 10 14 4\" /> <line x1=\"14\" x2=\"21\" y1=\"10\" y2=\"3\" /> <line x1=\"3\" x2=\"10\" y1=\"21\" y2=\"14\" />",
  "chevright": "<path d=\"m9 18 6-6-6-6\" />"
 };
 function ico(name, cls = '') {

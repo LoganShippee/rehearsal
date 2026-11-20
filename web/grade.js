@@ -565,7 +565,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   document.getElementById('gr-card')?.remove();
   host.__grResult = null; grClearMarks(host);
   srKeepAwake(c);
-  GR.out = c.createGain(); GR.out.connect(c.destination);
+  GR.out = c.createGain(); GR.out.connect(musicOut());
   const t0 = c.currentTime + 0.3;
   // Count-in: the Count-in setting (at least 1 bar, so the singer hears the tempo)
   const cueMode = st.mode === 'solfege' ? (o.countPitch ?? 'do') : 'none';
@@ -594,12 +594,12 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   const an = tap ? null : mic.an;
   // raw (unfiltered) mic audio for the troubleshooting log; marks map sample numbers to audio-clock time
   const rec = tap ? null : { sr: c.sampleRate, chunks: [], marks: [], n: 0 };
-  const meta = { mode: st.mode, settings: Object.fromEntries(['ts', 'tempo', 'key', 'scale', 'clef', 'gradeVoice', 'countIn', 'countPitch', 'metronome'].map(k => [k, o[k]])), beatSec, countBeats, t0, avDelay: (typeof S !== 'undefined' ? S.settings?.avDelay : null) ?? null };
+  const meta = { mode: st.mode, settings: Object.fromEntries(['ts', 'tempo', 'key', 'scale', 'clef', 'gradeVoice', 'countIn', 'countPitch', 'metronome'].map(k => [k, o[k]])), beatSec, countBeats, t0, avDelay: avDelayMs() };
   // Delay between a scheduled beat and the student hearing it: speaker buffer + Sound / playhead sync setting.
   let lat = null;
   try {
-    const dl = Number(S.settings?.avDelay), outLat = Math.max(0, c.currentTime - srHeard0(c));
-    lat = outLat + (isFinite(dl) ? dl : 150) / 1000;
+    const outLat = Math.max(0, c.currentTime - srHeard0(c));
+    lat = outLat + avDelayMs() / 1000;
     if (!isFinite(lat)) lat = null;
   } catch { lat = null; }
   Object.assign(GR, { on: true, input, c, taps: tap ? [] : null, an, rec, meta, buf: new Float32Array(2048), poll: 0, frames: [], host, exp, q, T0, end, btn, lat, gradePitch: !tap && timeline.some(e => e.midi != null), tl: timeline, retry: () => grStart(host, st, timeline, btn, input) });
@@ -613,7 +613,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     pos(now) { return this.anchorPos + (now - this.anchorT) / this.q; },
     timeAt(pos) { return this.anchorT + (pos - this.anchorPos) * this.q; },
     // the playhead follows grading's own sound engine
-    heard() { const dl = Number(typeof S !== 'undefined' ? S.settings?.avDelay : NaN); return srHeard0(c) - (isFinite(dl) ? dl : 150) / 1000; },
+    heard() { return srHeard0(c) - avDelayMs() / 1000; },
   };
   srAnimate(host, { ...st, playhead: st.playhead && st.playhead !== 'off' ? st.playhead : 'beat' }, () => timeline, gClock);
   GR.timer = setInterval(() => {
@@ -783,7 +783,7 @@ function grListen(host, mix, btn) {
   const clock = host.__listen(take.tempo);                       // the example from bar 1, at the tempo you performed
   if (!clock) return;
   if (mix === 'rec' && SR_PLAY.master) SR_PLAY.master.gain.value = 0;   // keep the playhead, mute the example
-  const out = c.createGain(); out.connect(c.destination);
+  const out = c.createGain(); out.connect(musicOut());
   SR_PLAY.extra = [out];
   const when0 = clock.timeAt(0);                                // when bar 1, beat 1 sounds
   if (A) {

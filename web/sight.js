@@ -649,7 +649,7 @@ function srKeepAwake(c) {
 function srPlay(st, timeline, onEnd) {
   srStop();
   const c = ac(); c.resume && c.resume(); srKeepAwake(c);
-  const master = c.createGain(); master.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9; master.connect(c.destination); SR_PLAY.master = master;
+  const master = c.createGain(); master.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9; master.connect(musicOut()); SR_PLAY.master = master;
   const o = st[st.mode]; const [beats, kind] = SR_METERS[o.ts];
   const beatQ = kind === 'compound' ? 1.5 : 1;                  // tempo counts the beat (dotted quarter in compound)
   const q = 60 / o.tempo / beatQ;                              // seconds per quarter-note unit
@@ -762,7 +762,7 @@ function srPlay(st, timeline, onEnd) {
 // ---------- playhead
 // the audio-clock time of what you're hearing now (speakers/Bluetooth add delay)
 function srHeard() {
-  const c = ac(), dl = (isFinite(Number(S.settings?.avDelay)) ? Number(S.settings.avDelay) : 150) / 1000;
+  const c = ac(), dl = avDelayMs() / 1000;
   return srHeard0(c) - dl;
 }
 function srHeard0(c) {
@@ -1214,7 +1214,7 @@ function mountSight(host, st, onChange) {
           nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
           settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Options</button>`,
-          zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>A−</button><button data-sr="zoom" data-d="1" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>A+</button></span>`,
+          zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:zoomout')}</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:zoomin')}</button></span>`,
           save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : ''
         })}
       </div>

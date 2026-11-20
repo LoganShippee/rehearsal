@@ -358,8 +358,6 @@ function metShow(host, st, { beat, sub, gap, tempo }) {
     big.classList.toggle('down', beat === 0); big.classList.toggle('gap', !!gap);
     big.classList.remove('hit'); void big.offsetWidth; big.classList.add('hit');
     host.querySelectorAll('.me-dot').forEach((d, i) => d.classList.toggle('on', i === beat));
-    const m = host.querySelector('.mu.metro');
-    if (m && !gap) { m.classList.remove('flash', 'flash-down'); void m.offsetWidth; m.classList.add(beat === 0 ? 'flash-down' : 'flash'); }
     const live = host.querySelector('.me-mark');
     if (live && tempo) live.textContent = gap ? 'Silent bar: keep the beat!' : `${tempo} BPM · ${metMarking(tempo)}`;
   }

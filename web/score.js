@@ -301,7 +301,7 @@ function spHoldChord(ctl, q, build) {
     && (st.focus == null || true));
   const notes = [...new Set(sounding.map(e => e.midi))].sort((a, b) => a - b);
   if (!notes.length) { toast('No voices are singing at that spot.'); return; }
-  const out = c.createGain(); out.gain.value = 0.0001; out.connect(c.destination);
+  const out = c.createGain(); out.gain.value = 0.0001; out.connect(musicOut());
   out.gain.setTargetAtTime(0.5 / Math.sqrt(notes.length), c.currentTime, 0.05);
   SP_HOLD.out = out;
   notes.forEach((m, k) => {
@@ -319,7 +319,7 @@ function spHoldChord(ctl, q, build) {
 // ---------- the player
 const SP_PLAY = { ctl: null, timer: null, raf: 0, master: null };
 // the audio-clock time of the sound reaching your ears right now
-function spAvDelay() { const v = Number(S.settings?.avDelay); return (isFinite(v) ? v : 150) / 1000; }
+function spAvDelay() { return avDelayMs() / 1000; }
 function spHeardTime(c) {
   return spHeardRaw(c) - spAvDelay();
 }
@@ -373,7 +373,7 @@ function spFirstNotes(sc, li, R) {
 async function spGivePitch(ctl, which) {
   const { sc } = ctl, c = ac(); c.resume && c.resume();
   await spPianoReady(sc.events.map(e => e.midi));
-  const R = spRange(ctl), out = c.createGain(); out.gain.value = 0.9; out.connect(c.destination);
+  const R = spRange(ctl), out = c.createGain(); out.gain.value = 0.9; out.connect(musicOut());
   const t = c.currentTime + 0.05, vocal = sc.lines.map((L, i) => i).filter(i => !sc.lines[i].acc);
   if (which === 'together') vocal.forEach(i => spFirstNotes(sc, i, R).forEach(m => spPianoNote(out, t, m, 2.2, 0.6)));
   else if (which === 'order') {
@@ -385,7 +385,7 @@ function spPlay(ctl) {
   spStop();
   const { sc, st } = ctl, c = ac(); c.resume && c.resume();
   SP_ACTIVE = ctl;
-  const master = c.createGain(); master.gain.value = 0.9; master.connect(c.destination);
+  const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut());
   const gains = sc.lines.map((_, i) => { const g = c.createGain(); g.gain.value = spLineVol(ctl, i); g.connect(master); return g; });
   Object.assign(SP_PLAY, { ctl, master });
   ctl.gains = gains; ctl.playing = true; ctl.iter = 0; ctl.updateBar();
@@ -647,7 +647,7 @@ function mountScore(host, st, onChange0, key) {
     </div>
     <div class="sp-parts" data-ctl="mixer">${(ctl.sc?.lines || []).map((p, i) => `<label class="sp-part"><input type="checkbox" data-sppart="${i}" ${st.parts[i]?.on === false ? '' : 'checked'}> <span>${esc(p.name)}</span>
       <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${st.parts[i]?.vol ?? 1}" title="Volume"></label>`).join('')}</div>
-    <label class="sp-sync" data-ctl="sync">Sound / playhead sync <input type="range" min="-200" max="600" step="10" data-spk="avDelay" value="${S.settings.avDelay ?? 150}"> <b>${S.settings.avDelay ?? 150} ms</b>
+    <label class="sp-sync" data-ctl="sync">Sound / playhead sync <input type="range" min="-200" max="600" step="10" data-spk="avDelay" value="${avDelayMs()}"> <b>${avDelayMs()} ms</b>
       <span class="sp-note">If the sound comes after the playhead, slide right (Bluetooth / AirPlay speakers need more). Also used by sight reading.</span></label>
     <div class="sp-note" data-ctl="help">Speed-up starts at that percentage of the tempo slider and adds the step each time the loop repeats, until it reaches the full tempo. Repeat signs and 1st / 2nd endings are followed (D.C. / D.S. / Coda are not yet).</div>`;
   };
@@ -959,7 +959,7 @@ function mountScore(host, st, onChange0, key) {
   window.addEventListener('pointerup', () => { drag = null; });
   root.addEventListener('input', e => {
     const el = e.target, k = el.dataset.spk;
-    if (k === 'avDelay') { S.settings.avDelay = Number(el.value); el.nextElementSibling.textContent = el.value + ' ms'; save(); return; }
+    if (k === 'avDelay') { setAvDelay(Number(el.value)); el.nextElementSibling.textContent = el.value + ' ms'; return; }
     if (k === 'tempo') { st.tempo = Number(el.value); ctl.updateBar(); onChange(); }
     if (el.dataset.spvol != null) { const i = +el.dataset.spvol; (st.parts[i] ||= {}).vol = Number(el.value); onChange(); }
   });
