@@ -699,9 +699,13 @@ function srPlay(st, timeline, onEnd) {
     for (const [type, mul, amp] of [['triangle', 1, .35], ['sine', 2, .08], ['sine', 3, .03]]) {
       const os = c.createOscillator(), g = c.createGain();
       os.type = type; os.frequency.value = f * mul;
-      g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + 0.01);
-      g.gain.exponentialRampToValueAtTime(amp * 0.35, time + Math.min(0.4, dur * 0.6)); g.gain.exponentialRampToValueAtTime(0.0001, time + dur * 0.95);
-      os.connect(g).connect(master); os.start(time); os.stop(time + dur);
+      // sung-style envelope: quick start, settles to a steady level and holds it for the whole note,
+      // then a short release right at the end (long notes sustain instead of fading away)
+      const rel = Math.min(0.08, dur * 0.25), end = time + dur, hold = Math.max(time + 0.02, end - rel);
+      g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + 0.012);
+      g.gain.setTargetAtTime(amp * 0.7, time + 0.012, 0.08);
+      g.gain.setValueAtTime(amp * 0.7, hold); g.gain.exponentialRampToValueAtTime(0.0001, end);
+      os.connect(g).connect(master); os.start(time); os.stop(end + 0.02);
     }
   };
   // count-in: 0, 1 or 2 bars of clicks (beat 1 accented)
@@ -781,7 +785,7 @@ function srHidePlayhead(host) {
 function srAnimate(host, st, getTimeline, clock) {
   // Runs for the whole playback and looks things up fresh every frame, so redrawing the music
   // (toggling counts, measure numbers or the playhead itself) never interrupts it.
-  let lastEl = null, lastBeat = -1, lastIdx = -1;
+  let lastEl = null, lastBeat = -1, prevTq = null;
   const myRun = SR_PLAY.run = (SR_PLAY.run || 0) + 1;        // a restarted playback replaces this loop
   const frame = () => {
     if (SR_PLAY.run !== myRun) return;
@@ -853,10 +857,10 @@ function srAnimate(host, st, getTimeline, clock) {
     }
     bar.classList.remove('pulse');
     const m = geo.measures.find(mm => tq >= mm.t0 && tq < mm.t1) || geo.measures[geo.measures.length - 1];
-    const idx = tl.findIndex(ev => tq >= ev.t && tq < ev.t + ev.len), e = tl[idx] || tl[tl.length - 1];
     let x, top, bot;
     if (mode === 'notes') {
-      const kn0 = m.knots.find(kk => Math.abs(kk[0] - e.t) < 1e-6) || m.knots[0];
+      let j = 0; while (j < m.knots.length - 2 && tq >= m.knots[j + 1][0] - 1e-6) j++;
+      const kn0 = m.knots[j];                                         // the newest note start in any part
       x = kn0[1]; top = kn0[2]; bot = kn0[3];                         // glides (CSS) onto each note
     } else {
       let i = 0; while (i < m.knots.length - 2 && tq >= m.knots[i + 1][0]) i++;
@@ -868,17 +872,20 @@ function srAnimate(host, st, getTimeline, clock) {
     }
     place(m, x, top, bot);
     // each note lights up as it sounds, with a soft ring on the notehead
-    if (idx !== lastIdx && idx >= 0) {
-      lastIdx = idx;
-      const kn = m.knots.find(kk => Math.abs(kk[0] - e.t) < 1e-6);
-      if (kn && !e.rest) {
-        const ring = document.createElement('div'); ring.className = 'sr-ring';
-        ring.style.left = ox + kn[1] * k + 'px'; ring.style.top = oy + (e.y ?? (m.y0 + m.y1) / 2) * k + 'px';
-        staff.appendChild(ring); setTimeout(() => ring.remove(), 600);
-      }
+    if (prevTq == null || tq < prevTq - 0.05) prevTq = tq - 1e-3;   // first frame, or a jump back
+    for (const ev of tl) {
+      if (ev.rest || ev.tiedFrom || ev.t > tq + 1e-6 || ev.t <= prevTq + 1e-6) continue;
+      const mm = geo.measures.find(q => ev.t >= q.t0 - 1e-6 && ev.t < q.t1 - 1e-6), kn = mm?.knots.find(kk => Math.abs(kk[0] - ev.t) < 1e-6);
+      if (!kn) continue;
+      const ring = document.createElement('div'); ring.className = 'sr-ring';
+      ring.style.left = ox + kn[1] * k + 'px'; ring.style.top = oy + (ev.y ?? (mm.y0 + mm.y1) / 2) * k + 'px';
+      staff.appendChild(ring); setTimeout(() => ring.remove(), 600);
     }
+    prevTq = tq;
     // light every note sounding now (all parts)
-    const act = tl.filter(ev => !ev.rest && tq >= ev.t - 1e-6 && tq < ev.t + ev.len - 1e-6).map(ev => ev.el), akey = act.join ? act.length + ':' + act.map(x => x?.id || '').join() : '';
+    const actI = [], act = [];
+    tl.forEach((ev, i) => { if (!ev.rest && tq >= ev.t - 1e-6 && tq < ev.t + ev.len - 1e-6) { actI.push(i); act.push(ev.el); } });
+    const akey = actI.join();
     if (akey !== lastEl) { staff.querySelectorAll('.sr-cur').forEach(x => srLight(x, false)); act.forEach(x => srLight(x, true)); lastEl = akey; }
     requestAnimationFrame(frame);
   };
