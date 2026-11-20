@@ -1139,7 +1139,7 @@ function renderProg(h) {
         ${h.__pick === it.id ? `<div class="prog-pick">${lights(it)}</div>` : ''}
         <div class="prog-meta">${steps.length ? `<button class="prog-tog" data-pg="toggle">${open ? '▾' : '▸'} ${done}/${steps.length} steps</button><span class="prog-bar"><i style="width:${Math.round(done / steps.length * 100)}%"></i></span>` : ''}<span class="prog-ago">${agoText(it.updated)}</span></div>
         ${open ? `<div class="prog-steps">${steps.map(s => `<div class="prog-step ${s.done ? 'done' : ''}" data-sid="${s.id}">
-            <button class="chk ${s.done ? 'on' : ''}" data-pg="check" title="${s.done ? 'Mark not done' : 'Mark done'}">${s.done ? IC('ico:check') : ''}</button>
+            <button class="pg-chk ${s.done ? 'on' : ''}" data-pg="check" title="${s.done ? 'Mark not done' : 'Mark done'}">${s.done ? IC('ico:check') : ''}</button>
             <input data-f="step" data-sid="${s.id}" value="${esc(s.text)}" placeholder="Step, e.g. learn notes mm. 1–24"><button class="prog-sx" data-pg="sdel" title="Remove step">${IC('ico:close')}</button></div>`).join('')}
           <button class="prog-addstep" data-pg="addstep">＋ Step</button></div>
           <textarea class="prog-notes" data-f="notes" rows="1" placeholder="Notes: what still needs to be done…">${esc(it.notes || '')}</textarea>` : ''}
@@ -1190,24 +1190,72 @@ const refreshOthers = h => document.querySelectorAll(`.wg-host[data-wg="${h.data
 function fitNotes(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
 
 // ---------- recorder: record the group, listen back, then save it or delete it
-const REC = { state: 'idle' };   // idle | rec | review
+// REC = the recording in progress; PLAY = what the player at the top of the window is showing.
+const REC = { state: 'idle' };   // idle | countin | rec | stopping | review
+const PLAY = { au: null, view: null };   // view: null | 'review' | 'saved' | 'compare'
 const fmtSec = s => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const recMime = () => !window.MediaRecorder ? '' : ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find(m => MediaRecorder.isTypeSupported?.(m)) || '';
 const recElapsed = () => REC.state !== 'rec' ? 0 : (REC.acc || 0) + (REC.paused ? 0 : Date.now() - REC.t0);
 const recDefaultName = () => { const c = currentClass(), d = now(); return `${c ? c.name + ' ' : ''}${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`; };
+const recOpts = () => (S.settings.rec ||= { count: 'none', tempo: 0, beats: 0, aec: false });
 const refreshRec = () => document.querySelectorAll('.wg-host[data-wg="rec"]').forEach(renderRec);
+const recHosts = () => [...document.querySelectorAll('.wg-host[data-wg="rec"]')];
+const playAu = () => { if (!PLAY.au) { const a = PLAY.au = new Audio(); a.preservesPitch = a.webkitPreservesPitch = true; a.onplay = a.onpause = a.onended = () => recHosts().forEach(h => { const b = h.querySelector('[data-rc="pp"]'); if (b) b.innerHTML = IC(a.paused ? 'ico:play' : 'ico:pause'); }); } return PLAY.au; };
+// tempo for the count-in: what you typed, else the open Metronome's, else 100 / 4
+function recTempo() { const o = recOpts(), m = winList().find(w => w.kind === 'metro')?.mu; return { tempo: o.tempo || m?.tempo || 100, beats: o.beats || m?.beats || 4 }; }
 
-async function recStart() {
+// --- mic level check (before recording)
+async function recMeter(on) {
+  if (!on) { REC.meter?.stream.getTracks().forEach(t => t.stop()); REC.meter = null; return refreshRec(); }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const an = ac().createAnalyser(); an.fftSize = 1024; ac().createMediaStreamSource(stream).connect(an); ac().resume();
+    REC.meter = { stream, an }; refreshRec();
+    const buf = new Float32Array(an.fftSize);
+    const loop = () => {
+      if (!REC.meter || REC.meter.an !== an) return;
+      if (!recHosts().length) return recMeter(false);
+      an.getFloatTimeDomainData(buf); let pk = 0; for (const v of buf) pk = Math.max(pk, Math.abs(v));
+      const pct = Math.min(100, Math.round(Math.pow(pk, 0.6) * 100));
+      recHosts().forEach(h => { const b = h.querySelector('.rec-lvl i'); if (b) { b.style.width = pct + '%'; b.className = pk > 0.95 ? 'clip' : pk > 0.5 ? 'hot' : ''; } const t = h.querySelector('.rec-lvl-t'); if (t) t.textContent = pk > 0.95 ? 'Too loud: move the device back' : pk < 0.02 ? 'Very quiet' : 'Good level'; });
+      requestAnimationFrame(loop);
+    };
+    loop();
+  } catch { toast('Rehearsal needs the microphone. Allow it and try again.'); }
+}
+
+// --- recording
+async function recBegin() {
   if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return toast('Recording is not supported here.');
+  if (REC.meter) recMeter(false);
+  playAu().pause(); closePlayer();
+  const o = recOpts();
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: !!o.aec, noiseSuppression: false, autoGainControl: false } }); }
   catch { return toast('Rehearsal needs the microphone to record. Allow it and try again.'); }
-  const mime = recMime(), mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined), chunks = [];
+  if (ac().state === 'suspended') await ac().resume();
+  REC.stream = stream;
+  if (o.count === 'none') return recGo();
+  // count-in: one bar of clicks, then recording starts (the click can keep going with "count + click")
+  const { tempo, beats } = recTempo(), c = ac(), beat = 60 / tempo, t0 = c.currentTime + 0.15;
+  for (let i = 0; i < beats; i++) metClick(t0 + i * beat, i === 0 ? 'down' : 'beat');
+  REC.state = 'countin'; REC.count = beats; refreshRec();
+  for (let i = 0; i < beats; i++) setTimeout(() => { REC.count = beats - i; recHosts().forEach(h => { const n = h.querySelector('.rec-count b'); if (n) { n.textContent = i + 1; n.classList.remove('hit'); void n.offsetWidth; n.classList.add('hit'); } }); }, (t0 - c.currentTime + i * beat) * 1000);
+  REC.countT = setTimeout(() => { if (REC.state !== 'countin') return; recGo(); if (o.count === 'click') recClick(t0 + beats * beat, beat, beats); }, (t0 - c.currentTime + beats * beat) * 1000 - 30);
+}
+function recClick(next, beat, beats) {
+  let i = 0; const c = ac();
+  REC.clickT = setInterval(() => {
+    if (REC.state !== 'rec') return clearInterval(REC.clickT);
+    while (next < c.currentTime + 0.12) { if (!REC.paused) metClick(next, i % beats === 0 ? 'down' : 'beat'); next += beat; i++; }
+  }, 25);
+}
+function recGo() {
+  const stream = REC.stream, mime = recMime(), mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined), chunks = [];
   mr.ondataavailable = e => e.data.size && chunks.push(e.data);
   mr.onstop = () => recFinished(new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' }));
   const an = ac().createAnalyser(); an.fftSize = 2048; ac().createMediaStreamSource(stream).connect(an);
-  if (ac().state === 'suspended') ac().resume();
-  Object.assign(REC, { state: 'rec', stream, mr, an, live: [], t0: Date.now(), acc: 0, paused: false, name: recDefaultName() });
+  Object.assign(REC, { state: 'rec', mr, an, live: [], marks: [], t0: Date.now(), acc: 0, paused: false, name: recDefaultName() });
   mr.start(1000); refreshRec(); recTick();
 }
 function recTick() {
@@ -1217,9 +1265,9 @@ function recTick() {
     let pk = 0; for (const v of buf) pk = Math.max(pk, Math.abs(v));
     REC.live.push(pk); if (REC.live.length > 600) REC.live.shift();
   }
-  document.querySelectorAll('.wg-host[data-wg="rec"]').forEach(h => {
+  recHosts().forEach(h => {
     const t = h.querySelector('.rec-time'); if (t) t.textContent = fmtSec(recElapsed() / 1000);
-    const c = h.querySelector('canvas.rec-wave'); if (c) drawWave(c, REC.live, null, true);
+    const c = h.querySelector('canvas.rec-live-wave'); if (c) drawWave(c, REC.live, null, true);
   });
   requestAnimationFrame(recTick);
 }
@@ -1229,37 +1277,75 @@ function recPause() {
   else { REC.mr.pause(); REC.acc += Date.now() - REC.t0; REC.paused = true; }
   refreshRec();
 }
-function recStop() { if (REC.state !== 'rec') return; REC.dur = recElapsed() / 1000; REC.state = 'stopping'; REC.mr.stop(); REC.stream.getTracks().forEach(t => t.stop()); refreshRec(); }
-async function recFinished(blob) {
-  Object.assign(REC, { state: 'review', blob, url: URL.createObjectURL(blob), peaks: null });
-  refreshRec();
-  try {
-    const buf = await ac().decodeAudioData(await blob.arrayBuffer()), d = buf.getChannelData(0), n = 500, step = Math.max(1, Math.floor(d.length / n)), peaks = [];
-    for (let i = 0; i < n; i++) { let pk = 0; for (let j = i * step, e = Math.min(d.length, j + step); j < e; j++) pk = Math.max(pk, Math.abs(d[j])); peaks.push(pk); }
-    REC.peaks = peaks; REC.dur = buf.duration;
-  } catch { REC.peaks = REC.live.slice(); }
-  refreshRec();
+function recMark() { if (REC.state !== 'rec') return; REC.marks.push({ t: recElapsed() / 1000 }); refreshRec(); toast(`Marked ${fmtSec(recElapsed() / 1000)}`); }
+function recStop() {
+  if (REC.state === 'countin') { clearTimeout(REC.countT); REC.stream?.getTracks().forEach(t => t.stop()); REC.state = 'idle'; return refreshRec(); }
+  if (REC.state !== 'rec') return;
+  REC.dur = recElapsed() / 1000; REC.state = 'stopping'; clearInterval(REC.clickT);
+  REC.mr.stop(); REC.stream.getTracks().forEach(t => t.stop()); refreshRec();
 }
-function recDiscard() { if (REC.url) URL.revokeObjectURL(REC.url); for (const k of Object.keys(REC)) delete REC[k]; REC.state = 'idle'; refreshRec(); }
-async function recSave(name, addTab) {
-  const ext = /mp4/.test(REC.blob.type) ? 'm4a' : /ogg/.test(REC.blob.type) ? 'ogg' : 'webm';
-  name = (name || '').trim() || recDefaultName();
-  let fileId;
-  try { fileId = await storeFile(new File([REC.blob], `${name}.${ext}`, { type: REC.blob.type.split(';')[0] })); }
-  catch { return toast('Could not save the recording.'); }
-  const cls = currentClass();
-  (S.recordings ||= []).unshift({ id: uid(), fileId, name, date: Date.now(), dur: REC.dur || 0, classId: cls?.id || '' });
-  if (addTab && cls) { cls.resources.push({ id: uid(), title: name, fileId }); P.stageKey = ''; }
-  save(); toast(addTab && cls ? `Saved “${name}” and added it as a tab in ${cls.name}.` : `Saved “${name}”.`);
-  recDiscard();
+async function recFinished(blob) {
+  REC.state = 'review'; REC.blob = blob;
+  await openPlayer({ view: 'review', blob, dur: REC.dur, marks: REC.marks.slice(), name: REC.name });
+}
+function recDiscard() { for (const k of Object.keys(REC)) delete REC[k]; REC.state = 'idle'; closePlayer(); refreshRec(); }
+
+// --- the player (review a new take, or open a saved recording)
+async function decodePeaks(blob, n = 500) {
+  const buf = await ac().decodeAudioData(await blob.arrayBuffer()), d = buf.getChannelData(0), step = Math.max(1, Math.floor(d.length / n)), peaks = [];
+  for (let i = 0; i < n; i++) { let pk = 0; for (let j = i * step, e = Math.min(d.length, j + step); j < e; j++) pk = Math.max(pk, Math.abs(d[j])); peaks.push(pk); }
+  return { buf, peaks, dur: buf.duration };
+}
+const miniPeaks = (peaks, n = 60) => Array.from({ length: n }, (_, i) => { const a = Math.floor(i * peaks.length / n), b = Math.max(a + 1, Math.floor((i + 1) * peaks.length / n)); let m = 0; for (let j = a; j < b; j++) m = Math.max(m, peaks[j] || 0); return Math.round(m * 100) / 100; });
+async function recBlob(rec) { return memBlobs[rec.fileId] || new Blob([await (await fetch(fileDirectURL(rec.fileId))).arrayBuffer()], { type: S.files[rec.fileId]?.mime || 'audio/mp4' }); }
+async function openPlayer(o) {
+  const au = playAu(); au.pause();
+  if (PLAY.url) URL.revokeObjectURL(PLAY.url);
+  Object.assign(PLAY, { view: o.view, rec: o.rec || null, blob: o.blob, url: URL.createObjectURL(o.blob), dur: o.dur || 0, peaks: null, buf: null, loop: null, trim: null, marks: o.marks || [], name: o.name, sel: null });
+  au.src = PLAY.url; au.playbackRate = PLAY.rate || 1;
+  refreshRec();
+  try { const r = await decodePeaks(o.blob); Object.assign(PLAY, { peaks: r.peaks, buf: r.buf, dur: r.dur }); if (o.rec && !o.rec.peaks) { o.rec.peaks = miniPeaks(r.peaks); o.rec.dur ||= r.dur; save(); } }
+  catch { PLAY.peaks = REC.live?.slice() || []; }
+  refreshRec(); playerTick();
+}
+function closePlayer() { PLAY.au?.pause(); if (PLAY.url) URL.revokeObjectURL(PLAY.url); Object.assign(PLAY, { view: null, url: null, blob: null, rec: null, cmp: null, buf: null }); }
+async function openSaved(rec, play = true) {
+  if (REC.state === 'review') return toast('Save or delete the new recording first.');
+  try { await openPlayer({ view: 'saved', rec, blob: await recBlob(rec), dur: rec.dur, marks: (rec.marks || []).slice(), name: rec.name }); }
+  catch { return toast('Could not open this recording.'); }
+  if (play) playAu().play().catch(() => { });
+}
+// keep the waveform, time and A–B loop going while it plays
+function playerTick() {
+  const au = PLAY.au; if (!PLAY.view || !au) return;
+  if (PLAY.loop && !au.paused && au.currentTime >= PLAY.loop[1]) au.currentTime = PLAY.loop[0];
+  const tEnd = PLAY.trim ? PLAY.trim[1] : PLAY.dur;
+  if (PLAY.trim && !au.paused && au.currentTime >= tEnd) { au.pause(); au.currentTime = PLAY.trim[0]; }
+  recHosts().forEach(h => {
+    const c = h.querySelector('canvas.rec-pwave'); if (c) drawPlayer(c);
+    const t = h.querySelector('.rec-ptime'); if (t) t.textContent = `${fmtSec(au.currentTime)} / ${fmtSec(PLAY.dur || au.duration || 0)}`;
+  });
+  requestAnimationFrame(playerTick);
+}
+function drawPlayer(c) {
+  const au = PLAY.au, d = PLAY.dur || 1;
+  drawWave(c, PLAY.peaks || [], au ? au.currentTime / d : 0);
+  const g = c.getContext('2d'), W = c.width, H = c.height, dpr = devicePixelRatio || 1, acc = getComputedStyle(c).getPropertyValue('--accent').trim() || '#f2c230';
+  const shade = (a, b, col) => { g.globalAlpha = 1; g.fillStyle = col; g.fillRect(a / d * W, 0, (b - a) / d * W, H); };
+  const sel = PLAY.sel || PLAY.loop;
+  if (sel) { shade(sel[0], sel[1], 'rgba(255,255,255,.12)'); g.fillStyle = acc; g.fillRect(sel[0] / d * W - dpr, 0, 2 * dpr, H); g.fillRect(sel[1] / d * W - dpr, 0, 2 * dpr, H); }
+  if (PLAY.trim) { shade(0, PLAY.trim[0], 'rgba(0,0,0,.45)'); shade(PLAY.trim[1], d, 'rgba(0,0,0,.45)'); }
+  g.fillStyle = '#ff6b6b'; g.font = `700 ${10 * dpr}px system-ui`;
+  PLAY.marks.forEach((m, i) => { const x = m.t / d * W; g.fillRect(x - dpr / 2, 0, dpr, H); g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 9 * dpr, 4 * dpr); g.lineTo(x, 8 * dpr); g.fill(); g.fillText(String(i + 1), x + 3 * dpr, 18 * dpr); });
+  if (au) { g.fillStyle = getComputedStyle(c).color; g.globalAlpha = .9; g.fillRect(au.currentTime / d * W - dpr, 0, 2 * dpr, H); g.globalAlpha = 1; }
 }
 /** peaks 0..1; live = newest on the right; prog = 0..1 played. */
 function drawWave(c, peaks, prog, live) {
   const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
   if (!r.width) return;
-  if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
   const g = c.getContext('2d'), W = c.width, H = c.height, bw = 3 * dpr, gap = 2 * dpr, n = Math.floor(W / (bw + gap));
-  g.clearRect(0, 0, W, H);
+  g.clearRect(0, 0, W, H); g.globalAlpha = 1;
   const col = getComputedStyle(c).color, acc = getComputedStyle(c).getPropertyValue('--accent').trim() || '#f2c230';
   const src = peaks || [], data = live ? src.slice(-n) : Array.from({ length: n }, (_, i) => { const a = Math.floor(i * src.length / n), b = Math.max(a + 1, Math.floor((i + 1) * src.length / n)); let m = 0; for (let j = a; j < b; j++) m = Math.max(m, src[j] || 0); return m; });
   const max = live ? 0.5 : Math.max(0.05, ...data);
@@ -1268,67 +1354,180 @@ function drawWave(c, peaks, prog, live) {
     g.fillStyle = prog != null && i / n <= prog ? acc : col; g.globalAlpha = prog != null && i / n > prog ? 0.45 : 0.9;
     g.beginPath(); g.roundRect ? g.roundRect(x, (H - h) / 2, bw, h, bw / 2) : g.rect(x, (H - h) / 2, bw, h); g.fill();
   });
+  g.globalAlpha = 1;
 }
-function renderRec(h) {
-  const cls = currentClass(), list = (S.recordings ||= []), st = REC.state;
-  const row = r => `<div class="rec-item" data-rid="${r.id}">
-      <button class="rec-play" data-rc="play" title="Play">${IC(h.__playing === r.id ? 'ico:pause' : 'ico:play')}</button>
-      <div class="rec-info"><input data-rc-name value="${esc(r.name)}"><span>${new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${fmtSec(r.dur)}${r.classId && r.classId !== cls?.id ? ' · ' + esc(S.classes.find(c => c.id === r.classId)?.name || '') : ''}</span></div>
-      ${cls ? `<button data-rc="tab" title="Add as a tab in ${esc(cls.name)}">${IC('ico:pin')}</button>` : ''}
-      <button data-rc="del" title="Delete">${IC('ico:trash')}</button></div>`;
-  let top;
-  if (st === 'rec' || st === 'stopping') top = `<div class="rec-live ${REC.paused ? 'paused' : ''}">
-      <div class="rec-status"><i class="rec-dot"></i>${REC.paused ? 'Paused' : 'Recording'} <b class="rec-time">${fmtSec(recElapsed() / 1000)}</b></div>
-      <canvas class="rec-wave"></canvas>
-      <div class="rec-btns"><button data-rc="pause">${IC(REC.paused ? 'ico:play' : 'ico:pause')} ${REC.paused ? 'Resume' : 'Pause'}</button><button class="rec-stop" data-rc="stop">${IC('ico:stop')} Stop</button></div></div>`;
-  else if (st === 'review') top = `<div class="rec-review">
-      <div class="rec-q">Keep this recording?</div>
-      <div class="rec-player"><button class="rec-play big" data-rc="rplay" title="Play">${IC('ico:play')}</button><canvas class="rec-wave" data-rc="seek"></canvas><span class="rec-time">${fmtSec(REC.dur || 0)}</span></div>
-      <audio class="rec-audio" src="${REC.url}" preload="auto"></audio>
-      <label class="rec-name">Name <input data-rc-newname value="${esc(REC.name || '')}"></label>
-      ${cls ? `<label class="rec-tab"><input type="checkbox" data-rc-addtab> Also add it as a tab in ${esc(cls.name)}</label>` : ''}
-      <div class="rec-btns"><button class="danger" data-rc="discard">${IC('ico:trash')} Delete</button><button class="primary" data-rc="save">${IC('ico:check')} Save</button></div></div>`;
-  else top = `<div class="rec-idle"><button class="rec-big" data-rc="start" title="Start recording"><i></i></button><div>Press to record the group. When you stop, you can listen back and choose to save or delete it.</div></div>`;
-  h.innerHTML = `<div class="rec">${top}
-    <div class="rec-list"><div class="rec-lh">Saved recordings</div>${list.map(row).join('') || '<div class="rec-none">None yet.</div>'}</div></div>`;
-  const wave = h.querySelector('canvas.rec-wave');
-  if (wave && st === 'review') {
-    const au = h.querySelector('.rec-audio'), pb = h.querySelector('[data-rc="rplay"]'), tm = h.querySelector('.rec-time');
-    const draw = () => drawWave(wave, REC.peaks || [], REC.dur ? au.currentTime / REC.dur : 0);
-    requestAnimationFrame(draw);
-    au.ontimeupdate = () => { draw(); tm.textContent = `${fmtSec(au.currentTime)} / ${fmtSec(REC.dur || au.duration || 0)}`; };
-    au.onplay = () => { pb.innerHTML = IC('ico:pause'); const loop = () => { if (au.paused) return; draw(); requestAnimationFrame(loop); }; loop(); };
-    au.onpause = au.onended = () => { pb.innerHTML = IC('ico:play'); draw(); };
+const miniWave = p => !p?.length ? '' : `<svg class="rec-mini" viewBox="0 0 ${p.length * 3} 20" preserveAspectRatio="none">${p.map((v, i) => { const h = Math.max(1.5, Math.min(1, v / Math.max(0.05, ...p)) * 18); return `<rect x="${i * 3}" y="${(20 - h) / 2}" width="2" height="${h}" rx="1"/>`; }).join('')}</svg>`;
+
+// 16-bit mono WAV of part of a decoded recording (used when you trim before saving)
+function encodeWav(buf, a, b) {
+  const sr = buf.sampleRate, s0 = Math.floor(a * sr), s1 = Math.min(buf.length, Math.floor(b * sr)), n = Math.max(0, s1 - s0), ch = buf.numberOfChannels;
+  const out = new DataView(new ArrayBuffer(44 + n * 2)), str = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); out.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, sr, true); out.setUint32(28, sr * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 2, true);
+  const chans = Array.from({ length: ch }, (_, i) => buf.getChannelData(i));
+  for (let i = 0; i < n; i++) { let v = 0; for (const c of chans) v += c[s0 + i]; v = Math.max(-1, Math.min(1, v / ch)); out.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+  return new Blob([out], { type: 'audio/wav' });
+}
+async function recSave(name, addTab) {
+  name = (name || '').trim() || recDefaultName();
+  let blob = REC.blob, dur = PLAY.dur || REC.dur || 0, marks = PLAY.marks.slice(), peaks = PLAY.peaks || [];
+  if (PLAY.trim && PLAY.buf) {
+    const [a, b] = PLAY.trim; blob = encodeWav(PLAY.buf, a, b); dur = b - a;
+    marks = marks.filter(m => m.t >= a && m.t <= b).map(m => ({ ...m, t: m.t - a }));
+    const n = peaks.length; peaks = peaks.slice(Math.floor(a / PLAY.dur * n), Math.ceil(b / PLAY.dur * n));
   }
+  const type = blob.type.split(';')[0], ext = /wav/.test(type) ? 'wav' : /mp4/.test(type) ? 'm4a' : /ogg/.test(type) ? 'ogg' : 'webm';
+  let fileId;
+  try { fileId = await storeFile(new File([blob], `${name}.${ext}`, { type })); }
+  catch { return toast('Could not save the recording.'); }
+  const cls = currentClass();
+  (S.recordings ||= []).unshift({ id: uid(), fileId, name, date: Date.now(), dur, classId: cls?.id || '', marks, peaks: miniPeaks(peaks) });
+  if (addTab && cls) { cls.resources.push({ id: uid(), title: name, fileId }); P.stageKey = ''; }
+  save(); toast(addTab && cls ? `Saved “${name}” and added it as a tab in ${cls.name}.` : `Saved “${name}”.`);
+  recDiscard();
+}
+async function recExport(rec) {
+  const m = S.files[rec.fileId]; if (!m) return toast('This recording is missing.');
+  if (native('saveFile', { id: rec.fileId, name: m.name })) return;
+  try {
+    const blob = await recBlob(rec), file = new File([blob], m.name, { type: m.mime });
+    if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file], title: rec.name });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = m.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (e) { if (e?.name !== 'AbortError') toast('Could not export the recording.'); }
+}
+// A/B compare: the same moment in two takes
+async function cmpShow(which) {
+  const c = PLAY.cmp; if (!c) return;
+  const au = playAu(), t = au.currentTime, playing = !au.paused, rec = c[which];
+  c.which = which;
+  try { await openPlayer({ view: 'compare', rec, blob: await recBlob(rec), dur: rec.dur, marks: (rec.marks || []).slice(), name: rec.name }); } catch { return toast('Could not open the recording.'); }
+  PLAY.cmp = c;
+  const go = () => { au.currentTime = Math.min(t, (PLAY.dur || 1) - 0.05); if (playing) au.play().catch(() => { }); };
+  if (au.readyState >= 1) go(); else au.addEventListener('loadedmetadata', go, { once: true });
+  refreshRec();
+}
+
+function renderRec(h) {
+  const cls = currentClass(), list = (S.recordings ||= []), st = REC.state, o = recOpts(), au = playAu();
+  const isToday = r => dateKey(new Date(r.date)) === dateKey(new Date());
+  const row = r => `<div class="rec-item ${PLAY.rec?.id === r.id ? 'cur' : ''} ${PLAY.cmpPick === r.id ? 'pick' : ''}" data-rid="${r.id}">
+      <button class="rec-play" data-rc="open" title="Play">${IC(PLAY.rec?.id === r.id && !au.paused ? 'ico:pause' : 'ico:play')}</button>
+      <div class="rec-info"><input data-rc-name value="${esc(r.name)}"><span>${new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${fmtSec(r.dur)}${r.marks?.length ? ` · ${r.marks.length} mark${r.marks.length > 1 ? 's' : ''}` : ''}${r.classId && r.classId !== cls?.id ? ' · ' + esc(S.classes.find(c => c.id === r.classId)?.name || '') : ''}</span></div>
+      ${miniWave(r.peaks)}
+      <span class="rec-acts"><button data-rc="cmp" title="Compare with another recording">A/B</button>
+      <button data-rc="export" title="${IS_NATIVE ? 'Save a copy to your Mac' : 'Share or save a copy'}">${IC('ico:external')}</button>
+      ${cls ? `<button data-rc="tab" title="Add as a tab in ${esc(cls.name)}">${IC('ico:pin')}</button>` : ''}
+      <button data-rc="del" title="Delete">${IC('ico:trash')}</button></span></div>`;
+  const today = list.filter(isToday), older = list.filter(r => !isToday(r));
+  const player = () => {
+    const c = PLAY.cmp;
+    return `<div class="rec-player-card ${PLAY.view}">
+      ${PLAY.view === 'review' ? '<div class="rec-q">Keep this recording?</div>' : PLAY.view === 'compare' ? `<div class="rec-cmp"><span class="me-seg"><button data-rc="cmpA" class="${c.which === 'a' ? 'on' : ''}">A · ${esc(c.a.name)}</button><button data-rc="cmpB" class="${c.which === 'b' ? 'on' : ''}">B · ${esc(c.b.name)}</button></span><span class="grow"></span><button data-rc="close" title="Close">${IC('ico:close')}</button></div>` : `<div class="rec-ph"><b>${esc(PLAY.name || '')}</b><span class="grow"></span><button data-rc="close" title="Close">${IC('ico:close')}</button></div>`}
+      <div class="rec-player"><button class="rec-play big" data-rc="pp" title="Play / pause (Space)">${IC(au.paused ? 'ico:play' : 'ico:pause')}</button>
+        <canvas class="rec-wave rec-pwave" title="Click to jump · drag to loop a section"></canvas></div>
+      <div class="rec-ctl"><span class="rec-ptime">0:00 / ${fmtSec(PLAY.dur)}</span>
+        <select data-rc-rate title="Playback speed">${[[0.5, '0.5×'], [0.75, '0.75×'], [1, '1×']].map(([v, l]) => `<option value="${v}" ${(PLAY.rate || 1) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <button data-rc="markp" title="Add a marker here">${IC('ico:pin')} Mark</button>
+        ${PLAY.loop ? `<button data-rc="unloop" class="on">${IC('ico:repeat')} ${fmtSec(PLAY.loop[0])}–${fmtSec(PLAY.loop[1])} ×</button>` : '<span class="rec-hint">Drag on the waveform to loop a section</span>'}
+        ${PLAY.view === 'review' && PLAY.loop && PLAY.buf ? `<button data-rc="trim" title="Keep only the looped section when you save">Trim to this</button>` : ''}
+        ${PLAY.trim ? `<button data-rc="untrim" class="on">Trimmed ${fmtSec(PLAY.trim[0])}–${fmtSec(PLAY.trim[1])} · undo</button>` : ''}</div>
+      ${PLAY.marks.length ? `<div class="rec-marks">${PLAY.marks.map((m, i) => `<span class="rec-mk"><button data-rc="mjump" data-i="${i}">${i + 1} · ${fmtSec(m.t)}${m.label ? ' ' + esc(m.label) : ''}</button><button class="x" data-rc="mdel" data-i="${i}" title="Remove">${IC('ico:close')}</button></span>`).join('')}</div>` : ''}
+      ${PLAY.view === 'review' ? `<label class="rec-name">Name <input data-rc-newname value="${esc(REC.name || '')}"></label>
+        ${cls ? `<label class="rec-tab"><input type="checkbox" data-rc-addtab> Also add it as a tab in ${esc(cls.name)}</label>` : ''}
+        <div class="rec-btns"><button class="danger" data-rc="discard">${IC('ico:trash')} Delete</button><button class="primary" data-rc="save">${IC('ico:check')} Save</button></div>` : ''}
+    </div>`;
+  };
+  let top;
+  if (st === 'countin') top = `<div class="rec-live rec-count"><div>Get ready…</div><b>1</b><button data-rc="stop">Cancel</button></div>`;
+  else if (st === 'rec' || st === 'stopping') top = `<div class="rec-live ${REC.paused ? 'paused' : ''}">
+      <div class="rec-status"><i class="rec-dot"></i>${REC.paused ? 'Paused' : 'Recording'}${REC.marks?.length ? ` <span class="rec-nm">${REC.marks.length} mark${REC.marks.length > 1 ? 's' : ''}</span>` : ''} <b class="rec-time">${fmtSec(recElapsed() / 1000)}</b></div>
+      <canvas class="rec-wave rec-live-wave"></canvas>
+      <div class="rec-btns"><button data-rc="mark" title="Drop a marker here to find it later (M)">${IC('ico:pin')} Mark</button><span class="grow"></span><button data-rc="pause">${IC(REC.paused ? 'ico:play' : 'ico:pause')} ${REC.paused ? 'Resume' : 'Pause'}</button><button class="rec-stop" data-rc="stop">${IC('ico:stop')} Stop</button></div></div>`;
+  else if (PLAY.view) top = player();
+  else {
+    const { tempo, beats } = recTempo();
+    top = `<div class="rec-idle"><button class="rec-big" data-rc="start" title="Start recording"><i></i></button>
+      <div class="rec-opts">
+        <label>Start <select data-rc-opt="count"><option value="none" ${o.count === 'none' ? 'selected' : ''}>Right away</option><option value="count" ${o.count === 'count' ? 'selected' : ''}>After a count-in</option><option value="click" ${o.count === 'click' ? 'selected' : ''}>Count-in + click</option></select></label>
+        ${o.count !== 'none' ? `<label><input type="number" data-rc-opt="tempo" value="${tempo}" min="30" max="240"> BPM</label><label><input type="number" data-rc-opt="beats" value="${beats}" min="1" max="12"> beats</label>` : ''}
+        ${o.count === 'click' ? `<label class="mu-chk" title="Uses echo cancellation to remove the click Rehearsal plays. It can make the music sound a little thinner."><input type="checkbox" data-rc-opt="aec" ${o.aec ? 'checked' : ''}> Keep the click out of the recording</label>` : ''}
+      </div>
+      <div class="rec-meter">${REC.meter ? `<span class="rec-lvl"><i></i></span><span class="rec-lvl-t"></span><button data-rc="meter" class="on">Stop check</button>` : `<button data-rc="meter">${IC('ico:mic')} Check mic level</button>`}</div></div>`;
+  }
+  h.innerHTML = `<div class="rec">${top}
+    <div class="rec-list">${list.length ? '' : '<div class="rec-lh">Saved recordings</div><div class="rec-none">None yet.</div>'}
+      ${today.length ? `<div class="rec-lh">Today</div>${today.map(row).join('')}` : ''}
+      ${older.length ? `<div class="rec-lh">Earlier</div>${older.map(row).join('')}` : ''}</div></div>`;
+  if (PLAY.view) requestAnimationFrame(() => { const c = h.querySelector('canvas.rec-pwave'); if (c) drawPlayer(c); });
+
+  // drag on the waveform = loop that section; click = jump there
+  const pw = h.querySelector('canvas.rec-pwave');
+  if (pw) pw.onpointerdown = e => {
+    const r = pw.getBoundingClientRect(), d = PLAY.dur || 0; if (!d) return;
+    const at = x => Math.max(0, Math.min(d, (x - r.left) / r.width * d)), x0 = e.clientX, a = at(x0);
+    pw.setPointerCapture(e.pointerId);
+    pw.onpointermove = ev => { if (Math.abs(ev.clientX - x0) > 4) { const b = at(ev.clientX); PLAY.sel = [Math.min(a, b), Math.max(a, b)]; drawPlayer(pw); } };
+    pw.onpointerup = ev => {
+      pw.onpointermove = pw.onpointerup = null;
+      if (PLAY.sel && PLAY.sel[1] - PLAY.sel[0] > 0.3) { PLAY.loop = PLAY.sel; au.currentTime = PLAY.loop[0]; au.play().catch(() => { }); }
+      else au.currentTime = at(ev.clientX);
+      PLAY.sel = null; refreshRec();
+    };
+  };
   h.onclick = async e => {
     const b = e.target.closest('[data-rc]'); if (!b) return; e.stopPropagation();
     const act = b.dataset.rc, rec = list.find(r => r.id === b.closest('[data-rid]')?.dataset.rid);
-    if (act === 'start') return recStart();
+    if (act === 'start') return recBegin();
+    if (act === 'meter') return recMeter(!REC.meter);
     if (act === 'pause') return recPause();
     if (act === 'stop') return recStop();
-    if (act === 'rplay') { const au = h.querySelector('.rec-audio'); au.paused ? au.play() : au.pause(); return; }
-    if (act === 'seek') { const au = h.querySelector('.rec-audio'), r = b.getBoundingClientRect(); if (REC.dur) au.currentTime = (e.clientX - r.left) / r.width * REC.dur; return; }
+    if (act === 'mark') return recMark();
+    if (act === 'pp') { au.paused ? au.play().catch(() => { }) : au.pause(); return; }
+    if (act === 'close') { closePlayer(); return refreshRec(); }
+    if (act === 'markp') { PLAY.marks.push({ t: au.currentTime }); PLAY.marks.sort((x, y) => x.t - y.t); }
+    if (act === 'mjump') { au.currentTime = PLAY.marks[+b.dataset.i].t; au.play().catch(() => { }); return; }
+    if (act === 'mdel') PLAY.marks.splice(+b.dataset.i, 1);
+    if (act === 'unloop') PLAY.loop = null;
+    if (act === 'trim') { PLAY.trim = PLAY.loop; PLAY.loop = null; au.currentTime = PLAY.trim[0]; }
+    if (act === 'untrim') PLAY.trim = null;
+    if (['markp', 'mdel'].includes(act) && PLAY.rec) { PLAY.rec.marks = PLAY.marks.slice(); save(); }
+    if (['markp', 'mdel', 'unloop', 'trim', 'untrim'].includes(act)) return refreshRec();
+    if (act === 'cmpA' || act === 'cmpB') return cmpShow(act === 'cmpA' ? 'a' : 'b');
     if (act === 'save') return recSave(h.querySelector('[data-rc-newname]')?.value, h.querySelector('[data-rc-addtab]')?.checked);
     if (act === 'discard') { if (confirm('Delete this recording? It can\'t be undone.')) recDiscard(); return; }
     if (!rec) return;
-    if (act === 'play') {
-      const au = (h.__au ||= new Audio());
-      if (h.__playing === rec.id) { au.pause(); h.__playing = null; return renderRec(h); }
-      au.src = fileDirectURL(rec.fileId) || await fileBlobURL(rec.fileId); au.onended = () => { h.__playing = null; renderRec(h); };
-      au.play().catch(() => toast('Could not play this recording.')); h.__playing = rec.id; return renderRec(h);
+    if (act === 'open') { if (PLAY.rec?.id === rec.id) { au.paused ? au.play().catch(() => { }) : au.pause(); return refreshRec(); } return openSaved(rec); }
+    if (act === 'export') return recExport(rec);
+    if (act === 'cmp') {
+      if (REC.state === 'review') return toast('Save or delete the new recording first.');
+      if (!PLAY.cmpPick || PLAY.cmpPick === rec.id) { PLAY.cmpPick = PLAY.cmpPick === rec.id ? null : rec.id; if (PLAY.cmpPick) toast('Now press A/B on the recording to compare it with.'); return refreshRec(); }
+      const a = list.find(r => r.id === PLAY.cmpPick); PLAY.cmpPick = null; if (!a) return;
+      PLAY.cmp = { a, b: rec, which: 'a' }; au.currentTime = 0; return cmpShow('a');
     }
     if (act === 'tab' && cls) { if (cls.resources.some(r => r.fileId === rec.fileId)) return toast(`It's already a tab in ${cls.name}.`); cls.resources.push({ id: uid(), title: rec.name, fileId: rec.fileId }); P.stageKey = ''; save(); return toast(`Added “${rec.name}” as a tab in ${cls.name}.`); }
     if (act === 'del') {
       if (!confirm(`Delete “${rec.name}”? It can't be undone.`)) return;
+      if (PLAY.rec?.id === rec.id || PLAY.cmp?.a === rec || PLAY.cmp?.b === rec) closePlayer();
       S.recordings = list.filter(r => r !== rec);
       if (!S.classes.some(c => c.resources.some(r => r.fileId === rec.fileId))) deleteFile(rec.fileId);
-      if (h.__playing === rec.id) { h.__au?.pause(); h.__playing = null; }
       save(); refreshRec();
     }
   };
-  h.onchange = e => { const el = e.target; if (el.dataset.rcName == null) return; const rec = list.find(r => r.id === el.closest('[data-rid]')?.dataset.rid); if (rec) { rec.name = el.value.trim() || rec.name; save(); } };
+  h.onchange = e => {
+    const el = e.target;
+    if (el.dataset.rcRate != null) { PLAY.rate = +el.value; au.playbackRate = PLAY.rate; return; }
+    if (el.dataset.rcOpt) { const k = el.dataset.rcOpt; o[k] = el.type === 'checkbox' ? el.checked : k === 'count' ? el.value : Math.max(1, +el.value || 0); save(); return refreshRec(); }
+    if (el.dataset.rcName == null) return;
+    const rec = list.find(r => r.id === el.closest('[data-rid]')?.dataset.rid); if (rec) { rec.name = el.value.trim() || rec.name; save(); }
+  };
   h.oninput = e => { if (e.target.dataset.rcNewname != null) REC.name = e.target.value; };
 }
+// keys while the Recorder is open: M = mark (while recording), Space = play / pause the player
+document.addEventListener('keydown', e => {
+  if (VIEW !== 'present' || !recHosts().length || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if ((e.key === 'm' || e.key === 'M') && REC.state === 'rec') { e.preventDefault(); recMark(); }
+  else if (e.key === ' ' && PLAY.view) { e.preventDefault(); const au = playAu(); au.paused ? au.play().catch(() => { }) : au.pause(); }
+});
 
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
@@ -3385,9 +3584,10 @@ const A = {
   'wm-closeall': () => { const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
   'win-close': el => {
     if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec' && REC.state !== 'idle') {
-      if (REC.state === 'rec') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
+      if (REC.state === 'rec' || REC.state === 'countin') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
+    if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
     const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {

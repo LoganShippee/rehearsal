@@ -476,6 +476,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 if r == .OK, let url = panel.url { try? text.write(to: url, atomically: true, encoding: .utf8) }
             }
             if let win = wv?.window { panel.beginSheetModal(for: win, completionHandler: done) } else { done(panel.runModal()) }
+        case "saveFile":
+            // save a copy of a stored file (a recording) wherever the teacher picks
+            guard let raw = body["id"] as? String, !raw.isEmpty, !raw.contains("/"), !raw.contains("..") else { break }
+            let src = server.filesDir.appendingPathComponent(raw)
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = (body["name"] as? String) ?? "Recording"
+            panel.canCreateDirectories = true
+            let done: (NSApplication.ModalResponse) -> Void = { r in
+                guard r == .OK, let url = panel.url else { return }
+                try? FileManager.default.removeItem(at: url)
+                try? FileManager.default.copyItem(at: src, to: url)
+            }
+            if let win = wv?.window { panel.beginSheetModal(for: win, completionHandler: done) } else { done(panel.runModal()) }
         default: break
         }
     }
