@@ -104,6 +104,7 @@ const ICON_PATHS = {
  "movehoriz": "<path d=\"m18 8 4 4-4 4\" /> <path d=\"M2 12h20\" /> <path d=\"m6 8-4 4 4 4\" />",
  "movevert": "<path d=\"M12 2v20\" /> <path d=\"m8 18 4 4 4-4\" /> <path d=\"m8 6 4-4 4 4\" />",
  "chevleft": "<path d=\"m15 18-6-6 6-6\" />",
+ "check": "<path d=\"M20 6 9 17l-5-5\" />",
  "chevright": "<path d=\"m9 18 6-6-6-6\" />"
 };
 function ico(name, cls = '') {

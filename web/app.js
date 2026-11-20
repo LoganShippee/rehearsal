@@ -66,12 +66,12 @@ const THEMES = [
   { name: 'Sunshine', bg: '#fff4cc', accent: '#e76f51', text: '#2b2118' },
 ];
 const SIGNALS = [
-  { text: '🤫 Silent', color: '#e63946' },
-  { text: '🤏 Whisper', color: '#f4a261' },
-  { text: '👥 Partner talk', color: '#2a9d8f' },
-  { text: '🗣 Group work', color: '#3b6cf6' },
-  { text: '👀 Eyes on me', color: '#7b2cbf' },
-  { text: '✋ Raise your hand', color: '#0f9d58' },
+  { text: 'Silent', color: '#e63946' },
+  { text: 'Whisper', color: '#f4a261' },
+  { text: 'Partner talk', color: '#2a9d8f' },
+  { text: 'Group work', color: '#3b6cf6' },
+  { text: 'Eyes on me', color: '#7b2cbf' },
+  { text: 'Raise your hand', color: '#0f9d58' },
 ];
 const BUILTIN_SOUNDS = { chime: 'Chime', bell: 'School bell', ding: 'Ding', fanfare: 'Fanfare', alarm: 'Alarm', gong: 'Gong', none: 'No sound' };
 const ACTION_TYPES = {
@@ -120,7 +120,7 @@ function sampleData() {
     classes,
     templates: [tRegular, tEarly],
     weekdays: { 0: '', 1: tRegular.id, 2: tRegular.id, 3: tRegular.id, 4: tRegular.id, 5: tRegular.id, 6: '' },
-    overrides: {},
+    overrides: {}, calDays: {},
     routines: [],
     events: [],
     files: {},
@@ -130,7 +130,7 @@ function migrate(d) {
   const base = sampleData();
   d.settings = { ...base.settings, ...(d.settings || {}) };
   d.settings.sim = { ...base.settings.sim, ...(d.settings.sim || {}) };
-  for (const k of ['classes', 'templates', 'routines', 'events']) if (!Array.isArray(d[k])) d[k] = [];
+  for (const k of ['classes', 'templates', 'routines', 'events', 'recordings']) if (!Array.isArray(d[k])) d[k] = [];
   // repair: sight-reading windows pinned before the fix became empty web tabs
   for (const list of Object.values(d.windows || {})) for (const w of list || []) {
     if (w.kind !== 'res' || !w.sr) continue;
@@ -140,7 +140,14 @@ function migrate(d) {
   for (const c of d.classes || []) c.resources = (c.resources || []).filter(r => r.url || r.fileId || r.sight || r.score || r.url === '');
   // live app-window status (editing etc.) never survives a restart
   for (const list of Object.values(d.windows || {})) for (const w of list || []) if (w.kind === 'app') delete w.status;
-  for (const k of ['weekdays', 'overrides', 'files', 'windows']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
+  // 1.0.8: emoji icons left over from older versions are replaced by the drawn icons (once; you can still type one back in)
+  if (!d.settings.drawnIcons) {
+    const EMO = /\p{Extended_Pictographic}/u, ic = d.settings.icons || {};
+    for (const g of ['dock', 'kind', 'event']) for (const k in ic[g] || {}) if (EMO.test(ic[g][k])) delete ic[g][k];
+    for (const c of d.classes || []) for (const r of c.resources || []) if (r.icon && EMO.test(r.icon)) delete r.icon;
+    d.settings.drawnIcons = true;
+  }
+  for (const k of ['weekdays', 'overrides', 'files', 'windows', 'calDays']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   for (const c of d.classes) {
     c.theme ||= { ...THEMES[0] }; c.agenda ||= []; c.resources ||= []; c.roster ||= []; c.automations ||= [];
     c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {}; c.screenNotes ||= {}; c.progress ||= [];
@@ -625,6 +632,7 @@ const DOCK_ITEMS = {
   sight: { icon: 'ico:sight', label: 'Sight read', act: 'wm-sight' },
   cal: { icon: 'ico:events', label: 'Calendar', act: 'wm-cal', on: () => winList().some(w => w.kind === 'cal') },
   prog: { icon: 'ico:gauge', label: 'Progress', act: 'wm-prog', on: () => winList().some(w => w.kind === 'prog') },
+  rec: { icon: 'ico:mic', label: 'Record', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
   score: { icon: 'ico:score', label: 'Scores', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
   window: { icon: '＋', label: 'Window', act: 'win-menu', on: () => P.winMenu },
@@ -639,10 +647,10 @@ const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate'
 function dockCfg() {
   const d = (S.settings.dock ||= {});
   d.order ||= [...DOCK_DEFAULT];
-  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
+  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
-  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog'];                // shown in the ⋯ menu instead of on the bar
+  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec'];                // shown in the ⋯ menu instead of on the bar
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
   return d;
@@ -1006,68 +1014,321 @@ function mountSightHosts(root = document) {
   }
 }
 // ============================================================ calendar & progress windows
-const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' } };
+const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' } };
+const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec })[k];
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
-function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) (h.dataset.wg === 'cal' ? renderCal : renderProg)(h); }
-const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => (kind === 'cal' ? renderCal : renderProg)(h));
+function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
+const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => WG_RENDER(kind)(h));
 
-/** Month view: today, days off, special bell schedules, and events / birthdays / announcements. */
+// Re-render every open copy of a widget, keeping the cursor in the field you were typing in.
+function refreshWidgetsKeep(kind) {
+  const a = document.activeElement, host = a?.closest?.('.wg-host');
+  const key = host && a.dataset?.f ? { f: a.dataset.f, id: a.closest('[data-id]')?.dataset.id, s: a.selectionStart } : null;
+  refreshWidgets(kind);
+  if (!key) return;
+  const sel = `[data-f="${key.f}"]`, el = [...host.querySelectorAll(sel)].find(x => (x.closest('[data-id]')?.dataset.id) === key.id);
+  if (el) { el.focus(); try { if (key.s != null) el.setSelectionRange(key.s, key.s); } catch {} }
+}
+const CAL_COLORS = ['#e5484d', '#f2994a', '#f2c230', '#2fbf5b', '#3b9eff', '#a970ff', '#e05fae'];
+const calDays = () => (S.calDays ||= {});
+const DAYNAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Month view: click a day to change its bell schedule, colour and label it, and add events, birthdays,
+ *  announcements and the on-screen note. */
 function renderCal(h) {
   const t = now(), off = h.__off || 0, cls = currentClass();
   const first = new Date(t.getFullYear(), t.getMonth() + off, 1), month = first.getMonth();
   const start = new Date(first); start.setDate(1 - first.getDay());
   const last = new Date(first.getFullYear(), month + 1, 0), weeks = Math.ceil((first.getDay() + last.getDate()) / 7);
-  const todayK = dateKey(t);
+  const todayK = dateKey(t), sel = h.__sel;
   let cells = '';
   for (let i = 0; i < weeks * 7; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
-    const k = dateKey(d), tmpl = templateFor(d), special = k in S.overrides;
+    const k = dateKey(d), tmpl = templateFor(d), special = k in S.overrides, mark = calDays()[k];
     const evs = eventsOn(d, cls || undefined), note = cls?.screenNotes?.[k]?.trim();
-    cells += `<div class="cal-d ${d.getMonth() !== month ? 'out' : ''} ${k === todayK ? 'today' : ''} ${tmpl ? '' : 'off'}">
+    cells += `<div class="cal-d ${d.getMonth() !== month ? 'out' : ''} ${k === todayK ? 'today' : ''} ${tmpl ? '' : 'off'} ${k === sel ? 'sel' : ''}" data-day="${k}"
+      ${mark?.color ? `style="--mark:${mark.color}"` : ''}>
       <div class="cal-n">${d.getDate()}</div>
+      ${mark?.label ? `<div class="cal-lb">${esc(mark.label)}</div>` : ''}
       ${special ? `<div class="cal-sp">${esc(tmpl ? tmpl.name : 'No school')}</div>` : ''}
-      ${evs.map(e => `<div class="cal-ev ${e.kind || ''}">${IC(EVENT_ICON[e.kind] || 'ico:events')}${esc(eventLabel(e))}</div>`).join('')}
+      ${evs.map(e => `<div class="cal-ev ${e.kind || ''}">${IC(EVENT_ICON[e.kind] || 'ico:events')}${esc(eventLabel(e) || '(untitled)')}${e.time ? ` <small>${fmtHM(e.time)}</small>` : ''}</div>`).join('')}
       ${note ? `<div class="cal-ev note">${IC('ico:notes')}${esc(note.split('\n')[0])}</div>` : ''}</div>`;
   }
-  h.innerHTML = `<div class="cal">
-    <div class="cal-top"><button data-cal="-1">‹</button><b>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button data-cal="1">›</button>
+  h.innerHTML = `<div class="cal ${sel ? 'has-day' : ''}"><div class="cal-month">
+    <div class="cal-top"><button data-cal="-1" title="Previous month">‹</button><b>${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button data-cal="1" title="Next month">›</button>
       <span class="grow"></span>${off ? '<button data-cal="0">Today</button>' : ''}</div>
-    <div class="cal-grid" style="grid-template-rows: auto repeat(${weeks}, 1fr)">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="cal-w">${w}</div>`).join('')}${cells}</div>
-    <div class="cal-key">Grey days have no school. Add events, birthdays and special days in Setup (Events, Bell schedule).</div></div>`;
-  h.onclick = e => { const b = e.target.closest('[data-cal]'); if (!b) return; e.stopPropagation(); const v = Number(b.dataset.cal); h.__off = v ? off + v : 0; renderCal(h); };
+    <div class="cal-grid" style="grid-template-rows: auto repeat(${weeks}, minmax(0, 1fr))">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="cal-w">${w}</div>`).join('')}${cells}</div>
+    <div class="cal-key">Click a day to add events or change it. Grey days have no school.</div></div>
+    ${sel ? calDayPanel(sel, cls) : ''}</div>`;
+
+  h.onclick = e => {
+    const b = e.target.closest('[data-cal], [data-day], [data-cd]'); if (!b) return; e.stopPropagation();
+    if (b.dataset.cal != null) { const v = Number(b.dataset.cal); h.__off = v ? off + v : 0; return renderCal(h); }
+    if (b.dataset.day) { h.__sel = h.__sel === b.dataset.day ? null : b.dataset.day; return renderCal(h); }
+    const k = h.__sel, act = b.dataset.cd, id = b.closest('[data-id]')?.dataset.id;
+    if (act === 'close') { h.__sel = null; return renderCal(h); }
+    if (act === 'step') { const d = parseKey(k); d.setDate(d.getDate() + Number(b.dataset.n)); h.__sel = dateKey(d); h.__off = (d.getFullYear() - t.getFullYear()) * 12 + d.getMonth() - t.getMonth(); return renderCal(h); }
+    if (act === 'color') { const m = calDays()[k] ||= {}; if (b.dataset.c) m.color = b.dataset.c; else delete m.color; if (!m.color && !m.label) delete calDays()[k]; }
+    if (act === 'add') {
+      const kind = b.dataset.kind;
+      S.events.push({ id: uid(), kind, date: k, title: '', time: '', yearly: kind === 'birthday', classes: cls && kind !== 'birthday' ? [cls.id] : [] });
+      const id2 = S.events.at(-1).id; calChanged(h); h.querySelector(`[data-id="${id2}"] [data-f="title"]`)?.focus(); return;
+    }
+    if (act === 'del') { S.events = S.events.filter(x => x.id !== id); }
+    calChanged(h);
+  };
+  h.onchange = e => {
+    const el = e.target, f = el.dataset.f; if (!f) return;
+    const k = h.__sel, ev = S.events.find(x => x.id === el.closest('[data-id]')?.dataset.id);
+    if (f === 'tmpl') { if (el.value === '') delete S.overrides[k]; else S.overrides[k] = el.value; }
+    else if (f === 'label') { const m = calDays()[k] ||= {}; m.label = el.value.trim(); if (!m.label) delete m.label; if (!m.color && !m.label) delete calDays()[k]; }
+    else if (f === 'note') { if (!cls) return; const n = (cls.screenNotes ||= {}); if (el.value.trim()) n[k] = el.value; else delete n[k]; }
+    else if (ev && f === 'who') ev.classes = el.value ? [el.value] : [];
+    else if (ev && f === 'yearly') ev.yearly = el.checked;
+    else if (ev) ev[f] = el.value;
+    calChanged(h);
+  };
+}
+function calChanged(h) { save(); P.sideKey = P.stageKey = ''; $('#p-title') && ($('#p-title')._h = ''); refreshWidgetsKeep('cal'); }
+function calDayPanel(k, cls) {
+  const d = parseKey(k), usual = S.templates.find(x => x.id === S.weekdays[d.getDay()]);
+  const cur = k in S.overrides ? S.overrides[k] : '', mark = calDays()[k] || {};
+  const evs = eventsOn(d, cls || undefined);
+  const kindSel = e => `<select data-f="kind">${[['event', 'Event'], ['announcement', 'Announcement'], ['birthday', 'Birthday']].map(([v, l]) => `<option value="${v}" ${e.kind === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const whoSel = e => `<select data-f="who" title="Who sees it"><option value="">All classes</option>${S.classes.map(c => `<option value="${c.id}" ${e.classes?.[0] === c.id && e.classes.length === 1 ? 'selected' : ''}>${esc(c.name)} only</option>`).join('')}</select>`;
+  return `<div class="cal-day">
+    <div class="cal-dh"><button data-cd="step" data-n="-1" title="Previous day">‹</button><b>${DAYNAMES[d.getDay()]}, ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</b><button data-cd="step" data-n="1" title="Next day">›</button>
+      <span class="grow"></span><button data-cd="close" title="Close">${IC('ico:close')}</button></div>
+    <label class="cal-f"><span>Bell schedule</span><select data-f="tmpl">
+      <option value="" ${cur === '' ? 'selected' : ''}>Usual (${esc(usual ? usual.name : 'no school')})</option>
+      ${S.templates.map(x => `<option value="${x.id}" ${cur === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+      <option value="none" ${cur === 'none' ? 'selected' : ''}>No school</option></select></label>
+    <label class="cal-f"><span>Label</span><input data-f="label" value="${esc(mark.label || '')}" placeholder="e.g. Concert, Field trip, Exam week"></label>
+    <div class="cal-f"><span>Colour</span><div class="cal-sw"><button data-cd="color" data-c="" class="${mark.color ? '' : 'on'}" title="None">∅</button>${CAL_COLORS.map(c => `<button data-cd="color" data-c="${c}" style="background:${c}" class="${mark.color === c ? 'on' : ''}"></button>`).join('')}</div></div>
+    <div class="cal-sec">Events</div>
+    ${evs.map(e => `<div class="cal-evrow" data-id="${e.id}">
+      <div class="cal-er1">${IC(EVENT_ICON[e.kind] || 'ico:events')}<input data-f="title" value="${esc(e.title)}" placeholder="${e.kind === 'birthday' ? 'Name' : 'What'}"><button data-cd="del" title="Remove">${IC('ico:trash')}</button></div>
+      <div class="cal-er2">${kindSel(e)}<input type="time" data-f="time" value="${e.time || ''}" title="Time (optional)">${whoSel(e)}<label title="Every year on this date"><input type="checkbox" data-f="yearly" ${e.yearly ? 'checked' : ''}> yearly</label></div></div>`).join('')
+      || '<div class="cal-none">Nothing on this day.</div>'}
+    <div class="cal-adds"><button data-cd="add" data-kind="event">＋ Event</button><button data-cd="add" data-kind="announcement">＋ Announcement</button><button data-cd="add" data-kind="birthday">＋ Birthday</button></div>
+    ${cls ? `<div class="cal-sec">Note on screen for ${esc(cls.name)}</div><textarea data-f="note" rows="2" placeholder="Shows under the announcement that day">${esc(cls.screenNotes?.[k] || '')}</textarea>` : ''}
+  </div>`;
 }
 
-/** Pieces (or anything) with a traffic light: green = concert ready, yellow = still working, red = haven't started. */
+/** Pieces (or anything) with a traffic light, steps to check off and notes on what still needs doing. */
 const PROG = { green: 'Concert ready', yellow: 'Still working', red: "Haven't started" };
+const progLabel = (cls, k) => cls?.progLabels?.[k] || PROG[k];
+const agoText = ts => { if (!ts) return ''; const d = Math.floor((Date.now() - ts) / 864e5); return d <= 0 ? 'updated today' : d === 1 ? 'updated yesterday' : `updated ${d} days ago`; };
 function renderProg(h) {
   const cls = currentClass();
   if (!cls) { h.innerHTML = '<div class="prog"><div class="prog-empty">Progress is kept for each class. Show a class first (Class picker in the toolbar).</div></div>'; return; }
-  const items = (cls.progress ||= []), count = k => items.filter(i => i.status === k).length;
+  const items = (cls.progress ||= []), count = k => items.filter(i => i.status === k).length, L = k => esc(progLabel(cls, k));
+  const lights = it => ['red', 'yellow', 'green'].map(k => `<button class="pick ${k} ${it.status === k ? 'on' : ''}" data-pg="set" data-s="${k}"><i class="light ${k}"></i>${L(k)}</button>`).join('');
   h.innerHTML = `<div class="prog">
-    <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${PROG[k]} <b>${count(k)}</b></span>`).join('')}
-      <span class="grow"></span><button class="prog-add" data-pg="add">＋ Add</button></div>
-    <div class="prog-list">${items.map(it => `<div class="prog-item ${it.status}" data-pg-id="${it.id}">
-      <button class="light ${it.status}" data-pg="cycle" title="${PROG[it.status]}: click to change"></button>
-      <div class="prog-main"><div class="prog-row"><input class="prog-title" data-pg-f="title" value="${esc(it.title)}" placeholder="Piece or task"><span class="prog-st">${PROG[it.status]}</span>
-        <button class="prog-x" data-pg="del" title="Remove">${IC('ico:close')}</button></div>
-        <textarea class="prog-notes" data-pg-f="notes" rows="1" placeholder="What still needs to be done…">${esc(it.notes || '')}</textarea></div></div>`).join('')
-      || '<div class="prog-empty">Nothing yet. Press ＋ Add for each piece you\'re working on, then click its light: red (haven\'t started) → yellow (still working) → green (concert ready).</div>'}</div></div>`;
+    <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${L(k)} <b>${count(k)}</b></span>`).join('')}
+      <span class="grow"></span><button data-pg="labels" class="${h.__labels ? 'on' : ''}" title="Rename the three colours">Labels</button><button class="prog-add" data-pg="add">＋ Add</button></div>
+    ${h.__labels ? `<div class="prog-labels">${['red', 'yellow', 'green'].map(k => `<label><i class="light ${k}"></i><input data-f="lbl-${k}" value="${esc(cls.progLabels?.[k] || '')}" placeholder="${esc(PROG[k])}"></label>`).join('')}</div>` : ''}
+    <div class="prog-list">${items.map((it, i) => {
+      const steps = it.steps || [], done = steps.filter(s => s.done).length, open = it.open !== false;
+      return `<div class="prog-item ${it.status}" data-id="${it.id}">
+      <button class="light ${it.status}" data-pg="pick" title="Change colour"></button>
+      <div class="prog-main">
+        <div class="prog-row"><input class="prog-title" data-f="title" value="${esc(it.title)}" placeholder="Piece or task">
+          <button class="prog-st ${it.status}" data-pg="pick" title="Change colour">${L(it.status)} ▾</button>
+          <span class="prog-tools"><button data-pg="up" title="Move up" ${i ? '' : 'disabled'}>${IC('ico:up')}</button><button data-pg="down" title="Move down" ${i < items.length - 1 ? '' : 'disabled'}>${IC('ico:down')}</button><button data-pg="del" title="Remove">${IC('ico:trash')}</button></span></div>
+        ${h.__pick === it.id ? `<div class="prog-pick">${lights(it)}</div>` : ''}
+        <div class="prog-meta">${steps.length ? `<button class="prog-tog" data-pg="toggle">${open ? '▾' : '▸'} ${done}/${steps.length} steps</button><span class="prog-bar"><i style="width:${Math.round(done / steps.length * 100)}%"></i></span>` : ''}<span class="prog-ago">${agoText(it.updated)}</span></div>
+        ${open ? `<div class="prog-steps">${steps.map(s => `<div class="prog-step ${s.done ? 'done' : ''}" data-sid="${s.id}">
+            <button class="chk ${s.done ? 'on' : ''}" data-pg="check" title="${s.done ? 'Mark not done' : 'Mark done'}">${s.done ? IC('ico:check') : ''}</button>
+            <input data-f="step" data-sid="${s.id}" value="${esc(s.text)}" placeholder="Step, e.g. learn notes mm. 1–24"><button class="prog-sx" data-pg="sdel" title="Remove step">${IC('ico:close')}</button></div>`).join('')}
+          <button class="prog-addstep" data-pg="addstep">＋ Step</button></div>
+          <textarea class="prog-notes" data-f="notes" rows="1" placeholder="Notes: what still needs to be done…">${esc(it.notes || '')}</textarea>` : ''}
+        ${steps.length && done === steps.length && it.status !== 'green' ? `<div class="prog-hint">All steps are checked off. <button data-pg="set" data-s="green">Mark “${L('green')}”</button></div>` : ''}
+      </div></div>`; }).join('')
+      || `<div class="prog-empty">Nothing yet. Press ＋ Add for each piece you're working on, add the steps it needs and check them off as you go. Click the light to change its colour.</div>`}</div></div>`;
   h.querySelectorAll('.prog-notes').forEach(fitNotes);
+  const touch = it => { if (it) it.updated = Date.now(); };
   h.onclick = e => {
     const b = e.target.closest('[data-pg]'); if (!b) return; e.stopPropagation();
-    const id = b.closest('[data-pg-id]')?.dataset.pgId, it = items.find(i => i.id === id);
-    if (b.dataset.pg === 'add') { items.push({ id: uid(), title: '', status: 'red', notes: '' }); save(); refreshWidgets('prog'); h.querySelector('.prog-item:last-child .prog-title')?.focus(); return; }
-    if (b.dataset.pg === 'cycle' && it) it.status = { red: 'yellow', yellow: 'green', green: 'red' }[it.status] || 'red';
-    if (b.dataset.pg === 'del' && it && (!it.title && !it.notes || confirm(`Remove “${it.title || 'this item'}”?`))) items.splice(items.indexOf(it), 1);
-    save(); refreshWidgets('prog');
+    const id = b.closest('[data-id]')?.dataset.id, it = items.find(i => i.id === id), sid = b.closest('[data-sid]')?.dataset.sid;
+    const act = b.dataset.pg;
+    if (act === 'add') { const n = { id: uid(), title: '', status: 'red', notes: '', steps: [], updated: Date.now() }; items.push(n); save(); renderProg(h); h.querySelector(`[data-id="${n.id}"] .prog-title`)?.focus(); refreshOthers(h); return; }
+    if (act === 'labels') { h.__labels = !h.__labels; return renderProg(h); }
+    if (act === 'pick') { h.__pick = h.__pick === id ? null : id; return renderProg(h); }
+    if (!it) return;
+    if (act === 'set') { it.status = b.dataset.s; h.__pick = null; touch(it); }
+    if (act === 'toggle') it.open = it.open === false;
+    if (act === 'up' || act === 'down') { const i = items.indexOf(it), j = i + (act === 'up' ? -1 : 1); if (j >= 0 && j < items.length) [items[i], items[j]] = [items[j], items[i]]; }
+    if (act === 'del' && !(!it.title && !it.notes && !it.steps?.length || confirm(`Remove “${it.title || 'this item'}”?`))) return;
+    if (act === 'del') items.splice(items.indexOf(it), 1);
+    if (act === 'addstep') {
+      const s = { id: uid(), text: '', done: false }; (it.steps ||= []).push(s); it.open = true; touch(it);
+      save(); renderProg(h); h.querySelector(`[data-sid="${s.id}"] input`)?.focus(); refreshOthers(h); return;
+    }
+    const st = it.steps?.find(s => s.id === sid);
+    if (act === 'check' && st) { st.done = !st.done; touch(it); if (st.done && it.status === 'red') it.status = 'yellow'; }
+    if (act === 'sdel' && st) it.steps.splice(it.steps.indexOf(st), 1);
+    save(); refreshWidgetsKeep('prog');
   };
   h.oninput = e => {
-    const f = e.target.dataset.pgF; if (!f) return;
-    const it = items.find(i => i.id === e.target.closest('[data-pg-id]')?.dataset.pgId); if (!it) return;
-    it[f] = e.target.value; if (f === 'notes') fitNotes(e.target); save();
+    const f = e.target.dataset.f; if (!f) return;
+    if (f.startsWith('lbl-')) { const k = f.slice(4), lb = (cls.progLabels ||= {}); if (e.target.value.trim()) lb[k] = e.target.value; else delete lb[k]; save(); return; }
+    const it = items.find(i => i.id === e.target.closest('[data-id]')?.dataset.id); if (!it) return;
+    if (f === 'step') { const s = it.steps?.find(x => x.id === e.target.dataset.sid); if (s) s.text = e.target.value; }
+    else it[f] = e.target.value;
+    if (f === 'notes') fitNotes(e.target);
+    touch(it); save();
+  };
+  h.onchange = e => { if (e.target.dataset.f) refreshWidgetsKeep('prog'); };
+  h.onkeydown = e => {
+    if (e.key !== 'Enter' || e.target.dataset.f !== 'step') return;
+    e.preventDefault(); e.target.closest('.prog-item')?.querySelector('[data-pg="addstep"]')?.click();
   };
 }
+// other open copies of the same widget (a pinned one and a window, say)
+const refreshOthers = h => document.querySelectorAll(`.wg-host[data-wg="${h.dataset.wg}"]`).forEach(x => x !== h && WG_RENDER(x.dataset.wg)(x));
 function fitNotes(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+
+// ---------- recorder: record the group, listen back, then save it or delete it
+const REC = { state: 'idle' };   // idle | rec | review
+const fmtSec = s => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const recMime = () => !window.MediaRecorder ? '' : ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find(m => MediaRecorder.isTypeSupported?.(m)) || '';
+const recElapsed = () => REC.state !== 'rec' ? 0 : (REC.acc || 0) + (REC.paused ? 0 : Date.now() - REC.t0);
+const recDefaultName = () => { const c = currentClass(), d = now(); return `${c ? c.name + ' ' : ''}${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`; };
+const refreshRec = () => document.querySelectorAll('.wg-host[data-wg="rec"]').forEach(renderRec);
+
+async function recStart() {
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return toast('Recording is not supported here.');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  catch { return toast('Rehearsal needs the microphone to record. Allow it and try again.'); }
+  const mime = recMime(), mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined), chunks = [];
+  mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+  mr.onstop = () => recFinished(new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' }));
+  const an = ac().createAnalyser(); an.fftSize = 2048; ac().createMediaStreamSource(stream).connect(an);
+  if (ac().state === 'suspended') ac().resume();
+  Object.assign(REC, { state: 'rec', stream, mr, an, live: [], t0: Date.now(), acc: 0, paused: false, name: recDefaultName() });
+  mr.start(1000); refreshRec(); recTick();
+}
+function recTick() {
+  if (REC.state !== 'rec') return;
+  if (!REC.paused) {
+    const buf = new Float32Array(REC.an.fftSize); REC.an.getFloatTimeDomainData(buf);
+    let pk = 0; for (const v of buf) pk = Math.max(pk, Math.abs(v));
+    REC.live.push(pk); if (REC.live.length > 600) REC.live.shift();
+  }
+  document.querySelectorAll('.wg-host[data-wg="rec"]').forEach(h => {
+    const t = h.querySelector('.rec-time'); if (t) t.textContent = fmtSec(recElapsed() / 1000);
+    const c = h.querySelector('canvas.rec-wave'); if (c) drawWave(c, REC.live, null, true);
+  });
+  requestAnimationFrame(recTick);
+}
+function recPause() {
+  if (REC.state !== 'rec') return;
+  if (REC.paused) { REC.mr.resume(); REC.t0 = Date.now(); REC.paused = false; }
+  else { REC.mr.pause(); REC.acc += Date.now() - REC.t0; REC.paused = true; }
+  refreshRec();
+}
+function recStop() { if (REC.state !== 'rec') return; REC.dur = recElapsed() / 1000; REC.state = 'stopping'; REC.mr.stop(); REC.stream.getTracks().forEach(t => t.stop()); refreshRec(); }
+async function recFinished(blob) {
+  Object.assign(REC, { state: 'review', blob, url: URL.createObjectURL(blob), peaks: null });
+  refreshRec();
+  try {
+    const buf = await ac().decodeAudioData(await blob.arrayBuffer()), d = buf.getChannelData(0), n = 500, step = Math.max(1, Math.floor(d.length / n)), peaks = [];
+    for (let i = 0; i < n; i++) { let pk = 0; for (let j = i * step, e = Math.min(d.length, j + step); j < e; j++) pk = Math.max(pk, Math.abs(d[j])); peaks.push(pk); }
+    REC.peaks = peaks; REC.dur = buf.duration;
+  } catch { REC.peaks = REC.live.slice(); }
+  refreshRec();
+}
+function recDiscard() { if (REC.url) URL.revokeObjectURL(REC.url); for (const k of Object.keys(REC)) delete REC[k]; REC.state = 'idle'; refreshRec(); }
+async function recSave(name, addTab) {
+  const ext = /mp4/.test(REC.blob.type) ? 'm4a' : /ogg/.test(REC.blob.type) ? 'ogg' : 'webm';
+  name = (name || '').trim() || recDefaultName();
+  let fileId;
+  try { fileId = await storeFile(new File([REC.blob], `${name}.${ext}`, { type: REC.blob.type.split(';')[0] })); }
+  catch { return toast('Could not save the recording.'); }
+  const cls = currentClass();
+  (S.recordings ||= []).unshift({ id: uid(), fileId, name, date: Date.now(), dur: REC.dur || 0, classId: cls?.id || '' });
+  if (addTab && cls) { cls.resources.push({ id: uid(), title: name, fileId }); P.stageKey = ''; }
+  save(); toast(addTab && cls ? `Saved “${name}” and added it as a tab in ${cls.name}.` : `Saved “${name}”.`);
+  recDiscard();
+}
+/** peaks 0..1; live = newest on the right; prog = 0..1 played. */
+function drawWave(c, peaks, prog, live) {
+  const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  if (!r.width) return;
+  if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
+  const g = c.getContext('2d'), W = c.width, H = c.height, bw = 3 * dpr, gap = 2 * dpr, n = Math.floor(W / (bw + gap));
+  g.clearRect(0, 0, W, H);
+  const col = getComputedStyle(c).color, acc = getComputedStyle(c).getPropertyValue('--accent').trim() || '#f2c230';
+  const src = peaks || [], data = live ? src.slice(-n) : Array.from({ length: n }, (_, i) => { const a = Math.floor(i * src.length / n), b = Math.max(a + 1, Math.floor((i + 1) * src.length / n)); let m = 0; for (let j = a; j < b; j++) m = Math.max(m, src[j] || 0); return m; });
+  const max = live ? 0.5 : Math.max(0.05, ...data);
+  data.forEach((v, i) => {
+    const h = Math.max(2 * dpr, Math.min(1, v / max) * (H - 4 * dpr)), x = live ? W - (data.length - i) * (bw + gap) : i * (bw + gap);
+    g.fillStyle = prog != null && i / n <= prog ? acc : col; g.globalAlpha = prog != null && i / n > prog ? 0.45 : 0.9;
+    g.beginPath(); g.roundRect ? g.roundRect(x, (H - h) / 2, bw, h, bw / 2) : g.rect(x, (H - h) / 2, bw, h); g.fill();
+  });
+}
+function renderRec(h) {
+  const cls = currentClass(), list = (S.recordings ||= []), st = REC.state;
+  const row = r => `<div class="rec-item" data-rid="${r.id}">
+      <button class="rec-play" data-rc="play" title="Play">${IC(h.__playing === r.id ? 'ico:pause' : 'ico:play')}</button>
+      <div class="rec-info"><input data-rc-name value="${esc(r.name)}"><span>${new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${fmtSec(r.dur)}${r.classId && r.classId !== cls?.id ? ' · ' + esc(S.classes.find(c => c.id === r.classId)?.name || '') : ''}</span></div>
+      ${cls ? `<button data-rc="tab" title="Add as a tab in ${esc(cls.name)}">${IC('ico:pin')}</button>` : ''}
+      <button data-rc="del" title="Delete">${IC('ico:trash')}</button></div>`;
+  let top;
+  if (st === 'rec' || st === 'stopping') top = `<div class="rec-live ${REC.paused ? 'paused' : ''}">
+      <div class="rec-status"><i class="rec-dot"></i>${REC.paused ? 'Paused' : 'Recording'} <b class="rec-time">${fmtSec(recElapsed() / 1000)}</b></div>
+      <canvas class="rec-wave"></canvas>
+      <div class="rec-btns"><button data-rc="pause">${IC(REC.paused ? 'ico:play' : 'ico:pause')} ${REC.paused ? 'Resume' : 'Pause'}</button><button class="rec-stop" data-rc="stop">${IC('ico:stop')} Stop</button></div></div>`;
+  else if (st === 'review') top = `<div class="rec-review">
+      <div class="rec-q">Keep this recording?</div>
+      <div class="rec-player"><button class="rec-play big" data-rc="rplay" title="Play">${IC('ico:play')}</button><canvas class="rec-wave" data-rc="seek"></canvas><span class="rec-time">${fmtSec(REC.dur || 0)}</span></div>
+      <audio class="rec-audio" src="${REC.url}" preload="auto"></audio>
+      <label class="rec-name">Name <input data-rc-newname value="${esc(REC.name || '')}"></label>
+      ${cls ? `<label class="rec-tab"><input type="checkbox" data-rc-addtab> Also add it as a tab in ${esc(cls.name)}</label>` : ''}
+      <div class="rec-btns"><button class="danger" data-rc="discard">${IC('ico:trash')} Delete</button><button class="primary" data-rc="save">${IC('ico:check')} Save</button></div></div>`;
+  else top = `<div class="rec-idle"><button class="rec-big" data-rc="start" title="Start recording"><i></i></button><div>Press to record the group. When you stop, you can listen back and choose to save or delete it.</div></div>`;
+  h.innerHTML = `<div class="rec">${top}
+    <div class="rec-list"><div class="rec-lh">Saved recordings</div>${list.map(row).join('') || '<div class="rec-none">None yet.</div>'}</div></div>`;
+  const wave = h.querySelector('canvas.rec-wave');
+  if (wave && st === 'review') {
+    const au = h.querySelector('.rec-audio'), pb = h.querySelector('[data-rc="rplay"]'), tm = h.querySelector('.rec-time');
+    const draw = () => drawWave(wave, REC.peaks || [], REC.dur ? au.currentTime / REC.dur : 0);
+    requestAnimationFrame(draw);
+    au.ontimeupdate = () => { draw(); tm.textContent = `${fmtSec(au.currentTime)} / ${fmtSec(REC.dur || au.duration || 0)}`; };
+    au.onplay = () => { pb.innerHTML = IC('ico:pause'); const loop = () => { if (au.paused) return; draw(); requestAnimationFrame(loop); }; loop(); };
+    au.onpause = au.onended = () => { pb.innerHTML = IC('ico:play'); draw(); };
+  }
+  h.onclick = async e => {
+    const b = e.target.closest('[data-rc]'); if (!b) return; e.stopPropagation();
+    const act = b.dataset.rc, rec = list.find(r => r.id === b.closest('[data-rid]')?.dataset.rid);
+    if (act === 'start') return recStart();
+    if (act === 'pause') return recPause();
+    if (act === 'stop') return recStop();
+    if (act === 'rplay') { const au = h.querySelector('.rec-audio'); au.paused ? au.play() : au.pause(); return; }
+    if (act === 'seek') { const au = h.querySelector('.rec-audio'), r = b.getBoundingClientRect(); if (REC.dur) au.currentTime = (e.clientX - r.left) / r.width * REC.dur; return; }
+    if (act === 'save') return recSave(h.querySelector('[data-rc-newname]')?.value, h.querySelector('[data-rc-addtab]')?.checked);
+    if (act === 'discard') { if (confirm('Delete this recording? It can\'t be undone.')) recDiscard(); return; }
+    if (!rec) return;
+    if (act === 'play') {
+      const au = (h.__au ||= new Audio());
+      if (h.__playing === rec.id) { au.pause(); h.__playing = null; return renderRec(h); }
+      au.src = fileDirectURL(rec.fileId) || await fileBlobURL(rec.fileId); au.onended = () => { h.__playing = null; renderRec(h); };
+      au.play().catch(() => toast('Could not play this recording.')); h.__playing = rec.id; return renderRec(h);
+    }
+    if (act === 'tab' && cls) { if (cls.resources.some(r => r.fileId === rec.fileId)) return toast(`It's already a tab in ${cls.name}.`); cls.resources.push({ id: uid(), title: rec.name, fileId: rec.fileId }); P.stageKey = ''; save(); return toast(`Added “${rec.name}” as a tab in ${cls.name}.`); }
+    if (act === 'del') {
+      if (!confirm(`Delete “${rec.name}”? It can't be undone.`)) return;
+      S.recordings = list.filter(r => r !== rec);
+      if (!S.classes.some(c => c.resources.some(r => r.fileId === rec.fileId))) deleteFile(rec.fileId);
+      if (h.__playing === rec.id) { h.__au?.pause(); h.__playing = null; }
+      save(); refreshRec();
+    }
+  };
+  h.onchange = e => { const el = e.target; if (el.dataset.rcName == null) return; const rec = list.find(r => r.id === el.closest('[data-rid]')?.dataset.rid); if (rec) { rec.name = el.value.trim() || rec.name; save(); } };
+  h.oninput = e => { if (e.target.dataset.rcNewname != null) REC.name = e.target.value; };
+}
 
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
@@ -1076,6 +1337,7 @@ function winTitle(w) {
   if (w.kind === 'tuner') return 'Tuner & drone';
   if (w.kind === 'metro') return 'Metronome';
   if (w.kind === 'cal') return 'Calendar';
+  if (w.kind === 'rec') return 'Recorder';
   if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
@@ -1094,7 +1356,7 @@ function winIcon0(w) {
   if (w.kind === 'score') return 'ico:score';
   if (w.kind === 'tuner') return 'ico:tuner';
   if (w.kind === 'metro') return 'ico:metro';
-  if (w.kind === 'cal' || w.kind === 'prog') return WIDGETS[w.kind].icon;
+  if (WIDGETS[w.kind]) return WIDGETS[w.kind].icon;
   if (w.kind === 'app') return 'ico:app';
   if (w.kind === 'warmup') return 'ico:warmup';
   if (w.kind === 'file') { const r = { fileId: w.fileId }; return kindIcon(resKind(r)); }
@@ -1124,7 +1386,7 @@ function winBodyHTML(w) {
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
-  if (w.kind === 'cal' || w.kind === 'prog') return widgetHost(w.kind);
+  if (WIDGETS[w.kind]) return widgetHost(w.kind);
   if (w.kind === 'res' && winRes(w)?.widget) return widgetHost(winRes(w).widget.kind);
   if (w.kind === 'res' && winRes(w)?.music) return `<div class="mu-host" data-mu-win="r-${w.resId}-w${w.id}" data-mu-res="${w.resId}"></div>`;
   if (w.kind === 'res' && winRes(w)?.sight) return `<div class="sr-host" data-sr-res="${w.resId}"></div>`;
@@ -1948,27 +2210,58 @@ function renderWinMenu() {
   const cls = currentClass();
   const lib = Object.entries(S.files).filter(([, f]) => !f.mime.startsWith('audio/'));
   const list = winList();
+  const tile = (act, icon, label, extra = '') => `<button class="wm-tile" data-action="${act}" ${extra}>${IC(icon)}<span>${label}</span></button>`;
+  const item = (act, id, icon, name) => `<button data-action="${act}" data-id="${id}" data-q="${esc(name.toLowerCase())}">${icoSp(icon)}${esc(name)}</button>`;
+  const open = (P.wmOpen ||= { cls: true, lib: false });
+  const sec = (key, title, n, body) => `<details class="wm-sec" data-sec="${key}" ${open[key] ? 'open' : ''}><summary>${title}<span class="wm-n">${n}</span></summary><div class="wm-items">${body}</div></details>`;
+  const many = (cls ? cls.resources.length + 1 : 0) + lib.length > 8;
   host.innerHTML = `<div class="win-menu">
-    <button data-action="wm-web">${IC('ico:web')} Web page or search</button>
-    <button data-action="wm-file">${IC('ico:file')} PDF, picture or video from this ${DEVICE}…</button>
-    <button data-action="wm-sight">${IC('ico:sight')} Sight-reading generator</button>
-    <button data-action="wm-score">${IC('ico:score')} Score practice (MusicXML / MuseScore)</button>
-    <button data-action="wm-cal">${IC('ico:events')} Calendar</button>
-    <button data-action="wm-prog">${IC('ico:gauge')} Progress tracker (concert ready / still working / not started)</button>
-    ${IS_NATIVE ? `<button data-action="wm-apps">${IC('ico:app')} Window from another app (MuseScore…)</button>${appPickerHTML()}` : ''}
-    ${cls ? `<div class="wm-h">${esc(cls.name)}</div><button data-action="wm-warmup">${IC('ico:warmup')} Warm-up question</button>
-      ${cls.resources.map(r => `<button data-action="wm-res" data-id="${r.id}">${icoSp(resIcon(r))}${esc(r.title || 'Resource')}</button>`).join('')}` : ''}
-    ${lib.length ? `<div class="wm-h">Library</div>${lib.map(([id, f]) => `<button data-action="wm-lib" data-id="${id}">${KIND_ICON[resKind({ fileId: id })]} ${esc(f.name)}</button>`).join('')}` : ''}
-    ${list.length ? `<hr><button data-action="win-tile">${IC('ico:tile')} Tile all windows</button><button data-action="wm-closeall">${IC('ico:close')} Close all windows</button>` : ''}
+    <div class="wm-grid">
+      ${tile('wm-web', 'ico:web', 'Web page')}
+      ${tile('wm-file', 'ico:file', 'File…', `title="PDF, picture or video from this ${DEVICE}"`)}
+      ${tile('wm-sight', 'ico:sight', 'Sight reading')}
+      ${tile('wm-score', 'ico:score', 'Score', 'title="Score practice (MusicXML / MuseScore)"')}
+      ${tile('wm-cal', 'ico:events', 'Calendar')}
+      ${tile('wm-prog', 'ico:gauge', 'Progress')}
+      ${tile('wm-rec', 'ico:mic', 'Recorder')}
+      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'Other app', 'title="A window from another app (MuseScore…)"') : ''}
+    </div>
+    ${IS_NATIVE ? appPickerHTML() : ''}
+    ${many ? `<input class="wm-search" placeholder="Search tabs and files…" data-wm-search>` : ''}
+    ${cls ? sec('cls', esc(cls.name) + ' tabs', cls.resources.length + 1, `<button data-action="wm-warmup" data-q="warm-up">${icoSp('ico:warmup')}Warm-up question</button>${cls.resources.map(r => item('wm-res', r.id, resIcon(r), r.title || 'Resource')).join('')}`) : ''}
+    ${lib.length ? sec('lib', 'Library', lib.length, lib.map(([id, f]) => item('wm-lib', id, KIND_ICON[resKind({ fileId: id })], f.name)).join('')) : ''}
+    <div class="wm-none" hidden>Nothing matches.</div>
+    ${list.length ? `<div class="wm-foot"><button data-action="win-tile">${IC('ico:tile')} Tile</button><button data-action="wm-closeall">${IC('ico:close')} Close all</button></div>` : ''}
   </div>`;
+  const menu = host.firstElementChild;
+  menu.querySelectorAll('details.wm-sec').forEach(d => d.addEventListener('toggle', () => { if (!menu.classList.contains('searching')) open[d.dataset.sec] = d.open; }));
+  menu.querySelector('[data-wm-search]')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase(); menu.classList.toggle('searching', !!q); let hits = 0;
+    menu.querySelectorAll('details.wm-sec').forEach(d => {
+      let n = 0; d.querySelectorAll('[data-q]').forEach(b => { const ok = !q || b.dataset.q.includes(q); b.hidden = !ok; n += ok; });
+      d.hidden = !!q && !n; d.open = q ? n > 0 : !!open[d.dataset.sec]; hits += n;
+    });
+    menu.querySelector('.wm-none').hidden = !q || hits > 0;
+  });
   let btn = $('#p-dock [data-action="win-menu"]'); const m = host.firstElementChild;
   if (!btn || !btn.offsetWidth) btn = $('#p-dock .dock-more');     // the Window button is in the ⋯ menu: open under ⋯
   if (btn && m) {
-    const r = btn.getBoundingClientRect();
-    m.style.top = r.bottom + 8 + 'px';
-    m.style.left = clamp(r.left + r.width / 2 - m.offsetWidth / 2, 8, innerWidth - m.offsetWidth - 8) + 'px';
+    const r = btn.getBoundingClientRect(), vert = $('#p-dock')?.classList.contains('vertical');
+    if (vert) {                                    // toolbar on a side: open beside it
+      m.style.maxHeight = innerHeight - 16 + 'px';
+      const right = r.left < innerWidth / 2;
+      m.style.left = (right ? r.right + 8 : r.left - m.offsetWidth - 8) + 'px';
+      m.style.top = clamp(r.top + r.height / 2 - m.offsetHeight / 2, 8, innerHeight - m.offsetHeight - 8) + 'px';
+    } else {
+      const below = r.top < innerHeight / 2;      // toolbar at the bottom: open upward
+      m.style.maxHeight = (below ? innerHeight - r.bottom - 16 : r.top - 16) + 'px';
+      m.style.top = (below ? r.bottom + 8 : r.top - 8 - m.offsetHeight) + 'px';
+      m.style.left = clamp(r.left + r.width / 2 - m.offsetWidth / 2, 8, innerWidth - m.offsetWidth - 8) + 'px';
+    }
   }
+  if (m) for (const d of m.querySelectorAll('details.wm-sec')) d.addEventListener('toggle', () => renderWinMenuPos?.());
 }
+function renderWinMenuPos() { if (P.winMenu) { const m = $('#win-menu-host')?.firstElementChild; if (!m) return; const r = m.getBoundingClientRect(); if (r.bottom > innerHeight - 8) m.style.top = Math.max(8, innerHeight - 8 - m.offsetHeight) + 'px'; } }
 
 // ---------- side panel ↔ stage divider (per class)
 function applySide(cls) {
@@ -2488,7 +2781,7 @@ function actionFields(a, base, cls) {
     }
     case 'resource': return cls ? f('Resource', `<select data-bind="${base}.resourceId"><option value="">Choose…</option>${cls.resources.map(r => `<option value="${r.id}" ${a.resourceId === r.id ? 'selected' : ''}>${esc(r.title)}</option>`).join('')}</select>`) : '<div class="small muted">Shows a resource of the current class.</div>';
     case 'agenda': return cls ? f('Step', `<select data-type="num" data-bind="${base}.step">${cls.agenda.map((x, i) => `<option value="${i}" ${Number(a.step) === i ? 'selected' : ''}>${i + 1}. ${esc(x.text)}</option>`).join('')}</select>`) : f('Step #', num('step'));
-    case 'signal': return f('Text', txt('text', '🤫 Silent'), true) + f('Color', `<input type="color" data-bind="${base}.color" value="${a.color || '#e63946'}">`);
+    case 'signal': return f('Text', txt('text', 'Silent'), true) + f('Color', `<input type="color" data-bind="${base}.color" value="${a.color || '#e63946'}">`);
     default: return '';
   }
 }
@@ -2680,7 +2973,7 @@ function tlNewEvent(type, t, cls, D) {
     musicStart: () => Object.assign(a, { fileId: audioFiles()[0]?.[0] || '', volume: 70, loop: true, minutes: 0 }),
     resource: () => Object.assign(a, { resourceId: cls.resources[0]?.id || '' }),
     agenda: () => Object.assign(a, { step: 0 }),
-    signal: () => Object.assign(a, { text: '🤫 Silent', color: '#e63946', minutes: 0 }),
+    signal: () => Object.assign(a, { text: 'Silent', color: '#e63946', minutes: 0 }),
   }[type] || (() => { }))();
   tlSetStart(a, t, D);
   cls.automations.push(a); TL_SEL = a.id; save(); tlRerender();
@@ -3083,13 +3376,19 @@ const A = {
   'app-done': () => { /* clicking Rehearsal already ended editing; this just re-renders */ WIN.sig = ''; },
   'app-front': el => { const w = findWin(el.dataset.id); if (!w) return; if (w.status === 'not-running') native('launchApp', { bundleId: w.bundleId }); else native('webCmd', { id: w.id, action: 'front' }); },
   'wm-cal': () => { const w = addWindow({ kind: 'cal' }); w.w = 0.62; w.h = 0.8; save(); applyWinGeom(); },
+  'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'rec' }); w.w = 0.42; w.h = 0.7; save(); applyWinGeom(); },
   'wm-prog': () => { const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id, native: false }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },
   'wm-closeall': () => { const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
-  'win-close': el => { const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
+  'win-close': el => {
+    if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec' && REC.state !== 'idle') {
+      if (REC.state === 'rec') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
+      if (REC.state === 'review') return toast('Save or delete the recording first.');
+    }
+    const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {
     const b = bmFind(el.dataset.id), w = findWin(el.dataset.win); BM.open = null; renderBmMenu();
@@ -3215,7 +3514,7 @@ const A = {
     const r = w.kind === 'file' ? { id: uid(), title: winTitle(w).replace(/\.[^.]+$/, ''), fileId: w.fileId }
       : w.kind === 'sight' ? { id: uid(), title: (w.sr?.mode === 'solfege' ? 'Solfege' : 'Rhythm') + ' reading', sight: JSON.parse(JSON.stringify({ ...w.sr, settingsOpen: false })) }
       : w.kind === 'score' ? { id: uid(), title: winTitle(w), score: JSON.parse(JSON.stringify(w.score)) }
-      : w.kind === 'cal' || w.kind === 'prog' ? { id: uid(), title: WIDGETS[w.kind].title, widget: { kind: w.kind } }
+      : WIDGETS[w.kind] ? { id: uid(), title: WIDGETS[w.kind].title, widget: { kind: w.kind } }
       : w.kind === 'tuner' || w.kind === 'metro' ? { id: uid(), title: w.kind === 'tuner' ? 'Tuner' : 'Metronome', music: { kind: w.kind, mu: JSON.parse(JSON.stringify(w.mu || muDefaults(w.kind))) } }
       : { id: uid(), title: winTitle(w), url: w.url, mode: 'embed', native: !!(IS_NATIVE && w.native) };
     if (w.kind === 'web' && !w.url) return toast('Open a page first.');
