@@ -454,7 +454,7 @@ function srDraw(el, st) {
     if (!best || sc > best.sc * 1.02) best = { p, w, h, sc };
   }
   const per = best.p, W = best.w, rows = Math.ceil(nM / per), H = rows * rowH + 20;
-  const scale = Math.max(0.5, Math.min(best.sc, 3.5));
+  const scale = Math.max(0.5, Math.min(best.sc, 3.5)) * (el.__zoom || 1);   // A− / A+ on the bar
   const renderer = new VF.Renderer(el, VF.Renderer.Backends.SVG);
   renderer.resize(W, H);
   const ctx = renderer.getContext();
@@ -893,7 +893,6 @@ function srSettingsHTML(st) {
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
-    <label class="srchk"><input type="checkbox" data-k="measureNums" ${o.measureNums ? 'checked' : ''}> Measure numbers</label>
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
     ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}</select></label>` : ''}`;
   const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
@@ -1128,7 +1127,7 @@ function srBuildSettingsHTML(st) {
 }
 
 // the sight-reading bar: items in the order you've arranged (drag to move; "gap" splits left / right)
-const SR_BAR_DEFAULT = ['play', 'new', 'from0', 'tabs', 'gap', 'rhyonly', 'show', 'counts', 'playhead', 'metro', 'nums', 'grade', 'settings', 'save'];
+const SR_BAR_DEFAULT = ['play', 'new', 'from0', 'tabs', 'gap', 'rhyonly', 'show', 'counts', 'playhead', 'metro', 'nums', 'grade', 'settings', 'save', 'zoom'];
 function srBarOrder() {
   const saved = (typeof S !== 'undefined' && S.settings?.srBar) || [];
   const order = saved.filter(id => SR_BAR_DEFAULT.includes(id));
@@ -1209,14 +1208,15 @@ function mountSight(host, st, onChange) {
           play: () => `<button data-sr="play">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
           from0: () => `<button data-sr="from0" title="Play from the first measure again (click empty space in a measure to start there)" ${st.startM ? '' : 'disabled'}>⟲ From the start</button>`,
           rhyonly: () => `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" ${st.mode === 'rhythm' ? 'disabled title="The Rhythm tab is always rhythm only"' : 'title="Show and play just the rhythm (one line)"'}>${IC('ico:metro')} Rhythm only</button>`,
-          show: () => `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="No pitches in a rhythm line"' : 'title="Write the solfege syllables under the notes"'}>${srTog([`${IC('ico:eye')} Show solfege`, `${IC('ico:eyeoff')} Hide solfege`], st.show && kindNow !== 'rhythm' ? 1 : 0)}</button>`,
-          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${srTog([`${IC('ico:hash')} Show counts`, `${IC('ico:eyeoff')} Hide counts`], st.showCounts ? 1 : 0)}</button>`,
-          playhead: () => `<button data-sr="playhead" class="${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: off → follow notes → follow beat">${srTog([`${IC('ico:playhead')} Playhead off`, `${IC('ico:playhead')} Notes`, `${IC('ico:playhead')} Beat`], ({ notes: 1, beat: 2 })[st.playhead] || 0)}</button>`,
+          show: () => `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="No pitches in a rhythm line"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:eye')} Syllables</button>`,
+          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:hash')} Counts</button>`,
+          playhead: () => `<button data-sr="playhead" class="${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} Playhead: Beat`, `${IC('ico:playhead')} Playhead: Note`, `${IC('ico:playhead')} Playhead: Off`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
           metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:timer')} Metronome</button>`,
           nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
-          settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${srTog([`${IC('ico:eye')} Show options`, `${IC('ico:eyeoff')} Hide options`], st.settingsOpen ? 1 : 0)}</button>`,
-          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class">${IC('ico:save')}</button>` : ''
+          settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Options</button>`,
+          zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>A−</button><button data-sr="zoom" data-d="1" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>A+</button></span>`,
+          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : ''
         })}
       </div>
       ${st.settingsOpen ? `<div class="sr-settings">${isBuild() ? srBuildSettingsHTML(st) : srSettingsHTML(st)}</div>` : ''}
@@ -1224,7 +1224,8 @@ function mountSight(host, st, onChange) {
       <div class="sr-staff"></div></div>`;
     const staffEl = host.querySelector('.sr-staff');
     srBarLayout(host.querySelector('.sr-top'));                // your button arrangement, on every tab
-    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Show options to show the building tools.'}</div>`; timeline = []; return; }
+    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Options to show the building tools.'}</div>`; timeline = []; return; }
+    staffEl.__zoom = st.zoom || 1;
     timeline = srDraw(staffEl, V()); drawFrom(); markSel(); host.__grRedraw();
   };
   // Listen back (from the grade report): the example from bar 1 at the tempo that was performed,
@@ -1439,6 +1440,7 @@ function mountSight(host, st, onChange) {
     else if (k === 'new') { srStop(); regen(); }
     else if (k === 'from0') { st.startM = 0; if (SR_PLAY.master) { srStop(); onChange && onChange(st); render(); host.querySelector('[data-sr="play"]')?.click(); return; } }
     else if (k === 'counts') st.showCounts = !st.showCounts;
+    else if (k === 'zoom') st.zoom = Math.max(0.6, Math.min(2.5, Math.round(((st.zoom || 1) + 0.2 * Number(b.dataset.d)) * 10) / 10));
     else if (k === 'rhyonly') { if (st.mode === 'solfege') st.solRhythm = !st.solRhythm; else if (isBuild()) B.kind = B.kind === 'rhythm' ? 'solfege' : 'rhythm'; }
     else if (k === 'barreset') { if (typeof S !== 'undefined') { delete S.settings.srBar; delete S.settings.srBarPos; save(); } }
     else if (k === 'metro') st[st.mode].metronome = !st[st.mode].metronome;   // live: the next beat follows
@@ -1449,7 +1451,7 @@ function mountSight(host, st, onChange) {
       o[f] = Math.max(lim[0], Math.min(lim[1], (Number(o[f]) || 0) + Number(b.dataset.d)));
       if (f === 'measures') { srStop(); regen(); }
     }
-    else if (k === 'playhead') st.playhead = ({ off: 'notes', notes: 'beat', beat: 'off' })[st.playhead || 'off'];
+    else if (k === 'playhead') st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead || 'off'];   // Beat → Note → Off
     else if (k === 'grade') {                                   // a take running: this stops and grades it
       if (GR.on || GR.starting) { closeGradeMenu(); grStart(host, V(), timeline, b); return; }
       if (V().mode !== 'rhythm') { grStart(host, V(), timeline, b, 'mic'); return; }   // solfege is sung: microphone only

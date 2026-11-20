@@ -16,6 +16,8 @@ function native(cmd, data = {}) {
   try { window.webkit.messageHandlers.native.postMessage({ cmd, ...data }); return true; } catch { return false; }
 }
 const IS_NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
+// what to call this device in messages ("saved on this iPad")
+const DEVICE = IS_NATIVE ? 'Mac' : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
 function toast(msg, ms = 2600) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
@@ -603,8 +605,8 @@ const DOCK_ITEMS = {
   tile: { icon: 'ico:tile', label: 'Tile', act: 'win-tile' },
   classpick: { icon: 'ico:pin', label: 'Class picker', special: 'classpick' },
   fullscreen: { icon: 'ico:fullscreen', label: 'Full screen', act: 'fullscreen' },
-  editmode: { icon: 'ico:annotate', label: 'Edit here', act: 'edit-mode', on: () => !!P.editMode },
-  edit: { icon: 'ico:edit', label: 'Edit', act: 'edit', locked: true },
+  editmode: { icon: 'ico:annotate', label: 'Quick edit', act: 'edit-mode', on: () => !!P.editMode },
+  edit: { icon: 'ico:edit', label: 'Setup', act: 'edit', locked: true },
   sep1: { sep: true, label: '— divider —' }, sep2: { sep: true, label: '— divider —' }, sep3: { sep: true, label: '— divider —' },
 };
 const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'window', 'tile', 'sep2', 'classpick', 'sep3', 'fullscreen', 'editmode', 'edit'];
@@ -613,6 +615,7 @@ function dockCfg() {
   d.order ||= [...DOCK_DEFAULT];
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
+  d.menu ||= ['score', 'clip', 'tile'];                // shown in the ⋯ menu instead of on the bar
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
   return d;
@@ -621,23 +624,69 @@ function dockIcon(id, it) { if (!iconOn('dock')) return ''; const v = icoCfg().d
 function renderDock() {
   const d = $('#p-dock'); if (!d) return;
   const cfg = dockCfg();
-  const btn = (id, it) => `<button data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}
+  const btn = (id, it) => `<button data-dock-id="${id}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}
       class="${(it.tool ? !!P.tools[it.tool] : it.on?.()) ? 'on' : ''}" title="${esc(it.label)}">${dockIcon(id, it) ? `<span class="i">${dockIcon(id, it)}</span>` : ''}${cfg.labels || !dockIcon(id, it) ? it.label : ''}</button>`;
-  const parts = cfg.order.filter(id => !cfg.hidden.includes(id) && DOCK_ITEMS[id]).map(id => {
+  const parts = cfg.order.filter(id => !cfg.hidden.includes(id) && !cfg.menu.includes(id) && DOCK_ITEMS[id]).map(id => {
     const it = DOCK_ITEMS[id];
     if (it.sep) return '<span class="sep"></span>';
-    if (it.special === 'classpick') return `<select data-action-change="pin" title="Show a class now, ignoring the schedule">
-      <option value="">Follow schedule</option>
-      ${S.classes.map(c => `<option value="${c.id}" ${P.pinned === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>`;
+    if (it.special === 'classpick') return dockClassPick();
     return btn(id, it);
   });
   if (P.music) parts.push(btn('music', { icon: 'ico:stop', label: 'Music', act: 'music-stop' }));
   d.innerHTML = `<span class="dock-grip" title="Drag to move the toolbar">⋮⋮</span>${parts.join('').replace(/^(<span class="sep"><\/span>)+|(<span class="sep"><\/span>)+$/g, '')}
-    <button data-action="dock-custom" class="dock-more ${P.dockCustom ? 'on' : ''}" title="Customize toolbar">⋯</button>`;
+    <button data-action="dock-more" class="dock-more ${P.dockCustom || P.dockMore ? 'on' : ''}" title="More tools and toolbar settings">⋯</button>`;
   d.classList.toggle('nolabels', !cfg.labels);
   applyDockLook();
   placeDock();
+  fitDock();
+  if (P.dockMore) renderDockMore();
 }
+function dockClassPick(id = 'classpick') {
+  return `<select data-dock-id="${id}" data-action-change="pin" title="Show a class now, ignoring the schedule">
+      <option value="">Follow schedule</option>
+      ${S.classes.map(c => `<option value="${c.id}" ${P.pinned === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>`;
+}
+/** When the bar doesn't fit (small screens, iPad), tuck buttons from the end into the ⋯ menu. Setup always stays. */
+function fitDock() {
+  const d = $('#p-dock'); if (!d) return;
+  P.dockOverflow = [];
+  const kids = [...d.children];
+  kids.forEach(k => { k.style.display = ''; });
+  const over = () => d.classList.contains('vertical') ? d.scrollHeight > d.clientHeight + 1 : d.scrollWidth > d.clientWidth + 1;
+  if (!over()) return;
+  const items = kids.filter(k => k.dataset.dockId && k.dataset.dockId !== 'edit').reverse();
+  for (const k of items) {
+    if (!over()) break;
+    k.style.display = 'none'; P.dockOverflow.unshift(k.dataset.dockId);
+  }
+  // drop dividers that now sit next to each other or at an end
+  let prevSep = true;
+  for (const k of [...d.children]) {
+    if (k.style.display === 'none' || k.classList.contains('dock-grip')) continue;
+    if (k.classList.contains('sep')) { if (prevSep) k.style.display = 'none'; prevSep = true; } else prevSep = k.classList.contains('dock-more');
+  }
+}
+/** The ⋯ menu: tools kept off the bar, ones that didn't fit, and the toolbar settings. */
+function renderDockMore() {
+  $('#dock-more-menu')?.remove();
+  if (!P.dockMore) return;
+  const cfg = dockCfg();
+  const ids = [...new Set([...cfg.order.filter(id => cfg.menu.includes(id) && !cfg.hidden.includes(id)), ...(P.dockOverflow || [])])].filter(id => DOCK_ITEMS[id] && !DOCK_ITEMS[id].sep);
+  const m = document.createElement('div'); m.id = 'dock-more-menu'; m.className = 'dock-more-menu';
+  m.innerHTML = ids.map(id => { const it = DOCK_ITEMS[id];
+    if (it.special === 'classpick') return `<div class="dm-row">${IC('ico:pin')} ${dockClassPick('classpick-menu')}</div>`;
+    const on = it.tool ? !!P.tools[it.tool] : it.on?.();
+    return `<button class="dm-item ${on ? 'on' : ''}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}><span class="i">${IC(icoCfg().dock?.[id] && icoCfg().dock[id] !== '-' ? icoCfg().dock[id] : it.icon)}</span>${esc(it.label)}</button>`; }).join('')
+    + `${ids.length ? '<div class="dm-sep"></div>' : ''}<button class="dm-item" data-action="dock-custom"><span class="i">⋯</span>Customize toolbar…</button>`;
+  $('#present').appendChild(m);
+  const r = $('#p-dock .dock-more').getBoundingClientRect();
+  m.style.left = clamp(r.right - m.offsetWidth, 8, innerWidth - m.offsetWidth - 8) + 'px';
+  m.style.top = clamp(r.bottom + 8 < innerHeight - m.offsetHeight ? r.bottom + 8 : r.top - m.offsetHeight - 8, 8, innerHeight - m.offsetHeight - 8) + 'px';
+  m.addEventListener('click', e => { if (e.target.closest('button')) setTimeout(() => { P.dockMore = false; renderDockMore(); renderDock(); }); });
+}
+document.addEventListener('pointerdown', e => {
+  if (P.dockMore && !e.target.closest('#dock-more-menu, #p-dock .dock-more')) { P.dockMore = false; renderDockMore(); renderDock(); }
+});
 /** Put the toolbar where it was left: tucked into the header, or floating (horizontal / vertical). */
 function applyDockLook() {
   const d = $('#p-dock'); if (!d) return;
@@ -657,7 +706,7 @@ function placeDock() {
   d.style.left = clamp(pos.x * innerWidth - w / 2, 4, innerWidth - w - 4) + 'px';
   d.style.top = clamp(pos.y * innerHeight - h / 2, 4, innerHeight - h - 4) + 'px';
 }
-window.addEventListener('resize', () => placeDock());
+window.addEventListener('resize', () => { placeDock(); fitDock(); });
 let DOCKDRAG = null;
 // Keep the grip handle exactly under the pointer, even when the toolbar flips between horizontal and vertical.
 function dockFollow(px, py) {
@@ -697,10 +746,11 @@ function renderDockCustom() {
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
   panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
-    <div class="dc-note">Tick what to show. Drag ≡ to reorder.</div>
+    <div class="dc-note">Tick what to show. "in ⋯" keeps a button in the ⋯ menu instead of on the bar. Drag ≡ to reorder.</div>
     <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id]; return `<div class="dc-row ${it.sep ? 'sep' : ''}" draggable="true" data-id="${id}">
       <span class="dc-grip">≡</span>
       <label><input type="checkbox" data-dock-show="${id}" ${cfg.hidden.includes(id) ? '' : 'checked'} ${it.locked ? 'disabled' : ''}> ${esc(it.label)}</label>
+      ${it.sep || it.locked ? '<span class="dc-inmenu"></span>' : `<label class="dc-inmenu" title="Keep it in the ⋯ menu instead of on the bar"><input type="checkbox" data-dock-menu="${id}" ${cfg.menu.includes(id) ? 'checked' : ''}> in ⋯</label>`}
       ${it.sep ? '' : `<input class="dc-emoji" data-dock-icon="${id}" value="${esc(icoCfg().dock?.[id] ?? '')}" placeholder="${esc(ICL(it.icon))}" maxlength="8" title="Icon for this button: type an emoji to replace it, or leave empty for the default. - = no icon">`}</div>`; }).join('')}</div>
     <label class="dc-opt"><input type="checkbox" data-dock-labels ${cfg.labels ? 'checked' : ''}> Show labels under icons</label>
     <label class="dc-opt"><input type="checkbox" data-dock-emoji ${iconOn('dock') ? 'checked' : ''}> Show emojis</label>
@@ -708,7 +758,7 @@ function renderDockCustom() {
       <label>Size <select data-dock-opt="size">${[['s', 'Small'], ['m', 'Medium'], ['l', 'Large']].map(([v, l]) => `<option value="${v}" ${(cfg.size || 'm') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Colour <select data-dock-opt="color">${[['dark', 'Dark'], ['light', 'Light'], ['class', 'Class colour']].map(([v, l]) => `<option value="${v}" ${(cfg.color || 'dark') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>See-through <input type="range" min="25" max="100" step="5" data-dock-opt="alpha" value="${cfg.alpha ?? 82}"></label>
-      <label>Hide when idle <select data-dock-hide>${[[0, 'Never'], [3, 'After 3 s'], [10, 'After 10 s'], [30, 'After 30 s']].map(([v, l]) => `<option value="${v}" ${(S.settings.hideDockAfter ?? 3) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label>Shrink when idle <select data-dock-hide>${[[0, 'Never'], [3, 'After 3 s'], [10, 'After 10 s'], [30, 'After 30 s']].map(([v, l]) => `<option value="${v}" ${(S.settings.hideDockAfter ?? 3) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>
     <div class="dc-spots"><span>Move to</span><button data-action="dock-spot" data-spot="top">Top (header)</button><button data-action="dock-spot" data-spot="bottom">Bottom</button><button data-action="dock-spot" data-spot="left">Left side</button><button data-action="dock-spot" data-spot="right">Right side</button></div>
     <div class="dc-btns"><button data-action="dock-home">Put toolbar back at the top</button><button data-action="dock-reset">Reset</button><button data-action="icons-open">${IC('ico:icons')} Icons…</button></div>`;
@@ -736,6 +786,7 @@ function renderDockCustom() {
   panel.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.dockShow) { const set = new Set(cfg.hidden); el.checked ? set.delete(el.dataset.dockShow) : set.add(el.dataset.dockShow); cfg.hidden = [...set]; }
+    if (el.dataset.dockMenu) { const set = new Set(cfg.menu); el.checked ? set.add(el.dataset.dockMenu) : set.delete(el.dataset.dockMenu); cfg.menu = [...set]; }
     if (el.dataset.dockLabels !== undefined) cfg.labels = el.checked;
     if (el.dataset.dockEmoji !== undefined) (icoCfg().show ||= {}).dock = el.checked;
     if (el.dataset.dockIcon) { const g = (icoCfg().dock ||= {}), v = el.value.trim(); if (v) g[el.dataset.dockIcon] = v; else delete g[el.dataset.dockIcon]; }
@@ -792,7 +843,7 @@ function tick() {
   if (P.clipOpen && (clipClass()?.id || null) !== P.clipFor) renderClip();   // class changed (schedule / picker)
   // auto-hide dock & cursor
   const hideAfter = S.settings.hideDockAfter ?? 3, since = Date.now() - P.lastMove;
-  const anyTool = Object.keys(P.tools).length || P.ink.on || P.winMenu || WIN.drag || P.dockCustom || DOCKDRAG || P.editMode || P.iconsOpen;
+  const anyTool = Object.keys(P.tools).length || P.ink.on || P.winMenu || WIN.drag || P.dockCustom || P.dockMore || DOCKDRAG || P.editMode || P.iconsOpen;
   $('#p-dock').classList.toggle('hidden', hideAfter > 0 && since > hideAfter * 1000 && !anyTool);
   root.classList.toggle('hide-cursor', since > 3000 && !anyTool);
   if (!!P.music !== !!$('#p-dock [data-action="music-stop"]')) renderDock();
@@ -839,7 +890,7 @@ function updateClassBody(ctx, t) {
       ${stageTabsHTML(cls, res)}
       <span class="sp"></span>
       <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
-      <button data-action="stage-max" title="${P.stageMax ? 'Restore' : 'Maximize (markup tools still work)'}">${P.stageMax ? '⤡' : '⤢'}</button>
+      <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Restore' : 'Maximize (markup tools still work)'}">${P.stageMax ? '⤡' : '⤢'}</button>
       ${res && res.url && IS_NATIVE ? `<button class="mode" data-action="stage-native" title="${res.native ? 'Switch back to embedded (drawing works on top)' : 'Page not showing? Show it as a full browser (every site works)'}">${res.native ? 'Embedded' : 'Full browser'}</button>` : ''}${res && res.url ? `<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}`;
     const sc = $('#stage-content');
     if (res && res.sight) {
@@ -852,7 +903,7 @@ function updateClassBody(ctx, t) {
       const k = resKind(res), src = fileDirectURL(res.fileId);
       if (k === 'image') sc.innerHTML = `<img class="res" src="${src}">`;
       else if (k === 'video') sc.innerHTML = `<video src="${src}" controls style="position:absolute;inset:0;width:100%;height:100%;background:#000"></video>`;
-      else if (k === 'missing') sc.innerHTML = `<div class="res-fallback">This file is missing. Re-add it in Edit → Classes.</div>`;
+      else if (k === 'missing') sc.innerHTML = `<div class="res-fallback">This file is missing. Re-add it in Setup → Classes.</div>`;
       else if (k === 'pdf') sc.innerHTML = `<div class="pdf-host" data-pdf-res="${res.id}"></div>`;
       else sc.innerHTML = `<iframe src="${src}"></iframe>`;
     } else if (res.native && IS_NATIVE) {
@@ -1199,7 +1250,7 @@ function bmFind(id, list = S.bookmarks || []) {
 }
 function bmBarHTML(w) {
   const list = S.bookmarks || [];
-  if (!list.length) return `<div class="win-bm"><span class="bm-empty">No bookmarks yet. Click ${IC('ico:star')} to add this page, or import from Chrome in Edit → Settings.</span></div>`;
+  if (!list.length) return `<div class="win-bm"><span class="bm-empty">No bookmarks yet. Click ${IC('ico:star')} to add this page, or import from Chrome in Setup → Settings.</span></div>`;
   return `<div class="win-bm">${list.map(b => b.children
     ? `<button class="bm folder" data-action="bm-folder" data-win="${w.id}" data-id="${b.id}" title="${esc(b.title)}">${IC('ico:folder')} ${esc(b.title)} ▾</button>`
     : `<button class="bm" data-action="bm-open" data-win="${w.id}" data-id="${b.id}" title="${esc(b.url)}">${esc(b.title || b.url)}</button>`).join('')}</div>`;
@@ -1783,7 +1834,7 @@ function renderWinMenu() {
   const list = winList();
   host.innerHTML = `<div class="win-menu">
     <button data-action="wm-web">${IC('ico:web')} Web page or search</button>
-    <button data-action="wm-file">${IC('ico:file')} PDF, picture or video from this Mac…</button>
+    <button data-action="wm-file">${IC('ico:file')} PDF, picture or video from this ${DEVICE}…</button>
     <button data-action="wm-sight">${IC('ico:sight')} Sight-reading generator</button>
     <button data-action="wm-score">${IC('ico:score')} Score practice (MusicXML / MuseScore)</button>
     ${IS_NATIVE ? `<button data-action="wm-apps">${IC('ico:app')} Window from another app (MuseScore…)</button>${appPickerHTML()}` : ''}
@@ -1792,7 +1843,8 @@ function renderWinMenu() {
     ${lib.length ? `<div class="wm-h">Library</div>${lib.map(([id, f]) => `<button data-action="wm-lib" data-id="${id}">${KIND_ICON[resKind({ fileId: id })]} ${esc(f.name)}</button>`).join('')}` : ''}
     ${list.length ? `<hr><button data-action="win-tile">${IC('ico:tile')} Tile all windows</button><button data-action="wm-closeall">${IC('ico:close')} Close all windows</button>` : ''}
   </div>`;
-  const btn = $('#p-dock [data-action="win-menu"]'), m = host.firstElementChild;
+  let btn = $('#p-dock [data-action="win-menu"]'); const m = host.firstElementChild;
+  if (!btn || !btn.offsetWidth) btn = $('#p-dock .dock-more');     // the Window button is in the ⋯ menu: open under ⋯
   if (btn && m) {
     const r = btn.getBoundingClientRect();
     m.style.top = r.bottom + 8 + 'px';
@@ -2147,7 +2199,7 @@ function toolBody(name) {
       ${NOISE.stream ? '<button class="btn" data-action="noise-stop">Stop microphone</button>' : '<button class="btn primary" data-action="noise-start">Start microphone</button>'}`;
     case 'random': {
       if (!cls) return '<div class="muted">Show a class to use its roster.</div>';
-      if (!cls.roster.length) return '<div class="muted">This class has no roster yet. Add names in Edit → Classes.</div>';
+      if (!cls.roster.length) return '<div class="muted">This class has no roster yet. Add names in Setup → Classes.</div>';
       return `<div class="rand-out" id="rand-out">${esc(R.last || '—')}</div>
         <div class="row"><button class="btn primary grow" data-action="rand-pick">Pick a student</button><label class="chk small"><input type="checkbox" id="rand-norep" ${R.noRepeat ? 'checked' : ''} data-action-change="rand-norep"> No repeats</label></div>
         <div class="row"><span class="small muted">Groups of</span><input type="number" min="2" max="12" value="${R.groupN}" style="width:60px" data-action-input="rand-n"><button class="btn" data-action="rand-groups">Make groups</button></div>
@@ -2244,7 +2296,7 @@ function classesTab() {
     </div>
     <div class="card"><div class="card-head"><h2>Agenda</h2><span class="grow"></span><button class="btn small" data-action="agenda-add">+ Step</button></div>
       <p class="desc">Steps show on the side of the screen. Add minutes and the agenda moves forward on its own during class. Leave minutes blank to move it yourself (or with an automation).</p>
-      ${cls.agenda.map((a, k) => `<div class="agenda-row"><span class="muted">${k + 1}.</span><input data-bind="${base}.agenda.${k}.text" value="${esc(a.text)}" placeholder="Step"><input type="number" min="0" data-type="num" data-bind="${base}.agenda.${k}.min" value="${a.min || ''}" placeholder="min"><button class="iconbtn" data-action="agenda-del" data-k="${k}">${IC('ico:close')}</button></div>`).join('') || '<div class="empty">No steps yet.</div>'}
+      ${cls.agenda.map((a, k) => `<div class="agenda-row"><span class="muted">${k + 1}.</span><input data-bind="${base}.agenda.${k}.text" value="${esc(a.text)}" placeholder="Step"><input type="number" min="0" data-type="num" data-bind="${base}.agenda.${k}.min" value="${a.min || ''}" placeholder="—"><span class="muted small">min</span><button class="iconbtn" data-action="agenda-del" data-k="${k}">${IC('ico:close')}</button></div>`).join('') || '<div class="empty">No steps yet.</div>'}
       ${cls.agenda.some(a => a.min) ? `<div class="small muted">Total: ${cls.agenda.reduce((s, a) => s + (Number(a.min) || 0), 0)} min</div>` : ''}
     </div>
     <div class="card"><h2>Warm-up question</h2><p class="desc">Shown big on the screen when no resource is selected.</p>
@@ -2683,7 +2735,7 @@ function libraryTab() {
   const files = Object.entries(S.files).sort((a, b) => (b[1].added || 0) - (a[1].added || 0));
   const usedBy = id => S.classes.filter(c => c.resources.some(r => r.fileId === id) || c.theme.image === 'file:' + id || c.automations.some(a => a.fileId === id || a.sound === 'file:' + id)).map(c => c.name);
   return `<div class="card"><div class="card-head"><h2>Library</h2><span class="grow"></span><button class="btn small primary" data-action="lib-add">+ Add files…</button></div>
-    <p class="desc">Music for transitions, sound effects, PDFs and pictures, stored on this Mac. Music files can be used by “Start music” automations and as timer sounds.</p>
+    <p class="desc">Music for transitions, sound effects, PDFs and pictures, stored on this ${DEVICE}. Music files can be used by “Start music” automations and as timer sounds.</p>
     ${files.length ? `<table class="tbl"><tr><th></th><th>Name</th><th>Type</th><th>Size</th><th>Used by</th><th></th></tr>${files.map(([id, f]) => `<tr><td style="width:30px">${f.mime.startsWith('audio/') ? IC('ico:audio') : f.mime === 'application/pdf' ? IC('ico:file') : f.mime.startsWith('image/') ? IC('ico:image') : f.mime.startsWith('video/') ? IC('ico:video') : IC('ico:attach')}</td>
       <td>${esc(f.name)}</td><td class="muted">${esc(f.mime)}</td><td class="muted">${(f.size / 1048576).toFixed(1)} MB</td><td class="muted small">${esc(usedBy(id).join(', ') || '—')}</td>
       <td style="width:110px">${f.mime.startsWith('audio/') ? `<button class="iconbtn" data-action="test-sound" data-s="file:${id}">${IC('ico:play')}</button><button class="iconbtn" data-action="music-stop-ed">${IC('ico:stop')}</button>` : ''}<button class="iconbtn" data-action="lib-del" data-id="${id}">${IC('ico:trash')}</button></td></tr>`).join('')}</table>` : '<div class="empty">Nothing here yet.</div>'}
@@ -2698,28 +2750,37 @@ function settingsTab() {
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
       <label class="chk"><input type="checkbox" data-bind="settings.showSeconds" ${S.settings.showSeconds ? 'checked' : ''}> Show seconds</label>
-      <label class="chk">Hide dock after <input type="number" min="1" style="width:60px" data-type="num" data-bind="settings.hideDockAfter" value="${S.settings.hideDockAfter}"> s</label></div></div>
+      <label class="chk">Shrink the toolbar when idle after <input type="number" min="0" style="width:60px" data-type="num" data-bind="settings.hideDockAfter" value="${S.settings.hideDockAfter ?? 3}"> seconds (0 = never)</label></div></div>
   <div class="card"><h2>Test mode</h2><p class="desc">Pretend it's a different time so you can watch your automations run. The Present screen shows a red TEST TIME badge while this is on.</p>
     <div class="row"><label class="chk"><input type="checkbox" data-action-change="sim-on" ${sim.on ? 'checked' : ''}> Pretend the time is</label><input type="time" value="${sim.time}" data-action-change="sim-time">
     <span class="small muted">Tip: set it to a minute before a class starts.</span></div></div>
-  <div class="card"><h2>Google Drive</h2><p class="desc">“Browse Google Drive…” (in a class's Resources) opens Drive in its own window. Sign in there once with your school account, exactly like in Safari. Open a file, then click <b>Use this file</b>.</p>
-    ${IS_NATIVE ? '<button class="btn" data-action="drive-open">Open Google Drive window</button>' : '<div class="notice">Available in the Mac app.</div>'}
-    <p class="small muted">If a Google file shows “You need access” or a sign-in page on the Present screen, use the <b>Drive window</b> button on that tab instead. It always works because it's the same as Drive itself.</p></div>
+  ${IS_NATIVE ? `<div class="card"><h2>Google Drive</h2><p class="desc">“Browse Google Drive…” (in a class's Resources) opens Drive in its own window. Sign in there once with your school account, exactly like in Safari. Open a file, then click <b>Use this file</b>.</p>
+    <button class="btn" data-action="drive-open">Open Google Drive window</button>
+    <p class="small muted">If a Google file shows “You need access” or a sign-in page on the Present screen, use the <b>Drive window</b> button on that tab instead. It always works because it's the same as Drive itself.</p></div>` : ''}
   ${bookmarksCard()}
   ${updatesCard()}
   <div class="card"><h2>Sight-reading grading</h2><p class="desc">While you grade, the take is kept in memory so you can listen back to it. It's thrown away when you make a new example or grade again.</p>
-    <label class="chk"><input type="checkbox" data-action-change="grlog-toggle" ${S.settings.saveGradeRecordings ? 'checked' : ''}> Also save the last 20 takes on this Mac for troubleshooting the grader</label>
-    <p class="small muted">Off unless you turn it on. Turning it off deletes any saved takes.</p></div>
+    ${HAS_SERVER ? `<label class="chk"><input type="checkbox" data-action-change="grlog-toggle" ${S.settings.saveGradeRecordings ? 'checked' : ''}> Also save the last 20 takes on this Mac for troubleshooting the grader</label>
+    <p class="small muted">Off unless you turn it on. Turning it off deletes any saved takes.</p>` : ''}</div>
   ${HAS_SERVER ? `<div class="card"><h2>Automatic backups</h2><p class="desc">Each day you use Rehearsal it keeps a dated copy of your classes, tabs, agendas and settings (the newest 30). If something goes missing, restore an earlier day here. Restoring first saves what you have now, so you can always undo it.</p>
     <div class="row"><button class="btn" data-action="backup-now">Back up now</button><span class="grow"></span></div>
     <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
-  <div class="card"><h2>Backup</h2><p class="desc">Your data is saved on this Mac automatically. Make a backup file to move it to another Mac. Library files aren't included.</p>
+  <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or iPad (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
     <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
 }
 
 // ---------- updates (the Mac app checks GitHub; see native/updater.swift)
 let UPD = { state: 'idle' }, WEB_VERSION = '';
-fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => { if (v) { WEB_VERSION = v.version; refreshUpdateUI(); } }).catch(() => { });
+fetch('version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(v => { if (v) { WEB_VERSION = v.version; refreshUpdateUI(); noteUpdated(); } }).catch(() => { });
+// After an update (Mac restart, or the iPad loading a new release), say so once.
+function noteUpdated() {
+  let last = null; try { last = localStorage.getItem('rehearsal-version'); localStorage.setItem('rehearsal-version', WEB_VERSION); } catch { return; }
+  if (!last || last === WEB_VERSION) return;
+  const b = document.createElement('div'); b.className = 'upd-banner upd-done';
+  b.innerHTML = `<span>${IC('ico:good')} Updated to Rehearsal <b>${esc(WEB_VERSION)}</b>.</span><button class="btn small" data-action="upd-done-close">OK</button>`;
+  document.body.appendChild(b);
+  setTimeout(() => b.remove(), 12000);
+}
 function updateStatusText() {
   const u = UPD, v = u.version ? ` ${esc(u.version)}` : '';
   return {
@@ -2729,20 +2790,28 @@ function updateStatusText() {
     none: 'You have the newest version.',
     downloading: `Downloading version${v}…`,
     'web-ready': `Version${v} is ready. It's used the next time Rehearsal opens, or restart it now.`,
-    app: `Version${v} is available. Installing it reopens Rehearsal.`,
+    app: u.manual ? `Version${v} is available. Rehearsal can't replace itself where it is, so the download page was opened: drag the new Rehearsal into Applications.` : `Version${v} is available. Installing it reopens Rehearsal.`,
     installing: `Installing version${v}… Rehearsal will reopen.`,
     error: esc(u.message || 'Something went wrong.'),
   }[u.state] || '';
 }
+// the status as a coloured badge: busy (spinner), up to date (green), restart / install needed (amber), problem (red)
+function updateBadge() {
+  const st = UPD.state, txt = updateStatusText(); if (!txt) return '';
+  const kind = { checking: 'busy', downloading: 'busy', installing: 'busy', none: 'ok', 'web-ready': 'todo', app: 'todo', error: 'bad' }[st] || 'info';
+  const icon = { busy: '<span class="upd-spin"></span>', ok: IC('ico:good'), todo: IC('ico:warn'), bad: IC('ico:warn'), info: '' }[kind];
+  const head = { none: 'Up to date. ', 'web-ready': 'Restart needed. ', app: 'Install needed. ' }[st] || '';
+  return `<div class="upd-status upd-${kind}" id="upd-status">${icon}<span><b>${head}</b>${txt}</span></div>`;
+}
 function updatesCard() {
-  if (!IS_NATIVE) return '';
+  if (!IS_NATIVE) return `<div class="card"><h2>Updates</h2><p class="desc">Version <b>${esc(WEB_VERSION || '?')}</b>. This version updates itself: the newest release loads whenever it's opened with an internet connection. After an update you'll see "Updated to …" at the bottom of the screen.</p></div>`;
   const u = UPD;
   return `<div class="card" id="upd-card"><h2>Updates</h2>
     <p class="desc">Version <b>${esc(WEB_VERSION || u.current || '?')}</b>${u.app && u.app !== (WEB_VERSION || u.current) ? ` <span class="small muted">(app ${esc(u.app)})</span>` : ''}. Updates are downloaded from GitHub and checked against Rehearsal's signature before they're used. Your classes and files are never touched.</p>
-    <div class="row"><button class="btn" data-action="upd-check" ${u.state === 'off' || u.state === 'checking' ? 'disabled' : ''}>Check for updates</button>
+    <div class="row"><button class="btn" data-action="upd-check" ${['off', 'checking', 'downloading', 'installing'].includes(u.state) ? 'disabled' : ''}>${u.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>
       ${u.state === 'web-ready' ? '<button class="btn primary" data-action="upd-apply">Restart now</button>' : ''}
-      ${u.state === 'app' && !u.manual ? '<button class="btn primary" data-action="upd-install">Install and reopen</button>' : ''}
-      <span class="small muted" id="upd-status">${updateStatusText()}</span></div>
+      ${u.state === 'app' && !u.manual ? '<button class="btn primary" data-action="upd-install">Install and reopen</button>' : ''}</div>
+    ${updateBadge()}
     ${u.notes && (u.state === 'web-ready' || u.state === 'app') ? `<div class="small muted" style="margin-top:8px;white-space:pre-wrap">${esc(u.notes)}</div>` : ''}</div>`;
 }
 function refreshUpdateUI() {
@@ -2871,7 +2940,8 @@ const A = {
     const w = addWindow({ kind, mu: muDefaults(kind) });
     Object.assign(w, kind === 'tuner' ? { w: 0.58, h: 0.72 } : { w: 0.46, h: 0.66 }); save(); applyWinGeom(); renderDock();
   },
-  'dock-custom': () => { P.dockCustom = !P.dockCustom; renderDockCustom(); renderDock(); },
+  'dock-custom': () => { P.dockCustom = !P.dockCustom; P.dockMore = false; renderDockCustom(); renderDock(); },
+  'dock-more': () => { if (P.dockCustom) { P.dockCustom = false; renderDockCustom(); } else P.dockMore = !P.dockMore; renderDock(); renderDockMore(); },
   'dock-spot': el => {
     const cfg = dockCfg(), k = el.dataset.spot;
     cfg.pos = k === 'top' ? { mode: 'header' } : k === 'bottom' ? { mode: 'float', x: 0.5, y: 0.955 } : { mode: 'float', x: k === 'left' ? 0.03 : 0.97, y: 0.5, vertical: true };
@@ -2908,7 +2978,7 @@ const A = {
   },
   'warmup-hide': () => {
     const c = context(now()), cls = c.cls; if (!cls) return;
-    if (!confirm(`Remove the warm-up tab from ${cls.name}? (Bring it back in Edit → Classes or Edit here.)`)) return;
+    if (!confirm(`Remove the warm-up tab from ${cls.name}? (Bring it back in Setup → Classes or Quick edit.)`)) return;
     cls.hideWarmup = true; if (P.stageSel[c.key] === 'warmup') delete P.stageSel[c.key]; save(); P.stageKey = '';
   },
   'warmup-show': () => { const c = ieClass() || null, cls = c?.cls || selClass(); if (!cls) return; cls.hideWarmup = false; save(); P.stageKey = ''; if (VIEW !== 'present') renderEditor(); },
@@ -3053,7 +3123,13 @@ const CHANGE = {
   'rand-norep': el => { R.noRepeat = el.checked; R.used.clear(); },
   'note-class': el => { NOTE_CLASS = el.value; renderEditor(); },
   'note-date': el => { if (el.value) { NOTE_DATE = el.value; renderEditor(); } },
-  'upd-check': () => { UPD.dismissed = null; native('updateCheck'); },
+  'upd-check': () => {
+    UPD.dismissed = null;
+    if (UPD.state === 'web-ready') { refreshUpdateUI(); const b = $('#upd-status'); b?.classList.add('flash'); return; }   // already downloaded: it just needs a restart
+    UPD = { ...UPD, state: 'checking' }; refreshUpdateUI();     // show it's working right away
+    native('updateCheck');
+  },
+  'upd-done-close': el => el.closest('.upd-banner')?.remove(),
   'upd-apply': () => native('updateApply'),
   'upd-install': () => native('updateInstallApp'),
   'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },

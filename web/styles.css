@@ -187,9 +187,18 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(255,107,107,.25); } }
 
 /* dock */
-.p-dock { position: relative; z-index: 50; display: flex; gap: .15em; align-items: center; padding: .3em; border-radius: 14px; max-width: 100%; overflow-x: auto; scrollbar-width: none; background: rgba(20,22,28,.82); color: #fff; backdrop-filter: blur(12px); box-shadow: 0 10px 40px rgba(0,0,0,.35); transition: opacity .3s, transform .3s; font-size: 14px; }
+.p-dock { position: relative; z-index: 50; display: flex; gap: .15em; align-items: center; padding: .3em; border-radius: 14px; max-width: 100%; overflow-x: auto; scrollbar-width: none; background: rgba(20,22,28,.82); color: #fff; backdrop-filter: blur(12px); box-shadow: 0 10px 40px rgba(0,0,0,.35); transition: opacity .3s, transform .3s, background-color .3s, box-shadow .3s; font-size: 14px; }
 .p-dock::-webkit-scrollbar { display: none; }
-.p-dock.hidden { opacity: 0; pointer-events: none; }
+/* Hidden when idle: the bar shrinks to a small pill where it sits (like the Dynamic Island), so you can see where it is.
+   Moving the mouse, pressing a key or tapping brings it back. */
+.p-dock > * { transition: opacity .25s; }
+.p-dock::after { content: ''; position: absolute; left: 50%; top: 50%; width: 84px; height: 12px; transform: translate(-50%, -50%) scale(.6);
+  border-radius: 99px; background: rgba(20,22,28,.78); box-shadow: 0 0 0 1px rgba(255,255,255,.35), 0 2px 8px rgba(0,0,0,.3);
+  opacity: 0; pointer-events: none; transition: opacity .3s, transform .3s; }
+.p-dock.vertical::after { width: 12px; height: 84px; }
+.p-dock.hidden { pointer-events: none; background: transparent !important; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.p-dock.hidden > * { opacity: 0; }
+.p-dock.hidden::after { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .p-dock button, .p-dock select { background: transparent; border: none; color: #fff; padding: 5px 7px; border-radius: 9px; cursor: pointer; font-size: 11px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .p-dock button .i { font-size: 18px; line-height: 1; }
 .p-dock button:hover, .p-dock button.on { background: rgba(255,255,255,.16); }
@@ -911,3 +920,40 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .upd-banner { position: fixed; left: 16px; bottom: 16px; z-index: 9500; display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #1d2330; color: #fff; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.3); font-size: 14px; }
 .upd-banner .btn { margin: 0; }
 .gr-marks-chip.gr-listen.on { background: #fde7df; border-color: #e76f51; }
+
+/* ---------- toolbar ⋯ menu (tools kept off the bar, and ones that don't fit) */
+.dock-more-menu { position: fixed; z-index: 61; min-width: 210px; max-height: 75vh; overflow: auto; padding: 6px; border-radius: 14px; background: rgba(250,250,252,.98); color: #1d2330; box-shadow: 0 16px 50px rgba(0,0,0,.4); font-size: 14px; }
+.dock-more-menu .dm-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: none; background: none; color: inherit; border-radius: 9px; cursor: pointer; font-size: 14px; text-align: left; }
+.dock-more-menu .dm-item:hover { background: rgba(0,0,0,.06); }
+.dock-more-menu .dm-item.on { background: rgba(66,98,160,.14); font-weight: 600; }
+.dock-more-menu .dm-item .i { width: 20px; display: inline-flex; justify-content: center; font-size: 18px; }
+.dock-more-menu .dm-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.dock-more-menu .dm-row select { flex: 1; font-size: 14px; padding: 4px; }
+.dock-more-menu .dm-sep { height: 1px; background: rgba(0,0,0,.1); margin: 4px 6px; }
+.dock-custom .dc-inmenu { flex: none !important; font-size: 12px; color: #6b7280; min-width: 48px; }
+
+/* ---------- bigger targets for the small buttons (mouse and finger) */
+.mini-btns button { min-width: 30px; min-height: 28px; font-size: 1.15em; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.stage-tabs .tab-x { min-width: 26px; min-height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: .9em !important; }
+.stage-tabs .tabwrap .tab-x { opacity: .35; }                 /* visible without hover, for iPad */
+.stage-tabs .tabwrap:hover .tab-x { opacity: .75; }
+.stage-tabs .stage-max { min-width: 34px; min-height: 30px; font-size: 1.45em !important; line-height: 1; }
+
+/* ---------- sight reading: A− / A+ music size */
+.sr-zoom { display: inline-flex; gap: 2px; }
+.sr-zoom button { min-width: 36px; font-weight: 700; }
+.sr-staff { overflow: auto; }
+
+/* ---------- update status */
+.upd-status { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; background: #f1f3f7; color: #1d2330; }
+.upd-status .ico { flex: none; width: 20px; height: 20px; }
+.upd-status.upd-ok { background: #e6f4ea; color: #145c26; }
+.upd-status.upd-todo { background: #fff3dc; color: #7a4b00; }
+.upd-status.upd-bad { background: #fde8e8; color: #9b1c1c; }
+.upd-status.upd-busy { background: #e8eefb; color: #23407a; }
+.upd-status.flash { animation: upd-flash .9s ease 2; }
+@keyframes upd-flash { 50% { box-shadow: 0 0 0 4px rgba(217,130,43,.45); } }
+.upd-spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: upd-rot .8s linear infinite; }
+@keyframes upd-rot { to { transform: rotate(360deg); } }
+.upd-banner.upd-done { background: #e6f4ea; color: #145c26; }
+.upd-banner.upd-done .ico { width: 18px; height: 18px; vertical-align: -3px; }
