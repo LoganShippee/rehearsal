@@ -1127,7 +1127,7 @@ function srBuildSettingsHTML(st) {
 }
 
 // the sight-reading bar: items in the order you've arranged (drag to move; "gap" splits left / right)
-const SR_BAR_DEFAULT = ['play', 'new', 'from0', 'tabs', 'gap', 'rhyonly', 'show', 'counts', 'playhead', 'metro', 'nums', 'grade', 'settings', 'save', 'zoom'];
+const SR_BAR_DEFAULT = ['play', 'new', 'tabs', 'gap', 'rhyonly', 'show', 'counts', 'playhead', 'metro', 'nums', 'grade', 'settings', 'save', 'zoom'];
 function srBarOrder() {
   const saved = (typeof S !== 'undefined' && S.settings?.srBar) || [];
   const order = saved.filter(id => SR_BAR_DEFAULT.includes(id));
@@ -1206,7 +1206,6 @@ function mountSight(host, st, onChange) {
           tabs: () => `<div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:metro')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>`,
           new: () => `<button data-sr="new" class="sr-primary" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>`,
           play: () => `<button data-sr="play">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
-          from0: () => `<button data-sr="from0" title="Play from the first measure again (click empty space in a measure to start there)" ${st.startM ? '' : 'disabled'}>⟲ From the start</button>`,
           rhyonly: () => `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" ${st.mode === 'rhythm' ? 'disabled title="The Rhythm tab is always rhythm only"' : 'title="Show and play just the rhythm (one line)"'}>${IC('ico:metro')} Rhythm only</button>`,
           show: () => `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="No pitches in a rhythm line"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:eye')} Syllables</button>`,
           counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:hash')} Counts</button>`,
@@ -1374,15 +1373,13 @@ function mountSight(host, st, onChange) {
         const mi = measureAtClick(e); if (mi < 0) { st.build.sel = null; st.build.pick = false; render(); return; }
         st.startM = (Number(st.startM) || 0) === mi ? 0 : mi;
         onChange && onChange(st); drawFrom();
-        const pb = host.querySelector('[data-sr="from0"]'); if (pb) pb.hidden = !st.startM;
         if (SR_PLAY.master) { srStop(); host.querySelector('[data-sr="play"]')?.click(); }
         return;
       }
       const i = measureAtClick(e); if (i < 0) return;
       e.stopPropagation();
-      st.startM = (Number(st.startM) || 0) === i ? 0 : i;          // click the flagged measure again = from the start
+      st.startM = (Number(st.startM) || 0) === i ? 0 : i;          // click the flagged measure again (or measure 1) = from the start
       onChange && onChange(st); drawFrom();
-      const pb = host.querySelector('[data-sr="from0"]'); if (pb) pb.hidden = !st.startM;
       if (SR_PLAY.master) { srStop(); host.querySelector('[data-sr="play"]')?.click(); }
       return;
     }
@@ -1438,7 +1435,6 @@ function mountSight(host, st, onChange) {
     else if (k === 'bclear') { if (!confirm('Clear the whole example?')) return; srBuildPush(B); B.items = []; B.pitches = []; B.sel = null; }
     else if (k === 'preset') { srStop(); Object.assign(st[st.mode], SR_PRESETS[st.mode][b.dataset.v]); regen(); }
     else if (k === 'new') { srStop(); regen(); }
-    else if (k === 'from0') { st.startM = 0; if (SR_PLAY.master) { srStop(); onChange && onChange(st); render(); host.querySelector('[data-sr="play"]')?.click(); return; } }
     else if (k === 'counts') st.showCounts = !st.showCounts;
     else if (k === 'zoom') st.zoom = Math.max(0.6, Math.min(2.5, Math.round(((st.zoom || 1) + 0.2 * Number(b.dataset.d)) * 10) / 10));
     else if (k === 'rhyonly') { if (st.mode === 'solfege') st.solRhythm = !st.solRhythm; else if (isBuild()) B.kind = B.kind === 'rhythm' ? 'solfege' : 'rhythm'; }

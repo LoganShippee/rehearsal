@@ -957,3 +957,5 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 @keyframes upd-rot { to { transform: rotate(360deg); } }
 .upd-banner.upd-done { background: #e6f4ea; color: #145c26; }
 .upd-banner.upd-done .ico { width: 18px; height: 18px; vertical-align: -3px; }
+.upd-banner .btn:not(.primary) { background: rgba(255,255,255,.16); color: #fff; border: none; }
+.upd-banner.upd-done .btn:not(.primary) { background: rgba(20,92,38,.12); color: #145c26; }

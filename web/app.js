@@ -2745,7 +2745,7 @@ function libraryTab() {
 // ---------- settings
 function settingsTab() {
   const sim = S.settings.sim;
-  return `<div class="card"><h2>Present screen</h2>
+  return `${updatesCard()}<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
@@ -2758,7 +2758,6 @@ function settingsTab() {
     <button class="btn" data-action="drive-open">Open Google Drive window</button>
     <p class="small muted">If a Google file shows “You need access” or a sign-in page on the Present screen, use the <b>Drive window</b> button on that tab instead. It always works because it's the same as Drive itself.</p></div>` : ''}
   ${bookmarksCard()}
-  ${updatesCard()}
   <div class="card"><h2>Sight-reading grading</h2><p class="desc">While you grade, the take is kept in memory so you can listen back to it. It's thrown away when you make a new example or grade again.</p>
     ${HAS_SERVER ? `<label class="chk"><input type="checkbox" data-action-change="grlog-toggle" ${S.settings.saveGradeRecordings ? 'checked' : ''}> Also save the last 20 takes on this Mac for troubleshooting the grader</label>
     <p class="small muted">Off unless you turn it on. Turning it off deletes any saved takes.</p>` : ''}</div>
@@ -2785,11 +2784,11 @@ function updateStatusText() {
   const u = UPD, v = u.version ? ` ${esc(u.version)}` : '';
   return {
     off: 'Automatic updates are not set up in this copy.',
-    idle: 'Rehearsal checks for updates when it opens and every few hours.',
+    idle: IS_NATIVE ? 'Rehearsal checks for updates when it opens and every few hours.' : 'Rehearsal checks for updates when it opens and every few hours. Press Check for updates to look now.',
     checking: 'Checking for updates…',
     none: 'You have the newest version.',
     downloading: `Downloading version${v}…`,
-    'web-ready': `Version${v} is ready. It's used the next time Rehearsal opens, or restart it now.`,
+    'web-ready': IS_NATIVE ? `Version${v} is ready. It's used the next time Rehearsal opens, or restart it now.` : `Version${v} is ready. Reload to start using it.`,
     app: u.manual ? `Version${v} is available. Rehearsal can't replace itself where it is, so the download page was opened: drag the new Rehearsal into Applications.` : `Version${v} is available. Installing it reopens Rehearsal.`,
     installing: `Installing version${v}… Rehearsal will reopen.`,
     error: esc(u.message || 'Something went wrong.'),
@@ -2800,12 +2799,16 @@ function updateBadge() {
   const st = UPD.state, txt = updateStatusText(); if (!txt) return '';
   const kind = { checking: 'busy', downloading: 'busy', installing: 'busy', none: 'ok', 'web-ready': 'todo', app: 'todo', error: 'bad' }[st] || 'info';
   const icon = { busy: '<span class="upd-spin"></span>', ok: IC('ico:good'), todo: IC('ico:warn'), bad: IC('ico:warn'), info: '' }[kind];
-  const head = { none: 'Up to date. ', 'web-ready': 'Restart needed. ', app: 'Install needed. ' }[st] || '';
+  const head = { none: 'Up to date. ', 'web-ready': IS_NATIVE ? 'Restart needed. ' : 'Reload needed. ', app: 'Install needed. ' }[st] || '';
   return `<div class="upd-status upd-${kind}" id="upd-status">${icon}<span><b>${head}</b>${txt}</span></div>`;
 }
 function updatesCard() {
-  if (!IS_NATIVE) return `<div class="card"><h2>Updates</h2><p class="desc">Version <b>${esc(WEB_VERSION || '?')}</b>. This version updates itself: the newest release loads whenever it's opened with an internet connection. After an update you'll see "Updated to …" at the bottom of the screen.</p></div>`;
   const u = UPD;
+  if (!IS_NATIVE) return `<div class="card" id="upd-card"><h2>Updates</h2>
+    <p class="desc">Version <b>${esc(WEB_VERSION || '?')}</b>. The newest version loads whenever Rehearsal is opened with an internet connection. Your classes and files are never touched.</p>
+    <div class="row"><button class="btn" data-action="upd-check" ${u.state === 'checking' ? 'disabled' : ''}>${u.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>
+      ${u.state === 'web-ready' ? '<button class="btn primary" data-action="upd-apply">Reload now</button>' : ''}</div>
+    ${updateBadge()}</div>`;
   return `<div class="card" id="upd-card"><h2>Updates</h2>
     <p class="desc">Version <b>${esc(WEB_VERSION || u.current || '?')}</b>${u.app && u.app !== (WEB_VERSION || u.current) ? ` <span class="small muted">(app ${esc(u.app)})</span>` : ''}. Updates are downloaded from GitHub and checked against Rehearsal's signature before they're used. Your classes and files are never touched.</p>
     <div class="row"><button class="btn" data-action="upd-check" ${['off', 'checking', 'downloading', 'installing'].includes(u.state) ? 'disabled' : ''}>${u.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>
@@ -2818,15 +2821,30 @@ function refreshUpdateUI() {
   const card = document.getElementById('upd-card');
   if (card) card.outerHTML = updatesCard();
   // a small banner when an update is ready (once per version)
-  document.querySelector('.upd-banner')?.remove();
+  document.querySelector('.upd-banner:not(.upd-done)')?.remove();
   if ((UPD.state === 'web-ready' || UPD.state === 'app') && UPD.version && UPD.dismissed !== UPD.version) {
     const b = document.createElement('div'); b.className = 'upd-banner';
     b.innerHTML = UPD.state === 'web-ready'
-      ? `<span>Rehearsal <b>${esc(UPD.version)}</b> is ready.</span><button class="btn small primary" data-action="upd-apply">Restart now</button><button class="btn small" data-action="upd-later">Later</button>`
+      ? `<span>Rehearsal <b>${esc(UPD.version)}</b> is ready.</span><button class="btn small primary" data-action="upd-apply">${IS_NATIVE ? 'Restart now' : 'Reload now'}</button><button class="btn small" data-action="upd-later">Later</button>`
       : `<span>Rehearsal <b>${esc(UPD.version)}</b> is available.</span><button class="btn small primary" data-action="upd-install">Install and reopen</button><button class="btn small" data-action="upd-later">Later</button>`;
     document.body.appendChild(b);
   }
 }
+// iPad / browser: compare the version online with the one running; the service worker fetches new files on reload
+const verNewer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+async function webUpdateCheck(manual) {
+  if (IS_NATIVE) return;
+  if (!WEB_VERSION) { if (manual) { UPD = { ...UPD, state: 'error', message: "This copy has no version number (it wasn't built by release.sh)." }; refreshUpdateUI(); } return; }
+  if (manual) { UPD = { ...UPD, state: 'checking' }; refreshUpdateUI(); }
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) throw 0;
+    const v = await r.json();
+    if (verNewer(v.version, WEB_VERSION)) UPD = { ...UPD, state: 'web-ready', version: v.version };
+    else if (manual) UPD = { ...UPD, state: 'none' };
+  } catch { if (manual) UPD = { ...UPD, state: 'error', message: "Couldn't check for updates. Check the internet connection and try again." }; }
+  refreshUpdateUI();
+}
+if (!IS_NATIVE) setInterval(() => webUpdateCheck(false), 4 * 3600 * 1000);   // open all day: still notice new releases
 window.__updateState = st => { const dismissed = UPD.dismissed; UPD = { ...st, dismissed }; refreshUpdateUI(); };
 
 function backupLabel(n) {
@@ -3115,6 +3133,21 @@ const A = {
   export: () => { const text = JSON.stringify(S, null, 2), name = `rehearsal-backup-${dateKey(new Date())}.json`; if (!native('saveText', { name, text })) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; a.click(); } },
   import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.classes) throw 0; if (!confirm('Replace all current data with this backup?')) return; S = migrate(d); save(); renderEditor(); toast('Backup imported.'); } catch { alert('That file is not a Rehearsal backup.'); } },
   reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; S = sampleData(); save(); renderEditor(); },
+  'upd-check': () => {
+    UPD.dismissed = null;
+    if (UPD.state === 'web-ready') { refreshUpdateUI(); const b = $('#upd-status'); b?.classList.add('flash'); return; }   // already downloaded: it just needs a restart
+    if (!IS_NATIVE) return webUpdateCheck(true);
+    UPD = { ...UPD, state: 'checking' }; refreshUpdateUI();     // show it's working right away
+    native('updateCheck');
+  },
+  'upd-done-close': el => el.closest('.upd-banner')?.remove(),
+  'upd-apply': async () => {
+    if (IS_NATIVE) return native('updateApply');
+    try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { }
+    location.reload();
+  },
+  'upd-install': () => native('updateInstallApp'),
+  'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },
 };
 const CHANGE = {
   pin: el => { P.pinned = el.value || null; P.layoutKey = ''; renderDock(); },
@@ -3123,16 +3156,6 @@ const CHANGE = {
   'rand-norep': el => { R.noRepeat = el.checked; R.used.clear(); },
   'note-class': el => { NOTE_CLASS = el.value; renderEditor(); },
   'note-date': el => { if (el.value) { NOTE_DATE = el.value; renderEditor(); } },
-  'upd-check': () => {
-    UPD.dismissed = null;
-    if (UPD.state === 'web-ready') { refreshUpdateUI(); const b = $('#upd-status'); b?.classList.add('flash'); return; }   // already downloaded: it just needs a restart
-    UPD = { ...UPD, state: 'checking' }; refreshUpdateUI();     // show it's working right away
-    native('updateCheck');
-  },
-  'upd-done-close': el => el.closest('.upd-banner')?.remove(),
-  'upd-apply': () => native('updateApply'),
-  'upd-install': () => native('updateInstallApp'),
-  'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },
   'grlog-toggle': el => {
     S.settings.saveGradeRecordings = el.checked; save();
     if (!el.checked && HAS_SERVER) fetch('/api/purge-grlogs?keep=0', { method: 'POST', headers: { 'X-Token': TOKEN } }).catch(() => { });
