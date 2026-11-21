@@ -160,6 +160,7 @@ function rhythmSyllable(p, kind, rest, val = 1, cellId = null, ei = 0, sys = rhy
     }
   }
   if (sys === 'takadimi') {
+    if (rest) return '';
     let s;
     if (kind === 'simple') {
       const b = Math.floor(r(p) + 1e-9), f = r(p - b);
@@ -169,7 +170,7 @@ function rhythmSyllable(p, kind, rest, val = 1, cellId = null, ei = 0, sys = rhy
       const e = r(p / .5), sub = r(e % 3);
       s = sub === 0 ? 'ta' : sub === .5 ? 'va' : sub === 1 ? 'ki' : sub === 1.5 ? 'di' : sub === 2 ? 'da' : sub === 2.5 ? 'ma' : '·';
     }
-    return rest ? `(${s})` : s;
+    return s;
   }
   // default: traditional numbers (1 e & a)
   let s;
@@ -514,18 +515,24 @@ function srDraw(el, st) {
   const showLbl = mode === 'rhythm' ? !!st.showCounts : !!st.show;   // rhythm lines show counts; staves show syllables
   const showBlanks = !!st.answerBlanks && !showLbl && !(mode !== 'rhythm' && st.showCounts);
   const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 40 : 36) : 26;
-  const restW = Math.max(150, maxNotes * needPerNote + 30);
+  const pOpts = st.__printOpts || null;
+  const restW = pOpts?.restW || Math.max(150, maxNotes * needPerNote + 30);
   const extraC = st.showCounts && mode !== 'rhythm' ? (showLbl ? 34 : 20) : 0;
   const extraB = showBlanks ? 26 : 0;
   const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC + extraB;
   const rowH = P * partH + (P > 1 ? 24 : 0) + (o.measureNums ? 6 : 0);
-  // Try 1..6 measures per line and keep the layout that can be drawn biggest in the space we have.
+  // Try 1..6 measures per line and keep the layout that can be drawn biggest in the space we have (or use uniform worksheet layout).
   const CW = Math.max(280, el.clientWidth - 20), CH = Math.max(140, el.clientHeight - 28);
   let best = null;
-  for (let p = 1; p <= Math.min(nM, 6); p++) {
-    const r = Math.ceil(nM / p), w = firstW + p * restW + 10, h = r * rowH + 20;
-    const sc = Math.min(CW / w, CH / h);
-    if (!best || sc > best.sc * 1.02) best = { p, w, h, sc };
+  if (pOpts?.per) {
+    const p = Math.min(nM, pOpts.per), r = Math.ceil(nM / p), w = firstW + p * restW + 10, h = r * rowH + 20;
+    best = { p, w, h, sc: CW / w };
+  } else {
+    for (let p = 1; p <= Math.min(nM, 6); p++) {
+      const r = Math.ceil(nM / p), w = firstW + p * restW + 10, h = r * rowH + 20;
+      const sc = Math.min(CW / w, CH / h);
+      if (!best || sc > best.sc * 1.02) best = { p, w, h, sc };
+    }
   }
   const per = best.p, W = best.w, rows = Math.ceil(nM / per), H = rows * rowH + 20;
   const scale = Math.max(0.5, Math.min(best.sc, 3.5)) * (el.__zoom || 1);   // A− / A+ on the bar
@@ -584,9 +591,9 @@ function srDraw(el, st) {
           if (showLbl && (!rest || mode === 'rhythm') && label) (rowLabels[lk] ||= []).push({ n, text: label, rest: !!rest || !!tiedIn, stave, grp, isRhy: mode === 'rhythm' });
           if (st.showCounts && mode !== 'rhythm') {
             const ct = tiedIn ? `(${srCount(pos, kind, false, val, c.id, ei)})` : srCount(pos, kind, rest, val, c.id, ei);
-            (rowLabels[lk + '|c'] ||= []).push({ n, text: ct, rest: !!rest || !!tiedIn, stave, counts: true, grp, isRhy: true });
+            if (ct) (rowLabels[lk + '|c'] ||= []).push({ n, text: ct, rest: !!rest || !!tiedIn, stave, counts: true, grp, isRhy: true });
           }
-          if (showBlanks && (!rest || mode === 'rhythm') && !tiedIn) {
+          if (showBlanks && (!rest || st.answerBlanksRests) && !tiedIn) {
             (rowBlanks[lk] ||= []).push({ n, stave, rest: !!rest });
           }
           notes.push(n); group.push({ n, dur, rest });
@@ -2047,6 +2054,7 @@ function srOpenWorksheet(st, curView) {
     <div class="sr-ws-checks">
       <label class="chk"><input type="checkbox" id="ws-hdr" checked> Name / Date / Class header</label>
       <label class="chk"><input type="checkbox" id="ws-blanks" checked> Blank answer lines under notes</label>
+      <label class="chk"><input type="checkbox" id="ws-blanks-rest" ${kind === 'rhythm' ? 'checked' : ''}> Blank lines under rests</label>
       <label class="chk"><input type="checkbox" id="ws-stu-ans"> Show ${kind === 'rhythm' ? 'counts' : 'solfege'} on student sheet</label>
       <label class="chk"><input type="checkbox" id="ws-key" checked> Add Page 2: Teacher Answer Key</label>
     </div>
@@ -2054,31 +2062,49 @@ function srOpenWorksheet(st, curView) {
   </div>`;
   document.body.appendChild(modal);
 
-  const renderSet = (withAns, interactive = false, withBlanks = false) => views.map((v, i) => {
-    const copy = JSON.parse(JSON.stringify(v));
-    copy.show = kind === 'solfege' ? withAns : false;
-    copy.showCounts = kind === 'rhythm' ? withAns : (withAns && !!st.showCounts);
-    copy.answerBlanks = !withAns && !!withBlanks;
-    const svg = srRenderPrintSVG(copy);
-    if (!interactive) {
-      return `<div class="blk sr-ws-ex">${views.length > 1 ? `<div class="sr-ws-num">${i + 1}.</div>` : ''}<div class="sr-ws-svg">${svg}</div></div>`;
+  const renderSet = (withAns, interactive = false, withBlanks = false, withBlankRests = false) => {
+    // Compute ONE shared staff width & measures-per-line across all exercises so every exercise scales identically!
+    let wsMaxNotes = 4, wsMaxM = 4;
+    for (const v of views) {
+      const ex = v.ex?.[kind]; if (!ex) continue;
+      const ps = kind === 'solfege' && ex.parts && ex.parts.length > 1 ? ex.parts : [{ rhythm: ex.rhythm || [] }];
+      for (const p of ps) {
+        wsMaxM = Math.max(wsMaxM, (p.rhythm || []).length);
+        for (const m of (p.rhythm || [])) wsMaxNotes = Math.max(wsMaxNotes, (m || []).reduce((n, c) => n + c.ev.length, 0));
+      }
     }
-    return `<div class="sr-ws-item" data-wsi="${i}">
-      <div class="sr-ws-ih">
-        <b>Exercise ${i + 1}${v.__fromScreen ? ' <span class="muted small">(from screen)</span>' : ''}</b>
-        <span class="grow"></span>
-        ${!isBuild ? `<button class="btn small" data-ws="swap" data-i="${i}" title="Replace with a newly generated exercise">${IC('ico:reload')} Swap</button>` : ''}
-        ${views.length > 1 ? `<button class="btn small" data-ws="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">${IC('ico:up')}</button><button class="btn small" data-ws="down" data-i="${i}" ${i === views.length - 1 ? 'disabled' : ''} title="Move down">${IC('ico:down')}</button>` : ''}
-      </div>
-      <div class="sr-ws-paper">${svg}</div>
-    </div>`;
-  }).join('');
+    const wsPer = wsMaxM <= 4 ? wsMaxM : (wsMaxM <= 6 ? Math.ceil(wsMaxM / 2) : 4);
+    const wsRestW = Math.max(185, Math.min(310, wsMaxNotes * 34 + 28));
+    return views.map((v, i) => {
+      const copy = JSON.parse(JSON.stringify(v));
+      copy.show = kind === 'solfege' ? withAns : false;
+      copy.showCounts = kind === 'rhythm' ? withAns : (withAns && !!st.showCounts);
+      copy.answerBlanks = !withAns && !!withBlanks;
+      copy.answerBlanksRests = !!withBlankRests;
+      copy.__printOpts = { per: wsPer, restW: wsRestW };
+      const svg = srRenderPrintSVG(copy);
+      if (!interactive) {
+        return `<div class="blk sr-ws-ex">${views.length > 1 ? `<div class="sr-ws-num">${i + 1}.</div>` : ''}<div class="sr-ws-svg">${svg}</div></div>`;
+      }
+      return `<div class="sr-ws-item" data-wsi="${i}">
+        <div class="sr-ws-ih">
+          <b>Exercise ${i + 1}${v.__fromScreen ? ' <span class="muted small">(from screen)</span>' : ''}</b>
+          <span class="grow"></span>
+          ${!isBuild ? `<button class="btn small" data-ws="swap" data-i="${i}" title="Replace with a newly generated exercise">${IC('ico:reload')} Swap</button>` : ''}
+          ${views.length > 1 ? `<button class="btn small" data-ws="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">${IC('ico:up')}</button><button class="btn small" data-ws="down" data-i="${i}" ${i === views.length - 1 ? 'disabled' : ''} title="Move down">${IC('ico:down')}</button>` : ''}
+        </div>
+        <div class="sr-ws-paper">${svg}</div>
+      </div>`;
+    }).join('');
+  };
 
   const drawPreview = () => {
     const prev = modal.querySelector('#ws-prev');
     const stuAns = modal.querySelector('#ws-stu-ans').checked;
     const blanks = modal.querySelector('#ws-blanks').checked;
-    prev.innerHTML = renderSet(stuAns, true, blanks);
+    const blankRests = modal.querySelector('#ws-blanks-rest');
+    blankRests.disabled = !blanks || stuAns;
+    prev.innerHTML = renderSet(stuAns, true, blanks, blankRests.checked);
   };
   drawPreview();
 
@@ -2087,7 +2113,7 @@ function srOpenWorksheet(st, curView) {
   document.addEventListener('keydown', onKey, true);
   modal.addEventListener('change', e => {
     if (e.target.id === 'ws-count') { syncCount(Number(e.target.value) || 1); drawPreview(); }
-    else if (e.target.id === 'ws-stu-ans' || e.target.id === 'ws-blanks') drawPreview();
+    else if (e.target.id === 'ws-stu-ans' || e.target.id === 'ws-blanks' || e.target.id === 'ws-blanks-rest') drawPreview();
     else if (e.target.id === 'ws-rhy') {
       if (typeof S !== 'undefined') { (S.settings ||= {}).rhythmSystem = e.target.value; save(); }
       if (typeof refreshRhythmCounts === 'function') refreshRhythmCounts();
@@ -2107,12 +2133,13 @@ function srOpenWorksheet(st, curView) {
     const showHdr = modal.querySelector('#ws-hdr').checked;
     const stuAns = modal.querySelector('#ws-stu-ans').checked;
     const blanks = modal.querySelector('#ws-blanks').checked;
+    const blankRests = modal.querySelector('#ws-blanks-rest').checked;
     const addKey = modal.querySelector('#ws-key').checked;
     let html = `<div class="meta">${esc(metaLine)}</div>`;
     if (showHdr) html += `<div class="sr-ws-hdr"><span>Name: ___________________________</span><span>Date: _______________</span><span>Class: _______________</span></div>`;
-    html += renderSet(stuAns, false, blanks);
+    html += renderSet(stuAns, false, blanks, blankRests);
     if (addKey) {
-      html += `<div class="sr-ws-key"><h1>${esc(title)} — Answer Key</h1><div class="meta">${esc(metaLine)}</div>${renderSet(true, false, false)}</div>`;
+      html += `<div class="sr-ws-key"><h1>${esc(title)} — Answer Key</h1><div class="meta">${esc(metaLine)}</div>${renderSet(true, false, false, false)}</div>`;
     }
     close();
     if (typeof printHTML === 'function') printHTML(title, html);
