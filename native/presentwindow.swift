@@ -13,8 +13,8 @@ final class RehearsalWindow: NSWindow {
     private var compSavedFrame: NSRect?
     private var compSavedStyle: NSWindow.StyleMask = []
     private var compSavedCover = false
+    private var lastMouseDown: NSEvent?
     private var compDragMouse: NSPoint?
-    private var compDragOrigin: NSPoint?
     private var compResizeEdges: (left: Bool, right: Bool, bottom: Bool, top: Bool)?
     private var compResizeStartFrame: NSRect?
     var isCompanion: Bool { compSavedFrame != nil }
@@ -32,7 +32,21 @@ final class RehearsalWindow: NSWindow {
         }
     }
 
+    func startNativeDrag() {
+        guard !isCovering, compResizeEdges == nil else { return }
+        guard (NSEvent.pressedMouseButtons & 1) != 0, let ev = lastMouseDown else { return }
+        performDrag(with: ev)
+    }
+
+    func toggleZoomWindow() {
+        guard !isCovering, !isCompanion else { return }
+        performZoom(nil)
+    }
+
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            lastMouseDown = event
+        }
         if isCompanion {
             switch event.type {
             case .leftMouseDown:
@@ -44,15 +58,13 @@ final class RehearsalWindow: NSWindow {
                 let onBottom = loc.y <= edge || brCorner
                 let onTop = loc.y >= frame.height - edge
                 if onLeft || onRight || onBottom || onTop {
-                    compDragOrigin = nil
                     compDragMouse = NSEvent.mouseLocation
                     compResizeStartFrame = frame
                     compResizeEdges = (onLeft, onRight, onBottom, onTop)
                 } else {
                     compResizeEdges = nil
                     compResizeStartFrame = nil
-                    compDragMouse = NSEvent.mouseLocation
-                    compDragOrigin = frame.origin
+                    compDragMouse = nil
                 }
             case .leftMouseDragged:
                 if let edges = compResizeEdges, let startMouse = compDragMouse, let f0 = compResizeStartFrame {
@@ -76,16 +88,9 @@ final class RehearsalWindow: NSWindow {
                         invalidateShadow()
                         return
                     }
-                } else if let startMouse = compDragMouse, let startOrigin = compDragOrigin {
-                    let cur = NSEvent.mouseLocation
-                    let dx = cur.x - startMouse.x, dy = cur.y - startMouse.y
-                    if hypot(dx, dy) > 3 {
-                        setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy))
-                    }
                 }
             case .leftMouseUp:
                 compDragMouse = nil
-                compDragOrigin = nil
                 compResizeEdges = nil
                 compResizeStartFrame = nil
             default: break
@@ -154,7 +159,7 @@ final class RehearsalWindow: NSWindow {
         NSApp.presentationOptions = []
         styleMask = [.borderless, .resizable, .fullSizeContentView]
         level = .floating
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
         hasShadow = true
         isOpaque = false
         backgroundColor = .clear
@@ -185,7 +190,7 @@ final class RehearsalWindow: NSWindow {
         let wasCover = compSavedCover
         let st = compSavedStyle
         compSavedFrame = nil; compSavedCover = false
-        compDragMouse = nil; compDragOrigin = nil
+        compDragMouse = nil
         compResizeEdges = nil; compResizeStartFrame = nil
         level = .normal
         isMovableByWindowBackground = false

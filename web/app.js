@@ -5330,6 +5330,44 @@ document.addEventListener('keydown', e => {
 });
 // Double-click a window's title bar to maximize / restore it.
 document.addEventListener('dblclick', e => {
-  const bar = e.target.closest('[data-wdrag]'); if (!bar || e.target.closest('button, input')) return;
-  const w = findWin(bar.dataset.wdrag); if (w) { w.max = !w.max; save(); applyWinGeom(); }
+  const bar = e.target.closest('[data-wdrag]');
+  if (bar && !e.target.closest('button, input')) {
+    const w = findWin(bar.dataset.wdrag); if (w) { w.max = !w.max; save(); applyWinGeom(); }
+    return;
+  }
+  if (IS_NATIVE && e.target.closest('.p-head, .e-top') && !e.target.closest('button, a, input, select, textarea, label, [data-action], [role="button"], [contenteditable], .win, .win-menu, .dock-custom, .web-mode-menu, .snap-menu, .bm-menu')) {
+    native('windowZoom');
+  }
 });
+
+// Native macOS window dragging anywhere on the Present header, Setup top bar, or Companion Mini-HUD.
+// (-webkit-app-region: drag is ignored by WKWebView, so we hand off to NSWindow.performDrag once dragged >= 3px.)
+if (IS_NATIVE) {
+  document.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.detail > 1) return;
+    const region = e.target.closest('.p-head, .e-top, .p-companion');
+    if (!region) return;
+    if (e.target.closest('button, a, input, select, textarea, label, [data-action], [role="button"], [contenteditable], .win, .win-menu, .dock-custom, .web-mode-menu, .snap-menu, .bm-menu, .comp-apps-panel, .comp-grip')) return;
+    if (region.classList.contains('p-companion')) {
+      const edge = 10, corner = 16;
+      if (e.clientX <= edge || e.clientX >= innerWidth - edge || e.clientY <= edge || e.clientY >= innerHeight - edge || (e.clientX >= innerWidth - corner && e.clientY >= innerHeight - corner)) return;
+    }
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', cleanup, true);
+      window.removeEventListener('blur', cleanup);
+    };
+    const onMove = mv => {
+      if (!(mv.buttons & 1)) { cleanup(); return; }
+      if (Math.hypot(mv.clientX - sx, mv.clientY - sy) >= 3) {
+        cleanup();
+        native('windowDrag');
+      }
+    };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', cleanup, true);
+    window.addEventListener('blur', cleanup);
+  });
+}

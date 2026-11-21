@@ -512,6 +512,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             (wv?.window as? RehearsalWindow)?.refreshSafeTop()
         case "fullscreen":
             (wv?.window as? RehearsalWindow)?.toggleCover()
+        case "windowDrag":
+            (wv?.window as? RehearsalWindow)?.startNativeDrag()
+        case "windowZoom":
+            (wv?.window as? RehearsalWindow)?.toggleZoomWindow()
         case "saveText":
             let name = (body["name"] as? String) ?? "export.json"
             let text = (body["text"] as? String) ?? ""
