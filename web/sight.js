@@ -531,7 +531,7 @@ function srDraw(el, st) {
   const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC + extraB;
   const rowH = P * partH + (P > 1 ? 24 : 0) + (o.measureNums ? 6 : 0);
   // Try 1..6 measures per line and keep the layout that can be drawn biggest in the space we have (or use uniform worksheet layout).
-  const CW = Math.max(280, el.clientWidth - 20), CH = Math.max(140, el.clientHeight - 28);
+  const CW = Math.max(280, (el.offsetWidth || el.clientWidth) - 24), CH = Math.max(140, (el.offsetHeight || el.clientHeight) - 30);
   let best = null;
   if (pOpts?.per) {
     const p = Math.min(nM, pOpts.per), r = Math.ceil(nM / p), w = firstW + p * restW + 10, h = r * rowH + 20;
@@ -544,7 +544,9 @@ function srDraw(el, st) {
     }
   }
   const per = best.p, W = best.w, rows = Math.ceil(nM / per), H = rows * rowH + 20;
-  const scale = Math.max(0.5, Math.min(best.sc, 3.5)) * (el.__zoom || 1);   // A− / A+ on the bar
+  const baseScale = Math.max(0.5, Math.min(best.sc, 3.5));
+  el.__baseScale = baseScale; el.__vbW = W; el.__vbH = H;
+  const scale = baseScale * (el.__zoom || 1);   // Zoom − / + or trackpad pinch
   const renderer = new VF.Renderer(el, VF.Renderer.Backends.SVG);
   renderer.resize(W, H);
   const ctx = renderer.getContext();
@@ -1782,16 +1784,59 @@ function mountSight(host, st, onChange) {
         <button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <b>Beat</b>`, `${IC('ico:playhead')} <b>Note</b>`, `${IC('ico:playhead')} <b>Off</b>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>
         <span class="sr-sp"></span>
         <span class="tb-lbl">Zoom</span>
-        <span class="sr-zoom" title="Make the music bigger or smaller (${zoomPct}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:minus')}</button><span class="tb-zpct">${zoomPct}%</span><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
+        <span class="sr-zoom" title="Make the music bigger or smaller (${zoomPct}%) — pinch on trackpad or click % to reset"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.5 ? 'disabled' : ''}>${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sr="zoom-reset" title="Reset zoom to 100%">${zoomPct}%</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
       </div>
       ${st.settingsOpen ? `<div class="sr-settings">${isBuild() ? srBuildSettingsHTML(st) : srSettingsHTML(st)}</div>` : ''}
       ${isBuild() && st.settingsOpen ? srBuildPanelHTML(st) : ''}
       <div class="sr-staff"></div></div>`;
     const staffEl = host.querySelector('.sr-staff');
+    if (staffEl) staffEl.style.zoom = '';
     if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Settings to show the building tools.'}</div>`; timeline = []; return; }
     staffEl.__zoom = st.zoom || 1;
     timeline = srDraw(staffEl, V()); drawFrom(); markSel(); host.__grRedraw();
   };
+  let zSaveT = null;
+  const applyLiveZoom = nextZ => {
+    const z = Math.max(0.5, Math.min(2.5, Math.round(nextZ * 100) / 100));
+    if (Math.abs(z - (st.zoom || 1)) < 1e-3) return;
+    st.zoom = z;
+    const pct = Math.round(z * 100);
+    const staffEl = host.querySelector('.sr-staff'), svg = staffEl?.querySelector('svg');
+    if (staffEl) {
+      staffEl.style.zoom = '';
+      staffEl.__zoom = z;
+      if (svg && staffEl.__baseScale && staffEl.__vbW && staffEl.__vbH) {
+        const sc = staffEl.__baseScale * z;
+        svg.style.width = Math.floor(staffEl.__vbW * sc) + 'px';
+        svg.style.height = Math.floor(staffEl.__vbH * sc) + 'px';
+      }
+    }
+    const zBox = host.querySelector('.sr-zoom');
+    if (zBox) {
+      zBox.title = `Make the music bigger or smaller (${pct}%) — pinch on trackpad or click % to reset`;
+      const lbl = zBox.querySelector('.tb-zpct'); if (lbl) lbl.textContent = `${pct}%`;
+      const minus = zBox.querySelector('[data-d="-1"]'), plus = zBox.querySelector('[data-d="1"]');
+      if (minus) minus.disabled = z <= 0.5;
+      if (plus) plus.disabled = z >= 2.5;
+    }
+    drawFrom(); host.__grRedraw?.();
+    clearTimeout(zSaveT); zSaveT = setTimeout(() => { onChange && onChange(st); }, 140);
+  };
+  host.__zoomBy = factor => applyLiveZoom((st.zoom || 1) * factor);
+  host.__zoomReset = () => applyLiveZoom(1);
+  host.__zoomToggle = () => applyLiveZoom(Math.abs((st.zoom || 1) - 1) > 0.03 ? 1 : 1.5);
+  if (!host.__pinchWired) {
+    host.__pinchWired = true;
+    host.addEventListener('wheel', e => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault(); e.stopPropagation();
+      host.__zoomBy(Math.exp(-e.deltaY * 0.01));
+    }, { passive: false });
+    let gs = 1;
+    host.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+    host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs); gs = e.scale; });
+    host.addEventListener('gestureend', e => e.preventDefault());
+  }
   // Listen back (from the grade report): the example from bar 1 at the tempo that was performed,
   // with the playhead. Returns the clock so the take can be lined up with it.
   host.__listen = tempo => {
@@ -1953,7 +1998,8 @@ function mountSight(host, st, onChange) {
     else if (k === 'preset') { srStop(); Object.assign(st[st.mode], SR_PRESETS[st.mode][b.dataset.v]); regen(); }
     else if (k === 'new') { srStop(); regen(); }
     else if (k === 'counts') st.showCounts = !st.showCounts;
-    else if (k === 'zoom') st.zoom = Math.max(0.6, Math.min(2.5, Math.round(((st.zoom || 1) + 0.2 * Number(b.dataset.d)) * 10) / 10));
+    else if (k === 'zoom') { applyLiveZoom(Math.round(((st.zoom || 1) + 0.1 * Number(b.dataset.d)) * 10) / 10); return; }
+    else if (k === 'zoom-reset') { applyLiveZoom(1); return; }
     else if (k === 'rhyonly') { if (st.mode === 'solfege') st.solRhythm = !st.solRhythm; else if (isBuild()) B.kind = B.kind === 'rhythm' ? 'solfege' : 'rhythm'; }
     else if (k === 'barreset') mbarReset(SR_BARCFG);
     else if (k === 'metro') st[st.mode].metronome = !st[st.mode].metronome;   // live: the next beat follows

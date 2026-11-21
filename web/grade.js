@@ -87,8 +87,8 @@ function grDetect(late, q, end) {
       if (dipT !== null && dipN >= 2 && e > thr && e > dipMin * 1.5 && fr.t - lastOn > 0.08) {
         close(dipT); onT = fr.t; lastOn = fr.t; quietT = null; top = e; dipMin = Infinity; dipT = null; dipN = 0; return;
       }
-      dipMin = Infinity; dipT = null; dipN = 0;
-      top += (e - top) * 0.15;                                  // the note's running average level
+      if (dipT === null || dipN < 2 || fr.t - dipT > 0.08) { dipMin = Infinity; dipT = null; dipN = 0; }
+      if (dipT === null) top += (e - top) * 0.15;               // the note's running average level
     }
     if (!loud) { if (quietT === null) quietT = fr.t; else if (fr.t - quietT > 0.05) { active = false; close(quietT); quietT = null; } }
     else quietT = null;
@@ -96,29 +96,39 @@ function grDetect(late, q, end) {
   if (active) close(end);
   // 2b. sung notes usually flow into each other with no quiet gap, so the loudness detector finds
   // only one onset per phrase. Also start a new note when the sung pitch leaves the current note and
-  // settles on a new one for about 120 ms (three agreeing readings, 40 ms apart). The note starts
-  // where the pitch first left, so a scoop into the new note is part of it rather than an extra note.
+  // settles on a new one for about 120 ms (three agreeing readings, 40 ms apart; or two on a short
+  // eighth note before moving on). The note starts where the pitch first left, so a scoop into the
+  // new note is part of it rather than an extra note.
   const mid = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  const isScoop = (dt, dm) => (dt < 0.16 && dm < 1.05) || (dt < Math.min(0.28, 0.35 * q) && dm < 0.75);
   const pOn = []; let curMs = [], curTs = [], run = [], departT = null;
+  const commitRun = () => {
+    const mm = mid(run.map(r => r.m));
+    const lastOn = Math.max(-Infinity, ...det.filter(d => d.t <= departT).map(d => d.t), ...pOn.filter(p => p.t <= departT).map(p => p.t));
+    const small = isScoop(departT - lastOn, Math.abs(mm - mid(curMs.slice(-12))));
+    if (!small) pOn.push({ t: departT, midi: mm, pitchOnly: true });
+    curMs = run.map(r => r.m); curTs = run.map(r => r.t); run = []; departT = null;
+  };
   for (const fr of late) {
     if (!(fr.f > 0)) continue;
     const m = 69 + 12 * Math.log2(fr.f / 440);
     if (!curMs.length) { curMs.push(m); curTs.push(fr.t); continue; }
-    if (Math.abs(m - mid(curMs.slice(-12))) > 0.5) {   // compared with the note's settled pitch, so a slow glide into the next note still counts
+    const refM = mid(curMs.length >= 5 ? curMs.slice(-12, -1) : curMs.slice(-12));
+    if (Math.abs(m - refM) > 0.5) {   // compared with the note's settled pitch, so a slow glide into the next note still counts
       if (departT === null) departT = fr.t;
-      if (run.length && Math.abs(m - mid(run.map(r => r.m))) > 0.5) run = [];   // still moving (a scoop): wait for it to settle
-      run.push({ t: fr.t, m });
-      if (run.length >= 3) {
-        const mm = mid(run.map(r => r.m));
-        // a slide of less than a semitone in the first quarter second of a note is a scoop into that
-        // note, not a new note (otherwise a scooped first note was graded by its flat start)
-        const lastOn = Math.max(-Infinity, ...det.filter(d => d.t <= departT).map(d => d.t), ...pOn.filter(p => p.t <= departT).map(p => p.t));
-        const small = departT - lastOn < Math.min(0.35, 0.45 * q) && Math.abs(mm - mid(curMs.slice(-12))) < 1.0;
-        if (!small) pOn.push({ t: departT, midi: mm, pitchOnly: true });
-        curMs = run.map(r => r.m); curTs = run.map(r => r.t); run = []; departT = null;
+      if (run.length && Math.abs(m - mid(run.map(r => r.m))) > 0.5) {
+        if (run.length >= 2) { commitRun(); departT = fr.t; }   // a short 2-frame eighth note settled before moving on
+        else { if (fr.t - departT > 0.08) departT = fr.t; run = []; }
       }
-    } else { run = []; departT = null; curMs.push(m); curTs.push(fr.t); }
+      run.push({ t: fr.t, m });
+      if (run.length >= 3) commitRun();
+    } else {
+      if (run.length >= 2 && Math.abs(mid(run.map(r => r.m)) - refM) >= 0.75) commitRun();
+      run = []; departT = null;
+      if (Math.abs(m - refM) <= 0.42 || curMs.length < 3) { curMs.push(m); curTs.push(fr.t); }
+    }
   }
+  if (run.length >= 2) commitRun();
   for (const p of pOn) {
     const near = det.findIndex(d => Math.abs(d.t - p.t) < 0.1);
     if (near >= 0) det[near].midi = p.midi; else det.push({ t: p.t, end: p.t, midi: p.midi, pitchOnly: true });
@@ -141,7 +151,7 @@ function grDetect(late, q, end) {
   for (let k = det.length - 1; k > 0; k--) {
     const a = det[k - 1], b = det[k];
     if (!b.pitchOnly || a.midi == null || b.midi == null) continue;
-    const scoop = b.t - a.t < Math.min(0.35, 0.45 * q) && Math.abs(b.midi - a.midi) < 1.0;
+    const scoop = isScoop(b.t - a.t, Math.abs(b.midi - a.midi));
     const wobble = Math.abs(b.midi - a.midi) < 0.4;
     if (scoop || wobble) { if (scoop) a.midi = b.midi; a.end = Math.max(a.end, b.end); det.splice(k, 1); }
   }
@@ -184,20 +194,33 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
   const offset = heardOffset, latUsed = false;
   // 4. match each written note to one heard onset, closest first, within a window
   const used = new Set(); const notes = [];
-  for (const e of exp) {
-    const target = T0 + e.t * q + offset, tol = Math.max(0.06, Math.min(0.25 * q, 0.4 * e.len * q));
+  for (let i = 0; i < exp.length; i++) {
+    const e = exp[i], target = T0 + e.t * q + offset, tol = Math.max(0.06, Math.min(0.25 * q, 0.4 * e.len * q));
     const win = Math.max(tol, 0.5 * e.len * q, 0.25 * q);
+    const nextE = exp[i + 1], nextTarget = nextE ? T0 + nextE.t * q + offset : Infinity;
+    const nextWin = nextE ? Math.max(0.06, Math.min(0.25 * q, 0.4 * nextE.len * q), 0.5 * nextE.len * q, 0.25 * q) : 0;
     let bj = -1, bd = Infinity;
-    det.forEach((d, j) => { if (used.has(j)) return; const g = Math.abs(d.t - target); if (g <= win && g < bd) { bd = g; bj = j; } });
+    det.forEach((d, j) => {
+      if (used.has(j)) return;
+      const g = Math.abs(d.t - target);
+      if (g > win || g >= bd) return;
+      // Don't let an earlier note steal the only onset that sits closer to the very next written note
+      if (nextE && Math.abs(d.t - nextTarget) + 0.01 < g) {
+        const otherForNext = det.some((d2, k) => k !== j && !used.has(k) && Math.abs(d2.t - nextTarget) <= nextWin);
+        if (!otherForNext) return;
+      }
+      bd = g; bj = j;
+    });
     const n = { bar: e.bar, idx: e.idx, written: e.midi, status: 'missed', errMs: null, cents: null, match: null };
     if (bj >= 0) { used.add(bj); n.match = det[bj]; n.errMs = Math.round((det[bj].t - target) * 1000); n.status = Math.abs(det[bj].t - target) <= tol ? 'ok' : 'timing'; }
     notes.push(n);
   }
   // 4b. guided split: a written note that matched nothing, while the note before it was still
   // sounding, is looked for inside that note: where the sung pitch moves by the written step
-  // (e.g. F down to E). A smooth glide between close notes has no clear jump to find otherwise,
-  // and the two notes were graded as one (the first one wrong, the second "not heard").
-  if (gradePitch) {
+  // (e.g. F down to E), or where a consonant loudness dip re-articulates the note. A smooth glide
+  // between close notes has no clear jump to find otherwise, and the two notes were graded as one.
+  const runGuidedSplit = () => {
+    if (!gradePitch) return;
     const pitched = late.filter(fr => fr.f > 0).map(fr => ({ t: fr.t, m: 69 + 12 * Math.log2(fr.f / 440) }));
     notes.forEach((n, i) => {
       // also retried for a note matched only loosely (outside the on-time margin): a split inside
@@ -209,51 +232,71 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
       const matchedLater = new Set(notes.slice(i + 1).map(x => x.match).filter(Boolean));
       const win = Math.max(tol, 0.5 * e.len * q, 0.25 * q), nextOn = det.find(d => d.t > p.t + 1e-6 && matchedLater.has(d))?.t ?? end;
       const split = t => {
-        if (n.match && Math.abs(t - target) >= Math.abs(n.match.t - target)) return;   // not better than what it has
-        const before = pitched.filter(r => r.t > p.t + 0.08 && r.t < t - 0.02).map(r => r.m);
-        const after = pitched.filter(r => r.t >= t + 0.04 && r.t < Math.min(nextOn, t + 0.4)).map(r => r.m);
+        if (n.match && Math.abs(t - target) >= Math.abs(n.match.t - target)) return false;   // not better than what it has
+        let before = pitched.filter(r => r.t > p.t + 0.04 && r.t < t - 0.01).map(r => r.m);
+        if (before.length < 2) before = pitched.filter(r => r.t >= p.t - 0.04 && r.t < t).map(r => r.m);
+        let after = pitched.filter(r => r.t >= t + 0.02 && r.t < Math.min(nextOn, t + 0.4)).map(r => r.m);
+        if (!after.length) after = pitched.filter(r => r.t >= t && r.t < nextOn).map(r => r.m);
         const nd = { t, end: p.end > t ? p.end : end, midi: after.length ? mid(after) : p.midi, guided: true };
-        p.end = t; if (before.length >= 2) p.midi = mid(before);
+        p.end = t; if (before.length >= 1) p.midi = mid(before);
         det.push(nd); det.sort((a, b) => a.t - b.t);
         n.match = nd; n.errMs = Math.round((t - target) * 1000); n.status = Math.abs(t - target) <= tol ? 'ok' : 'timing';
+        return true;
       };
-      // the same pitch again: the singer re-sings it with a consonant, so the loudness dips and
-      // comes back. The deepest dip near where the note is written (at most 80% of the note's level)
-      // marks the new note; a note held through without a dip stays one note.
-      if (e.midi === exp[i - 1].midi) {
-        const lo = Math.max(p.t + 0.12, target - win), hi = Math.min(nextOn, target + win);
-        const span = late.map((fr, k) => [fr, env[k]]).filter(([fr]) => fr.t >= p.t + 0.08 && fr.t <= hi);
+      const tryDip = () => {
+        const lo = Math.max(p.t + 0.1, target - win), hi = Math.min(nextOn, target + win);
+        const span = late.map((fr, k) => [fr, env[k]]).filter(([fr]) => fr.t >= p.t + 0.06 && fr.t <= hi);
+        if (!span.length) return false;
         const level = mid(span.map(([, v]) => v)), inWin = span.filter(([fr]) => fr.t >= lo);
-        if (!inWin.length) return;
+        if (!inWin.length) return false;
         const [dipFr, dipV] = inWin.reduce((a, b) => b[1] < a[1] ? b : a);
         const back = inWin.find(([fr, v]) => fr.t > dipFr.t && v >= dipV + 0.5 * (level - dipV));
-        if (dipV <= 0.85 * level && back) { split(back[0].t); return; }
-        // no dip at all: the two were sung joined (do-o instead of do-do). If the voice is clearly on
-        // that pitch where the note is written, the note was sung; it is marked "joined" so the
-        // singer knows to re-sing it, not "not heard".
+        if (dipV <= 0.85 * level && back) return split(back[0].t);
+        return false;
+      };
+      const tryJoined = (markJoined) => {
         const at = pitched.filter(r => Math.abs(r.t - target) <= Math.max(0.12, tol)).map(r => r.m);
         if (at.length >= 2 && Math.abs(mid(at) - p.midi) < 0.5 && (p.end > target || nextOn > target + tol)) {
-          const nd = { t: target, end: p.end > target ? p.end : end, midi: mid(at), joined: true };
+          const nd = { t: target, end: p.end > target ? p.end : end, midi: mid(at), joined: markJoined };
+          p.end = target;
           det.push(nd); det.sort((a, b) => a.t - b.t);
-          n.match = nd; n.errMs = 0; n.status = 'ok'; n.joined = true;
+          n.match = nd; n.errMs = 0; n.status = 'ok'; if (markJoined) n.joined = true;
+          return true;
         }
+        return false;
+      };
+      if (e.midi === exp[i - 1].midi) {
+        if (tryDip()) return;
+        tryJoined(true);
         return;
       }
       // where, inside the previous note, the sung pitch moves furthest in the written direction
-      // (median of the 3 readings before vs. the 3 after). Half steps are often sung narrow
-      // (an F just above an E), so a move of a quarter semitone or more is enough.
+      // (median of the readings before vs. after). Context readings may sit just outside [lo, hi]
+      // so short eighth notes or slightly early/late vowels still have enough readings on both sides.
       const step = e.midi - exp[i - 1].midi, dir = Math.sign(step);
-      const cand = pitched.filter(r => r.t >= Math.max(p.t + 0.1, target - win) && r.t <= Math.min(nextOn, target + win));
+      const lo = Math.max(p.t + 0.06, target - win), hi = Math.min(nextOn - 0.02, target + win);
+      const cand = pitched.filter(r => r.t >= p.t - 0.04 && r.t <= nextOn);
+      const needMove = Math.min(0.55, Math.max(0.25, 0.3 * Math.abs(step)));
       let bestK = -1, bestMove = 0;
-      // Compared over 3 readings (~0.12 s) and over 5 (~0.2 s) each side: a narrow step sung with a
-      // wobble (a flat fa into a sharp mi, only ~35¢ apart) shows clearly only over the longer stretch.
-      for (const w of [3, 5]) for (let k = w; k + w <= cand.length; k++) {
-        const move = (mid(cand.slice(k, k + w).map(r => r.m)) - mid(cand.slice(k - w, k).map(r => r.m))) * dir;
-        if (move > bestMove) { bestMove = move; bestK = k; }
+      for (const w of [3, 5, 2]) {
+        for (let k = 1; k < cand.length; k++) {
+          if (cand[k].t < lo || cand[k].t > hi) continue;
+          const bSlice = cand.slice(Math.max(0, k - w), k), aSlice = cand.slice(k, Math.min(cand.length, k + w));
+          if (w >= 3 ? (bSlice.length < 2 || aSlice.length < 2) : (bSlice.length < 1 || aSlice.length < 1)) continue;
+          const move = (mid(aSlice.map(r => r.m)) - mid(bSlice.map(r => r.m))) * dir;
+          if (move > bestMove) { bestMove = move; bestK = k; }
+        }
+        if (bestK >= 0 && bestMove >= needMove && w >= 3) break;
       }
-      if (bestK >= 0 && bestMove >= Math.max(0.25, 0.3 * Math.abs(step))) split(cand[bestK].t);
+      if (bestK >= 0 && bestMove >= needMove && split(cand[bestK].t)) return;
+      // Fallback: if the singer re-articulated with a consonant dip (e.g. sang the same pitch on two
+      // different written notes) or held their voice steadily right through this beat, hear the note
+      // and grade the pitch actually sung instead of marking it "not heard".
+      if (tryDip()) return;
+      if (!n.match) tryJoined(false);
     });
-  }
+  };
+  runGuidedSplit();
   // 4c. a written note still unmatched, with a sung note nearby that matched nothing (up to about
   // a beat and a quarter away, and in order between its neighbours): the note was sung, just early
   // or late. It is marked as a timing error with how far off it was, not as "not heard".
@@ -276,6 +319,7 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
       }
       if (best) { used.add(best); n.match = best; n.errMs = Math.round((best.t - target) * 1000); n.status = 'timing'; }
     });
+    runGuidedSplit();   // second pass: split any still-unmatched note whose predecessor matched in 4c
   }
   // 4d. settling in: a pitch change of under a semitone that matched nothing, in the first half of a
   // written note, is that note settling after a scoop. The note takes the settled pitch.

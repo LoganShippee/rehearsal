@@ -494,7 +494,7 @@ function mountScore(host, st, onChange0, key) {
     counts: () => `<button data-sp="lbl" data-v="counts" data-ctl="counts" title="Rhythm counting above the notes">${IC('ico:list')} Counts</button>`,
     layout: () => `<button data-sp="layout" data-ctl="layout" title="Switch between scrolling down the page and one long line scrolling sideways"></button>`,
     tabs: () => `<button data-sp="tabs" data-ctl="tabs" title="Keep a Scores tab on the class screen of the classes you choose">${IC('ico:layers')} Classes</button>`,
-    zoom: () => `<span class="sp-zoom" data-ctl="zoom"><button data-sp="zoom" data-d="-0.1" title="Smaller">${IC('ico:minus')}</button><span class="tb-zpct">100%</span><button data-sp="zoom" data-d="0.1" title="Bigger">${IC('ico:plus')}</button></span>`,
+    zoom: () => `<span class="sp-zoom" data-ctl="zoom"><button data-sp="zoom" data-d="-0.1" title="Smaller">${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sp="zoom-reset" title="Reset zoom to 100%">100%</button><button data-sp="zoom" data-d="0.1" title="Bigger">${IC('ico:plus')}</button></span>`,
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
   const spBarHTML = () => `<div class="sp-top">
@@ -564,12 +564,13 @@ function mountScore(host, st, onChange0, key) {
     ctl.zT = setTimeout(() => {
       const A = ctl.zAnchor, zz = ctl.zPending; ctl.zAnchor = ctl.zPending = null;
       layers.forEach(el => { if (el) el.style.transform = ''; });
-      st.zoom = +zz.toFixed(2); onChange(); ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout();
+      st.zoom = +zz.toFixed(2); ctl.updateBar(); onChange(); ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout();
       const k = st.zoom / A.z0;                                        // keep the spot under the fingers where it was
       sc.scrollLeft = (A.sx + A.px) * k - A.px; sc.scrollTop = (A.sy + A.py) * k - A.py;
     }, 220);
   };
   root.__zoomBy = ctl.zoomBy;                                          // the Mac app's trackpad pinch (app.js → __pinch)
+  root.__zoomToggle = () => { st.zoom = Math.abs((st.zoom || 1) - 1) > 0.03 ? 1 : 1.3; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } };
   { const sc = $q('.sp-score');
     sc.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); ctl.zoomBy(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); }, { passive: false });
     let gs = 1;                                                        // Safari / iPad pinch
@@ -962,6 +963,7 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'metro') { st.metronome = !st.metronome; onChange(); ctl.updateBar(); }
       if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
+      if (k === 'zoom-reset') { st.zoom = 1; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'focus') {
         if (b.dataset.i === '') st.focus = null;
         else { const F = new Set(spFoc(st)), i = +b.dataset.i; F.has(i) ? F.delete(i) : F.add(i); st.focus = F.size ? [...F].sort((x, y) => x - y) : null; } onChange(); ctl.drawChoir(); ctl.paint(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView(); }

@@ -522,7 +522,7 @@ function renderPiano(h) {
         <div class="pq-syls">${pat.syl.map(s => `<span class="pq-syl">${s}</span>`).join('')}</div>
         <span class="grow"></span>
         <span class="tb-lbl">Zoom</span>
-        <span class="sr-zoom pq-zoom" title="Make the warm-up music bigger or smaller (${zoomPct}%)"><button type="button" data-pn="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:minus')}</button><span class="tb-zpct">${zoomPct}%</span><button type="button" data-pn="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.2 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
+        <span class="sr-zoom pq-zoom" title="Make the warm-up music bigger or smaller (${zoomPct}%) — pinch on trackpad or click % to reset"><button type="button" data-pn="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-pn="zoom-reset" title="Reset zoom to 100%">${zoomPct}%</button><button type="button" data-pn="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.2 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
       </div>
       <div class="pq-staff-wrap" style="height:${boxH}px">
         <div class="pq-staff" aria-label="Warm-up music notation"></div>
@@ -545,9 +545,40 @@ function renderPiano(h) {
     </div>` : ''}
   </div>`;
 
+  const applyPianoZoom = nextZ => {
+    const z = clamp(Math.round(nextZ * 100) / 100, 0.6, 2.2);
+    if (Math.abs(z - (st.zoom || 1)) < 1e-3) return;
+    st.zoom = z;
+    const pct = Math.round(z * 100);
+    const svg = h.querySelector('.pq-staff svg');
+    if (svg) {
+      const vb = (svg.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+      const baseH = vb[3] || 110;
+      svg.style.height = `${Math.round(baseH * z)}px`;
+    }
+    const zBox = h.querySelector('.pq-zoom');
+    if (zBox) {
+      const lbl = zBox.querySelector('.tb-zpct'); if (lbl) lbl.textContent = `${pct}%`;
+      const minus = zBox.querySelector('[data-d="-1"]'), plus = zBox.querySelector('[data-d="1"]');
+      if (minus) minus.disabled = z <= 0.6;
+      if (plus) plus.disabled = z >= 2.2;
+    }
+    save();
+  };
+  h.__pianoZoomBy = (factor, toggle = false) => {
+    if (toggle) applyPianoZoom(Math.abs((st.zoom || 1) - 1) > 0.03 ? 1 : 1.4);
+    else applyPianoZoom((Number(st.zoom) || 1) * factor);
+  };
   if (st.seqOpen) {
     pianoDrawWarmupStaff(h, st, activeRoot);
     const rz = h.querySelector('.pq-resize'), wrap = h.querySelector('.pq-staff-wrap');
+    if (wrap) {
+      wrap.addEventListener('wheel', e => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault(); e.stopPropagation();
+        h.__pianoZoomBy(Math.exp(-e.deltaY * 0.01));
+      }, { passive: false });
+    }
     if (rz && wrap) {
       rz.onpointerdown = ev => {
         ev.preventDefault(); ev.stopPropagation();
@@ -599,12 +630,16 @@ function renderPiano(h) {
     const act = b.dataset.pn;
     if (act === 'oct') { st.baseOct = clamp(st.baseOct + Number(b.dataset.d), 2, 5); save(); renderPiano(h); }
     else if (act === 'zoom') {
-      const nextZ = clamp(Math.round(((Number(st.zoom) || 1) + 0.15 * Number(b.dataset.d)) * 100) / 100, 0.6, 2.2);
-      st.zoom = nextZ;
+      const nextZ = clamp(Math.round(((Number(st.zoom) || 1) + 0.1 * Number(b.dataset.d)) * 100) / 100, 0.6, 2.2);
       const minFit = Math.round(126 * nextZ);
-      if ((st.staffH || 136) < minFit && Number(b.dataset.d) > 0) st.staffH = clamp(minFit, 88, 360);
-      save(); renderPiano(h);
+      if ((st.staffH || 136) < minFit && Number(b.dataset.d) > 0) {
+        st.staffH = clamp(minFit, 88, 360);
+        const wrap = h.querySelector('.pq-staff-wrap');
+        if (wrap) wrap.style.height = st.staffH + 'px';
+      }
+      applyPianoZoom(nextZ);
     }
+    else if (act === 'zoom-reset') { applyPianoZoom(1); }
     else if (act === 'labels') {
       st.labels = b.dataset.v; save();
       if (PIANO_SEQ.playing) {

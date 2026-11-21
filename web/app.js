@@ -2203,9 +2203,11 @@ window.__appWinState = ({ id, status, windowID, title, app, event, width, height
 // State: { zoom, zx, zy } — zx/zy are the pan offset as a fraction of the box size.
 function zoomApply(box, st) {
   if (!box) return;
+  if (box.querySelector('.sr-host, .sp-root')) { st.zoom = 1; st.zx = 0; st.zy = 0; }
   const z = st.zoom || 1, tf = z === 1 ? '' : `translate(${(st.zx || 0) * 100}%, ${(st.zy || 0) * 100}%) scale(${z})`;
   for (const m of box.querySelectorAll(':scope > iframe, :scope > img, :scope > video, :scope > img.res')) { m.style.transformOrigin = '0 0'; m.style.transform = tf; }
-  for (const t of box.querySelectorAll('.warmup, .win-start, .sr-staff')) t.style.zoom = z === 1 ? '' : z;
+  for (const t of box.querySelectorAll('.warmup, .win-start')) t.style.zoom = z === 1 ? '' : z;
+  for (const s of box.querySelectorAll('.sr-staff')) s.style.zoom = '';
   const pages = box.querySelector('.pdfv-pages');
   if (pages) {
     const r = box.getBoundingClientRect();
@@ -2240,7 +2242,11 @@ window.__pinch = (x, y, mag, phase) => {
   if (VIEW !== 'present') return;
   const hit = document.elementsFromPoint(x, y).find(el => el !== inkCanvas && el !== inkPrev && el.id !== 'ink' && !el.classList?.contains('ink-cursor'));
   const spRoot = hit?.closest('.sp-root');                // score practice zooms its own music (redrawn sharp)
-  if (spRoot?.__zoomBy) { if (phase !== 'toggle') spRoot.__zoomBy(1 + mag, x, y); return; }
+  if (spRoot?.__zoomBy) { if (phase === 'toggle') spRoot.__zoomToggle?.(); else spRoot.__zoomBy(1 + mag, x, y); return; }
+  const srHost = hit?.closest('.sr-host') || hit?.closest('.sr')?.parentElement;
+  if (srHost?.__zoomBy) { if (phase === 'toggle') srHost.__zoomToggle?.(); else srHost.__zoomBy(1 + mag); return; }
+  const pnHost = hit?.closest('.pn-seq') && hit?.closest('.wg-host');
+  if (pnHost?.__pianoZoomBy) { if (phase === 'toggle') pnHost.__pianoZoomBy(1, true); else pnHost.__pianoZoomBy(1 + mag); return; }
   const winEl = hit?.closest('.win'), stageEl = hit?.closest('#stage-content');
   let st, box, after;
   if (winEl) { const w = findWin(winEl.dataset.win); if (!w || w.native) return; st = w; box = winEl.querySelector('.win-body'); after = () => { applyZoom(w); save(); }; }

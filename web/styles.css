@@ -420,10 +420,10 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .p-head .p-dock { justify-self: center; }
 
 /* ---------- sight-reading generator ---------- */
-.sr-host { position: absolute; inset: 0; overflow: auto; background: var(--surface, var(--card)); }
+.sr-host { position: absolute; inset: 0; overflow: hidden; background: var(--surface, var(--card)); }
 .stage-sr { background: transparent; }
-.sr { display: flex; flex-direction: column; min-height: 100%; color: var(--text); font-size: 14px; }
-.sr-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.sr { display: flex; flex-direction: column; height: 100%; max-height: 100%; overflow: hidden; color: var(--text); font-size: 14px; }
+.sr-top { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .sr button { border: 1px solid var(--line); background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); border-radius: 9px; padding: 7px 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .sr button:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
 .sr button.on { background: var(--accent); color: var(--bg); border-color: transparent; }
@@ -431,7 +431,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .sr-tabs, .sr-presets { display: flex; gap: 3px; padding: 3px; border-radius: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
 .sr-tabs button, .sr-presets button { border: none; background: transparent; }
 .sr-sp { flex: 1; }
-.sr-settings { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.sr-settings { flex: 0 1 auto; max-height: 48%; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .sr-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .sr-form label, .sr-scard-bd label { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 600; opacity: .94; }
 .sr-form select, .sr-form input[type=number], .sr-scard-bd select, .sr-scard-bd input[type=number] { background: rgba(255,255,255,.95); color: #1d2330; border: 1px solid rgba(0,0,0,.15); border-radius: 7px; padding: 4px 6px; font-size: 12.5px; }
@@ -451,7 +451,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .sr-rhy-pill { padding: 4px 9px; border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); font-size: 12px; font-weight: 600; transition: background .1s, border-color .1s; }
 .sr-rhy-pill:hover { background: color-mix(in srgb, var(--text) 9%, transparent); }
 .sr-rhy-pill.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.sr-staff { flex: 1; margin: 14px; padding: 12px 8px; background: #ffffff !important; border-radius: 12px; min-height: 160px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+.sr-staff { flex: 1 1 0; min-height: 100px; min-width: 0; overflow: auto; scrollbar-gutter: stable; margin: 14px; padding: 12px 8px; background: #ffffff !important; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
 .sr-staff svg { background: #ffffff; }
 .sr-staff svg text { fill: #1d2330; }
 .sr-msg { color: #555; padding: 20px; }
@@ -878,7 +878,7 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .sr-from b { position: absolute; left: -2px; top: -12px; font: 700 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: #1a9a5a; padding: 3px 7px; border-radius: 999px; white-space: nowrap; }
 
 /* sight reading: ✏️ Build */
-.sr-build { margin: 6px 14px 0; padding: 8px 10px; background: #ffffff; border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 12px; display: flex; flex-direction: column; gap: 6px; color: #1d2330; }
+.sr-build { flex: 0 0 auto; margin: 6px 14px 0; padding: 8px 10px; background: #ffffff; border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 12px; display: flex; flex-direction: column; gap: 6px; color: #1d2330; }
 .sr-build .sb-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .sr-build .sb-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #6a7080; min-width: 64px; }
 .sr-build button { border: 1px solid #d3d7e0; background: #ffffff; border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; color: #1d2330; }
@@ -1656,13 +1656,20 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .sr-sub button.on, .sp-sub button.on { background: var(--accent); color: var(--bg); border-color: transparent; }
 .sr-sub .ico, .sp-sub .ico { width: 13.5px; height: 13.5px; }
 .sr-zoom, .sp-zoom { display: inline-flex; align-items: center; gap: 4px; height: var(--sub-h); }
-.sr-sub .sr-zoom button, .sp-sub .sp-zoom button {
+.sr-sub .sr-zoom button:not(.tb-zpct), .sp-sub .sp-zoom button:not(.tb-zpct) {
   width: var(--sub-h); min-width: var(--sub-h); height: var(--sub-h);
   padding: 0 !important; justify-content: center;
 }
-.tb-zpct {
+.tb-zpct, .sr-sub .sr-zoom button.tb-zpct, .sp-sub .sp-zoom button.tb-zpct, .pq-zoom button.tb-zpct {
   font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
-  min-width: 36px; text-align: center; color: var(--text); opacity: .88;
+  min-width: 48px !important; width: auto !important; height: var(--sub-h, 26px);
+  padding: 0 6px !important; text-align: center; color: var(--text); opacity: .9;
+  white-space: nowrap; flex: 0 0 auto; box-sizing: border-box;
+  border: 1px solid transparent; background: transparent; border-radius: 6px; cursor: pointer;
+}
+.tb-zpct:hover, .sr-sub .sr-zoom button.tb-zpct:hover, .sp-sub .sp-zoom button.tb-zpct:hover, .pq-zoom button.tb-zpct:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border-color: var(--line); opacity: 1;
 }
 
 .sp-top select, .sp-range input { font-size: 12px; padding: 0 6px; }
@@ -1756,10 +1763,10 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .agenda.editing .ag-min { width: 4.2em; min-width: 50px; text-align: center; padding: 3px 5px; }
 .agenda.editing .ag-x { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; }
 .ie-ev input[data-ie-evtext] { flex: 1 1 100%; }
-.p-side, .wg-host, .sr-host, .mu-host, .score-host { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent; }
-.p-side::-webkit-scrollbar, .wg-host::-webkit-scrollbar, .sr-host::-webkit-scrollbar, .mu-host::-webkit-scrollbar, .score-host::-webkit-scrollbar { width: 7px; height: 7px; }
-.p-side::-webkit-scrollbar-track, .wg-host::-webkit-scrollbar-track, .sr-host::-webkit-scrollbar-track, .mu-host::-webkit-scrollbar-track, .score-host::-webkit-scrollbar-track { background: transparent; }
-.p-side::-webkit-scrollbar-thumb, .wg-host::-webkit-scrollbar-thumb, .sr-host::-webkit-scrollbar-thumb, .mu-host::-webkit-scrollbar-thumb, .score-host::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 26%, transparent); border-radius: 99px; }
+.p-side, .wg-host, .sr-host, .sr-staff, .sp-score, .pq-staff, .mu-host, .score-host { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent; }
+.p-side::-webkit-scrollbar, .wg-host::-webkit-scrollbar, .sr-host::-webkit-scrollbar, .sr-staff::-webkit-scrollbar, .sp-score::-webkit-scrollbar, .pq-staff::-webkit-scrollbar, .mu-host::-webkit-scrollbar, .score-host::-webkit-scrollbar { width: 7px; height: 7px; }
+.p-side::-webkit-scrollbar-track, .wg-host::-webkit-scrollbar-track, .sr-host::-webkit-scrollbar-track, .sr-staff::-webkit-scrollbar-track, .sp-score::-webkit-scrollbar-track, .pq-staff::-webkit-scrollbar-track, .mu-host::-webkit-scrollbar-track, .score-host::-webkit-scrollbar-track { background: transparent; }
+.p-side::-webkit-scrollbar-thumb, .wg-host::-webkit-scrollbar-thumb, .sr-host::-webkit-scrollbar-thumb, .sr-staff::-webkit-scrollbar-thumb, .sp-score::-webkit-scrollbar-thumb, .pq-staff::-webkit-scrollbar-thumb, .mu-host::-webkit-scrollbar-thumb, .score-host::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 26%, transparent); border-radius: 99px; }
 
 /* 4. Light themes (Paper, Sky, Mint, Sunshine) contrast + Progress layout + Class-colored dock & PDF toggles */
 .wg-host button { background: color-mix(in srgb, var(--text) 10%, transparent); }
@@ -1895,8 +1902,8 @@ button:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
 .pq-resize { position: absolute; left: 0; right: 0; bottom: 0; height: 11px; display: flex; align-items: center; justify-content: center; cursor: ns-resize; user-select: none; touch-action: none; background: linear-gradient(transparent, rgba(0,0,0,.04)); }
 .pq-resize span { width: 36px; height: 3.5px; border-radius: 99px; background: rgba(29,35,48,.24); transition: background .12s, width .12s; }
 .pq-resize:hover span { background: var(--accent, #2563eb); width: 48px; }
-.pq-zoom button { width: 26px; min-width: 26px; height: 26px; padding: 0 !important; border-radius: 7px; border: 1px solid var(--line); background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.pq-zoom button:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 14%, transparent); }
+.pq-zoom button:not(.tb-zpct) { width: 26px; min-width: 26px; height: 26px; padding: 0 !important; border-radius: 7px; border: 1px solid var(--line); background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.pq-zoom button:not(.tb-zpct):hover:not(:disabled) { background: color-mix(in srgb, var(--text) 14%, transparent); }
 .pq-zoom button:disabled { opacity: .38; cursor: default; }
 .pq-zoom .ico { width: 13.5px; height: 13.5px; }
 .pq-staff .sr-cur path, .pq-staff .sr-cur rect, .pq-staff .sr-cur text { fill: #e76f51 !important; stroke: #e76f51 !important; }
