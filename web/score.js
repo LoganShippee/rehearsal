@@ -482,9 +482,9 @@ function mountScore(host, st, onChange0, key) {
   if (cached && SP_PLAY.ctl === cached) spStop();
   const root = document.createElement('div'); root.className = 'sp-root';
   const BAR = {
-    file: () => `<span class="sp-grp"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)">＋</button></span>`,
+    file: () => `<span class="sp-grp"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)" aria-label="Add a score file">${IC('ico:plus')}</button></span>`,
     play: () => `<button data-sp="play" class="sp-primary">${IC('ico:play')} Play</button>`,
-    tempo: () => `<span class="sp-step" title="Tempo (beats per minute). The small number is the speed compared with the score."><button data-sp="tempo-step" data-d="-5" title="Slower">−</button><output class="sp-bpm"></output><button data-sp="tempo-step" data-d="5" title="Faster">+</button></span>`,
+    tempo: () => `<span class="sp-step" title="Tempo (beats per minute). The small number is the speed compared with the score."><button data-sp="tempo-step" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm"></output><button data-sp="tempo-step" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>`,
     metronome: () => `<button data-sp="metro" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
     loop: () => `<button data-sp="loop" title="Loop the selected measures (click or drag on the music to choose them)">${IC('ico:repeat')} <span class="sp-looplbl">Loop</span></button>`,
     range: () => `<span class="sp-range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
@@ -517,8 +517,9 @@ function mountScore(host, st, onChange0, key) {
     ['Choir row', [['focus', 'Focus buttons'], ['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
     ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Parts & volumes'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
   ];
+  const SP_DEFAULT_HIDDEN = ['help', 'range'];
   ctl.applyCtl = () => {
-    const hid = new Set(S.settings.spHidden ?? ['help', 'range']);
+    const hid = new Set(S.settings.spHidden ?? SP_DEFAULT_HIDDEN);
     root.querySelectorAll('[data-ctl]').forEach(el => { el.hidden = hid.has(el.dataset.ctl); });
     const ch = $q('.sp-choir');                                      // hide the choir row if everything in it is hidden
     if (ch && ctl.sc) ch.classList.toggle('sp-empty', ['focus', 'pitches', 'colour', 'show'].every(k => hid.has(k)));
@@ -567,7 +568,7 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.drawCustom = () => {
     const box = $q('.sp-custom'); if (box.hidden) return;
-    const hid = new Set(S.settings.spHidden ?? ['help', 'range']);
+    const hid = new Set(S.settings.spHidden ?? SP_DEFAULT_HIDDEN);
     box.innerHTML = `<div class="sp-spots-head"><b>${IC('ico:eye')} Buttons to show</b><span class="sp-sp"></span><button data-sp="custom-all">Show all</button><button data-sp="custom" class="sp-primary">Done</button></div>
       <div class="sp-cust-cols">${SP_CTLS.map(([h, items]) => `<div><div class="sp-lbl">${h}</div>${items.map(([k, l]) => `<label class="srchk"><input type="checkbox" data-ctlbox="${k}" ${hid.has(k) ? '' : 'checked'}> ${l}</label>`).join('')}</div>`).join('')}</div>
       <div class="sp-note">Applies to every score. Settings always stays. Drag any button on the bar to move it. <button data-sp="barreset">Reset layout</button></div>`;
@@ -634,7 +635,7 @@ function mountScore(host, st, onChange0, key) {
     const list = st.spots || [];
     box.innerHTML = `<div class="sp-spots-head"><b>${IC('ico:agenda')} Rehearsal spots</b><span class="sp-sp"></span>
         <button data-sp="spot-step" data-d="-1" title="Previous spot">${IC('ico:chevleft')}</button><button data-sp="spot-step" data-d="1" title="Next spot">${IC('ico:chevright')}</button>
-        <button data-sp="spot-add" class="sp-primary" title="Save the current loop, focus part and tempo as a spot">＋ Save current loop</button></div>
+        <button data-sp="spot-add" class="sp-primary" title="Save the current loop, focus part and tempo as a spot">${IC('ico:plus')} Save current loop</button></div>
       ${list.length ? `<ol class="sp-spot-list">${list.map(x => `<li class="${x.id === ctl.curSpot ? 'cur' : ''} ${x.done ? 'done' : ''}">
           <button data-sp="spot-done" data-id="${x.id}" class="sp-tick" title="Mark as learned">${x.done ? '✓' : ''}</button>
           <button data-sp="spot-go" data-id="${x.id}" class="sp-spot-name" title="Load this spot">${esc(x.name)}</button>
@@ -672,7 +673,7 @@ function mountScore(host, st, onChange0, key) {
     const ramp = st.speed.on && ctl.playing ? ` · ramp ${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.iter || 0))}%` : '';
     $q('.sp-bpm').innerHTML = `${bpm || st.tempo + '%'}<small>${bpm ? 'BPM · ' + st.tempo + '%' : 'tempo'}${ramp}</small>`;
     $q('[data-sp="metro"]').classList.toggle('on', !!st.metronome);
-    const open = st.settingsOpen !== false; root.classList.toggle('sp-closed', !open); $q('[data-sp="settings"]').classList.toggle('on', open);
+    const open = !!st.settingsOpen; root.classList.toggle('sp-closed', !open); $q('[data-sp="settings"]').classList.toggle('on', open);
     const la = Math.min(st.loop.a, st.loop.b), lb = Math.max(st.loop.a, st.loop.b);
     $q('.sp-looplbl').textContent = st.loop.on ? (la === lb ? `Loop m. ${mNum(la)}` : `Loop m. ${mNum(la)}–${mNum(lb)}`) : 'Loop';
     if (!ctl.pick && ctl.sc) { status(''); $q('.sp-score').title = 'Click a measure to select it · Shift-click or drag to select more · ' + (st.loop.on ? 'the selection loops' : 'Play starts at the selection; turn on Loop to repeat it'); }
@@ -1026,7 +1027,7 @@ function mountScore(host, st, onChange0, key) {
       return;
     }
     else if (el.dataset.ctlbox) {
-      const hid = new Set(S.settings.spHidden ?? ['help']); el.checked ? hid.delete(el.dataset.ctlbox) : hid.add(el.dataset.ctlbox);
+      const hid = new Set(S.settings.spHidden ?? SP_DEFAULT_HIDDEN); el.checked ? hid.delete(el.dataset.ctlbox) : hid.add(el.dataset.ctlbox);
       S.settings.spHidden = [...hid]; save(); spApplyAll(); return;
     }
     else if (k === 'solMinor') { S.settings.solMinor = el.value; save(); ctl.drawLabels(); return; }
@@ -1060,7 +1061,7 @@ function mountScore(host, st, onChange0, key) {
       { const R = ctl.osmd.EngravingRules; if (R) { R.PageTopMargin = 1; R.TitleTopDistance = 1; } }
       await ctl.osmd.load(xml);
       ctl.osmd.zoom = st.zoom; ctl.drawChoir();
-      if (st.settingsOpen !== false) { const sp = $q('.sp-settings'); sp.hidden = false; sp.innerHTML = settingsHTML(); }
+      if (st.settingsOpen) { const sp = $q('.sp-settings'); sp.hidden = false; sp.innerHTML = settingsHTML(); }
       ctl.updateBar();
       ctl.applyCtl();   // controls shown unless you hide them
       if ((st.view || 'all') !== 'all') ctl.applyView(); else { ctl.lastW = 0; ctl.relayout(); }

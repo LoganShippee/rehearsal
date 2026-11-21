@@ -19,7 +19,7 @@ function mountPdf(host, src, st, onChange, opts = {}) {
   host.innerHTML = `<div class="pdfv"><div class="pdfv-view"><div class="pdfv-pages"></div></div>
     ${canInk ? '<div class="pdfv-abar" hidden></div>' : ''}
     <div class="pdfv-bar">
-      <button data-pdf="prev" title="Previous page (Page Up)">${IC('ico:chevleft')}</button><span class="pdfv-num">…</span><button data-pdf="next" title="Next page (Page Down)">${IC('ico:play')}</button>
+      <button data-pdf="prev" title="Previous page (Page Up)" aria-label="Previous page">${IC('ico:chevleft')}</button><span class="pdfv-num">…</span><button data-pdf="next" title="Next page (Page Down)" aria-label="Next page">${IC('ico:chevright')}</button>
       <span class="pdfv-sep"></span>
       <button data-pdf="fit" title="Fit the whole page / fit the width"></button>
       <button data-pdf="mode" title="One page at a time / scroll through all pages"></button>
@@ -39,6 +39,8 @@ function mountPdf(host, src, st, onChange, opts = {}) {
       const p = Math.max(1, Math.min(doc.numPages, n)); if (p === st.page && st.mode === 'page') return; st.page = p; onChange(); if (st.mode === 'page') draw(); else host.querySelector(`[data-pg="${p}"]`)?.scrollIntoView({ block: 'start' }); bar(); },
     setRes(z) { const r = Math.min(4, Math.max(1, Math.round(z * 2) / 2)); if (r !== res) { res = r; draw(); } },
     redrawInk() { for (const w of pages.querySelectorAll('.pdfv-pw')) inkPage(w); },
+    isAnnot() { return annot; },
+    closeAnnot() { if (!annot) return false; annot = false; host.querySelector('.pdfv')?.classList.remove('annot'); bar(); abarRender(); return true; },
   };
   const pairStart = n => n - ((n - 1) % 2);          // 1–2, 3–4, …
   host.__pdf = ctl;
@@ -52,18 +54,20 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     host.querySelector('[data-pdf="annot"]')?.classList.toggle('on', annot);
   };
   // the annotation tools (shown while Annotate is on)
+  const curPages = () => st.two && st.mode === 'page' ? [st.page, st.page + 1] : [st.page];
+  const hasCurInk = () => curPages().some(p => ink()[p]?.length);
   const abarRender = () => {
     if (!abar) return;
     abar.hidden = !annot; if (!annot) return;
     const has = Object.values(ink()).some(a => a?.length);
-    abar.innerHTML = `${[['pen', 'ico:pen', 'Pen'], ['hl', 'ico:highlight', 'Highlighter'], ['erase', 'ico:erase', 'Eraser (touch a mark to remove it)']].map(([t, ic, l]) => `<button data-pdfa="tool" data-v="${t}" class="${PDF_PEN.tool === t ? 'on' : ''}" title="${l}">${IC(ic)}</button>`).join('')}
+    abar.innerHTML = `${[['pen', 'ico:pen', 'Pen'], ['hl', 'ico:highlight', 'Highlighter'], ['erase', 'ico:erase', 'Eraser (touch a mark to remove it)']].map(([t, ic, l]) => `<button data-pdfa="tool" data-v="${t}" class="${PDF_PEN.tool === t ? 'on' : ''}" title="${l}" aria-label="${l}">${IC(ic)}</button>`).join('')}
       <span class="pdfv-sep"></span>
-      ${PDF_INK_COLORS.map(c => `<button data-pdfa="color" data-v="${c}" class="sw ${PDF_PEN.color === c ? 'on' : ''}" style="--c:${c}" title="Colour"></button>`).join('')}
+      ${PDF_INK_COLORS.map(c => `<button data-pdfa="color" data-v="${c}" class="sw ${PDF_PEN.color === c ? 'on' : ''}" style="--c:${c}" title="Colour" aria-label="Colour ${c}"></button>`).join('')}
       <span class="pdfv-sep"></span>
-      ${PDF_INK_SIZES.map((_, i) => `<button data-pdfa="size" data-v="${i}" class="sz ${PDF_PEN.size === i ? 'on' : ''}" title="${['Thin', 'Medium', 'Thick'][i]}"><i style="width:${4 + i * 4}px;height:${4 + i * 4}px"></i></button>`).join('')}
+      ${PDF_INK_SIZES.map((_, i) => `<button data-pdfa="size" data-v="${i}" class="sz ${PDF_PEN.size === i ? 'on' : ''}" title="${['Thin', 'Medium', 'Thick'][i]}" aria-label="${['Thin', 'Medium', 'Thick'][i]}"><i style="width:${4 + i * 4}px;height:${4 + i * 4}px"></i></button>`).join('')}
       <span class="pdfv-sep"></span>
-      <button data-pdfa="undo" title="Undo" ${undo.length ? '' : 'disabled'}>${IC('ico:undo')}</button>
-      <button data-pdfa="clearpage" title="Erase every mark on this page" ${ink()[st.page]?.length ? '' : 'disabled'}>Clear page</button>
+      <button data-pdfa="undo" title="Undo" aria-label="Undo" ${undo.length ? '' : 'disabled'}>${IC('ico:undo')}</button>
+      <button data-pdfa="clearpage" title="Erase every mark on this page" ${hasCurInk() ? '' : 'disabled'}>Clear page</button>
       <button data-pdfa="clearall" title="Erase the marks on every page" ${has ? '' : 'disabled'}>Clear all</button>
       ${opts.saveCopy ? `<button data-pdfa="copy" title="Save a new PDF with the marks made permanent (the original stays as it is)" ${has ? '' : 'disabled'}>${IC('ico:save')} Save copy</button>` : ''}
       <button data-pdfa="done" title="Stop annotating">Done</button>`;
@@ -123,8 +127,8 @@ function mountPdf(host, src, st, onChange, opts = {}) {
         const u = undo.pop(); if (u) { if (u.add) { const arr = I[u.page] || []; const i = arr.indexOf(u.add); if (i >= 0) arr.splice(i, 1); } if (u.restore) for (const [p, arr] of Object.entries(u.restore)) I[p] = arr; }
         changed(); ctl.redrawInk(); return;
       }
-      if (k === 'clearpage' && I[st.page]?.length) {
-        const pgs = st.two && st.mode === 'page' ? [st.page, st.page + 1] : [st.page];
+      if (k === 'clearpage' && hasCurInk()) {
+        const pgs = curPages();
         const restore = {}; for (const p of pgs) if (I[p]?.length) { restore[p] = I[p]; delete I[p]; }
         undo.push({ restore }); changed(); ctl.redrawInk(); return;
       }

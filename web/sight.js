@@ -49,7 +49,7 @@ const SR_LEAPS = { step: 'Steps only', third: 'Steps & 3rds', triad: 'Steps & do
 
 function srDefaults() {
   return {
-    mode: 'rhythm', show: false, settingsOpen: true,
+    mode: 'rhythm', show: false, settingsOpen: false,
     rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'] },
     solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, startDo: true, cells: ['q', 'h', 'w'] },
     ex: {},
@@ -940,7 +940,7 @@ function srSettingsHTML(st) {
   const meters = m === 'rhythm' ? Object.keys(SR_METERS) : ['2/4', '3/4', '4/4'];
   const table = m === 'rhythm' ? srCellsFor(o.ts) : Object.fromEntries(SR_MEL_CELLS.map(k => [k, SR_SIMPLE[k]]));
   const common = `<label>Time <select data-k="ts">${meters.map(v => opt(v, o.ts)).join('')}</select></label>
-    <label>Measures <span class="sr-step"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer">−</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More">+</button></span></label>
+    <label>Measures <span class="sr-step sr-mstep"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer" aria-label="Fewer measures">${IC('ico:minus')}</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More" aria-label="More measures">${IC('ico:plus')}</button></span></label>
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
@@ -1249,7 +1249,7 @@ function mbarDrag(host, cfg, barSel, rerender) {
   const move = e => {
     if (!d) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (!d.moved && Math.hypot(dx, dy) < 7) return;
+    if (!d.moved && Math.hypot(dx, dy) < 15) return;
     if (!d.moved) { d.moved = true; d.it.classList.add('dragging'); bar()?.classList.add('show-grid'); }
     d.it.style.transform = `translate(${dx}px, ${dy}px)`;
   };
@@ -1316,13 +1316,13 @@ function mountSight(host, st, onChange) {
       <div class="sr-top">
         ${srBarHTML({
           tabs: () => `<div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:hand')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>`,
-          tempo: () => `<span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower">−</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster">+</button></span>`,
+          tempo: () => `<span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>`,
           new: () => `<button data-sr="new" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>`,
           play: () => `<button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
           rhyonly: () => st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`,
           show: () => kindNow === 'rhythm' ? '' : `<button data-sr="show" class="${st.show ? 'on' : ''}" title="Write the solfege syllables under the notes">${IC('ico:music')} Solfege</button>`,
           counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:list')} Counts</button>`,
-          playhead: () => `<button data-sr="playhead" class="${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} Playhead: Beat`, `${IC('ico:playhead')} Playhead: Note`, `${IC('ico:playhead')} Playhead: Off`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
+          playhead: () => `<button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Beat</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Note</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Off</b></span>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
           metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
           nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,

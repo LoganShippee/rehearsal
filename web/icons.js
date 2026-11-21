@@ -111,7 +111,13 @@ const ICON_PATHS = {
  "zoomout": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <line x1=\"21\" x2=\"16.65\" y1=\"21\" y2=\"16.65\" /> <line x1=\"8\" x2=\"14\" y1=\"11\" y2=\"11\" />",
  "maximize": "<polyline points=\"15 3 21 3 21 9\" /> <polyline points=\"9 21 3 21 3 15\" /> <line x1=\"21\" x2=\"14\" y1=\"3\" y2=\"10\" /> <line x1=\"3\" x2=\"10\" y1=\"21\" y2=\"14\" />",
  "restore": "<polyline points=\"4 14 10 14 10 20\" /> <polyline points=\"20 10 14 10 14 4\" /> <line x1=\"14\" x2=\"21\" y1=\"10\" y2=\"3\" /> <line x1=\"3\" x2=\"10\" y1=\"21\" y2=\"14\" />",
- "chevright": "<path d=\"m9 18 6-6-6-6\" />"
+ "chevright": "<path d=\"m9 18 6-6-6-6\" />",
+ "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />",
+ "minus": "<path d=\"M5 12h14\" />",
+ "menu": "<path d=\"M4 7h16\" /> <path d=\"M4 12h16\" /> <path d=\"M4 17h16\" />",
+ "piano": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"M7 4v16\" /> <path d=\"M12 4v16\" /> <path d=\"M17 4v16\" /> <path d=\"M5.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" /> <path d=\"M10.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" /> <path d=\"M15.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" />",
+ "ladder": "<path d=\"M7 3v18\" /> <path d=\"M17 3v18\" /> <path d=\"M7 7h10\" /> <path d=\"M7 12h10\" /> <path d=\"M7 17h10\" />",
+ "flag": "<path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\" /> <line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\" />"
 };
 function ico(name, cls = '') {
   const p = ICON_PATHS[name]; if (!p) return '';

@@ -1611,3 +1611,145 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .sr-zoom button, .sp-top .sp-zoom button { min-width: 30px; padding: 0 6px !important; }
 .sp-range { height: var(--ctl-h); display: inline-flex; align-items: center; gap: 4px; }
 .sp-grp { align-items: center; }
+
+/* ---------- UI polish pass (Phase 1) ---------- */
+/* Centered + / - SVG icons everywhere */
+.ic-btn, .cal-adds button, .prog-add, .prog-addstep, .ie-add, .yt-addcur, .yt-lhead button, .yt-pk-new button,
+.tt-step > button, .sr-step button, .sp-step button, .yt-acts button, .team .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.ic-btn .ico, .cal-adds button .ico, .prog-add .ico, .prog-addstep .ico, .ie-add .ico,
+.yt-addcur .ico, .yt-lhead button .ico, .yt-pk-new button .ico, .yt-acts button .ico,
+.tt-step > button .ico, .sr-step button .ico, .sp-step button .ico, .team .btn .ico {
+  width: 1em; height: 1em; flex: none; vertical-align: middle;
+}
+.tt-step > button .ico { width: 20px; height: 20px; }
+.p-dock button .i { display: inline-flex; align-items: center; justify-content: center; height: 18px; line-height: 1; }
+.p-dock button .i .ico { width: 18px; height: 18px; display: block; }
+.p-dock.dock-sm button .i { height: 14px; }
+.p-dock.dock-sm button .i .ico { width: 14px; height: 14px; }
+.p-dock.dock-lg button .i { height: 26px; }
+.p-dock.dock-lg button .i .ico { width: 26px; height: 26px; }
+.p-dock .dock-grip { color: rgba(255,255,255,.72); }
+
+/* 1. Signal banner sits clearly below header & above dock/windows */
+.p-signal { top: 4.8em; z-index: 65; }
+.present.stage-max .p-signal { top: 3.6em; }
+
+/* 2. Paused timer visual state */
+.p-timer .tl { display: flex; align-items: center; gap: 6px; }
+.p-timer .tl-paused { background: var(--accent); color: var(--bg); font-size: .75em; padding: 1px 7px; border-radius: 99px; letter-spacing: .04em; font-weight: 800; }
+.p-timer .tl-paused[hidden] { display: none; }
+.p-timer.paused { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 72%, transparent); }
+.p-timer.paused .ringwrap, .p-timer.paused .tv { opacity: .65; }
+
+/* 3. Quick Edit agenda layout & subtle themed scrollbars */
+.agenda.editing li { flex-direction: column; align-items: stretch; gap: .38em; padding: .55em .65em; }
+.agenda.editing .ag-top { display: flex; align-items: flex-start; gap: .5em; min-width: 0; }
+.agenda.editing .ag-text { flex: 1; min-width: 0; overflow-wrap: break-word; line-height: 1.3; padding: 1px 3px; }
+.agenda.editing .ag-meta { display: flex; align-items: center; gap: .5em; padding-left: 1.85em; }
+.agenda.editing .ag-minw { display: inline-flex; align-items: center; gap: 4px; font-size: .82em; opacity: .9; }
+.agenda.editing .ag-min { width: 4.2em; min-width: 50px; text-align: center; padding: 3px 5px; }
+.agenda.editing .ag-x { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; }
+.p-side, .wg-host, .sr-host, .mu-host, .score-host { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent; }
+.p-side::-webkit-scrollbar, .wg-host::-webkit-scrollbar, .sr-host::-webkit-scrollbar, .mu-host::-webkit-scrollbar, .score-host::-webkit-scrollbar { width: 7px; height: 7px; }
+.p-side::-webkit-scrollbar-track, .wg-host::-webkit-scrollbar-track, .sr-host::-webkit-scrollbar-track, .mu-host::-webkit-scrollbar-track, .score-host::-webkit-scrollbar-track { background: transparent; }
+.p-side::-webkit-scrollbar-thumb, .wg-host::-webkit-scrollbar-thumb, .sr-host::-webkit-scrollbar-thumb, .mu-host::-webkit-scrollbar-thumb, .score-host::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 26%, transparent); border-radius: 99px; }
+
+/* 4. Light themes (Paper, Sky, Mint, Sunshine) contrast + Progress layout + Class-colored dock & PDF toggles */
+.wg-host button { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.wg-host button:hover { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.cal-show button.on { background: color-mix(in srgb, var(--text) 20%, transparent) !important; }
+.cal-d { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.cal-d:hover { background: color-mix(in srgb, var(--text) 13%, transparent); }
+.cal-d.off { background: color-mix(in srgb, var(--text) 14%, transparent); }
+.cal-day { border-left-color: color-mix(in srgb, var(--text) 16%, transparent); }
+.cal-day input, .cal-day select, .cal-day textarea,
+.prog-labels input, .rec-opts select, .rec-opts input[type=number],
+.rec-ctl select, .rec-name input, .rec-info input:focus,
+.yt-bar input, .yt-lhead select, .yt-pk-new input {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text) 20%, transparent);
+}
+.cal-evrow, .prog-item, .rec-live, .rec-review, .rec-player-card { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.prog-title:focus, .prog-notes:focus, .prog-step input:focus, .rec-item:hover, .yt-item:hover, .side-prog .sp-step:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.light { box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 22%, transparent); }
+.pg-chk { border: 2px solid color-mix(in srgb, var(--text) 48%, transparent) !important; }
+.prog-bar, .sp-bar, .rec-lvl { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.rec-big { background: color-mix(in srgb, var(--text) 10%, transparent) !important; border-color: color-mix(in srgb, var(--text) 55%, transparent) !important; }
+canvas.rec-wave { color: color-mix(in srgb, var(--text) 85%, transparent); }
+.yt-side { border-left-color: color-mix(in srgb, var(--text) 14%, transparent); }
+@container (max-width: 620px) { .yt-side { border-top-color: color-mix(in srgb, var(--text) 14%, transparent); } }
+.prog-row { flex-wrap: wrap; row-gap: 6px; }
+.prog-title { flex: 1 1 180px; min-width: 140px; }
+
+.p-dock.dock-class { color: var(--bg); }
+.p-dock.dock-class button, .p-dock.dock-class select { color: var(--bg); }
+.p-dock.dock-class button:hover, .p-dock.dock-class button.on { background: color-mix(in srgb, var(--bg) 16%, transparent); }
+.p-dock.dock-class .sep { background: color-mix(in srgb, var(--bg) 25%, transparent); }
+.p-dock.dock-class .dock-grip { color: color-mix(in srgb, var(--bg) 65%, transparent); }
+.p-dock.dock-class select { background: color-mix(in srgb, var(--bg) 12%, transparent); }
+.pdfv-abar button.on, .pdfv-bar [data-pdf="annot"].on, .pdfv-bar [data-pdf="two"].on {
+  background: var(--accent, #e76f51); color: var(--bg, #1d2330);
+}
+
+/* 5. Setup responsive layout, active tab clarity & dark-mode fixes */
+.card-head { flex-wrap: wrap; }
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }
+.tab.on { font-weight: 700; box-shadow: inset 0 -2px 0 var(--e-accent); }
+.tab:hover:not(.on) { background: color-mix(in srgb, var(--e-text) 6%, transparent); }
+.look-panel input, .look-panel select { background: #fff; color: #1d2330; border-color: #d3d7e0; }
+@media (prefers-color-scheme: dark) {
+  .backup-row { background: rgba(255,255,255,.06); }
+  .upd-status { background: #262a34; color: #e8eaf0; }
+  .upd-status.upd-ok { background: #173321; color: #7ee29f; }
+  .upd-status.upd-todo { background: #3a2d12; color: #ffd073; }
+  .upd-status.upd-bad { background: #3b191d; color: #ff9c9c; }
+  .upd-status.upd-busy { background: #1c2942; color: #9bc0ff; }
+}
+@media (max-width: 860px) {
+  .e-main { padding: 12px; }
+  .split { grid-template-columns: 1fr; }
+  .auto-row { grid-template-columns: 24px 1fr 28px; }
+  .auto-when { grid-column: 2; }
+  .auto-fields { grid-column: 2; }
+  .week, .days14 { grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); }
+}
+
+/* 6. Sight Reading & Score Practice control sizing + collapsed dock icon */
+.sr-top, .sp-top, .sp-choir { --ctl-h: 34px; }
+@media (pointer: coarse) { .sr-top, .sp-top, .sp-choir { --ctl-h: 40px; } }
+.sr-settings .sr-mstep { height: 32px; align-items: stretch; border-radius: 8px; }
+.sr-settings .sr-mstep button { min-width: 30px; min-height: 0; padding: 0 7px; font-size: 14px; }
+.sr-settings .sr-mstep input[type=number] { width: 42px !important; font-size: 14px !important; padding: 0 2px !important; }
+@container (max-width: 720px) {
+  .sr-top .sr-phbtn .sr-phmode b { font-size: 11px; margin-left: 3px; font-weight: 700; }
+}
+.dock-idle-ic { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0; pointer-events: none; transition: opacity .25s; display: inline-flex; align-items: center; justify-content: center; }
+.dock-idle-ic .ico { width: 20px; height: 20px; }
+.p-dock.hidden > .dock-idle-ic { opacity: .82; }
+
+/* 7. Tuner transposition pill in Ensemble view + Metronome beat dot wrapping */
+.tu-trans-pill { background: var(--accent); color: var(--bg); font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+.me-dots { flex-wrap: wrap; max-width: 100%; }
+.mu .me-dot { padding: 0; border-radius: 50%; }
+
+/* 8. Solid legible popovers (no warm-up text bleed-through) */
+.win-menu, .dock-more-menu, .dock-custom, .look-panel, .group-menu, .snap-menu, .bm-menu {
+  background: #fafbfd; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(29,35,48,.12);
+}
+
+/* 9 & 10. PDF bar narrow/touch + Whiteboard undo + Touch hover-fallbacks + Focus rings */
+.pdfv-bar { max-width: calc(100% - 16px); overflow-x: auto; }
+.pdf-host:focus-within .pdfv-bar { opacity: 1; }
+.ink-bar button:disabled { opacity: .35; cursor: default; }
+.prog-step:focus-within .prog-sx, .yt-item:focus-within .yt-acts, .p-split:focus-within .p-split-btn { opacity: .85; }
+@media (hover: none), (pointer: coarse) {
+  .pdfv-bar, .p-split-btn, .prog-tools, .prog-sx, .yt-acts { opacity: .82 !important; }
+}
+button:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent, var(--e-accent)); outline-offset: 2px;
+}

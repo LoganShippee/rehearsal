@@ -143,21 +143,36 @@ function muDrawTrace(c, trace) {
   });
   if (on) g.stroke();
 }
-function muTunerRender(host, st, id) {
-  const listening = !!MU_TUNER.stream && MU_TUNER.id === id, showSet = !!host.__set;
-  host.querySelector('.mu')?.classList.toggle('ens', !!st.ens);
-  host.querySelector('.tu-panel').innerHTML = `
+function muTunerControlsHTML(st, id, listening, showSet) {
+  const transLabel = MU_TRANSPOSE[st.trans]?.[0] || '';
+  return `
     <div class="tu-top">
       <select data-mu="trans" title="Your instrument (the note names follow it)">${Object.entries(MU_TRANSPOSE).map(([k, [l]]) => `<option value="${k}" ${st.trans === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      ${st.ens && st.trans !== 'concert' ? `<span class="tu-trans-pill" title="Transposed note names">${esc(transLabel)}</span>` : ''}
       <button data-mu="listen" class="tu-go ${listening ? 'on' : ''}">${listening ? IC('ico:stop') + ' Stop' : IC('ico:mic') + ' Start tuner'}</button>
       <span class="grow"></span>
-      <button data-mu="ens" class="mu-ic ${st.ens ? 'on' : ''}" title="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}">${IC('ico:fullscreen')}</button>
-      <button data-mu="tset" class="mu-ic ${showSet ? 'on' : ''}" title="Tuner settings">${IC('ico:sliders')}</button></div>
+      <button data-mu="ens" class="mu-ic ${st.ens ? 'on' : ''}" title="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}" aria-label="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}">${IC('ico:fullscreen')}</button>
+      <button data-mu="tset" class="mu-ic ${showSet ? 'on' : ''}" title="Tuner settings" aria-label="Tuner settings">${IC('ico:sliders')}</button></div>
     ${showSet ? `<div class="tu-set">
       <label>A = <select data-mu="ref">${[435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445].map(v => `<option value="${v}" ${(st.refA || 440) === v ? 'selected' : ''}>${v} Hz</option>`).join('')}</select></label>
       <label>Tune to <select data-mu="target"><option value="auto" ${!st.target || st.target === 'auto' ? 'selected' : ''}>Nearest note</option>${MU_NAMES.map((nm, i) => `<option value="${i}" ${String(st.target) === String(i) ? 'selected' : ''}>${nm}</option>`).join('')}</select></label>
       <label>Listens to <select data-mu="sens">${[['quiet', 'Quiet room'], ['normal', 'Normal'], ['noisy', 'Noisy room']].map(([k, l]) => `<option value="${k}" ${(st.sens || 'normal') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    </div>` : ''}
+    </div>` : ''}`;
+}
+function muTunerRender(host, st, id, keepRead = false) {
+  const listening = !!MU_TUNER.stream && MU_TUNER.id === id, showSet = !!host.__set;
+  host.querySelector('.mu')?.classList.toggle('ens', !!st.ens);
+  const panel = host.querySelector('.tu-panel');
+  const existingRead = keepRead ? panel.querySelector('.tu-read') : null;
+  if (existingRead) {
+    panel.querySelector('.tu-ctl')?.remove();
+    const ctl = document.createElement('div'); ctl.className = 'tu-ctl';
+    ctl.innerHTML = muTunerControlsHTML(st, id, listening, showSet);
+    panel.prepend(ctl);
+    if (MU_TUNER.trace.length) muDrawTrace(panel.querySelector('.tu-trace'), MU_TUNER.trace);
+    return;
+  }
+  panel.innerHTML = `<div class="tu-ctl">${muTunerControlsHTML(st, id, listening, showSet)}</div>
     <div class="tu-read idle fresh" data-state="off">
       <svg class="tu-gauge" viewBox="-110 -108 220 112">
         <path class="tu-arc" d="${muArc(-50, 50)}" fill="none" stroke="currentColor" stroke-opacity=".12" stroke-width="14" stroke-linecap="round"/>
@@ -248,8 +263,8 @@ function mountTuner(host, st, onChange, id) {
     if (k === 'drone') { MU_DRONE.owner === st ? muDroneStop() : muDroneStart(st.drone, st, id); muDroneRender(host, st); return; }
     if (k === 'dpc') { st.drone.pc = +b.dataset.v; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muDroneRender(host, st); }
     if (k === 'dmode') { st.drone.mode = b.dataset.v; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muDroneRender(host, st); }
-    if (k === 'ens') { st.ens = !st.ens; onChange(); muTunerRender(host, st, id); }
-    if (k === 'tset') { host.__set = !host.__set; muTunerRender(host, st, id); }
+    if (k === 'ens') { st.ens = !st.ens; onChange(); muTunerRender(host, st, id, true); }
+    if (k === 'tset') { host.__set = !host.__set; muTunerRender(host, st, id, true); }
   };
   const change = e => {
     const el = e.target; if (!el.dataset.mu) return;
@@ -376,7 +391,7 @@ function metRender(host, st) {
     <div class="me-display">
       <div class="me-big ${running ? '' : 'idle'}" title="${running ? '' : 'Drag up or down to change the tempo'}">${running ? '' : st.tempo}</div>
       <div class="me-mark">${running ? '' : metMarking(st.tempo) + (st.trainer?.on ? ` · trainer to ${tr.to || 240}` : '')}</div>
-      <div class="me-dots">${Array.from({ length: st.beats }, (_, i) => { const s = metBeatState(st, i); return `<span class="me-dot ${s === 'accent' ? 'acc' : s === 'silent' ? 'silent' : ''}" data-mu="mark" data-v="${i}" title="Tap: normal → accent → silent">${i + 1}</span>`; }).join('')}</div>
+      <div class="me-dots">${Array.from({ length: st.beats }, (_, i) => { const s = metBeatState(st, i); return `<button type="button" class="me-dot ${s === 'accent' ? 'acc' : s === 'silent' ? 'silent' : ''}" data-mu="mark" data-v="${i}" title="Tap: normal → accent → silent" aria-label="Beat ${i + 1}: ${s}">${i + 1}</button>`; }).join('')}</div>
       <div class="me-sub">${st.sub > 1 ? Array.from({ length: st.sub }, () => '<i></i>').join('') : ''}</div>
       <div class="me-tip">Tap a beat number to accent it or make it silent</div>
     </div>
@@ -423,7 +438,7 @@ function mountMetronome(host, st, onChange, id) {
     e.stopPropagation();
     const k = b.dataset.mu;
     if (k === 'start') { if (MET.on && MET.id === id && !MET.countOff) { metStop(); metRender(host, st); } else metStart(host, st, false, id); return; }
-    if (k === 'count') { metStart(host, st, true, id); return; }
+    if (k === 'count') { if (MET.on && MET.id === id && MET.countOff) { metStop(); metRender(host, st); } else metStart(host, st, true, id); return; }
     if (k === 'tempo') { st.tempo = Math.max(30, Math.min(240, st.tempo + +b.dataset.v)); }
     if (k === 'sub') { st.sub = +b.dataset.v; }
     if (k === 'mark') {

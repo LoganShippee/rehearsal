@@ -575,20 +575,29 @@ function ringSVG(frac) {
 }
 function renderTimers() {
   const el = $('#p-timers'); if (!el) return;
-  el.innerHTML = P.timers.map(tm => `<div class="p-timer" data-tid="${tm.id}">
-    <span class="ringwrap"></span><div><div class="tl">${esc(tm.label)}</div><div class="tv"></div></div>
-    <div class="tbtns tb1"><button data-action="timer-pause" data-id="${tm.id}" title="Pause / resume">${IC('ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}" title="Add a minute">+1</button></div>
-    <div class="tbtns"><button data-action="timer-mute" data-id="${tm.id}" class="${tm.muted || tm.sound === 'none' ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}">${IC(tm.muted || tm.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><button data-action="timer-x" data-id="${tm.id}" title="Remove timer">${IC('ico:close')}</button></div></div>`).join('');
+  el.innerHTML = P.timers.map(tm => `<div class="p-timer ${tm.pausedLeft != null ? 'paused' : ''}" data-tid="${tm.id}">
+    <span class="ringwrap"></span><div><div class="tl">${esc(tm.label)} <span class="tl-paused" ${tm.pausedLeft != null ? '' : 'hidden'}>Paused</span></div><div class="tv"></div></div>
+    <div class="tbtns tb1"><button data-action="timer-pause" data-id="${tm.id}" class="${tm.pausedLeft != null ? 'on' : ''}" title="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}" aria-label="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}">${IC(tm.pausedLeft != null ? 'ico:play' : 'ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}" title="Add a minute">+1</button></div>
+    <div class="tbtns"><button data-action="timer-mute" data-id="${tm.id}" class="${tm.muted || tm.sound === 'none' ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}" aria-label="Toggle timer sound">${IC(tm.muted || tm.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><button data-action="timer-x" data-id="${tm.id}" title="Remove timer" aria-label="Remove timer">${IC('ico:close')}</button></div></div>`).join('');
   updateTimers();
 }
 function updateTimers() {
   for (const tm of P.timers) {
     const el = $(`.p-timer[data-tid="${tm.id}"]`); if (!el) continue;
-    const left = timerLeft(tm);
+    const left = timerLeft(tm), paused = !tm.doneAt && tm.pausedLeft != null;
     el.querySelector('.tv').textContent = tm.doneAt ? "Time's up!" : fmtDur(left);
     el.querySelector('.ringwrap').innerHTML = ringSVG(tm.doneAt ? 0 : clamp(left / tm.total, 0, 1));
-    el.classList.toggle('warn', !tm.doneAt && left < 10000);
+    el.classList.toggle('warn', !tm.doneAt && !paused && left < 10000);
     el.classList.toggle('done', !!tm.doneAt);
+    el.classList.toggle('paused', paused);
+    const pb = el.querySelector('[data-action="timer-pause"]');
+    if (pb) {
+      pb.classList.toggle('on', paused);
+      pb.title = pb.ariaLabel = paused ? 'Resume timer' : 'Pause timer';
+      const want = paused ? 'ico:play' : 'ico:pause';
+      if (pb.dataset.ic !== want) { pb.dataset.ic = want; pb.innerHTML = IC(want); }
+    }
+    const pl = el.querySelector('.tl-paused'); if (pl) pl.hidden = !paused;
   }
 }
 
@@ -753,7 +762,7 @@ const DOCK_ITEMS = {
   rec: { icon: 'ico:mic', label: 'Recorder', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
   score: { icon: 'ico:score', label: 'Score practice', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
-  window: { icon: '＋', label: 'Open', act: 'win-menu', on: () => P.winMenu },
+  window: { icon: 'ico:plus', label: 'Open', act: 'win-menu', on: () => P.winMenu },
   tile: { icon: 'ico:tile', label: 'Tile', act: 'win-tile' },
   classpick: { icon: 'ico:pin', label: 'Class picker', special: 'classpick' },
   fullscreen: { icon: 'ico:fullscreen', label: 'Full screen', act: 'fullscreen' },
@@ -789,8 +798,8 @@ function renderDock() {
     return btn(id, it);
   });
   if (P.music) parts.push(btn('music', { icon: 'ico:stop', label: 'Music', act: 'music-stop' }));
-  d.innerHTML = `<span class="dock-grip" title="Drag to move the toolbar">⋮⋮</span>${parts.join('').replace(/^(<span class="sep"><\/span>)+|(<span class="sep"><\/span>)+$/g, '')}
-    <button data-action="dock-more" class="dock-more ${P.dockCustom || P.dockMore ? 'on' : ''}" title="More tools and toolbar settings">⋯</button>`;
+  d.innerHTML = `<span class="dock-idle-ic" aria-hidden="true">${IC('ico:menu')}</span><span class="dock-grip" title="Drag to move the toolbar">⋮⋮</span>${parts.join('').replace(/^(<span class="sep"><\/span>)+|(<span class="sep"><\/span>)+$/g, '')}
+    <button data-action="dock-more" class="dock-more ${P.dockCustom || P.dockMore ? 'on' : ''}" title="More tools and toolbar settings" aria-label="More tools and toolbar settings">⋯</button>`;
   d.classList.toggle('nolabels', !cfg.labels);
   applyDockLook();
   placeDock();
@@ -808,8 +817,13 @@ function fitDock() {
   P.dockOverflow = [];
   const kids = [...d.children];
   requestAnimationFrame(() => { d.style.setProperty('--dock-h', d.offsetHeight + 'px'); d.style.setProperty('--dock-w', d.offsetWidth + 'px'); });
-  kids.forEach(k => { k.style.display = ''; });
-  const over = () => d.classList.contains('vertical') ? d.scrollHeight > d.clientHeight + 1 : d.scrollWidth > d.clientWidth + 1;
+  kids.forEach(k => { if (!k.classList.contains('dock-idle-ic')) k.style.display = ''; });
+  const more = d.querySelector('.dock-more');
+  const over = () => {
+    if (d.classList.contains('vertical')) return d.scrollHeight > d.clientHeight - 2;
+    if (d.scrollWidth > d.clientWidth - 2) return true;
+    return !!(more && more.getBoundingClientRect().right > d.getBoundingClientRect().right - 2);
+  };
   if (!over()) return;
   // Setup goes last: only when nothing else is left, so the ⋯ button itself always stays reachable
   // Buttons that are switched on (Quick edit, Annotate…) go after the others, so you can always switch them off
@@ -822,7 +836,7 @@ function fitDock() {
   // drop dividers that now sit next to each other or at an end
   let prevSep = true;
   for (const k of [...d.children]) {
-    if (k.style.display === 'none' || k.classList.contains('dock-grip')) continue;
+    if (k.style.display === 'none' || k.classList.contains('dock-grip') || k.classList.contains('dock-idle-ic')) continue;
     if (k.classList.contains('sep')) { if (prevSep) k.style.display = 'none'; prevSep = true; } else prevSep = k.classList.contains('dock-more');
   }
 }
@@ -1290,7 +1304,7 @@ function calDayPanel(k, cls) {
       <div class="cal-er2">${kindSel(e)}<input type="time" data-f="time" value="${e.time || ''}" title="Time (optional)">${whoSel(e)}${repeatSel(e, 'data-f="repeat"')}</div>
       ${evRepeat(e) ? `<div class="cal-er2"><label title="Last day it repeats (empty = forever)">until <input type="date" data-f="until" value="${e.until || ''}"></label>${e.date !== k ? `<button data-cd="skip" title="Take only this day out of the series">Skip this day</button>` : ''}</div>` : ''}</div>`).join('')
       || '<div class="cal-none">Nothing on this day.</div>'}
-    <div class="cal-adds"><button data-cd="add" data-kind="event">＋ Event</button><button data-cd="add" data-kind="announcement">＋ Announcement</button><button data-cd="add" data-kind="birthday">＋ Birthday</button></div>
+    <div class="cal-adds"><button data-cd="add" data-kind="event">${IC('ico:plus')} Event</button><button data-cd="add" data-kind="announcement">${IC('ico:plus')} Announcement</button><button data-cd="add" data-kind="birthday">${IC('ico:plus')} Birthday</button></div>
     ${cls ? `<div class="cal-sec">Note on screen for ${esc(cls.name)}</div><textarea data-f="note" rows="2" placeholder="Shows under the announcement that day">${esc(cls.screenNotes?.[k] || '')}</textarea>` : ''}
   </div>`;
 }
@@ -1307,7 +1321,7 @@ function renderProg(h) {
   const lights = it => ['red', 'yellow', 'green'].map(k => `<button class="pick ${k} ${it.status === k ? 'on' : ''}" data-pg="set" data-s="${k}"><i class="light ${k}"></i>${L(k)}</button>`).join('');
   h.innerHTML = `<div class="prog">
     <div class="prog-top">${['green', 'yellow', 'red'].map(k => `<span class="prog-sum"><i class="light ${k}"></i>${L(k)} <b>${count(k)}</b></span>`).join('')}
-      <span class="grow"></span><button data-pg="side" class="${cls.sideProgress ? 'on' : ''}" title="Show this list in the class's side panel">Side panel</button><button data-pg="labels" class="${h.__labels ? 'on' : ''}" title="Rename the three colours">Labels</button><button class="prog-add" data-pg="add">＋ Add</button></div>
+      <span class="grow"></span><button data-pg="side" class="${cls.sideProgress ? 'on' : ''}" title="Show this list in the class's side panel">Side panel</button><button data-pg="labels" class="${h.__labels ? 'on' : ''}" title="Rename the three colours">Labels</button><button class="prog-add" data-pg="add">${IC('ico:plus')} Add</button></div>
     ${h.__labels ? `<div class="prog-labels">${['red', 'yellow', 'green'].map(k => `<label><i class="light ${k}"></i><input data-f="lbl-${k}" value="${esc(cls.progLabels?.[k] || '')}" placeholder="${esc(PROG[k])}"></label>`).join('')}</div>` : ''}
     <div class="prog-list">${items.map((it, i) => {
       const steps = it.steps || [], done = steps.filter(s => s.done).length, open = it.open !== false;
@@ -1322,7 +1336,7 @@ function renderProg(h) {
         ${open ? `<div class="prog-steps">${steps.map(s => `<div class="prog-step ${s.done ? 'done' : ''}" data-sid="${s.id}">
             <button class="pg-chk ${s.done ? 'on' : ''}" data-pg="check" title="${s.done ? 'Mark not done' : 'Mark done'}">${s.done ? IC('ico:check') : ''}</button>
             <input data-f="step" data-sid="${s.id}" value="${esc(s.text)}" placeholder="Step, e.g. learn notes mm. 1–24"><button class="prog-sx" data-pg="sdel" title="Remove step">${IC('ico:close')}</button></div>`).join('')}
-          <button class="prog-addstep" data-pg="addstep">＋ Step</button></div>
+          <button class="prog-addstep" data-pg="addstep">${IC('ico:plus')} Step</button></div>
           <textarea class="prog-notes" data-f="notes" rows="1" placeholder="Notes: what still needs to be done…">${esc(it.notes || '')}</textarea>` : ''}
         ${steps.length && done === steps.length && it.status !== 'green' ? `<div class="prog-hint">All steps are checked off. <button data-pg="set" data-s="green">Mark “${L('green')}”</button></div>` : ''}
       </div></div>`; }).join('')
@@ -1487,8 +1501,8 @@ function renderYtSide(h) {
       ${selMode ? `<label class="yt-chk" title="Select"><input type="checkbox" data-yt="chk" ${on ? 'checked' : ''}></label>` : ''}
       <button class="yt-th" data-yt="${selMode ? 'tsel' : 'play'}">${v.id ? `<img src="${ytThumb(v)}" alt="" loading="lazy">` : IC('ico:youtube')}${v.len ? `<i class="yt-len">${esc(v.len)}</i>` : ''}</button>
       <button class="yt-t" data-yt="${selMode ? 'tsel' : 'play'}">${esc(v.title || (v.id ? 'Video ' + v.id : 'YouTube playlist'))}${v.ch ? `<small>${esc(v.ch)}</small>` : ''}</button>
-      ${selMode ? '' : `<span class="yt-acts">${inList ? `<button data-yt="up" title="Move up">${IC('ico:up')}</button><button data-yt="add1" title="Add to another playlist">＋</button><button data-yt="rm1" title="Remove from playlist">${IC('ico:close')}</button>`
-        : `<button data-yt="add1" title="Add to a playlist">＋</button>${tab === 'recent' ? `<button data-yt="rm1" title="Remove from Recent">${IC('ico:close')}</button>` : ''}`}</span>`}</div>`;
+      ${selMode ? '' : `<span class="yt-acts">${inList ? `<button data-yt="up" title="Move up" aria-label="Move up">${IC('ico:up')}</button><button data-yt="add1" title="Add to another playlist" aria-label="Add to another playlist">${IC('ico:plus')}</button><button data-yt="rm1" title="Remove from playlist" aria-label="Remove from playlist">${IC('ico:close')}</button>`
+        : `<button data-yt="add1" title="Add to a playlist" aria-label="Add to a playlist">${IC('ico:plus')}</button>${tab === 'recent' ? `<button data-yt="rm1" title="Remove from Recent" aria-label="Remove from Recent">${IC('ico:close')}</button>` : ''}`}</span>`}</div>`;
   };
   const items = ytTabItems(h);
   const listBody = tab === 'search'
@@ -1499,11 +1513,11 @@ function renderYtSide(h) {
   side.innerHTML = `
     <div class="yt-tabs">${h.__results || tab === 'search' ? `<button data-yt="tab" data-v="search" class="${tab === 'search' ? 'on' : ''}" title="${esc(h.__q || '')}">Search</button>` : ''}<button data-yt="tab" data-v="recent" class="${tab === 'recent' ? 'on' : ''}">Recent</button><button data-yt="tab" data-v="list" class="${tab === 'list' ? 'on' : ''}">Playlists</button></div>
     ${h.__list && cur ? `<div class="yt-now">${IC('ico:play')} <span>${esc(d.lists.find(l => l.id === h.__list)?.name || '')}</span><button data-yt="prev" title="Previous">${IC('ico:chevleft')}</button><button data-yt="next" title="Next">${IC('ico:chevright')}</button><label title="Play the next video when one ends"><input type="checkbox" data-yt="auto" ${h.__auto !== false ? 'checked' : ''}> auto</label></div>` : ''}
-    ${cur && !selMode ? `<button class="yt-addcur" data-yt="addcur">＋ Add this video to a playlist</button>` : ''}
-    ${inList ? `<div class="yt-lhead">${d.lists.length ? `<select data-yt="pick">${d.lists.map(l => `<option value="${l.id}" ${l === show ? 'selected' : ''}>${esc(l.name)} (${l.items.length})</option>`).join('')}</select>` : ''}<button data-yt="lnew">＋ New</button>${show ? `<button data-yt="lplayall" title="Play from the start">${IC('ico:play')}</button><button data-yt="lren" title="Rename">${IC('ico:edit')}</button><button data-yt="ldel" title="Delete playlist">${IC('ico:trash')}</button>` : ''}</div>` : ''}
+    ${cur && !selMode ? `<button class="yt-addcur" data-yt="addcur">${IC('ico:plus')} Add this video to a playlist</button>` : ''}
+    ${inList ? `<div class="yt-lhead">${d.lists.length ? `<select data-yt="pick">${d.lists.map(l => `<option value="${l.id}" ${l === show ? 'selected' : ''}>${esc(l.name)} (${l.items.length})</option>`).join('')}</select>` : ''}<button data-yt="lnew">${IC('ico:plus')} New</button>${show ? `<button data-yt="lplayall" title="Play from the start">${IC('ico:play')}</button><button data-yt="lren" title="Rename">${IC('ico:edit')}</button><button data-yt="ldel" title="Delete playlist">${IC('ico:trash')}</button>` : ''}</div>` : ''}
     ${tab === 'search' && h.__q ? `<div class="yt-q">Results for “${esc(h.__q)}”</div>` : ''}
     ${items.length ? `<div class="yt-selbar">${selMode
-      ? `<button data-yt="selall">${n === items.length ? 'None' : 'All'}</button><span class="grow">${n} selected</span><button data-yt="seladd" ${n ? '' : 'disabled'}>＋ Add to playlist</button>${tab !== 'search' ? `<button data-yt="selrm" ${n ? '' : 'disabled'} title="${inList ? 'Remove from this playlist' : 'Remove from Recent'}">${IC('ico:trash')}</button>` : ''}<button data-yt="seldone">Done</button>`
+      ? `<button data-yt="selall">${n === items.length ? 'None' : 'All'}</button><span class="grow">${n} selected</span><button data-yt="seladd" ${n ? '' : 'disabled'}>${IC('ico:plus')} Add to playlist</button>${tab !== 'search' ? `<button data-yt="selrm" ${n ? '' : 'disabled'} title="${inList ? 'Remove from this playlist' : 'Remove from Recent'}">${IC('ico:trash')}</button>` : ''}<button data-yt="seldone">Done</button>`
       : `<span class="grow"></span><button data-yt="selon" title="Select several videos to add or remove them together">${IC('ico:check')} Select</button>${tab === 'recent' ? '<button data-yt="rclear">Clear recent</button>' : ''}`}</div>` : ''}
     <div class="yt-list">${listBody}</div>
     ${h.__picker ? ytPickerHTML(h) : ''}`;
@@ -1516,7 +1530,7 @@ function ytPickerHTML(h) {
   const has = l => ks.every(k => l.items.some(x => ytKey(x) === k));
   return `<div class="yt-picker"><div class="yt-pk-head"><b>Add ${vs.length === 1 ? 'this video' : vs.length + ' videos'} to…</b><button data-yt="pclose" title="Close">${IC('ico:close')}</button></div>
     <div class="yt-pk-list">${d.lists.map(l => `<button data-yt="padd" data-l="${l.id}" class="${has(l) ? 'has' : ''}"><span>${esc(l.name)}</span><small>${l.items.length}</small>${has(l) ? IC('ico:check') : ''}</button>`).join('') || '<div class="yt-none">No playlists yet: make one below.</div>'}</div>
-    <div class="yt-pk-new"><input data-yt="newname" placeholder="New playlist name…"><button data-yt="pnew">＋ Create</button></div></div>`;
+    <div class="yt-pk-new"><input data-yt="newname" placeholder="New playlist name…"><button data-yt="pnew">${IC('ico:plus')} Create</button></div></div>`;
 }
 function ytAddTo(h, l, vs) {
   let added = 0;
@@ -1964,9 +1978,20 @@ function winIcon0(w) {
   if (w.kind === 'res') { const r = winRes(w); return r ? resIcon(r) : 'ico:warn'; }
   return 'ico:web';
 }
-function addWindow(w) {
-  const list = winList(), n = list.length;
-  Object.assign(w, { id: uid(), x: 0.04 + 0.035 * (n % 6), y: 0.03 + 0.045 * (n % 6), w: 0.56, h: 0.78, z: topZ(list) + 1 });
+function addWindow(w, size) {
+  const list = winList();
+  const front = list.length ? list.reduce((a, b) => (b.z || 0) > (a.z || 0) ? b : a) : null;
+  const ww = size?.w || 0.56, hh = size?.h || 0.78;
+  let x = 0.04, y = 0.03;
+  if (front && !front.max) {
+    x = front.x + 0.045; y = front.y + 0.05;
+    if (x + ww > 0.98) x = 0.04;
+    if (y + hh > 0.98) y = 0.03;
+  } else if (list.length) {
+    const n = list.length;
+    x = 0.04 + 0.045 * (n % 5); y = 0.03 + 0.05 * (n % 5);
+  }
+  Object.assign(w, { id: uid(), x: clamp(x, 0.01, Math.max(0.01, 0.98 - ww)), y: clamp(y, 0.01, Math.max(0.01, 0.98 - hh)), w: ww, h: hh, z: topZ(list) + 1 });
   list.push(w); save(); P.winMenu = false; renderWinMenu(); renderDock(); WIN.sig = ''; renderWins(context(now()));
   return w;
 }
@@ -2267,7 +2292,7 @@ function bookmarksCard() {
       <button class="iconbtn" data-action="bm-del" data-id="${b.id}" title="Remove">${IC('ico:close')}</button></div>${b.children ? rows(b.children, depth + 1) : ''}`).join('');
   return `<div class="card"><div class="card-head"><h2>Bookmarks</h2><span class="grow"></span>
       ${IS_NATIVE ? '<button class="btn small primary" data-action="bm-chrome">Import from Chrome…</button>' : ''}
-      <button class="btn small" data-action="bm-add">+ Add</button>
+      <button class="btn small ic-btn" data-action="bm-add">${IC('ico:plus')} Add</button>
       ${list.length ? '<button class="btn small danger" data-action="bm-clear">Remove all</button>' : ''}</div>
     <p class="desc">Shown as a bar in every web window on the Present screen. Click ${IC('ico:star')} in a web window to bookmark the page you're on. Sign in to Google once in any web window (or the Drive window) and every window stays signed in.</p>
     ${prof ? (prof.length ? `<div class="notice" style="margin-bottom:12px"><b>Choose a Chrome profile to import:</b>
@@ -2286,12 +2311,12 @@ const ieFocused = sel => { const a = document.activeElement, el = $(sel); return
 function ieSide(ctx, step, evs) {
   const cls = ctx.cls, today = dateKey(now());
   const agenda = `<ol class="agenda editing">${cls.agenda.map((a, i) => `<li class="${i === step ? 'cur' : ''}" data-ag-row="${i}">
-      <span class="ag-grip" data-ag-drag="${i}" title="Drag to reorder">≡</span>
-      <span class="n" data-action="ag-cur" data-i="${i}" title="Make this the current step">${i + 1}</span>
-      <span class="ag-text" contenteditable="true" data-ie="agenda" data-i="${i}">${esc(a.text)}</span>
-      <input class="ag-min" type="number" min="0" max="240" data-ie-min="${i}" value="${a.min || ''}" placeholder="min" title="Minutes">
-      <button class="ag-x" data-action="ag-del" data-i="${i}" title="Remove step">${IC('ico:close')}</button></li>`).join('')}</ol>
-    <button class="ie-add" data-action="ag-add">＋ Add step</button>`;
+      <div class="ag-top"><span class="n" data-action="ag-cur" data-i="${i}" title="Make this the current step">${i + 1}</span>
+      <span class="ag-text" contenteditable="true" data-ie="agenda" data-i="${i}">${esc(a.text)}</span></div>
+      <div class="ag-meta"><span class="ag-grip" data-ag-drag="${i}" title="Drag to reorder">≡</span>
+      <label class="ag-minw"><input class="ag-min" type="number" min="0" max="240" data-ie-min="${i}" value="${a.min || ''}" placeholder="0" title="Minutes"><span>min</span></label>
+      <button class="ag-x" data-action="ag-del" data-i="${i}" title="Remove step" aria-label="Remove step">${IC('ico:close')}</button></div></li>`).join('')}</ol>
+    <button class="ie-add" data-action="ag-add">${IC('ico:plus')} Add step</button>`;
   const todays = evs.map(e => `<li>${esc(eventLabel(e))}${e.time ? ` <span style="opacity:.7">${fmtHM(e.time)}</span>` : ''} <span class="ev-where">${e.classes?.length ? '· this class' : '· all classes'}</span><button class="ag-x" data-action="ie-ev-del" data-id="${e.id}" title="Remove">${IC('ico:close')}</button></li>`).join('');
   return `
     <div class="p-card ie-card"><h4>${IC('ico:quickedit')} Editing ${esc(cls.name)} <button class="ie-done" data-action="edit-mode">Done</button></h4>
@@ -3004,7 +3029,23 @@ document.addEventListener('dblclick', e => {
 });
 
 // ============================================================ annotation (ink)
-let inkCanvas = null, inkCtx = null, inkDrawing = null, inkSnapshot = null;
+let inkCanvas = null, inkCtx = null, inkDrawing = null, inkUndo = [];
+function inkPushUndo() {
+  if (!inkCanvas || !inkCanvas.width || !inkCanvas.height) return;
+  const c = document.createElement('canvas'); c.width = inkCanvas.width; c.height = inkCanvas.height;
+  c.getContext('2d').drawImage(inkCanvas, 0, 0);
+  inkUndo.push(c); if (inkUndo.length > 20) inkUndo.shift();
+  const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = false;
+}
+function inkDoUndo() {
+  if (!inkCanvas || !inkUndo.length) return;
+  const prev = inkUndo.pop();
+  inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0);
+  inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
+  inkCtx.drawImage(prev, 0, 0, inkCanvas.width, inkCanvas.height);
+  inkCtx.restore(); saveInk();
+  const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = !inkUndo.length;
+}
 // Things the pen should never draw over — clicks there go to the control instead.
 const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .tool, .pdfv-bar, .sr-top, .sr-settings, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
 function inkUnder(x, y) {
@@ -3153,18 +3194,19 @@ function updateInkUI() {
   const paper = P.ink.blank ? boardPaper(S.settings.boardPaper) : '';
   host.style.background = !P.ink.blank ? 'transparent' : paper || '#ffffff';
   host.classList.toggle('papered', P.ink.blank && !!S.settings.boardPaper && S.settings.boardPaper !== 'blank');
-  const colors = ['#e63946', '#1d3557', '#2a9d8f', '#f4a261', '#7b2cbf', '#111111', '#ffffff', '#ffd60a'];
+  const colors = [['#e63946', 'Red'], ['#1d3557', 'Navy'], ['#2a9d8f', 'Teal'], ['#f4a261', 'Orange'], ['#7b2cbf', 'Purple'], ['#111111', 'Black'], ['#ffffff', 'White'], ['#ffd60a', 'Yellow']];
   const tb = (t, label) => `<button class="${P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}">${label}</button>`;
   $('#ink-bar').innerHTML = `<span class="ink-grip" title="Drag to move this toolbar">⋮⋮</span>
     ${tb('pen', `${IC('ico:pen')} Pen`)}${tb('hl', `${IC('ico:highlight')} Highlight`)}${tb('line', `${IC('ico:line')} Line`)}${tb('arrow', `${IC('ico:arrow')} Arrow`)}${tb('rect', `${IC('ico:box')} Box`)}${tb('circle', `${IC('ico:circle')} Circle`)}${tb('text', 'T Text')}${tb('erase', `${IC('ico:erase')} Erase`)}
     <span style="width:6px"></span>
-    ${colors.map(c => `<button class="dot ${P.ink.color === c ? 'on' : ''}" style="background:${c}" data-action="ink-color" data-c="${c}"></button>`).join('')}
-    <select data-action-change="ink-size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
+    ${colors.map(([c, nm]) => `<button class="dot ${P.ink.color === c ? 'on' : ''}" style="background:${c}" data-action="ink-color" data-c="${c}" title="${nm}" aria-label="${nm}"></button>`).join('')}
+    <select data-action-change="ink-size" aria-label="Brush size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
       ${[2, 4, 8, 14].map(s => `<option value="${s}" ${P.ink.size === s ? 'selected' : ''} style="color:#000">${s}px</option>`).join('')}</select>
-    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${(S.settings.boardPaper || 'blank') === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
+    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${(S.settings.boardPaper || 'blank') === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
     ${P.ink.blank ? '' : `<button class="${P.ink.interact ? 'on' : ''}" data-action="ink-interact" title="Click through to the slide underneath; drawings stay visible">${IC('ico:pointer')} Click slides</button>`}
-    <button data-action="ink-clear">${IC('ico:trash')} Clear</button>
-    <button data-action="ink-close">${IC('ico:close')}</button>`;
+    <button data-action="ink-undo" title="Undo (⌘Z)" ${inkUndo.length ? '' : 'disabled'}>${IC('ico:undo')} Undo</button>
+    <button data-action="ink-clear" title="Clear board (can be undone)">${IC('ico:trash')} Clear</button>
+    <button data-action="ink-close" title="Close drawing (Esc)" aria-label="Close drawing">${IC('ico:close')}</button>`;
   placeInkBar();
   inkPaperTop();
 }
@@ -3265,6 +3307,7 @@ function inkDown(e) {
 }
 function inkBegin() {
   const d = inkDrawing; d.started = true;
+  inkPushUndo();
   if (d.tool === 'pen' || d.tool === 'erase') { inkStyle(); inkCtx.beginPath(); inkCtx.moveTo(d.start.x, d.start.y); inkCtx.lineTo(d.start.x + 0.01, d.start.y); inkCtx.stroke(); }
 }
 // the element under the pen, ignoring the drawing layer itself
@@ -3342,6 +3385,7 @@ function inkText(p) {
   host.appendChild(inp); setTimeout(() => inp.focus(), 0);
   const commit = () => {
     if (inp.value.trim()) {
+      inkPushUndo();
       const c = inkCtx; c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.fillStyle = P.ink.color;
       c.font = `700 ${14 + P.ink.size * 3}px -apple-system, sans-serif`; c.textBaseline = 'middle'; c.fillText(inp.value, p.x, p.y);
       saveInk();
@@ -3358,6 +3402,8 @@ function saveInk() {
 }
 function restoreInk() {
   if (!inkCanvas) return;
+  inkUndo = [];
+  const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = true;
   inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore();
   const st = P.inkStore[P.inkKey]; if (!st) return;
   const r = inkCanvas.getBoundingClientRect();
@@ -3406,7 +3452,7 @@ function toolBody(name) {
       return `<div class="tt">
       <div class="tt-presets">${[0.5, 1, 2, 3, 5, 10, 15].map(m => `<button data-action="quick-timer" data-m="${m}"><b>${m < 1 ? '30' : m}</b><small>${m < 1 ? 'sec' : 'min'}</small></button>`).join('')}</div>
       <div class="tt-custom">
-        <div class="tt-step"><button data-action="tt-step" data-d="-1" title="1 minute less">−</button><label><input id="tt-min" type="number" min="0.1" step="0.5" value="${T.min}" data-action-input="tt-field" data-k="min"><span>min</span></label><button data-action="tt-step" data-d="1" title="1 minute more">+</button></div>
+        <div class="tt-step"><button data-action="tt-step" data-d="-1" title="1 minute less" aria-label="1 minute less">${IC('ico:minus')}</button><label><input id="tt-min" type="number" min="0.1" step="0.5" value="${T.min}" data-action-input="tt-field" data-k="min"><span>min</span></label><button data-action="tt-step" data-d="1" title="1 minute more" aria-label="1 minute more">${IC('ico:plus')}</button></div>
         <input id="tt-label" placeholder="Label" value="${esc(T.label)}" data-action-input="tt-field" data-k="label">
         <div class="tt-row"><button class="tt-snd ${T.sound === 'none' ? 'off' : ''}" data-action="tt-mute" title="${T.sound === 'none' ? 'Sound off: click to turn on' : 'Click for no sound at the end'}">${IC(T.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><select id="tt-sound" data-action-change="tt-sound">${soundOptions(T.sound === 'none' ? (T.lastSound || 'bell') : T.sound)}</select></div>
         <button class="tt-go" data-action="custom-timer">${IC('ico:play')} Start</button>
@@ -3414,8 +3460,8 @@ function toolBody(name) {
     }
     case 'points': {
       if (!cls) return '<div class="muted">Points are kept per class. Show a class first.</div>';
-      return cls.points.map((t, i) => `<div class="team"><input value="${esc(t.name)}" data-bind="${clsPath(cls)}.points.${i}.name"><button class="btn" data-action="pt" data-i="${i}" data-d="-1">−</button><span class="score">${t.score}</span><button class="btn primary" data-action="pt" data-i="${i}" data-d="1">+</button></div>`).join('') +
-        `<div class="row"><button class="btn small" data-action="pt-add">+ Team</button><button class="btn small" data-action="pt-reset">Reset scores</button>${cls.points.length > 1 ? '<button class="btn small" data-action="pt-del">− Team</button>' : ''}</div>`;
+      return cls.points.map((t, i) => `<div class="team"><input value="${esc(t.name)}" data-bind="${clsPath(cls)}.points.${i}.name"><button class="btn ic-btn" data-action="pt" data-i="${i}" data-d="-1" aria-label="Subtract point">${IC('ico:minus')}</button><span class="score">${t.score}</span><button class="btn primary ic-btn" data-action="pt" data-i="${i}" data-d="1" aria-label="Add point">${IC('ico:plus')}</button></div>`).join('') +
+        `<div class="row"><button class="btn small ic-btn" data-action="pt-add">${IC('ico:plus')} Team</button><button class="btn small" data-action="pt-reset">Reset scores</button>${cls.points.length > 1 ? `<button class="btn small ic-btn" data-action="pt-del">${IC('ico:minus')} Team</button>` : ''}</div>`;
     }
     case 'noise': return `<div class="meter" id="nm"><div></div><span class="lim" style="left:${NOISE.limit}%"></span></div>
       ${S.settings.noiseDyn ? `<div class="dyn-scale">${DYNAMICS.map(d => `<span>${d}</span>`).join('')}</div>` : ''}
@@ -3504,7 +3550,7 @@ function tabHTML() {
 function classesTab() {
   if (!SEL_CLASS || !S.classes.find(c => c.id === SEL_CLASS)) SEL_CLASS = S.classes[0]?.id || null;
   const cls = S.classes.find(c => c.id === SEL_CLASS);
-  const list = `<div class="card"><div class="card-head"><h3>Classes</h3><span class="grow"></span><button class="btn small" data-action="class-add">+ Add</button></div>
+  const list = `<div class="card"><div class="card-head"><h3>Classes</h3><span class="grow"></span><button class="btn small ic-btn" data-action="class-add">${IC('ico:plus')} Add</button></div>
     <div class="list">${S.classes.map(c => `<div class="list-item ${c.id === SEL_CLASS ? 'on' : ''}" data-action="class-sel" data-id="${c.id}"><span class="swatch" style="background:${c.theme.bg}"></span><span class="grow">${esc(c.name)}<br><span class="small muted">${esc(c.subtitle)}</span></span></div>`).join('') || '<div class="empty">No classes yet.</div>'}</div></div>`;
   if (!cls) return `<div class="split">${list}<div class="card"><div class="empty">Add a class to get started.</div></div></div>`;
   const i = S.classes.indexOf(cls), base = `classes.${i}`;
@@ -3527,7 +3573,7 @@ function classesTab() {
       </div>
       <div class="preview-strip" style="margin-top:12px;background-color:${th.bg};color:${th.text};${th.image ? `background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url('${th.image.startsWith('file:') ? fileDirectURL(th.image.slice(5)) : esc(th.image)}')` : ''}"><b style="font-size:20px">${esc(cls.name)}</b><span style="background:${th.accent};color:${th.bg};padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">Current step</span></div>
     </div>
-    <div class="card"><div class="card-head"><h2>Agenda</h2><span class="grow"></span><button class="btn small" data-action="agenda-add">+ Step</button></div>
+    <div class="card"><div class="card-head"><h2>Agenda</h2><span class="grow"></span><button class="btn small ic-btn" data-action="agenda-add">${IC('ico:plus')} Step</button></div>
       <p class="desc">Steps show on the side of the screen. Add minutes and the agenda moves forward on its own during class. Leave minutes blank to move it yourself (or with an automation).</p>
       ${cls.agenda.map((a, k) => `<div class="agenda-row"><span class="muted">${k + 1}.</span><input data-bind="${base}.agenda.${k}.text" value="${esc(a.text)}" placeholder="Step"><input type="number" min="0" data-type="num" data-bind="${base}.agenda.${k}.min" value="${a.min || ''}" placeholder="—"><span class="muted small">min</span><button class="iconbtn" data-action="agenda-del" data-k="${k}">${IC('ico:close')}</button></div>`).join('') || '<div class="empty">No steps yet.</div>'}
       ${cls.agenda.some(a => a.min) ? `<div class="small muted">Total: ${cls.agenda.reduce((s, a) => s + (Number(a.min) || 0), 0)} min</div>` : ''}
@@ -3538,7 +3584,7 @@ function classesTab() {
       <textarea rows="3" data-bind="${base}.warmup" placeholder="What do you notice? What do you wonder?">${esc(cls.warmup)}</textarea></div>
     <div class="card"><div class="card-head"><h2>Resources</h2><span class="grow"></span>
         ${IS_NATIVE ? '<button class="btn small primary" data-action="drive-browse">Browse Google Drive…</button>' : ''}
-        <button class="btn small" data-action="res-add-url">+ Link</button><button class="btn small" data-action="res-add-file">+ File (PDF, image, video)</button></div>
+        <button class="btn small ic-btn" data-action="res-add-url">${IC('ico:plus')} Link</button><button class="btn small ic-btn" data-action="res-add-file">${IC('ico:plus')} File (PDF, image, video, audio)</button></div>
       <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your Mac. They appear as tabs on the Present screen.</p>
       ${cls.resources.map((r, k) => `<div class="res-item"><span style="font-size:18px">${resIcon(r) === '-' ? '' : resIcon(r)}</span>
         <div class="row" style="gap:6px"><input class="grow" data-bind="${base}.resources.${k}.title" value="${esc(r.title)}" placeholder="Title">
@@ -3932,16 +3978,16 @@ function printSub(k) {
 function eventsTab() {
   const list = [...S.events].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   return `<div class="card"><div class="card-head"><h2>Events & birthdays</h2><span class="grow"></span>
-      <button class="btn small" data-action="ev-add" data-kind="birthday">+ Birthday</button><button class="btn small" data-action="ev-add" data-kind="announcement">+ Announcement</button><button class="btn small" data-action="ev-add" data-kind="event">+ Event</button>
+      <button class="btn small ic-btn" data-action="ev-add" data-kind="birthday">${IC('ico:plus')} Birthday</button><button class="btn small ic-btn" data-action="ev-add" data-kind="announcement">${IC('ico:plus')} Announcement</button><button class="btn small ic-btn" data-action="ev-add" data-kind="event">${IC('ico:plus')} Event</button>
       <button class="btn small" data-action="ev-ics">Import calendar (.ics)…</button></div>
     <p class="desc">Today's events show on the Present screen — for all classes, or only the classes you tick under "Show in". Add a time to pop it up full-screen at that moment (birthdays get confetti). Tip: in Google Calendar, use Settings → Import & export → Export to get an .ics file.</p>
-    ${list.length ? `<table class="tbl"><tr><th style="width:130px">Type</th><th style="width:150px">Date</th><th>Title / name</th><th style="width:120px">Pop-up time</th><th style="width:170px">Repeats</th><th style="width:170px">Show in</th><th style="width:30px"></th></tr>
+    ${list.length ? `<div class="tbl-wrap"><table class="tbl"><tr><th style="width:130px">Type</th><th style="width:150px">Date</th><th>Title / name</th><th style="width:120px">Pop-up time</th><th style="width:170px">Repeats</th><th style="width:170px">Show in</th><th style="width:30px"></th></tr>
     ${list.map(e => { const k = S.events.indexOf(e); return `<tr><td><select data-bind="events.${k}.kind"><option value="birthday" ${e.kind === 'birthday' ? 'selected' : ''}>Birthday</option><option value="announcement" ${e.kind === 'announcement' ? 'selected' : ''}>Announcement</option><option value="event" ${e.kind === 'event' ? 'selected' : ''}>Event</option></select></td>
-      <td><input type="date" data-bind="events.${k}.date" value="${e.date || ''}"></td><td><input data-bind="events.${k}.title" value="${esc(e.title)}"></td>
+      <td><input type="date" data-bind="events.${k}.date" value="${e.date || ''}"></td><td><input data-ev-id="${e.id}" data-bind="events.${k}.title" value="${esc(e.title)}"></td>
       <td><input type="time" data-bind="events.${k}.time" value="${e.time || ''}"></td><td>${repeatSel(e, `data-ev-repeat="${e.id}"`)}${evRepeat(e) && evRepeat(e) !== 'yearly' ? `<div class="small muted" style="margin-top:3px">until <input type="date" data-bind="events.${k}.until" value="${e.until || ''}" title="Last day (empty = forever)"></div>` : ''}</td>
       <td><details class="ev-cls"><summary>${esc(evWhere(e))}</summary><label><input type="checkbox" data-ev-all="${e.id}" ${!e.classes?.length ? 'checked' : ''}> All classes</label>
         ${S.classes.map(c => `<label><input type="checkbox" data-ev-cls="${e.id}" data-c="${c.id}" ${e.classes?.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</details></td>
-      <td><button class="iconbtn" data-action="ev-del" data-k="${k}">${IC('ico:close')}</button></td></tr>`; }).join('')}</table>` : '<div class="empty">No events yet.</div>'}
+      <td><button class="iconbtn" data-action="ev-del" data-k="${k}">${IC('ico:close')}</button></td></tr>`; }).join('')}</table></div>` : '<div class="empty">No events yet.</div>'}
     ${S.events.length > 1 ? '<button class="btn small danger" style="margin-top:10px" data-action="ev-clear-past">Remove past one-time events</button>' : ''}
   </div>`;
 }
@@ -4138,16 +4184,16 @@ const A = {
   'tt-step': el => { const T = (S.settings.timerTool ||= {}), i = $('#tt-min'); T.min = Math.max(0.5, Math.round(((Number(i?.value) || 0) + Number(el.dataset.d)) * 2) / 2); if (i) i.value = T.min; save(); },
   'tt-mute': () => { const T = (S.settings.timerTool ||= {}); if (T.sound === 'none') T.sound = T.lastSound || 'bell'; else { T.lastSound = T.sound || 'bell'; T.sound = 'none'; } save(); rerenderTool('timer'); },
   'timer-mute': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; if (tm.sound === 'none') { tm.sound = S.settings.timerTool?.lastSound || 'bell'; tm.muted = false; } else tm.muted = !tm.muted; renderTimers(); },
-  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); },
-  'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); },
+  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); updateTimers(); },
+  'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); updateTimers(); },
   'timer-x': el => { P.timers = P.timers.filter(t => t.id !== el.dataset.id); renderTimers(); },
   'overlay-dismiss': () => { if (P.overlay) P.overlay.until = 0; },
   'music-stop': () => { stopMusic(); renderDock(); },
   'music-stop-ed': () => stopMusic(true),
   pt: el => { const c = currentClass(); if (!c) return; c.points[el.dataset.i].score += Number(el.dataset.d); save(); rerenderTool('points'); },
   'pt-add': () => { const c = currentClass(); if (!c) return; c.points.push({ name: `Team ${c.points.length + 1}`, score: 0 }); save(); rerenderTool('points'); },
-  'pt-del': () => { const c = currentClass(); if (!c) return; c.points.pop(); save(); rerenderTool('points'); },
-  'pt-reset': () => { const c = currentClass(); if (!c) return; c.points.forEach(p => p.score = 0); save(); rerenderTool('points'); },
+  'pt-del': () => { const c = currentClass(); if (!c || c.points.length <= 1) return; const last = c.points[c.points.length - 1]; if (last.score && !confirm(`Remove “${last.name}” (${last.score} pts)?`)) return; c.points.pop(); save(); rerenderTool('points'); },
+  'pt-reset': () => { const c = currentClass(); if (!c) return; if (c.points.some(p => p.score) && !confirm('Reset all team scores to 0?')) return; c.points.forEach(p => p.score = 0); save(); rerenderTool('points'); },
   'noise-start': () => noiseStart(),
   'noise-stop': () => noiseStop(),
   'rand-pick': () => {
@@ -4175,7 +4221,7 @@ const A = {
   'win-menu': () => { P.winMenu = !P.winMenu; renderWinMenu(); renderDock(); },
   'win-tile': () => { P.winMenu = false; renderWinMenu(); renderDock(); tileWindows(); },
   'wm-web': () => { const w = addWindow({ kind: 'web', url: '', native: false }); setTimeout(() => $(`[data-wurl="${w.id}"]`)?.focus(), 30); },
-  'wm-file': async () => { P.winMenu = false; renderWinMenu(); renderDock(); const fs = await pickFile('application/pdf,image/*,video/*,.mxl,.musicxml,.mscz,.mscx', true); for (const f of fs) { const id = await storeFile(f); addWindow(spIsScoreName(f.name) ? { kind: 'score', score: { fileId: id, name: f.name } } : { kind: 'file', fileId: id }); } },
+  'wm-file': async () => { P.winMenu = false; renderWinMenu(); renderDock(); const fs = await pickFile('application/pdf,image/*,video/*,audio/*,.mxl,.musicxml,.mscz,.mscx', true); for (const f of fs) { const id = await storeFile(f); addWindow(spIsScoreName(f.name) ? { kind: 'score', score: { fileId: id, name: f.name } } : { kind: 'file', fileId: id }); } },
   'wm-score': async () => {
     P.winMenu = false; renderWinMenu(); renderDock();
     // reopen the score you used last (switch scores from the list inside the widget)
@@ -4240,8 +4286,8 @@ const A = {
     if (P.winMenu) { P.winMenu = false; renderWinMenu(); renderDock(); }
     const kind = el.dataset.kind, ex = winList().find(w => w.kind === kind);
     if (ex) { bringToFront(ex); return; }
-    const w = addWindow({ kind, mu: muDefaults(kind) });
-    Object.assign(w, kind === 'tuner' ? { w: 0.58, h: 0.72 } : { w: 0.46, h: 0.66 }); save(); applyWinGeom(); renderDock();
+    addWindow({ kind, mu: muDefaults(kind) }, kind === 'tuner' ? { w: 0.62, h: 0.84 } : { w: 0.46, h: 0.68 });
+    renderDock();
   },
   'dock-custom': () => { P.dockCustom = !P.dockCustom; P.dockMore = false; renderDockCustom(); renderDock(); },
   'dock-more': () => { if (P.dockCustom) { P.dockCustom = false; renderDockCustom(); } else P.dockMore = !P.dockMore; renderDock(); renderDockMore(); },
@@ -4352,7 +4398,8 @@ const A = {
   'ink-tool': el => { P.ink.tool = el.dataset.t; P.ink.interact = false; updateInkUI(); },
   'ink-color': el => { P.ink.color = el.dataset.c; if (P.ink.tool === 'erase') P.ink.tool = 'pen'; updateInkUI(); },
   'ink-interact': () => { P.ink.interact = !P.ink.interact; updateInkUI(); },
-  'ink-clear': () => { inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore(); saveInk(); },
+  'ink-undo': () => inkDoUndo(),
+  'ink-clear': () => { inkPushUndo(); inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore(); saveInk(); toast('Drawing cleared — press Undo or ⌘Z to restore.'); },
   'ink-close': () => { P.ink.on = false; updateInkUI(); renderDock(); },
   // classes
   'class-sel': el => { SEL_CLASS = el.dataset.id; renderEditor(); renderClip(); $('#e-main').scrollTop = 0; },
@@ -4370,7 +4417,7 @@ const A = {
   'agenda-add': () => { selClass().agenda.push({ text: '', min: 0 }); save(); renderEditor(); $$('.agenda-row input')[$$('.agenda-row').length * 2 - 2]?.focus(); },
   'agenda-del': el => { const c = VIEW === 'edit' ? selClass() : ieClass()?.cls; if (!c) return; c.agenda.splice(el.dataset.k, 1); TL_SEL = null; save(); tlRerender(); },
   'res-add-url': () => { const u = prompt('Paste a link (Google Slides/Docs/Drive, YouTube, Canva, any web page):'); if (!u) return; const url = /^https?:\/\//.test(u.trim()) ? u.trim() : 'https://' + u.trim(); selClass().resources.push({ id: uid(), title: guessTitle(url), url, mode: 'embed' }); save(); renderEditor(); },
-  'res-add-file': async () => { const fs = await pickFile('application/pdf,image/*,video/*', true); for (const f of fs) { const id = await storeFile(f); selClass().resources.push({ id: uid(), title: f.name.replace(/\.[^.]+$/, ''), fileId: id }); } save(); renderEditor(); },
+  'res-add-file': async () => { const fs = await pickFile('application/pdf,image/*,video/*,audio/*', true); for (const f of fs) { const id = await storeFile(f); selClass().resources.push({ id: uid(), title: f.name.replace(/\.[^.]+$/, ''), fileId: id }); } save(); renderEditor(); },
   'res-del': el => { selClass().resources.splice(el.dataset.k, 1); save(); renderEditor(); },
   'res-move': el => { const a = selClass().resources, k = +el.dataset.k, j = k + Number(el.dataset.d); if (j < 0 || j >= a.length) return; [a[k], a[j]] = [a[j], a[k]]; save(); renderEditor(); },
   'drive-browse': () => { DRIVE_TARGET = SEL_CLASS; native('openDrive', {}); },
@@ -4405,7 +4452,7 @@ const A = {
   },
   'print-sub': () => printSub($('#sub-date').value || NOTE_DATE),
   // events
-  'ev-add': el => { const kind = el.dataset.kind; S.events.push({ id: uid(), kind, date: dateKey(new Date()), title: '', time: '', yearly: kind === 'birthday' }); save(); renderEditor(); const ins = $$('input[data-bind$=".title"]'); },
+  'ev-add': el => { const kind = el.dataset.kind, ev = { id: uid(), kind, date: dateKey(new Date()), title: '', time: '', yearly: kind === 'birthday' }; S.events.push(ev); save(); renderEditor(); const inp = $(`input[data-ev-id="${ev.id}"]`); if (inp) { inp.scrollIntoView({ block: 'nearest' }); inp.focus(); } },
   'ev-del': el => { S.events.splice(el.dataset.k, 1); save(); renderEditor(); },
   'ev-clear-past': () => { const k = dateKey(new Date()); S.events = S.events.filter(e => (evRepeat(e) && (!e.until || e.until >= k)) || !e.date || e.date >= k); save(); renderEditor(); },
   'ev-ics': async () => {
@@ -4455,22 +4502,28 @@ function calibrateSync() {
     pad.classList.remove('hit'); void pad.offsetWidth; pad.classList.add('hit');
     st.textContent = `${diffs.length} of ${n}`;
   };
-  const key = e => { if (e.code === 'Space') { e.preventDefault(); tap(e); } if (e.key === 'Escape') done(true); };
+  const key = e => {
+    if (!box.isConnected) return done(true);
+    if (e.code === 'Space') { e.preventDefault(); tap(e); }
+    if (e.key === 'Escape') { e.preventDefault(); done(true); }
+  };
+  let t1 = 0, t2 = 0, timer = 0;
   const done = cancel => {
-    document.removeEventListener('keydown', key, true); clearTimeout(timer);
+    document.removeEventListener('keydown', key, true);
+    clearTimeout(t1); clearTimeout(t2); clearTimeout(timer);
     if (cancel) return box.remove();
-    if (diffs.length < 5) { st.textContent = 'Not enough taps. Try again.'; pad.disabled = true; return; }
+    if (diffs.length < 5) { st.textContent = 'Not enough taps. Try again.'; pad.disabled = true; box.querySelector('[data-av="close"]').textContent = 'Close'; return; }
     const m = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
     const ms = setAvDelay(m * 1000);
     st.innerHTML = `Done: <b>${ms} ms</b> on this ${DEVICE}.`; pad.disabled = true; box.querySelector('[data-av="close"]').textContent = 'Close';
     document.querySelectorAll('[data-action-input="av-delay"]').forEach(v => { v.value = ms; v.nextElementSibling.textContent = ms + ' ms'; });
   };
   pad.addEventListener('pointerdown', e => { e.preventDefault(); tap(e); });
-  box.querySelector('[data-av="close"]').onclick = () => box.remove();
+  box.querySelector('[data-av="close"]').onclick = () => done(true);
   document.addEventListener('keydown', key, true);
-  setTimeout(() => { st.textContent = 'Get ready…'; }, 500);
-  setTimeout(() => { st.textContent = 'Tap now!'; }, (t0 - c.currentTime + lead * beat - 0.2) * 1000);
-  const timer = setTimeout(() => done(false), (t0 - c.currentTime + (lead + n) * beat + 0.6) * 1000);
+  t1 = setTimeout(() => { st.textContent = 'Get ready…'; }, 500);
+  t2 = setTimeout(() => { st.textContent = 'Tap now!'; }, (t0 - c.currentTime + lead * beat - 0.2) * 1000);
+  timer = setTimeout(() => done(false), (t0 - c.currentTime + (lead + n) * beat + 0.6) * 1000);
 }
 const CHANGE = {
   'board-paper': el => { S.settings.boardPaper = el.value; save(); updateInkUI(); },
@@ -4565,10 +4618,27 @@ document.addEventListener('pointerup', () => {
 document.addEventListener('keydown', e => {
   P.lastMove = Date.now();
   if (VIEW !== 'present' || e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
+  if (P.ink.on && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); inkDoUndo(); return; }
   if (e.key === 'ArrowRight') A['agenda-next']();
   else if (e.key === 'ArrowLeft') A['agenda-prev']();
-  else if (e.key === 'Escape' && P.stageMax) { P.stageMax = false; P.stageKey = ''; }
-  else if (e.key === 'Escape') { if (P.overlay) A['overlay-dismiss'](); else if (P.ink.on) A['ink-close'](); else P.signal = null; }
+  else if (e.key === 'Escape') {
+    if (P.winMenu) { P.winMenu = false; renderWinMenu(); renderDock(); }
+    else if (P.dockMore) { P.dockMore = false; renderDockMore(); renderDock(); }
+    else if (P.dockCustom) { P.dockCustom = false; renderDockCustom(); renderDock(); }
+    else if (P.iconsOpen) { P.iconsOpen = false; renderIcons(); }
+    else if (P.clipOpen) { P.clipOpen = false; renderClip(); renderDock(); }
+    else if (P.lookOpen) { P.lookOpen = false; renderLook(); }
+    else if (P.autoDrawer) { P.autoDrawer = false; renderAutoDrawer(); }
+    else if (P.groupMenu) { P.groupMenu = null; renderGroupMenu(); }
+    else if (P.snapFor) { P.snapFor = null; renderSnapMenu(); }
+    else if (BM.open) { BM.open = null; renderBmMenu(); }
+    else if (P.editMode) A['edit-mode']();
+    else if (typeof PDF_ACTIVE !== 'undefined' && PDF_ACTIVE?.isAnnot?.()) PDF_ACTIVE.closeAnnot();
+    else if (P.stageMax) { P.stageMax = false; P.stageKey = ''; WIN.lastSync = ''; }
+    else if (P.overlay) A['overlay-dismiss']();
+    else if (P.ink.on) A['ink-close']();
+    else P.signal = null;
+  }
   else if (e.key === 'e' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); go('edit'); }
 });
 // The toolbar wakes only when the pointer comes near it (near the small square while it's shrunk), not on any
