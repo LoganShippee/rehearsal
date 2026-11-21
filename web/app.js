@@ -760,6 +760,7 @@ const DOCK_ITEMS = {
   prog: { icon: 'ico:gauge', label: 'Progress', act: 'wm-prog', on: () => winList().some(w => w.kind === 'prog') },
   yt: { icon: 'ico:youtube', label: 'YouTube', act: 'wm-yt', on: () => winList().some(w => w.kind === 'yt') },
   rec: { icon: 'ico:mic', label: 'Recorder', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
+  piano: { icon: 'ico:piano', label: 'Piano', act: 'wm-piano', on: () => winList().some(w => w.kind === 'piano') },
   score: { icon: 'ico:score', label: 'Score practice', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
   window: { icon: 'ico:plus', label: 'Open', act: 'win-menu', on: () => P.winMenu },
@@ -771,13 +772,13 @@ const DOCK_ITEMS = {
   sep1: { sep: true, label: '— divider —' }, sep2: { sep: true, label: '— divider —' }, sep3: { sep: true, label: '— divider —' },
 };
 // Tools that ＋ Open always lists: on the bar or off, never repeated in ⋯ (unless they don't fit on the bar)
-const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt'];
+const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt', 'piano'];
 const DOCK_GROUP = { tile: 'screen', fullscreen: 'screen', classpick: 'screen', editmode: 'cls', clip: 'cls', edit: 'setup' };
 const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'window', 'tile', 'sep2', 'classpick', 'sep3', 'fullscreen', 'editmode', 'edit'];
 function dockCfg() {
   const d = (S.settings.dock ||= {});
   d.order ||= [...DOCK_DEFAULT];
-  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec', 'yt'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ⋯
+  for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec', 'yt', 'piano', 'solboard'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ＋ Open
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
   d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec', 'yt'];                // shown in the ⋯ menu instead of on the bar
@@ -1190,8 +1191,8 @@ function mountSightHosts(root = document) {
   }
 }
 // ============================================================ calendar & progress windows
-const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' } };
-const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt })[k];
+const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' }, piano: { title: 'Piano & Warm-up', icon: 'ico:piano' } };
+const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt, piano: typeof renderPiano === 'function' ? renderPiano : null })[k];
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
 // Re-render keeps each widget's scroll position (rebuilding the HTML would otherwise jump to the top).
@@ -1953,6 +1954,7 @@ function winTitle(w) {
   if (w.kind === 'cal') return 'Calendar';
   if (w.kind === 'rec') return 'Recorder';
   if (w.kind === 'yt') return 'YouTube';
+  if (w.kind === 'piano') return 'Piano & Warm-up';
   if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
@@ -2940,9 +2942,10 @@ function renderWinMenu() {
   const many = (cls ? cls.resources.length + 1 : 0) + lib.length > 8;
   host.innerHTML = `<div class="win-menu">
     <div class="wm-head">Music</div>
-    <div class="wm-grid wm-five">
+    <div class="wm-grid wm-music">
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
+      ${tile('wm-piano', 'ico:piano', 'Piano')}
       ${tile('open-music', 'ico:tuner', 'Tuner', 'data-kind="tuner"')}
       ${tile('open-music', 'ico:metro', 'Metronome', 'data-kind="metro"')}
       ${tile('wm-rec', 'ico:mic', 'Recorder')}
@@ -4238,7 +4241,8 @@ const A = {
   'av-cal': () => calibrateSync(),
   'vol-test': () => { const c = ac(); c.resume?.(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut()); o.start(t); o.stop(t + 0.55); }); },
   'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
-  'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'rec' }); w.w = 0.42; w.h = 0.7; save(); applyWinGeom(); },
+  'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); addWindow({ kind: 'rec' }, { w: 0.42, h: 0.72 }); },
+  'wm-piano': () => { const ex = winList().find(w => w.kind === 'piano'); if (ex) return bringToFront(ex); addWindow({ kind: 'piano' }, { w: 0.68, h: 0.74 }); },
   'side-prog-exp': () => { const c = context(now()).cls; if (!c) return; c.sideProgOpen = !c.sideProgOpen; save(); P.sideKey = ''; },
   'side-prog-chk': el => {
     const c = context(now()).cls, it = c?.progress?.find(i => i.id === el.dataset.iid), s = it?.steps?.find(x => x.id === el.dataset.sid); if (!s) return;
@@ -4257,6 +4261,7 @@ const A = {
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
     if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
+    if (winList().find(w => w.id === el.dataset.id)?.kind === 'piano' && typeof pianoSeqStop === 'function') pianoSeqStop();
     const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {

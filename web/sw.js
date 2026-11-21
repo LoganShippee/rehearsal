@@ -3,7 +3,7 @@
 // when offline. Only Rehearsal's own files are cached; classes and library files live elsewhere
 // (browser storage / IndexedDB) and are never touched here.
 const CACHE = 'rehearsal-app';
-const FILES = ['./', 'index.html', 'styles.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'score.js',
+const FILES = ['./', 'index.html', 'styles.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'score.js', 'tools.js',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',
   'vendor/vexflow.js', 'vendor/osmd.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/piano.js'];
 self.addEventListener('install', e => {

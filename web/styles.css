@@ -1753,3 +1753,38 @@ canvas.rec-wave { color: color-mix(in srgb, var(--text) 85%, transparent); }
 button:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent, var(--e-accent)); outline-offset: 2px;
 }
+
+/* ---------- Feature 1: Classroom Piano & Vocal Warm-Up Sequencer ---------- */
+.wm-grid.wm-music { grid-template-columns: repeat(4, 1fr); }
+.pn { display: flex; flex-direction: column; height: 100%; padding: 10px 12px; gap: 10px; box-sizing: border-box; outline: none; }
+.pn-bar, .pn-chords, .pq-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.pn-grp, .pn-seg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.wg-host .pn-grp button, .wg-host .pn-seg button { border-radius: 0; padding: 5px 9px; font-size: 12.5px; }
+.wg-host .pn-seg button.on, .wg-host .pn-bar button.on { background: var(--accent); color: var(--bg); font-weight: 700; }
+.pn-oct { display: inline-flex; align-items: center; padding: 0 8px; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.pn-sel, .pq-row label { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12.5px; }
+.pn select, .pn input[type=number] { background: rgba(255,255,255,.94); color: #1d2330; border: 1px solid rgba(0,0,0,.18); border-radius: 7px; padding: 4px 6px; font-size: 12.5px; }
+.pn input[type=number] { width: 58px; text-align: center; }
+.pn-clbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; opacity: .65; margin-right: 2px; }
+.wg-host .pn-chords button { padding: 4px 10px; font-size: 12.5px; font-weight: 700; min-width: 34px; }
+.pn-hint { margin-left: auto; font-size: 11.5px; opacity: .55; }
+.pn-keys { position: relative; display: flex; flex: 1 1 165px; min-height: 135px; max-height: 240px; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.22); touch-action: none; user-select: none; }
+.wg-host .pn-keys .pk-key { padding: 0; border-radius: 0 0 7px 7px; display: flex; align-items: flex-end; justify-content: center; font-weight: 700; transition: background .06s, transform .05s; }
+.wg-host .pn-keys .wk { flex: 1; background: #fafbfd; color: #242b38; border: 1px solid rgba(0,0,0,.2); padding-bottom: 10px; font-size: 12px; }
+.wg-host .pn-keys .wk.is-do { background: color-mix(in srgb, var(--accent) 22%, #fafbfd); }
+.wg-host .pn-keys .wk:hover { background: #eef1f8; }
+.wg-host .pn-keys .bk { position: absolute; top: 0; height: 61%; z-index: 2; background: #1d2330; color: #e2e6f0; border: 1px solid #0b0e14; padding-bottom: 7px; font-size: 10px; box-shadow: 0 4px 8px rgba(0,0,0,.35); }
+.wg-host .pn-keys .bk:hover { background: #2f394e; }
+.wg-host .pn-keys .pk-key.lit { background: var(--accent) !important; color: var(--bg) !important; transform: translateY(2px); }
+.pn-keys button span { pointer-events: none; }
+.pn-seq { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid var(--line); }
+.pq-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.pq-meta { display: flex; align-items: baseline; gap: 8px; }
+.pq-key { font-size: 1.35em; font-weight: 800; color: var(--accent); }
+.pq-cnt { font-size: 12px; opacity: .7; font-weight: 600; }
+.pq-syls { display: flex; flex-wrap: wrap; gap: 4px; }
+.pq-syl { padding: 3px 8px; border-radius: 99px; font-size: 13px; font-weight: 700; background: color-mix(in srgb, var(--text) 10%, transparent); transition: background .08s, transform .08s; }
+.pq-syl.on { background: var(--accent); color: var(--bg); transform: scale(1.1); }
+.wg-host .pn-primary { background: var(--accent) !important; color: var(--bg) !important; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+.pn-chk { font-weight: 500 !important; cursor: pointer; }
+.pn-chk input { accent-color: var(--accent); }
