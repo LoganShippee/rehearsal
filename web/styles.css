@@ -974,10 +974,17 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .sr-grmenu button .ico { width: 20px; height: 20px; }
 .sr-grmenu small { display: block; color: #666; font-size: 12px; }
 
-/* Listen back row on the grade report */
-.gr-card .gr-listen-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+/* Listen back row & recent attempts on the grade report */
+.gr-card .gr-listen-row, .gr-card .gr-again-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0 8px; }
 .gr-card .gr-listen.on { background: #fde7df; border-color: #e76f51; }
 .gr-card .gr-mix { font-size: 12.5px; }
+.gr-card .gr-back { border: 0; background: none; color: #3b6cf6; font-weight: 600; font-size: 12.5px; padding: 0 0 6px; cursor: pointer; }
+.gr-card .gr-back:hover { text-decoration: underline; }
+.gr-rec-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.gr-rec-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid #e2dccd; border-radius: 9px; background: #fff; color: #222; cursor: pointer; font-size: 13px; }
+.gr-rec-item:hover { background: #f5efe0; border-color: #cfc6b2; }
+.gr-rec-item small { display: block; color: #666; font-size: 11.5px; margin-top: 1px; }
+.gr-rec-time { font-size: 11.5px; color: #777; white-space: nowrap; }
 
 /* update banner */
 .upd-banner { position: fixed; left: 16px; bottom: 16px; z-index: 9500; display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #1d2330; color: #fff; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.3); font-size: 14px; }
@@ -1543,131 +1550,140 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .score-host { background: var(--surface, var(--card)); color: var(--text); }
 .sp-step output { font-size: 15px; }
 
-/* ---------- music windows v2: compact, so the music keeps the room in a normal-sized window ---------- */
-.sp-top, .sr-top { padding: 6px 8px; gap: 4px; }
-.sp-top button, .sp-choir button, .sp-spots button, .sp-custom button, .sp-settings button, .sr-top button { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
-.sp-choir { padding: 4px 8px; gap: 4px; }
+/* ---------- music windows v4: Fixed 2-tier toolbar (Action bar + slim Display strip) ---------- */
+.score-host, .sr-host { container-type: inline-size; }
+.sp-top, .sr-top {
+  --ctl-h: 30px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  padding: 6px 10px; flex: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+.sr-sub, .sp-sub {
+  --sub-h: 26px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  padding: 5px 10px; flex: none;
+  background: color-mix(in srgb, var(--text) 3.5%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.sr-sub[hidden], .sp-sub[hidden], .sr-sub [hidden], .sp-sub [hidden], .sp-top [hidden] { display: none !important; }
+.tb-div {
+  width: 1px; height: 18px; margin: 0 3px; flex: none;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+.sr-sub .tb-div, .sp-sub .tb-div { height: 15px; }
+.tb-lbl {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 62%, transparent); user-select: none; margin-right: 1px;
+}
+
+/* Tier 1 controls: one unified height across buttons, tabs, selects, and BPM tile */
+.sr-top button, .sp-top button, .sp-choir button, .sp-spots button, .sp-custom button, .sp-settings button {
+  padding: 0 9px; font-size: 12.5px; font-weight: 600; border-radius: 8px; gap: 5px;
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+}
+.sr-top button, .sp-top button, .sr-top select, .sp-top select, .sp-range input {
+  height: var(--ctl-h); box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important; line-height: 1; vertical-align: middle;
+}
+.sr-top .ico, .sp-top .ico, .sp-choir .ico { width: 15px; height: 15px; }
+.sr-top .sr-tabs {
+  height: var(--ctl-h); box-sizing: border-box; padding: 2px; gap: 2px;
+  border-radius: 9px; align-items: stretch; flex-shrink: 0;
+}
+.sr-top .sr-tabs button { height: auto; border-radius: 7px; padding: 0 9px; }
+
+/* BPM stepper: exact same height as every other Tier 1 tile, single inline row */
+.sr-step.sr-tempo, .sp-step {
+  display: inline-flex; align-items: stretch; flex-shrink: 0;
+  height: var(--ctl-h); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.sr-top .sr-step button, .sp-top .sp-step button {
+  height: auto; border: 0; border-radius: 0; padding: 0 7px !important; font-size: 14px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.sr-top .sr-step button:hover, .sp-top .sp-step button:hover {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+.sr-tempo label, .sp-step output {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  height: auto; padding: 0 6px; margin: 0;
+  border-inline: 1px solid var(--line); line-height: 1; white-space: nowrap;
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.sr-tempo input[type=number] {
+  width: 32px; height: 100%; text-align: right; font-size: 13px; font-weight: 700;
+  border: 0; background: transparent; color: var(--text); padding: 0; line-height: 1;
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.sr-tempo input[type=number]:focus { outline: none; }
+.sr-tempo small, .sp-step output small {
+  font-size: 10px; font-weight: 600; opacity: .7; letter-spacing: .02em; line-height: 1;
+}
+.sp-step output b { font-weight: 700; }
+
+/* Tier 2 controls: slim display strip */
+.sr-sub button, .sp-sub button {
+  height: var(--sub-h); box-sizing: border-box; padding: 0 9px !important;
+  font-size: 12px; font-weight: 600; border-radius: 7px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); cursor: pointer;
+}
+.sr-sub button:hover:not(:disabled), .sp-sub button:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 14%, transparent); }
+.sr-sub button:disabled, .sp-sub button:disabled { opacity: .38; cursor: default; }
+.sr-sub button.on, .sp-sub button.on { background: var(--accent); color: var(--bg); border-color: transparent; }
+.sr-sub .ico, .sp-sub .ico { width: 13.5px; height: 13.5px; }
+.sr-zoom, .sp-zoom { display: inline-flex; align-items: center; gap: 4px; height: var(--sub-h); }
+.sr-sub .sr-zoom button, .sp-sub .sp-zoom button {
+  width: var(--sub-h); min-width: var(--sub-h); height: var(--sub-h);
+  padding: 0 !important; justify-content: center;
+}
+.tb-zpct {
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 36px; text-align: center; color: var(--text); opacity: .88;
+}
+
+.sp-top select, .sp-range input { font-size: 12px; padding: 0 6px; }
+.sp-range { height: var(--ctl-h); display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.sp-range input { width: 42px; }
+.sp-file { max-width: 155px; }
+.sp-grp { display: inline-flex; align-items: center; gap: 4px; }
+.sp-choir { --ctl-h: 26px; padding: 4px 10px; gap: 4px; align-items: center; }
+.sp-choir button, .sp-choir select { height: var(--ctl-h); box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important; line-height: 1; }
+.sp-choir .sp-lbl { font-size: 10px; }
 .sp-settings { padding: 4px 8px; }
-.sp-top .sp-step button, .sr-top .sr-step button { padding: 2px 9px; font-size: 15px; }
-.sp-step output { min-width: 56px; font-size: 14px; }
-.sr-tempo input[type=number] { width: 44px; font-size: 14px; }
-/* the music always keeps at least 45% of the window; control rows scroll instead of pushing it out */
-.sp-top { flex: none; }
 .sp-choir, .sp-settings, .sp-custom, .sp-spots { flex: 0 1 auto; min-height: 0; overflow: auto; }
 .sp-score { flex: 1 0 45%; }
-/* responsive music toolbars across every scale (XL single-row -> balanced 2-row -> compact -> narrow icon-assisted) */
-.score-host, .sr-host { container-type: inline-size; }
-.sr-brk { display: none; }
-.sr-top:not(.sr-free) > [data-grp], .sp-top:not(.sr-free) > [data-grp] {
-  margin-left: 6px; padding-left: 8px;
-  border-left: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+.sr [data-sr="play"] { min-width: 4.6em; }
+.sp-root.sp-closed .sp-choir, .sp-root.sp-closed .sp-settings, .sp-root.sp-closed .sp-custom { display: none !important; }
+
+/* Responsive scaling across window widths (both tiers stay organized at every size) */
+@container (max-width: 960px) and (min-width: 680px) {
+  .sr-top, .sp-top { gap: 4px; padding: 6px 8px; }
+  .sr-top button, .sp-top button { padding: 0 7px; font-size: 12px; gap: 4px; }
+  .sr-top .sr-tabs button { padding: 0 7px; }
+  .sr-top .sr-step button, .sp-top .sp-step button { padding: 0 6px !important; }
+  .tb-div { margin: 0 1px; }
 }
-/* Medium / stage-with-sidebar (680px–1219px): clean intentional 2-row split instead of a stranded orphan button + giant gap */
-@container (max-width: 1219px) and (min-width: 680px) {
-  .sr-top:not(.sr-free) > .sr-brk, .sp-top:not(.sr-free) > .sr-brk {
-    display: block; flex-basis: 100%; height: 0; margin: 0; padding: 0; pointer-events: none;
-  }
-  .sr-top:not(.sr-free) > .sr-brk + [data-grp], .sp-top:not(.sr-free) > .sr-brk + [data-grp] {
-    margin-left: 0; padding-left: 0; border-left: none;
-  }
-}
-/* Compact medium (680px–1100px): tighten padding & drop "Playhead: " prefix so both rows (even Solfege mode) stay cleanly on 2 rows */
-@container (max-width: 1100px) and (min-width: 680px) {
-  .sr-top button, .sp-top button { padding: 0 7px; font-size: 12px; gap: 3px; }
-  .sr-top .sr-phpre { display: none; }
-  .sr-top:not(.sr-free) > [data-grp], .sp-top:not(.sr-free) > [data-grp] { margin-left: 4px; padding-left: 6px; }
-  .sr-top:not(.sr-free) > .sr-brk + [data-grp], .sp-top:not(.sr-free) > .sr-brk + [data-grp] { margin-left: 0; padding-left: 0; }
-}
-/* Narrow windows (< 680px): secondary icon buttons show crisp icons (full labels in tooltips), keeping Mode tabs, Play, BPM & Playhead state clear */
 @container (max-width: 679px) {
+  .sr-top, .sp-top { gap: 4px; padding: 5px 8px; }
   .sp-top button:has(.ico):not(.sp-primary), .sr-top button:has(.ico):not(.sr-primary) { font-size: 0; gap: 0; padding: 0 8px; }
-  .sr-top .sr-tabs button { font-size: 12.5px; gap: 4px; padding: 0 8px; }
+  .sr-top .sr-tabs button { font-size: 12px; gap: 4px; padding: 0 8px; }
   .sr-top .sr-tabs button .ico { width: 14px; height: 14px; }
-  .sp-top button .ico, .sr-top button .ico { width: 16px; height: 16px; }
-  .sr-top .sr-phbtn .sr-phpre { display: none; }
-  .sr-top .sr-phbtn .sr-phmode b { font-size: 11px; margin-left: 3px; font-weight: 700; }
+  .sp-top button .ico, .sr-top button .ico { width: 15px; height: 15px; }
   .sp-top [data-sp="loop"].on .sp-looplbl { font-size: 12px; margin-left: 4px; }
-  .sr-top:not(.sr-free) > .sr-sp, .sp-top:not(.sr-free) > .sr-sp { display: none; }
-  .sr-top:not(.sr-free) > [data-grp], .sp-top:not(.sr-free) > [data-grp] { margin-left: 2px; padding-left: 6px; }
-  .sp-file { max-width: 136px; }
+  .sr-top > .sr-sp, .sp-top > .sr-sp, .sr-sub > .sr-sp, .sp-sub > .sr-sp { display: none; }
+  .tb-lbl { display: none; }
+  .sp-file { max-width: 130px; }
   .sp-choir .sp-lbl { display: none; }
 }
-/* Extra-narrow split panes (< 480px): keep tabs & tempo tidy without horizontal clipping */
 @container (max-width: 480px) {
   .sr-top .sr-tabs button { font-size: 11.5px; gap: 3px; padding: 0 6px; }
   .sr-top .sr-tabs button .ico { display: none; }
-  .sr-tempo input[type=number] { width: 34px; font-size: 12.5px; }
-  .sr-top .sr-step button, .sp-top .sp-step button { padding: 0 6px; }
+  .sr-tempo input[type=number] { width: 28px; font-size: 12px; }
+  .sr-top .sr-step button, .sp-top .sp-step button { padding: 0 5px !important; }
 }
-.sp-root.sp-closed .sp-choir, .sp-root.sp-closed .sp-settings, .sp-root.sp-closed .sp-custom { display: none !important; }
-
-/* ---------- music windows v3: movable bar with live preview & local neighbor shifts ---------- */
-.sp-top .sr-bi { display: inline-flex; }
-.sp-top [data-bar] { cursor: grab; touch-action: none; }
-.sp-top .sr-sp[data-bar="gap"] { flex: 1; min-width: 14px; align-self: stretch; }
-.sp-top.sr-free { display: block !important; position: relative; }
-.sp-top.sr-free > [data-bar] { position: absolute; width: max-content; white-space: nowrap; }
-.sp-top.sr-free > .sr-sp, .sr-top.sr-free > .sr-brk, .sp-top.sr-free > .sr-brk { display: none !important; }
-.sp-top.show-grid, .sr-top.show-grid {
-  background-image:
-    repeating-linear-gradient(180deg, transparent 0 calc(var(--mb-rh, 40px) - 1px), color-mix(in srgb, var(--text) 14%, transparent) calc(var(--mb-rh, 40px) - 1px) var(--mb-rh, 40px)),
-    repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 7%, transparent) 0 1px, transparent 1px 16px);
-  background-position: 0 5px, 8px 0;
-  border-radius: 8px;
-}
-.sr-top.mb-dragging, .sp-top.mb-dragging { user-select: none; -webkit-user-select: none; }
-.sr-top.mb-dragging > [data-bar]:not(.dragging),
-.sp-top.mb-dragging > [data-bar]:not(.dragging) {
-  transition: left .15s cubic-bezier(.2, .8, .2, 1), top .15s cubic-bezier(.2, .8, .2, 1), outline-color .12s ease;
-}
-.sr-top [data-bar].dragging, .sp-top [data-bar].dragging {
-  position: absolute; z-index: 20; opacity: .94; cursor: grabbing;
-  transform: scale(1.03); filter: drop-shadow(0 6px 16px rgba(0,0,0,.32));
-  transition: none !important;
-}
-.sr-top [data-bar].mb-moved, .sp-top [data-bar].mb-moved {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
-  outline-offset: 1px; border-radius: 8px;
-}
-.mb-ghost {
-  position: absolute; z-index: 2; pointer-events: none; box-sizing: border-box;
-  border: 2px dashed var(--accent); border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  transition: left .1s ease, top .1s ease, width .1s ease;
-}
-.sp-top [data-ctl][hidden] { display: none !important; }
-/* smaller controls */
-.sr-top, .sp-top { padding: 5px 8px; gap: 5px; }
-.sr-top button, .sp-top button, .sp-choir button, .sp-spots button, .sp-custom button, .sp-settings button { padding: 4px 8px; font-size: 12.5px; border-radius: 7px; gap: 4px; }
-.sr-top .ico, .sp-top .ico, .sp-choir .ico { width: 15px; height: 15px; }
-.sr-top .sr-step button, .sp-top .sp-step button { padding: 1px 8px; font-size: 14px; }
-.sp-step output { min-width: 50px; font-size: 13px; }
-.sp-step output small, .sr-tempo small { font-size: 9px; }
-.sr-tempo input[type=number] { width: 40px; font-size: 13px; }
-.sp-top select, .sp-range input { font-size: 12px; padding: 3px 5px; }
-.sp-range input { width: 42px; }
-.sp-file { max-width: 150px; }
-.sp-choir { padding: 3px 6px; gap: 3px; }
-.sp-choir .sp-lbl { font-size: 10px; }
-.sr [data-sr="play"] { min-width: 4.6em; }
-
-/* ---------- music windows: one control height, everything centred on the same line ---------- */
-.sr-top, .sp-top, .sp-choir { --ctl-h: 28px; align-items: center; }
-.sr-top > [data-bar], .sp-top > [data-bar] { height: var(--ctl-h); align-items: center; }
-.sr-top button, .sp-top button, .sp-choir button,
-.sr-top select, .sp-top select, .sp-choir select, .sp-range input {
-  height: var(--ctl-h); box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important; line-height: 1; vertical-align: middle; }
-.sr-top button, .sp-top button, .sp-choir button { display: inline-flex; align-items: center; justify-content: center; }
-/* grouped controls (mode tabs, tempo stepper, zoom) are one control tall, their parts fill it */
-.sr-top .sr-tabs { height: var(--ctl-h); box-sizing: border-box; padding: 2px; gap: 2px; border-radius: 8px; align-items: stretch; }
-.sr-top .sr-tabs button { height: auto; border-radius: 6px; }
-.sr-step, .sp-step { height: var(--ctl-h); box-sizing: border-box; align-items: stretch; border-radius: 8px; }
-.sr-top .sr-step button, .sp-top .sp-step button { height: auto; border-radius: 0; }
-.sr-tempo label, .sp-step output { height: auto; padding-block: 0; align-content: center; }
-.sr-zoom, .sp-zoom { height: var(--ctl-h); gap: 2px; }
-.sr-zoom button, .sp-top .sp-zoom button { min-width: 30px; padding: 0 6px !important; }
-.sp-range { height: var(--ctl-h); display: inline-flex; align-items: center; gap: 4px; }
-.sp-grp { align-items: center; }
 
 /* ---------- UI polish pass (Phase 1) ---------- */
 /* Centered + / - SVG icons everywhere */
@@ -1892,10 +1908,13 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 
 /* ---------- Feature 5: Interactive Solfege Ladder, Curwen Hand Signs & Echo Board ---------- */
 .sb { display: flex; flex-direction: column; height: 100%; padding: 10px 12px; gap: 10px; box-sizing: border-box; outline: none; }
-.sb-bar, .sb-echo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
-.sb-bar label { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12.5px; }
-.sb select { background: rgba(255,255,255,.94); color: #1d2330; border: 1px solid rgba(0,0,0,.18); border-radius: 7px; padding: 4px 6px; font-size: 12.5px; }
-.wg-host .sb-bar button { padding: 5px 10px; font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.sb-bar { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.sb-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; }
+.sb-echo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.sb-bar label { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 12px; }
+.sb select { background: rgba(255,255,255,.94); color: #1d2330; border: 1px solid rgba(0,0,0,.18); border-radius: 7px; padding: 3px 6px; font-size: 12px; }
+.wg-host .sb-bar button { padding: 4px 9px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.wm-tile.on { background: color-mix(in srgb, var(--e-accent, #3b6cf6) 16%, transparent); color: var(--e-accent, #3b6cf6); outline: 1.5px solid color-mix(in srgb, var(--e-accent, #3b6cf6) 45%, transparent); }
 .wg-host .sb-bar button.on, .wg-host .sb .sb-primary { background: var(--accent) !important; color: var(--bg) !important; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
 .sb-echo { padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid var(--line); }
 .sb-elbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }

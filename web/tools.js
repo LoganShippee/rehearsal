@@ -588,6 +588,7 @@ function renderPiano(h) {
       if (PIANO_SEQ.playing && PIANO_SEQ.host === h) pianoPlayStep(h, st, PIANO_SEQ.stepIdx + 1);
     }
   };
+  h.onpointerdown = () => { window.__spaceTarget = 'piano'; window.__pianoActiveHost = h; };
   h.onchange = e => {
     const el = e.target, k = el.dataset.pnK; if (!k) return;
     if (el.type === 'checkbox') st[k] = el.checked;
@@ -1066,14 +1067,18 @@ function renderSolBoard(h) {
 
   h.innerHTML = `<div class="sb ${st.layout === 'grid' ? 'is-grid' : 'is-ladder'} ${st.colors ? 'is-col' : ''} ${displaySteps.length >= 10 ? 'is-dense' : ''}" tabindex="0">
     <div class="sb-bar">
-      <label>Key <select data-sb-k="keyPc">${TOOL_KEY_LABELS.map((n, i) => `<option value="${i}" ${st.keyPc === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <label>Scale <select data-sb-k="mode">${[['major', 'Major'], ['minor', 'Minor (do)'], ['penta', 'Pentatonic'], ['chromatic', 'Chromatic (♯)'], ['chromatic_flat', 'Chromatic (♭)']].map(([v, l]) => `<option value="${v}" ${st.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      ${!isChrom ? `<label>Range <select data-sb-k="range">${[['lowsol', 'sol, – do\''], ['dodo', 'do – do\'']].map(([v, l]) => `<option value="${v}" ${st.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
-      <label>Sound <select data-sb-k="sound">${[['piano', 'Piano'], ['sine', 'Pure sine'], ['organ', 'Organ']].map(([v, l]) => `<option value="${v}" ${st.sound === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <button data-sb="hands" class="${st.hands ? 'on' : ''}" title="Show Curwen hand signs">Hands</button>
-      <button data-sb="notes" class="${st.notes ? 'on' : ''}" title="Show pitch letter names">Letters</button>
-      <button data-sb="colors" class="${st.colors ? 'on' : ''}" title="Boomwhacker / Kodály pitch colors">Colors</button>
-      <button data-sb="layout" title="Switch vertical ladder / horizontal grid">${st.layout === 'ladder' ? IC('ico:movehoriz') + ' Grid' : IC('ico:movevert') + ' Ladder'}</button>
+      <div class="sb-bar-row">
+        <label>Key <select data-sb-k="keyPc">${TOOL_KEY_LABELS.map((n, i) => `<option value="${i}" ${st.keyPc === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label>Scale <select data-sb-k="mode">${[['major', 'Major'], ['minor', 'Minor (do)'], ['penta', 'Pentatonic'], ['chromatic', 'Chromatic (♯)'], ['chromatic_flat', 'Chromatic (♭)']].map(([v, l]) => `<option value="${v}" ${st.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        ${!isChrom ? `<label>Range <select data-sb-k="range">${[['lowsol', 'sol, – do\''], ['dodo', 'do – do\'']].map(([v, l]) => `<option value="${v}" ${st.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
+        <label>Sound <select data-sb-k="sound">${[['piano', 'Piano'], ['sine', 'Pure sine'], ['organ', 'Organ']].map(([v, l]) => `<option value="${v}" ${st.sound === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <div class="sb-bar-row">
+        <button data-sb="hands" class="${st.hands ? 'on' : ''}" title="Show Curwen hand signs">Hands</button>
+        <button data-sb="notes" class="${st.notes ? 'on' : ''}" title="Show pitch letter names">Letters</button>
+        <button data-sb="colors" class="${st.colors ? 'on' : ''}" title="Boomwhacker / Kodály pitch colors">Colors</button>
+        <button data-sb="layout" title="Switch vertical ladder / horizontal grid">${st.layout === 'ladder' ? IC('ico:movehoriz') + ' Grid' : IC('ico:movevert') + ' Ladder'}</button>
+      </div>
     </div>
 
     <div class="sb-echo">
@@ -1201,6 +1206,19 @@ function initToolsKeyboard() {
 
     if (top.querySelector('.pn')) {
       const st = pianoState();
+      if (e.code === 'Space' && (window.__spaceTarget === 'piano' || (PIANO_SEQ.playing && PIANO_SEQ.host === top))) {
+        e.preventDefault();
+        if (PIANO_SEQ.playing && PIANO_SEQ.host === top) {
+          pianoSeqStop(true);
+        } else {
+          if (!st.seqOpen) { st.seqOpen = true; save(); }
+          pianoSeqStop(false);
+          PIANO_SEQ.playing = true; PIANO_SEQ.host = top; PIANO_SEQ.roots = pianoBuildRoots(st);
+          renderPiano(top);
+          pianoPlayStep(top, st, 0);
+        }
+        return;
+      }
       if (st.kbdOn === false) return;
       if (k in PIANO_KBD_MAP && top.__pianoBaseMidi != null && top.__pianoHitKey) {
         e.preventDefault();
@@ -1214,12 +1232,6 @@ function initToolsKeyboard() {
         e.preventDefault();
         const nextOct = clamp(st.baseOct + (k === 'x' ? 1 : -1), 2, 5);
         if (nextOct !== st.baseOct) { st.baseOct = nextOct; save(); renderPiano(top); }
-        return;
-      }
-      if (e.code === 'Space' && PIANO_SEQ.playing && PIANO_SEQ.host === top) {
-        e.preventDefault();
-        if (!st.autoStep) pianoPlayStep(top, st, PIANO_SEQ.stepIdx + 1);
-        else pianoSeqStop(true);
         return;
       }
     } else if (top.querySelector('.sb') && top.__sbHandleKey) {

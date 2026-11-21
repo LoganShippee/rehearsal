@@ -368,21 +368,66 @@ function grCardHTML(res, gradePitch) {
     <div class="gr-sub">${tap ? 'Tap once at the start of each note (a held or tied note gets one tap). Rests get no tap.' : 'Practice feedback, not a grade. Headphones and a quiet room give the best result.'}</div>`;
 }
 
+// Session history of recent grading attempts (newest first, up to 15), so closing the report card never loses access.
+const GR_RECENT = [];
+window.GR_RECENT = GR_RECENT;
+function grSyncRecentBtn(host) {
+  if (!host) return;
+  const gBtn = host.querySelector('[data-sr="grade"]'); if (!gBtn) return;
+  let rBtn = host.querySelector('[data-sr="grrecent"]');
+  if (!GR_RECENT.length) { rBtn?.remove(); return; }
+  if (!rBtn) {
+    rBtn = document.createElement('button');
+    rBtn.dataset.sr = 'grrecent';
+    rBtn.title = 'View recent grading attempts';
+    gBtn.after(rBtn);
+  }
+  rBtn.innerHTML = `${IC('ico:agenda')} Recent (${GR_RECENT.length})`;
+}
+function grShowRecent(host = null) {
+  document.getElementById('gr-card')?.remove();
+  const card = document.createElement('div');
+  card.id = 'gr-card'; card.className = 'gr-card';
+  const rows = GR_RECENT.map((it, idx) => {
+    const score = it.gradePitch && it.res.pitchPct != null
+      ? `Rhythm ${it.res.rhythmPct}% · Pitch ${it.res.pitchPct}%`
+      : `Rhythm ${it.res.rhythmPct}%`;
+    const meta = [it.modeLabel, it.ts, it.tap ? 'Tap' : 'Mic'].filter(Boolean).join(' · ');
+    return `<button type="button" class="gr-rec-item" data-idx="${idx}"><span><b>${score}</b><small>${meta}</small></span><span class="gr-rec-time">${it.time}</span></button>`;
+  }).join('');
+  card.innerHTML = `<button class="gr-x" title="Close" aria-label="Close">${IC('ico:close')}</button>
+    <div class="gr-head"><b>Recent grading attempts</b><span class="gr-sub">${GR_RECENT.length ? 'Click an attempt to inspect its full report.' : 'No grading attempts yet in this session.'}</span></div>
+    ${rows ? `<div class="gr-rec-list">${rows}</div>` : ''}`;
+  card.querySelector('.gr-x').onclick = () => card.remove();
+  card.querySelectorAll('.gr-rec-item').forEach(b => {
+    b.onclick = () => {
+      const it = GR_RECENT[+b.dataset.idx];
+      if (it) grShowCard(it.res, it.gradePitch, it.hist || [], it.host || host, true);
+    };
+  });
+  document.body.appendChild(card);
+}
+window.grShowRecent = grShowRecent;
+
 // hist: every attempt on this example so far (kept on the timeline, so a new example starts fresh)
-function grShowCard(res, gradePitch, hist = [], host = null) {
+function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false) {
   document.getElementById('gr-card')?.remove();
   const card = document.createElement('div');
   card.id = 'gr-card'; card.className = 'gr-card';
   const past = hist.map((h, i) => `${i + 1}: ${h.pitchPct != null ? `rhythm ${h.rhythmPct}% · pitch ${h.pitchPct}%` : `${h.rhythmPct}%`}${h.tap ? ' (tap)' : ''}`).join('  ·  ');
-  const G = host?.__grResult;
+  const G = host?.__grResult && host.__grResult.res === res ? host.__grResult : null;
   const legend = G && res.diag.heard > 0 ? `<div class="gr-legend"><span class="gr-sub">On the music:</span>
       <span><i class="gr-dot ok"></i>on time</span><span><i class="gr-dot timing"></i>early / late</span><span><i class="gr-dot missed"></i>${res.input === 'tap' ? 'no tap' : 'not heard'}</span>${gradePitch ? '<span><i class="gr-dot pitch"></i>wrong pitch</span>' : ''}<span><i class="gr-dot extra"></i>extra</span>
       <button class="gr-marks">${G.hidden ? 'Show marks' : 'Hide marks'}</button></div>` : '';
-  card.innerHTML = `<button class="gr-x" title="Close (the marks on the music stay until you press New or grade again)" aria-label="Close">${IC('ico:close')}</button>${grCardHTML(res, gradePitch)}${legend}
+  card.innerHTML = `<button class="gr-x" title="Close (reopen anytime from Report or Recent)" aria-label="Close">${IC('ico:close')}</button>
+    ${fromRecent ? `<button type="button" class="gr-back">← Recent attempts</button>` : ''}
+    ${grCardHTML(res, gradePitch)}${legend}
     ${G?.take && res.diag.heard > 0 && host.__listen ? `<div class="gr-listen-row"><button class="gr-listen" title="Hear your ${res.input === 'tap' ? 'taps' : 'recording'} lined up with the music, with the playhead and these marks">${IC('ico:play')} Listen back</button>
       <select class="gr-mix" title="What to hear"><option value="both">with the example</option><option value="rec">${res.input === 'tap' ? 'taps' : 'recording'} only</option></select></div>` : ''}
-    <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
+    <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
   card.querySelector('.gr-x').onclick = () => card.remove();
+  card.querySelector('.gr-back')?.addEventListener('click', () => grShowRecent(host));
+  card.querySelector('.gr-rec-open')?.addEventListener('click', () => grShowRecent(host));
   const mk = card.querySelector('.gr-marks');
   if (mk) mk.onclick = () => { G.hidden = !G.hidden; mk.textContent = G.hidden ? 'Show marks' : 'Hide marks'; host.__grRedraw?.(); };
   card.querySelector('.gr-again').onclick = () => { if (typeof srStop === 'function') srStop(); card.remove(); GR.retry && GR.retry(); };
@@ -535,9 +580,15 @@ function grStop(show = true) {
   if (tl) { tl.grHist = tl.grHist || []; tl.grHist.push({ rhythmPct: res.rhythmPct, pitchPct: res.pitchPct, tap }); }
   // the result is kept on the widget so the marks are drawn again whenever the music is redrawn
   // the take itself (the mic recording, or the taps) is kept for listening back against the example
+  const gradePitchNow = GR.gradePitch && !tap;
   const take = { rec: tap ? null : rec, frames, taps: tap ? taps : null, T0: GR.T0, q: GR.q, end: GR.end, offsetSec: res.offsetSec, tempo: GR.meta?.settings?.tempo };
-  if (host && tl) { host.__grResult = { res, sig: grSig(tl), hidden: false, take }; host.__grRedraw?.(); }
-  grShowCard(res, GR.gradePitch && !tap, tl?.grHist || [], host);
+  const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const modeLabel = GR.meta?.mode === 'solfege' ? 'Solfege' : GR.meta?.mode === 'build' ? 'Build' : 'Rhythm';
+  GR_RECENT.unshift({ res, gradePitch: gradePitchNow, hist: (tl?.grHist || []).slice(), host, tap, time: timeStr, modeLabel, ts: GR.meta?.settings?.ts || '' });
+  if (GR_RECENT.length > 15) GR_RECENT.length = 15;
+  if (host && tl) { host.__grResult = { res, gradePitch: gradePitchNow, hist: tl.grHist || [], sig: grSig(tl), hidden: false, take }; host.__grRedraw?.(); }
+  grSyncRecentBtn(host);
+  grShowCard(res, gradePitchNow, tl?.grHist || [], host);
 }
 
 // Button handler: starts a count-in and records; pressing again stops early and grades what was heard.
@@ -696,6 +747,12 @@ function grDrawMarks(host, tl) {
   chip.title = G.hidden ? 'Show the last grading on the music' : 'Remove the grading marks from the music';
   chip.onclick = e => { e.stopPropagation(); if (G.hidden) G.hidden = false; else { host.__grResult = null; if (SR_PLAY.extra?.length) srStop(); document.getElementById('gr-card')?.remove(); } grDrawMarks(host, tl); const mk = document.querySelector('#gr-card .gr-marks'); if (mk) mk.textContent = host.__grResult?.hidden === false ? 'Hide marks' : 'Show marks'; };
   const chips = document.createElement('div'); chips.className = 'gr-chips gr-marks-chip-row';
+  // Reopen the full report card anytime after closing it
+  const rep = document.createElement('button'); rep.className = 'gr-marks-chip'; rep.dataset.grchip = '1';
+  rep.innerHTML = `${IC('ico:agenda')} Report`;
+  rep.title = 'Reopen the grading report for this attempt';
+  rep.onclick = e => { e.stopPropagation(); grShowCard(G.res, !!G.gradePitch, G.hist || tl?.grHist || [], host); };
+  chips.appendChild(rep);
   // listen back stays here after the report is closed, for as long as this example is shown
   if (G.take && host.__listen && G.res.diag?.heard > 0) {
     const lb = document.createElement('button'); lb.className = 'gr-marks-chip gr-listen'; lb.dataset.grchip = '1';

@@ -783,6 +783,7 @@ function dockCfg() {
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
   d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec', 'yt'];                // shown in the ⋯ menu instead of on the bar
+  d.inOpen ||= [];                                                                 // extra toolbar buttons placed in ＋ Open
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
   return d;
@@ -793,7 +794,7 @@ function renderDock() {
   const cfg = dockCfg();
   const btn = (id, it) => `<button data-dock-id="${id}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}
       class="${(it.tool ? !!P.tools[it.tool] : it.on?.()) ? 'on' : ''}" title="${esc(it.label)}">${dockIcon(id, it) ? `<span class="i">${dockIcon(id, it)}</span>` : ''}${cfg.labels || !dockIcon(id, it) ? it.label : ''}</button>`;
-  const parts = cfg.order.filter(id => !cfg.hidden.includes(id) && !cfg.menu.includes(id) && DOCK_ITEMS[id]).map(id => {
+  const parts = cfg.order.filter(id => !cfg.hidden.includes(id) && !cfg.menu.includes(id) && !(cfg.inOpen || []).includes(id) && DOCK_ITEMS[id]).map(id => {
     const it = DOCK_ITEMS[id];
     if (it.sep) return '<span class="sep"></span>';
     if (it.special === 'classpick') return dockClassPick();
@@ -931,16 +932,18 @@ function renderDockCustom() {
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
   panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
-    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in the <b>⋯</b> menu, or <b>Off</b>. Drag ≡ to reorder. Music and class tools are always in ＋ Open too.</div>
+    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>＋ Open</b>, in <b>⋯</b>, or <b>Off</b>. Drag ≡ to reorder.</div>
     <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id];
-      const place = cfg.hidden.includes(id) ? 'off' : cfg.menu.includes(id) ? (DOCK_LAUNCHERS.includes(id) ? 'off' : 'menu') : 'bar';   // a tool kept "in ⋯" before is now just in ＋ Open
+      const inOpen = (cfg.inOpen || []).includes(id);
       const launcher = DOCK_LAUNCHERS.includes(id);
-      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', '＋ only']] : it.sep ? [['bar', 'Bar'], ['off', 'Off']] : [['bar', 'Bar'], ['menu', '⋯'], ['off', 'Off']];
+      const place = cfg.hidden.includes(id) ? 'off' : inOpen ? 'open' : cfg.menu.includes(id) ? (launcher ? 'off' : 'menu') : 'bar';
+      const canOpen = !it.locked && !it.sep && !launcher && id !== 'window' && !it.special;
+      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', '＋ Open']] : it.sep ? [['bar', 'Bar'], ['off', 'Off']] : canOpen ? [['bar', 'Bar'], ['open', '＋'], ['menu', '⋯'], ['off', 'Off']] : [['bar', 'Bar'], ['menu', '⋯'], ['off', 'Off']];
       return `<div class="dc-row ${it.sep ? 'sep' : ''} ${place === 'off' && !launcher ? 'is-off' : ''}" draggable="true" data-id="${id}">
       <span class="dc-grip">≡</span>
       <span class="dc-ico">${it.sep ? '' : dockIcon(id, it) || ''}</span>
       <span class="dc-name">${esc(it.label)}</span>
-      <span class="dc-seg" role="group" aria-label="Where ${esc(it.label)} goes">${opts.map(([v, l]) => `<button type="button" data-dock-place="${id}" data-v="${v}" aria-pressed="${place === v}">${l}</button>`).join('')}</span></div>`; }).join('')}</div>
+      <span class="dc-seg" role="group" aria-label="Where ${esc(it.label)} goes">${opts.map(([v, l]) => `<button type="button" data-dock-place="${id}" data-v="${v}" aria-pressed="${place === v}" ${v === 'open' ? 'title="Show in ＋ Open menu"' : ''}>${l}</button>`).join('')}</span></div>`; }).join('')}</div>
     <div class="dc-look">
       ${dcSeg('Size', 'size', [['s', 'S'], ['m', 'M'], ['l', 'L']], cfg.size || 'm')}
       ${dcSeg('Colour', 'color', [['dark', 'Dark'], ['light', 'Light'], ['class', 'Class']], cfg.color || 'dark')}
@@ -977,10 +980,10 @@ function renderDockCustom() {
   panel.addEventListener('click', e => {
     const b = e.target.closest('button[data-dock-place], button[data-dc-opt]'); if (!b) return;
     if (b.dataset.dockPlace) {
-      const id = b.dataset.dockPlace, v = b.dataset.v, hid = new Set(cfg.hidden), menu = new Set(cfg.menu);
-      hid.delete(id); menu.delete(id);
-      if (v === 'off') hid.add(id); if (v === 'menu') menu.add(id);
-      cfg.hidden = [...hid]; cfg.menu = [...menu];
+      const id = b.dataset.dockPlace, v = b.dataset.v, hid = new Set(cfg.hidden), menu = new Set(cfg.menu), inOp = new Set(cfg.inOpen || []);
+      hid.delete(id); menu.delete(id); inOp.delete(id);
+      if (v === 'off') hid.add(id); if (v === 'menu') menu.add(id); if (v === 'open') inOp.add(id);
+      cfg.hidden = [...hid]; cfg.menu = [...menu]; cfg.inOpen = [...inOp];
     } else if (b.dataset.dcOpt === 'hide') S.settings.hideDockAfter = Number(b.dataset.v);
     else cfg[b.dataset.dcOpt] = b.dataset.v;
     const keep = panel.querySelector('.dc-list')?.scrollTop || 0, keepP = panel.scrollTop;
@@ -2114,6 +2117,9 @@ function applyWinGeom() {
   if (VIEW === 'present') syncNative();
 }
 function bringToFront(w) {
+  if (w.kind === 'piano') window.__spaceTarget = 'piano';
+  else if (w.kind === 'sight') window.__spaceTarget = 'sr';
+  else if (w.kind === 'score') window.__spaceTarget = 'sp';
   const list = winList(); const t = topZ(list);
   if (w.z === t) return;
   w.z = t + 1;
@@ -2957,6 +2963,7 @@ function renderWinMenu() {
   const open = (P.wmOpen ||= { cls: true, lib: false });
   const sec = (key, title, n, body) => `<details class="wm-sec" data-sec="${key}" ${open[key] ? 'open' : ''}><summary>${title}<span class="wm-n">${n}</span></summary><div class="wm-items">${body}</div></details>`;
   const many = (cls ? cls.resources.length + 1 : 0) + lib.length > 8;
+  const openTools = (dockCfg().inOpen || []).map(id => [id, DOCK_ITEMS[id]]).filter(([, it]) => it && it.act);
   host.innerHTML = `<div class="win-menu">
     <div class="wm-head">Music</div>
     <div class="wm-grid wm-music">
@@ -2974,6 +2981,13 @@ function renderWinMenu() {
       ${tile('wm-prog', 'ico:gauge', 'Progress')}
       ${tile('wm-yt', 'ico:youtube', 'YouTube')}
     </div>
+    ${openTools.length ? `<div class="wm-head">Tools</div>
+    <div class="wm-grid">
+      ${openTools.map(([id, it]) => {
+        const on = it.tool ? !!P.tools[it.tool] : !!it.on?.();
+        return `<button class="wm-tile ${on ? 'on' : ''}" data-action="${it.act}" ${it.tool ? `data-tool="${it.tool}"` : ''} ${it.kind ? `data-kind="${it.kind}"` : ''}>${IC(icoCfg().dock?.[id] ?? it.icon)}<span>${esc(it.label)}</span></button>`;
+      }).join('')}
+    </div>` : ''}
     <div class="wm-head">Open</div>
     <div class="wm-grid">
       ${tile('wm-web', 'ico:web', 'Web page')}
@@ -3068,7 +3082,7 @@ function inkDoUndo() {
   const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = !inkUndo.length;
 }
 // Things the pen should never draw over — clicks there go to the control instead.
-const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .tool, .pdfv-bar, .sr-top, .sr-settings, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
+const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .tool, .pdfv-bar, .sr-top, .sr-sub, .sr-settings, .sp-top, .sp-sub, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
 function inkUnder(x, y) {
   for (const el of document.elementsFromPoint(x, y)) {
     if (el === inkCanvas || el.id === 'ink' || el.classList.contains('ink-cursor')) continue;
@@ -4261,8 +4275,8 @@ const A = {
   'vol-test': () => { const c = ac(); c.resume?.(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut()); o.start(t); o.stop(t + 0.55); }); },
   'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
   'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); addWindow({ kind: 'rec' }, { w: 0.42, h: 0.72 }); },
-  'wm-piano': () => { const ex = winList().find(w => w.kind === 'piano'); if (ex) return bringToFront(ex); addWindow({ kind: 'piano' }, { w: 0.68, h: 0.74 }); },
-  'wm-solboard': () => { const ex = winList().find(w => w.kind === 'solboard'); if (ex) return bringToFront(ex); addWindow({ kind: 'solboard' }, { w: 0.56, h: 0.84 }); },
+  'wm-piano': () => { window.__spaceTarget = 'piano'; const ex = winList().find(w => w.kind === 'piano'); if (ex) return bringToFront(ex); addWindow({ kind: 'piano' }, { w: 0.68, h: 0.74 }); },
+  'wm-solboard': () => { const ex = winList().find(w => w.kind === 'solboard'); if (ex) return bringToFront(ex); addWindow({ kind: 'solboard' }, { w: 0.34, h: 0.84 }); },
   'side-prog-exp': () => { const c = context(now()).cls; if (!c) return; c.sideProgOpen = !c.sideProgOpen; save(); P.sideKey = ''; },
   'side-prog-chk': el => {
     const c = context(now()).cls, it = c?.progress?.find(i => i.id === el.dataset.iid), s = it?.steps?.find(x => x.id === el.dataset.sid); if (!s) return;

@@ -1094,8 +1094,7 @@ function srSettingsHTML(st) {
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
     ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>` : ''}
     ${metVolSlider()}
-    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
-    ${mbarPos(SR_BARCFG) ? `<button type="button" class="sr-barreset" data-sr="barreset" title="Put toolbar buttons back in their standard layout">${IC('ico:undo')} Reset toolbar</button>` : ''}`;
+    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
   const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
     <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
     <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
@@ -1328,7 +1327,6 @@ function srBuildSettingsHTML(st) {
     <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
     <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
     <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
-    ${mbarPos(SR_BARCFG) ? `<button type="button" class="sr-barreset" data-sr="barreset" title="Put toolbar buttons back in their standard layout">${IC('ico:undo')} Reset toolbar</button>` : ''}
   </div>`;
 }
 
@@ -1691,31 +1689,39 @@ function mountSight(host, st, onChange) {
   const render = () => {
     if (isBuild()) st.build ||= srBuildDefaults();
     const kindNow = isBuild() ? st.build.kind : st.mode === 'solfege' && st.solRhythm ? 'rhythm' : st.mode;
+    const zoomPct = Math.round((st.zoom || 1) * 100);
     host.innerHTML = `<div class="sr">
       <div class="sr-top">
-        ${srBarHTML({
-          tabs: () => `<div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:hand')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>`,
-          tempo: () => `<span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>`,
-          new: () => `<button data-sr="new" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>`,
-          play: () => `<button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
-          rhyonly: () => st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`,
-          show: () => kindNow === 'rhythm' ? '' : `<button data-sr="show" class="${st.show ? 'on' : ''}" title="Write the solfege syllables under the notes">${IC('ico:music')} Solfege</button>`,
-          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts under the notes">${IC('ico:list')} Counts</button>`,
-          playhead: () => `<button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Beat</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Note</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Off</b></span>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
-          metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
-          nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
-          grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
-          settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>`,
-          zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:zoomout')}</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:zoomin')}</button></span>`,
-          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : '',
-          print: () => `<button data-sr="print" title="Print this example or make a worksheet with an answer key">${IC('ico:print')} Worksheet</button>`
-        })}
+        <div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:hand')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>
+        <button data-sr="new" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>
+        <span class="tb-div" aria-hidden="true"></span>
+        <button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>
+        <span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>
+        <button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>
+        <button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>
+        ${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sr="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}
+        <span class="sr-sp"></span>
+        ${typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : ''}
+        <button data-sr="print" title="Print this example or make a worksheet with an answer key">${IC('ico:print')} Worksheet</button>
+        <button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>
+      </div>
+      <div class="sr-sub">
+        <span class="tb-lbl">Show</span>
+        <button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>
+        ${st.mode === 'rhythm' ? '' : `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="Turn off Rhythm only to show solfege syllables"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:music')} Solfege</button>`}
+        <button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts under the notes">${IC('ico:list')} Counts</button>
+        ${st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`}
+        <span class="tb-div" aria-hidden="true"></span>
+        <span class="tb-lbl">Playhead</span>
+        <button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <b>Beat</b>`, `${IC('ico:playhead')} <b>Note</b>`, `${IC('ico:playhead')} <b>Off</b>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>
+        <span class="sr-sp"></span>
+        <span class="tb-lbl">Zoom</span>
+        <span class="sr-zoom" title="Make the music bigger or smaller (${zoomPct}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:minus')}</button><span class="tb-zpct">${zoomPct}%</span><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
       </div>
       ${st.settingsOpen ? `<div class="sr-settings">${isBuild() ? srBuildSettingsHTML(st) : srSettingsHTML(st)}</div>` : ''}
       ${isBuild() && st.settingsOpen ? srBuildPanelHTML(st) : ''}
       <div class="sr-staff"></div></div>`;
     const staffEl = host.querySelector('.sr-staff');
-    srBarLayout(host.querySelector('.sr-top'));                // your button arrangement, on every tab
     if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Settings to show the building tools.'}</div>`; timeline = []; return; }
     staffEl.__zoom = st.zoom || 1;
     timeline = srDraw(staffEl, V()); drawFrom(); markSel(); host.__grRedraw();
@@ -1789,9 +1795,7 @@ function mountSight(host, st, onChange) {
     else return false;
     onChange && onChange(st); render(); return true;
   };
-  // drag any bar button to a new spot (shared with score practice); saved for every sight-reading widget
-  const barDrag = mbarDrag(host, SR_BARCFG, '.sr-top', () => render());
-  host.onpointerdown = e => { SR_ACTIVE = host; window.__spaceTarget = 'sr'; barDrag.down(e); };
+  host.onpointerdown = () => { SR_ACTIVE = host; window.__spaceTarget = 'sr'; };
   // Grade opens a small menu: microphone (rhythm + pitch) or the space bar (rhythm only)
   const closeGradeMenu = () => { host.querySelector('.sr-grmenu')?.remove(); document.removeEventListener('pointerdown', host.__grMenuAway, true); };
   const openGradeMenu = btn => {
@@ -1809,7 +1813,6 @@ function mountSight(host, st, onChange) {
     document.addEventListener('pointerdown', host.__grMenuAway, true);
   };
   host.onclick = e => {
-    if (host.__noClick && e.target.closest?.('.sr-top')) { e.stopPropagation(); return; }
     const b = e.target.closest('[data-sr]');
     if (!b) {                                                     // clicked the music: start from that measure
       if (!e.target.closest('.sr-staff')) return;
@@ -1896,6 +1899,7 @@ function mountSight(host, st, onChange) {
       if (f === 'measures') { srStop(); regen(); }
     }
     else if (k === 'playhead') st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead || 'off'];   // Beat → Note → Off
+    else if (k === 'grrecent') { if (typeof grShowRecent === 'function') grShowRecent(host); return; }
     else if (k === 'grade') {                                   // a take running: this stops and grades it
       if (GR.on || GR.starting) { closeGradeMenu(); grStart(host, V(), timeline, b); return; }
       if (V().mode !== 'rhythm') { grStart(host, V(), timeline, b, 'mic'); return; }   // solfege is sung: microphone only
@@ -1950,7 +1954,7 @@ function mountSight(host, st, onChange) {
   };
   // redraw notation when the window is resized
   let rt = null;
-  const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => { const sv = host.querySelector('.sr-staff'); srBarLayout(host.querySelector('.sr-top')); if (sv && (!isBuild() || st.build?.items.length)) { timeline = srDraw(sv, V()); drawFrom(); markSel(); host.__grRedraw(); } }, 120); });
+  const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => { const sv = host.querySelector('.sr-staff'); if (sv && (!isBuild() || st.build?.items.length)) { timeline = srDraw(sv, V()); drawFrom(); markSel(); host.__grRedraw(); } }, 120); });
   ro.observe(host);
   render();
   return st;
@@ -1961,13 +1965,13 @@ let SR_ACTIVE = null;
 // while building: arrows move / re-pitch the selected note, Delete removes it, ⌘Z undoes
 // (caught first, so they don't also move the agenda)
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space' || !SR_ACTIVE || !SR_ACTIVE.isConnected || !SR_ACTIVE.__buildKey || window.__spaceTarget === 'sp') return;
+  if (e.code === 'Space' || !SR_ACTIVE || !SR_ACTIVE.isConnected || !SR_ACTIVE.__buildKey || (window.__spaceTarget && window.__spaceTarget !== 'sr')) return;
   if (e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
   if (SR_ACTIVE.__buildKey(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true);
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || e.repeat || e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
-  if (window.__spaceTarget === 'sp') return;
+  if (window.__spaceTarget && window.__spaceTarget !== 'sr') return;
   if (document.querySelector('.sr-grmenu')) return;            // the Grade menu is open: Space picks the highlighted choice
   let h = SR_ACTIVE && SR_ACTIVE.isConnected ? SR_ACTIVE : null;
   if (!h) h = [...document.querySelectorAll('.sr-host')].find(x => x.offsetParent);   // the one on screen
