@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Rehearsal (internal/old name: ClassPilot) is a classroom-display and music-rehearsal app for teachers. It ships two ways from the same `web/` folder:
+Rehearsal (formerly called Class Pilot) is a classroom-display and music-rehearsal app for teachers. It ships two ways from the same `web/` folder:
 - **Mac app**: a small Swift shell (`native/`) that serves `web/` from a loopback HTTP server and shows it in WKWebView windows.
 - **Web version**: the same `web/` folder published to GitHub Pages; it runs in any browser, offline via `web/sw.js`.
 
-The bundle ID `local.classpilot.app` and data folder `~/Library/Application Support/ClassPilot/` keep the old name on purpose (macOS permissions, sign-ins and data are keyed to them). Don't rename them.
+The bundle ID `local.classpilot.app` and data folder `~/Library/Application Support/ClassPilot/` keep the old name on purpose (macOS permissions, sign-ins and data are keyed to them). Don't rename them. Everything else uses the Rehearsal name: the executable, the Info.plist update keys (`RehearsalUpdateRepo`/`RehearsalUpdateKey`), window frame names (which fall back to the old `ClassPilot…` names) and the browser's localStorage key `rehearsal` (which falls back to the old `classpilot` key).
 
 ## Commands
 
@@ -73,3 +73,8 @@ Classic `<script>` files loaded in order by `index.html` (icons → vexflow → 
 ## Conventions
 - User-facing text is for teachers: plain language, short, no jargon. Comments explain *why*, in the same plain style as the existing code.
 - The README's "What's in it" section doubles as the feature reference. Update it when adding or changing a feature.
+
+## Working with Antigravity (`GEMINI.md`)
+- Antigravity (Gemini) also works in this repository and follows `GEMINI.md`, which treats this file (`CLAUDE.md`) as the single source of truth for commands, architecture, and conventions.
+- Check `git status` and `git log -n 5 --oneline` before making edits so neither assistant clobbers the other's uncommitted work, and use clear commit messages for handoffs.
+- Keep `CLAUDE.md` up to date when changing commands, architecture, or release checks so both assistants stay in sync.
