@@ -1289,7 +1289,7 @@ function mbarDrag(host, cfg, barSel, rerender) {
 const mbarReset = cfg => { const set = mbSet(); if (set) { delete set[cfg.key]; delete set[cfg.key + 'Pos']; delete set[cfg.key + 'Last']; save(); } };
 
 // Standard layout for both players, left to right: what's on the page → playing it → what's written on the music → tools.
-const SR_BARCFG = { key: 'srBar', defaults: ['tabs', 'new', 'play', 'tempo', 'metro', 'nums', 'show', 'counts', 'rhyonly', 'playhead', 'grade', 'gap', 'save', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'] };
+const SR_BARCFG = { key: 'srBar', defaults: ['tabs', 'new', 'play', 'tempo', 'metro', 'nums', 'show', 'counts', 'rhyonly', 'playhead', 'grade', 'gap', 'save', 'print', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'] };
 const SR_BAR_DEFAULT = SR_BARCFG.defaults;
 const srBarOrder = () => mbarOrder(SR_BARCFG);
 const srBarPos = () => mbarPos(SR_BARCFG);
@@ -1328,7 +1328,8 @@ function mountSight(host, st, onChange) {
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
           settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>`,
           zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:zoomout')}</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:zoomin')}</button></span>`,
-          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : ''
+          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : '',
+          print: () => `<button data-sr="print" title="Print this example or make a worksheet with an answer key">${IC('ico:print')} Worksheet</button>`
         })}
       </div>
       ${st.settingsOpen ? `<div class="sr-settings">${isBuild() ? srBuildSettingsHTML(st) : srSettingsHTML(st)}</div>` : ''}
@@ -1539,6 +1540,8 @@ function mountSight(host, st, onChange) {
       if (copy.build) { copy.build.hist = []; copy.build.sel = null; }
       cls.resources.push({ id: uid(), title: isBuild() ? 'My ' + (st.build.kind === 'rhythm' ? 'rhythm' : 'solfege') + ' example' : st.mode === 'rhythm' ? 'Rhythm reading' : 'Solfege reading', sight: copy });
       save(); P.stageKey = ''; toast(`Saved to ${cls.name} — it's now a tab on the class screen.`); return;
+    } else if (k === 'print') {
+      srOpenWorksheet(st, V()); return;
     }
     onChange && onChange(st); render();
   };
@@ -1591,6 +1594,104 @@ document.addEventListener('keydown', e => {
 });
 window.mountSight = mountSight;
 window.srDefaults = srDefaults;
+
+// ---------- Feature 6: Printable Sight-Reading Worksheets & Teacher Answer Keys
+function srRenderPrintSVG(viewState) {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:-9999px;top:0;width:720px;background:#fff;padding:0;margin:0;visibility:hidden;';
+  box.__zoom = 0.85;
+  document.body.appendChild(box);
+  try {
+    srDraw(box, viewState);
+    const svgs = [...box.querySelectorAll('svg')].map(svg => {
+      const w = parseFloat(svg.getAttribute('width')) || 700;
+      const h = parseFloat(svg.getAttribute('height')) || 120;
+      if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      svg.removeAttribute('width'); svg.removeAttribute('height');
+      svg.style.width = '100%'; svg.style.height = 'auto'; svg.style.display = 'block';
+      return svg.outerHTML;
+    });
+    return svgs.join('');
+  } finally {
+    box.remove();
+  }
+}
+
+function srOpenWorksheet(st, curView) {
+  document.getElementById('sr-ws-modal')?.remove();
+  const isBuild = st.mode === 'build';
+  const kind = curView.mode; // 'rhythm' or 'solfege'
+  const cls = typeof currentClass === 'function' ? currentClass() : null;
+  const defTitle = `${cls?.name ? cls.name + ' — ' : ''}${kind === 'rhythm' ? 'Rhythm' : 'Solfege'} Sight Reading`;
+  const o = curView[kind] || st[kind];
+  const metaParts = [o?.ts || '4/4'];
+  if (kind === 'solfege' && o) metaParts.push(`${(o.key || 'C').replace('b', '♭')} ${o.scale || 'major'}`);
+  const metaLine = metaParts.join(' · ');
+
+  const modal = document.createElement('div');
+  modal.id = 'sr-ws-modal'; modal.className = 'av-cal sr-ws-modal';
+  modal.innerHTML = `<div class="av-card sr-ws-card">
+    <h3>${IC('ico:print')} Sight-Reading Worksheet</h3>
+    <p>Prints crisp black-on-white notation (choose “Save as PDF” in the print window to share).</p>
+    <div class="sr-ws-form">
+      <label class="fld"><span>Worksheet title</span><input id="ws-title" value="${esc(defTitle)}"></label>
+      <label class="fld"><span>Exercises</span><select id="ws-count">
+        <option value="1" ${isBuild ? 'selected' : ''}>This example only (1)</option>
+        ${isBuild ? '' : '<option value="2">2 exercises (current + 1 fresh)</option><option value="4" selected>4 exercises (current + 3 fresh)</option><option value="6">6 exercises (current + 5 fresh)</option>'}
+      </select></label>
+      <label class="chk"><input type="checkbox" id="ws-hdr" checked> Include Name / Date / Class header</label>
+      <label class="chk"><input type="checkbox" id="ws-stu-ans"> Show ${kind === 'rhythm' ? 'counts' : 'solfege'} on student sheet</label>
+      <label class="chk"><input type="checkbox" id="ws-key" checked> Add Page 2: Teacher Answer Key</label>
+    </div>
+    <div class="row" style="width:100%;justify-content:flex-end;margin-top:6px">
+      <button class="btn" data-ws="cancel">Cancel</button>
+      <button class="btn primary" data-ws="go">${IC('ico:print')} Print / Save PDF</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  const close = () => { document.removeEventListener('keydown', onKey, true); modal.remove(); };
+  const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  modal.addEventListener('click', e => {
+    if (e.target === modal || e.target.closest('[data-ws="cancel"]')) { close(); return; }
+    if (!e.target.closest('[data-ws="go"]')) return;
+    const title = modal.querySelector('#ws-title').value.trim() || defTitle;
+    const count = Number(modal.querySelector('#ws-count').value) || 1;
+    const showHdr = modal.querySelector('#ws-hdr').checked;
+    const stuAns = modal.querySelector('#ws-stu-ans').checked;
+    const addKey = modal.querySelector('#ws-key').checked;
+
+    // Build list of exercise views (first is current example; rest are fresh with same settings)
+    const views = [JSON.parse(JSON.stringify(curView))];
+    for (let i = 1; i < count; i++) {
+      const nextV = JSON.parse(JSON.stringify(curView));
+      if (kind === 'rhythm') {
+        const ro = nextV.rhythm;
+        nextV.ex = { rhythm: { rhythm: srGenRhythm(ro.ts, ro.measures, ro.cells, ro.ties) } };
+      } else {
+        nextV.ex = { solfege: srGenParts(nextV.solfege) };
+      }
+      views.push(nextV);
+    }
+
+    const renderSet = (withAns) => views.map((v, i) => {
+      v.show = kind === 'solfege' ? withAns : false;
+      v.showCounts = kind === 'rhythm' ? withAns : (withAns && !!st.showCounts);
+      const svg = srRenderPrintSVG(v);
+      return `<div class="blk sr-ws-ex">${views.length > 1 ? `<div class="sr-ws-num">${i + 1}.</div>` : ''}<div class="sr-ws-svg">${svg}</div></div>`;
+    }).join('');
+
+    let html = `<div class="meta">${esc(metaLine)}</div>`;
+    if (showHdr) html += `<div class="sr-ws-hdr"><span>Name: ___________________________</span><span>Date: _______________</span><span>Class: _______________</span></div>`;
+    html += renderSet(stuAns);
+    if (addKey) {
+      html += `<div class="sr-ws-key"><h1>${esc(title)} — Answer Key</h1><div class="meta">${esc(metaLine)}</div>${renderSet(true)}</div>`;
+    }
+    close();
+    if (typeof printHTML === 'function') printHTML(title, html);
+  });
+}
 
 // If the main app drew windows before this file loaded, mount them now.
 if (typeof mountSightHosts === "function") mountSightHosts();

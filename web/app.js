@@ -822,9 +822,9 @@ function fitDock() {
   kids.forEach(k => { if (!k.classList.contains('dock-idle-ic')) k.style.display = ''; });
   const more = d.querySelector('.dock-more');
   const over = () => {
-    if (d.classList.contains('vertical')) return d.scrollHeight > d.clientHeight - 2;
-    if (d.scrollWidth > d.clientWidth - 2) return true;
-    return !!(more && more.getBoundingClientRect().right > d.getBoundingClientRect().right - 2);
+    if (d.classList.contains('vertical')) return d.scrollHeight > d.clientHeight + 1;
+    if (d.scrollWidth > d.clientWidth + 1) return true;
+    return !!(more && more.getBoundingClientRect().right > d.getBoundingClientRect().right + 1);
   };
   if (!over()) return;
   // Setup goes last: only when nothing else is left, so the ⋯ button itself always stays reachable

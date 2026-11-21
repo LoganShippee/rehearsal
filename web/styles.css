@@ -1623,6 +1623,7 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .tt-step > button .ico, .sr-step button .ico, .sp-step button .ico, .team .btn .ico {
   width: 1em; height: 1em; flex: none; vertical-align: middle;
 }
+.sr-step button .ico, .sp-step button .ico { width: 15px; height: 15px; }
 .tt-step > button .ico { width: 20px; height: 20px; }
 .p-dock button .i { display: inline-flex; align-items: center; justify-content: center; height: 18px; line-height: 1; }
 .p-dock button .i .ico { width: 18px; height: 18px; display: block; }
@@ -1632,8 +1633,8 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .p-dock.dock-lg button .i .ico { width: 26px; height: 26px; }
 .p-dock .dock-grip { color: rgba(255,255,255,.72); }
 
-/* 1. Signal banner sits clearly below header & above dock/windows */
-.p-signal { top: 4.8em; z-index: 65; }
+/* 1. Signal banner sits clearly below header & above windows, without covering tool popovers/menus */
+.p-signal { top: 4.8em; z-index: 42; }
 .present.stage-max .p-signal { top: 3.6em; }
 
 /* 2. Paused timer visual state */
@@ -1651,6 +1652,7 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .agenda.editing .ag-minw { display: inline-flex; align-items: center; gap: 4px; font-size: .82em; opacity: .9; }
 .agenda.editing .ag-min { width: 4.2em; min-width: 50px; text-align: center; padding: 3px 5px; }
 .agenda.editing .ag-x { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; }
+.ie-ev input[data-ie-evtext] { flex: 1 1 100%; }
 .p-side, .wg-host, .sr-host, .mu-host, .score-host { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent; }
 .p-side::-webkit-scrollbar, .wg-host::-webkit-scrollbar, .sr-host::-webkit-scrollbar, .mu-host::-webkit-scrollbar, .score-host::-webkit-scrollbar { width: 7px; height: 7px; }
 .p-side::-webkit-scrollbar-track, .wg-host::-webkit-scrollbar-track, .sr-host::-webkit-scrollbar-track, .mu-host::-webkit-scrollbar-track, .score-host::-webkit-scrollbar-track { background: transparent; }
@@ -1851,3 +1853,17 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .sb-note { font-size: .85em; font-weight: 700; opacity: .82; }
 .sb-kbd { margin-left: auto; font-family: inherit; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.18); opacity: .75; }
 .sb.is-grid .sb-kbd { position: absolute; top: 5px; right: 6px; margin: 0; }
+
+/* ---------- Feature 6: Printable Sight-Reading Worksheets ---------- */
+.sr-ws-card { width: min(92vw, 440px); text-align: left; align-items: stretch; }
+.sr-ws-card h3 { display: flex; align-items: center; gap: 8px; }
+.sr-ws-form { display: flex; flex-direction: column; gap: 10px; }
+.sr-ws-form input[type=text], .sr-ws-form input:not([type]), .sr-ws-form select { background: #fff; color: #1d2330; border: 1px solid #d3d7e0; }
+@media print {
+  #print-area .sr-ws-hdr { display: flex; justify-content: space-between; gap: 12pt; font-size: 10.5pt; margin: 8pt 0 14pt; padding-bottom: 6pt; border-bottom: 1px solid #bbb; }
+  #print-area .sr-ws-ex { display: flex; align-items: flex-start; gap: 8pt; margin-bottom: 14pt; page-break-inside: avoid; }
+  #print-area .sr-ws-num { font-weight: 700; font-size: 13pt; min-width: 18pt; padding-top: 10pt; }
+  #print-area .sr-ws-svg { flex: 1; min-width: 0; }
+  #print-area .sr-ws-svg svg { max-width: 100%; height: auto; }
+  #print-area .sr-ws-key { page-break-before: always; padding-top: 4pt; }
+}
