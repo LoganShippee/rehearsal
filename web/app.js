@@ -4325,7 +4325,7 @@ const A = {
     if (P.winMenu) { P.winMenu = false; renderWinMenu(); renderDock(); }
     const kind = el.dataset.kind, ex = winList().find(w => w.kind === kind);
     if (ex) { bringToFront(ex); return; }
-    addWindow({ kind, mu: muDefaults(kind) }, kind === 'tuner' ? { w: 0.62, h: 0.84 } : { w: 0.46, h: 0.68 });
+    addWindow({ kind, mu: muDefaults(kind) }, kind === 'tuner' ? { w: 0.72, h: 0.78 } : { w: 0.46, h: 0.68 });
     renderDock();
   },
   'dock-custom': () => { P.dockCustom = !P.dockCustom; P.dockMore = false; renderDockCustom(); renderDock(); },
