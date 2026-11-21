@@ -508,35 +508,24 @@ function srDraw(el, st) {
   const parts = mode === 'solfege' && ex.parts && ex.parts.length > 1 ? ex.parts : [{ rhythm: ex.rhythm, pitches: ex.pitches || [], clef: mode === 'rhythm' ? 'percussion' : o.clef }];
   const P = parts.length, measures = parts[0].rhythm, nM = Math.max(...parts.map(p => p.rhythm.length));
   const keySig = mode === 'solfege' ? (o.scale === 'minor' ? o.key + 'm' : o.key) : null;
-  // Measure exact header width (clef + key sig + time sig) so bar 1 has the exact same playable width as bars 2–N.
+  // Measure exact header widths: row 0 has clef + key + time; rows 1+ have clef + key (no blank hole after clef).
   let firstW = 90 + (keySig ? 50 : 0) + (P > 1 ? 20 : 0);
+  let firstWR = 48 + (keySig ? 50 : 0) + (P > 1 ? 20 : 0);
   try {
-    const probe = new VF.Stave(0, 0, 320);
-    probe.addClef(mode === 'rhythm' ? 'percussion' : (parts[0].clef || o.clef));
-    if (keySig) probe.addKeySignature(keySig);
-    probe.addTimeSignature(o.ts);
-    const hdr = probe.getNoteStartX() - probe.getX();
-    if (hdr > 20) firstW = Math.ceil(hdr) + (P > 1 ? 10 : 4);
+    const clef0 = mode === 'rhythm' ? 'percussion' : (parts[0].clef || o.clef);
+    const p0 = new VF.Stave(0, 0, 320); p0.addClef(clef0); if (keySig) p0.addKeySignature(keySig); p0.addTimeSignature(o.ts);
+    const h0 = p0.getNoteStartX() - p0.getX(); if (h0 > 20) firstW = Math.ceil(h0) + (P > 1 ? 10 : 4);
+    const pR = new VF.Stave(0, 0, 320); pR.addClef(clef0); if (keySig) pR.addKeySignature(keySig);
+    const hR = pR.getNoteStartX() - pR.getX(); if (hR > 16) firstWR = Math.ceil(hR) + (P > 1 ? 10 : 4);
   } catch { }
-  // Room each measure needs for proportional beat-grid spacing (keeps Beat playhead at constant speed across all rhythms)
-  let maxNotes = 0, minDur = beats;
-  for (let i = 0; i < nM; i++) {
-    for (const p of parts) {
-      const cells = p.rhythm[i] || [];
-      let cnt = 0;
-      for (const c of cells) {
-        for (const e of c.ev) { cnt++; if (e[1] > 0.05) minDur = Math.min(minDur, e[1]); }
-      }
-      if (cnt > maxNotes) maxNotes = cnt;
-    }
-  }
+  // Natural printed-music measure width (busy measures get enough room for labels)
+  let maxNotes = 0;
+  for (let i = 0; i < nM; i++) maxNotes = Math.max(maxNotes, ...parts.map(p => (p.rhythm[i] || []).reduce((n, c) => n + c.ev.length, 0)));
   const showLbl = mode === 'rhythm' ? !!st.showCounts : !!st.show;   // rhythm lines show counts; staves show syllables
   const showBlanks = !!st.answerBlanks && !showLbl && !(mode !== 'rhythm' && st.showCounts);
-  const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 38 : 34) : 26;
-  const subDivMin = (showLbl || st.showCounts) ? (minDur <= 0.26 ? 24 : 28) : (minDur <= 0.26 ? 20 : 24);
-  const propW = Math.min(420, Math.ceil((beats / Math.max(0.25, minDur)) * subDivMin) + 22);
+  const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 40 : 36) : 26;
   const pOpts = st.__printOpts || null;
-  const restW = pOpts?.restW || Math.max(170, maxNotes * needPerNote + 24, propW);
+  const restW = pOpts?.restW || Math.max(150, maxNotes * needPerNote + 30);
   const extraC = st.showCounts && mode !== 'rhythm' ? (showLbl ? 34 : 20) : 0;
   const extraB = showBlanks ? 26 : 0;
   const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC + extraB;
@@ -570,12 +559,14 @@ function srDraw(el, st) {
   for (let i = 0; i < nM; i++) {
     const mStart = t, firstEv = timeline.length;
     const col = i % per, row = Math.floor(i / per);
-    const sx = col === 0 ? 5 : 5 + firstW + col * restW;
+    const rowFirstW = row === 0 ? firstW : firstWR;
+    const rowRestW = row === 0 ? restW : (firstW + per * restW - firstWR) / per;
+    const sx = col === 0 ? 5 : 5 + rowFirstW + col * rowRestW;
     const staves = [], voices = [], allNotes = [], beamsAll = [], tupsAll = [];
     let mLen = 0;
     parts.forEach((part, p) => {
       const clef = mode === 'rhythm' ? 'percussion' : (part.clef || o.clef);
-      const stave = new VF.Stave(sx, row * rowH + 10 + p * partH, col === 0 ? firstW + restW : restW);
+      const stave = new VF.Stave(sx, row * rowH + 10 + p * partH, col === 0 ? rowFirstW + rowRestW : rowRestW);
       if (col === 0) {
         stave.addClef(clef);
         if (keySig) stave.addKeySignature(keySig);
@@ -647,30 +638,24 @@ function srDraw(el, st) {
     }
     // all parts formatted together, so notes at the same moment line up across the staves
     new VF.Formatter().format(voices, stave0.getNoteEndX() - stave0.getNoteStartX() - 12);
-    // Proportional beat-grid spacing: every beat gets the exact same pixel width across every measure,
-    // so the Beat playhead glides at one constant speed while crossing each notehead right on time.
-    const innerStart = col === 0 ? Math.max(stave0.getNoteStartX(), stave0.getX() + firstW) : stave0.getNoteStartX();
-    const offsetL = innerStart - stave0.getNoteStartX();
-    let gridAvail = stave0.getNoteEndX() - innerStart - 16;
+    // Natural printed-quality optical spacing: every moment gets room for its label,
+    // then remaining space is distributed with a gentle engraving curve (val^0.75).
     {
-      const avail = Math.max(60, gridAvail);
-      const padL = 8 + offsetL;
+      const avail = stave0.getNoteEndX() - stave0.getNoteStartX() - 16;
       const byPos = new Map();
       for (const it of allNotes) {
         const k = Math.round(it.pos * 1000);
-        const g = byPos.get(k) || { pos: it.pos, tcs: new Set() };
+        const g = byPos.get(k) || { pos: it.pos, need: 0, tcs: new Set() };
+        g.need = Math.max(g.need, Math.max(showLbl ? 30 : 24, it.text ? it.text.length * 9 + 14 : 0) + (it.dotted ? 8 : 0));
         const tc = it.n.getTickContext && it.n.getTickContext(); if (tc) g.tcs.add(tc);
         byPos.set(k, g);
       }
       const groups = [...byPos.values()].sort((a, b) => a.pos - b.pos);
-      const len = mLen || beats || 1;
-      let prevX = -Infinity;
-      for (const g of groups) {
-        const propX = padL + (g.pos / len) * avail;
-        const x = prevX === -Infinity ? propX : Math.max(prevX + 14, propX);
-        for (const tc of g.tcs) if (tc.setX) tc.setX(x);
-        prevX = x;
-      }
+      groups.forEach((g, j) => g.val = Math.pow(Math.max(0.125, (groups[j + 1]?.pos ?? mLen) - g.pos), 0.75));
+      const totalNeed = groups.reduce((a, g) => a + g.need, 0), dsum = groups.reduce((a, g) => a + g.val, 0) || 1;
+      const extra = Math.max(0, avail - totalNeed), squeeze = totalNeed > avail ? avail / totalNeed : 1;
+      let x = 8;
+      for (const g of groups) { for (const tc of g.tcs) if (tc.setX) tc.setX(x); x += g.need * squeeze + extra * g.val / dsum; }
     }
     voices.forEach((v, p) => v.draw(ctx, staves[p]));
     beamsAll.forEach(b => {
@@ -692,9 +677,24 @@ function srDraw(el, st) {
     }
     const knots = [...kmap.values()].sort((p, q) => p[0] - q[0]);
     if (knots[0] && knots[0][0] > mStart) knots.unshift([mStart, stave0.getNoteStartX() + 8, mid, mid]);
-    const endGridX = knots[0] ? Math.min(stave0.getNoteEndX() - 2, knots[0][1] + Math.max(60, gridAvail)) : (stave0.getNoteEndX() - 4);
-    knots.push([t, endGridX, mid, mid]);
-    geo.measures.push({ t0: mStart, t1: t, y0: stave0.getYForLine(0) - 18, y1: sLast.getYForLine(4) + 18, knots, x0: stave0.getX(), x1: stave0.getX() + stave0.getWidth() });
+    knots.push([t, stave0.getNoteEndX() - 4, mid, mid]);
+    // Precompute Fritsch-Carlson monotone cubic Hermite tangents for smooth, non-jerky playhead glide across optical engraving
+    const knN = knots.length, slopes = new Array(knN).fill(0);
+    if (knN >= 2) {
+      const ds = [];
+      for (let j = 0; j < knN - 1; j++) {
+        const dt = knots[j + 1][0] - knots[j][0];
+        ds.push(dt > 1e-6 ? Math.max(0, (knots[j + 1][1] - knots[j][1]) / dt) : 0);
+      }
+      slopes[0] = ds[0]; slopes[knN - 1] = ds[knN - 2];
+      for (let j = 1; j < knN - 1; j++) slopes[j] = (ds[j - 1] > 0 && ds[j] > 0) ? (ds[j - 1] + ds[j]) / 2 : 0;
+      for (let j = 0; j < knN - 1; j++) {
+        if (ds[j] <= 1e-6) { slopes[j] = 0; slopes[j + 1] = 0; continue; }
+        const a = slopes[j] / ds[j], b = slopes[j + 1] / ds[j], h = Math.hypot(a, b);
+        if (h > 3) { const s = 3 / h; slopes[j] = s * a * ds[j]; slopes[j + 1] = s * b * ds[j]; }
+      }
+    }
+    geo.measures.push({ t0: mStart, t1: t, y0: stave0.getYForLine(0) - 18, y1: sLast.getYForLine(4) + 18, knots, slopes, x0: stave0.getX(), x1: stave0.getX() + stave0.getWidth() });
   }
   for (const tl of tieList) {
     try {
@@ -1079,9 +1079,13 @@ function srAnimate(host, st, getTimeline, clock) {
       x = kn0[1]; top = kn0[2]; bot = kn0[3];                         // glides (CSS) onto each note
     } else {
       let i = 0; while (i < m.knots.length - 2 && tq >= m.knots[i + 1][0]) i++;
-      const [ta, xa, ua, da] = m.knots[i], [tb, xb, ub, db] = m.knots[i + 1] || m.knots[i];
-      const f = tb > ta ? (tq - ta) / (tb - ta) : 0;
-      x = xa + f * (xb - xa);                                         // crosses each notehead as it sounds
+      const [ta, xa] = m.knots[i], [tb, xb] = m.knots[i + 1] || m.knots[i];
+      const dt = tb - ta;
+      if (dt > 1e-6) {
+        const f = Math.max(0, Math.min(1, (tq - ta) / dt)), f2 = f * f, f3 = f2 * f;
+        const ma = m.slopes ? m.slopes[i] : (xb - xa) / dt, mb = m.slopes ? m.slopes[i + 1] : (xb - xa) / dt;
+        x = (2 * f3 - 3 * f2 + 1) * xa + (f3 - 2 * f2 + f) * dt * ma + (-2 * f3 + 3 * f2) * xb + (f3 - f2) * dt * mb;
+      } else x = xa;
       const beat = Math.floor(tq / clock.beatQ + 1e-6);
       if (beat !== lastBeat) { lastBeat = beat; bar.classList.remove('beat'); void bar.offsetWidth; bar.classList.add('beat'); }
     }
