@@ -108,19 +108,87 @@ function srGenRhythm(ts, measures, allowed, ties) {
   return out;
 }
 
-// counting label for a note starting at `p` quarter-units into the measure
-function srCount(p, kind, rest) {
+// Rhythm syllable systems: 'numbers' (1 e & a), 'kodaly' (ta ti-ti / tika-tika / syn-co-pa), 'takadimi' (ta ta-di / ta-ka-di-mi / ta-ki-da)
+const RHYTHM_SYSTEMS = [
+  ['numbers', 'Numbers (1 e & a)'],
+  ['kodaly', 'Kodály (ta ti-ti)'],
+  ['takadimi', 'Takadimi (ta ta-di)'],
+];
+const RHY_KODALY_SIMPLE = {
+  w: ['ta-a-a-a'], hd: ['ta-a-a'], h: ['ta-a'], q: ['ta'],
+  ee: ['ti', 'ti'], qr: ['(sh)'], hr: ['(sh-h)'],
+  qde: ['tam', 'ti'], ssss: ['ti', 'ka', 'ti', 'ka'],
+  er: ['(ti)', 'ti'], syn: ['syn', 'co', 'pa'],
+  ess: ['ti', 'ti', 'ka'], sse: ['ti', 'ka', 'ti'],
+  des: ['tim', 'ka'], trip: ['tri', 'o', 'la'],
+};
+const RHY_KODALY_COMP = {
+  dq: ['tam'], dh: ['tam-a'], dqr: ['(sh)'],
+  eee: ['ti', 'ti', 'ti'], qe: ['ta', 'ti'], eq: ['ti', 'ta'],
+  desse: ['tim', 'ka', 'ti'], ssse: ['ti', 'ka', 'ti', 'ka', 'ti'],
+  six: ['ti', 'ka', 'ti', 'ka', 'ti', 'ka'],
+};
+function rhythmSys() { return (typeof S !== 'undefined' && S.settings?.rhythmSystem) || 'numbers'; }
+function rhythmSyllable(p, kind, rest, val = 1, cellId = null, ei = 0, sys = rhythmSys()) {
   const r = x => Math.round(x * 12) / 12;
+  if (sys === 'kodaly') {
+    const map = kind === 'compound' ? RHY_KODALY_COMP : RHY_KODALY_SIMPLE;
+    if (cellId && map[cellId] && map[cellId][ei] != null) return map[cellId][ei];
+    if (rest) return val >= 1.9 ? '(sh-h)' : '(sh)';
+    if (kind === 'simple') {
+      const b = Math.floor(r(p) + 1e-9), f = r(p - b);
+      if (f === 0) {
+        if (val >= 3.9) return 'ta-a-a-a';
+        if (val >= 2.9) return 'ta-a-a';
+        if (val >= 1.9) return 'ta-a';
+        if (val >= 1.4) return 'tam';
+        if (val >= 0.9) return 'ta';
+        if (val >= 0.7) return 'tim';
+        if (Math.abs(val - 1 / 3) < 0.04) return 'tri';
+        return 'ti';
+      }
+      if (f === .25 || f === .75) return 'ka';
+      if (f === .5) return val >= 0.9 ? 'co' : 'ti';
+      if (Math.abs(f - 1 / 3) < .02) return 'o';
+      if (Math.abs(f - 2 / 3) < .02) return 'la';
+      return 'ti';
+    } else {
+      const e = r(p / .5), sub = r(e % 3);
+      if (sub === 0) return val >= 2.8 ? 'tam-a' : val >= 1.4 ? 'tam' : val >= 0.9 ? 'ta' : val >= 0.7 ? 'tim' : 'ti';
+      if (sub === 1 || sub === 2) return val >= 0.9 ? 'ta' : 'ti';
+      return 'ka';
+    }
+  }
+  if (sys === 'takadimi') {
+    let s;
+    if (kind === 'simple') {
+      const b = Math.floor(r(p) + 1e-9), f = r(p - b);
+      s = f === 0 ? 'ta' : f === .25 ? 'ka' : f === .5 ? 'di' : f === .75 ? 'mi'
+        : Math.abs(f - 1 / 3) < .02 ? 'ki' : Math.abs(f - 2 / 3) < .02 ? 'da' : '·';
+    } else {
+      const e = r(p / .5), sub = r(e % 3);
+      s = sub === 0 ? 'ta' : sub === .5 ? 'va' : sub === 1 ? 'ki' : sub === 1.5 ? 'di' : sub === 2 ? 'da' : sub === 2.5 ? 'ma' : '·';
+    }
+    return rest ? `(${s})` : s;
+  }
+  // default: traditional numbers (1 e & a)
   let s;
   if (kind === 'simple') {
     const b = Math.floor(r(p) + 1e-9), f = r(p - b);
     s = f === 0 ? String(b + 1) : f === .5 ? '&' : f === .25 ? 'e' : f === .75 ? 'a' : Math.abs(f - 1 / 3) < .01 ? 'trip' : Math.abs(f - 2 / 3) < .01 ? 'let' : '·';
   } else {
-    const e = r(p / .5), ei = Math.floor(e + 1e-9), beat = Math.floor(ei / 3) + 1, sub = ei % 3, half = r(e - ei) > 0;
+    const e = r(p / .5), ei2 = Math.floor(e + 1e-9), beat = Math.floor(ei2 / 3) + 1, sub = ei2 % 3, half = r(e - ei2) > 0;
     s = half ? 'ta' : sub === 0 ? String(beat) : sub === 1 ? '&' : 'a';
   }
   return rest ? `(${s})` : s;
 }
+// counting label for a note starting at `p` quarter-units into the measure
+function srCount(p, kind, rest, val = 1, cellId = null, ei = 0) {
+  return rhythmSyllable(p, kind, rest, val, cellId, ei);
+}
+window.rhythmSyllable = rhythmSyllable;
+window.rhythmSys = rhythmSys;
+window.RHYTHM_SYSTEMS = RHYTHM_SYSTEMS;
 
 // ---------- solfege melody on top of a rhythm
 function srSpell(key, scale, d, clef) {
@@ -444,10 +512,12 @@ function srDraw(el, st) {
   let maxNotes = 0;
   for (let i = 0; i < nM; i++) maxNotes = Math.max(maxNotes, ...parts.map(p => (p.rhythm[i] || []).reduce((n, c) => n + c.ev.length, 0)));
   const showLbl = mode === 'rhythm' ? !!st.showCounts : !!st.show;   // rhythm lines show counts; staves show syllables
-  const needPerNote = showLbl ? (mode === 'solfege' ? 40 : 32) : 26;
+  const showBlanks = !!st.answerBlanks && !showLbl && !(mode !== 'rhythm' && st.showCounts);
+  const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 40 : 36) : 26;
   const restW = Math.max(150, maxNotes * needPerNote + 30);
   const extraC = st.showCounts && mode !== 'rhythm' ? (showLbl ? 34 : 20) : 0;
-  const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC;
+  const extraB = showBlanks ? 26 : 0;
+  const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC + extraB;
   const rowH = P * partH + (P > 1 ? 24 : 0) + (o.measureNums ? 6 : 0);
   // Try 1..6 measures per line and keep the layout that can be drawn biggest in the space we have.
   const CW = Math.max(280, el.clientWidth - 20), CH = Math.max(140, el.clientHeight - 28);
@@ -465,6 +535,8 @@ function srDraw(el, st) {
   const timeline = [];                       // playback events (all parts)
   const geo = { W, measures: [] };           // positions for the playhead
   const rowLabels = {};                      // labels per (line of music, part)
+  const rowBlanks = {};                      // blank student answer lines per (line of music, part)
+  let grpSeq = 0;                            // unique id per multi-note rhythm cell (for Kodály dashes)
   const pIdx = parts.map(() => 0);           // next pitch for each part
   const tieOpen = parts.map(() => null), tieList = [];   // a tie waiting for its second note, per part
   let t = 0;
@@ -496,24 +568,29 @@ function srDraw(el, st) {
       let pos = 0, tt = mStart;
       for (const c of (part.rhythm[i] || [])) {
         const group = [];
+        const cellGrp = c.ev.length > 1 ? ++grpSeq : 0;
         for (let ei = 0; ei < c.ev.length; ei++) {
           const [dur, val, rest] = c.ev[ei];
-          let keys = ['b/4'], label = srCount(pos, kind, rest), info = null;
+          let keys = ['b/4'], label = srCount(pos, kind, rest, val, c.id, ei), info = null;
           const tiedIn = !rest && tieOpen[p];                  // the held-over half of a tied note
           if (mode === 'rhythm') keys = ['b/4'];
           else if (!rest) { info = srSpell(o.key, o.scale, part.pitches[pIdx[p]++], clef); if (tiedIn) info = tieOpen[p].info; keys = [info.key]; label = info.syl; }
           else keys = [clef === 'bass' ? 'd/3' : 'b/4'];
-          if (tiedIn) label = mode === 'rhythm' ? `(${srCount(pos, kind, false)})` : '';
+          if (tiedIn) label = mode === 'rhythm' ? `(${srCount(pos, kind, false, val, c.id, ei)})` : '';
           const n = new VF.StaveNote({ keys, duration: dur.replace('d', '') + (rest ? 'r' : ''), clef, dots: dur.includes('d') ? 1 : 0, auto_stem: mode !== 'rhythm' });
           if (dur.includes('d')) { if (VF.Dot && VF.Dot.buildAndAttach) VF.Dot.buildAndAttach([n], { all: true }); else n.addDotToAll(); }
           const lk = row + '|' + p;
-          if (showLbl && (!rest || mode === 'rhythm') && label) (rowLabels[lk] ||= []).push({ n, text: label, rest: !!rest || !!tiedIn, stave });
+          const grp = (!rest && !tiedIn && cellGrp) ? cellGrp : 0;
+          if (showLbl && (!rest || mode === 'rhythm') && label) (rowLabels[lk] ||= []).push({ n, text: label, rest: !!rest || !!tiedIn, stave, grp, isRhy: mode === 'rhythm' });
           if (st.showCounts && mode !== 'rhythm') {
-            const ct = tiedIn ? `(${srCount(pos, kind, false)})` : srCount(pos, kind, rest);
-            (rowLabels[lk + '|c'] ||= []).push({ n, text: ct, rest: !!rest || !!tiedIn, stave, counts: true });
+            const ct = tiedIn ? `(${srCount(pos, kind, false, val, c.id, ei)})` : srCount(pos, kind, rest, val, c.id, ei);
+            (rowLabels[lk + '|c'] ||= []).push({ n, text: ct, rest: !!rest || !!tiedIn, stave, counts: true, grp, isRhy: true });
+          }
+          if (showBlanks && (!rest || mode === 'rhythm') && !tiedIn) {
+            (rowBlanks[lk] ||= []).push({ n, stave, rest: !!rest });
           }
           notes.push(n); group.push({ n, dur, rest });
-          allNotes.push({ n, pos, val, dotted: dur.includes('d'), text: (showLbl && (!rest || mode === 'rhythm') ? label : '') || (st.showCounts && mode !== 'rhythm' ? srCount(pos, kind, rest) : '') });
+          allNotes.push({ n, pos, val, dotted: dur.includes('d'), text: (showLbl && (!rest || mode === 'rhythm') ? label : '') || (st.showCounts && mode !== 'rhythm' ? srCount(pos, kind, rest, val, c.id, ei) : '') });
           const tev = { t: tt, len: val, rest: !!rest, midi: info ? info.midi : null, n, part: p, stave };
           if (tiedIn) { tev.tiedFrom = true; const h = tieOpen[p].head; h.sound = (h.sound || h.len) + val; tieList.push({ a: tieOpen[p].n, b: n, rowA: tieOpen[p].row, rowB: row }); }
           timeline.push(tev);
@@ -597,11 +674,13 @@ function srDraw(el, st) {
   timeline.sort((a, b) => a.t - b.t || a.part - b.part);
   timeline.geo = geo;
   timeline.parts = P;
-  // Counting / solfege under each staff. Each label is centred under its note; if it would touch the
-  // previous one it drops to the next line down, so labels never overlap however tight the notes are.
-  const measureText = (txt) => { try { const w = ctx.measureText(txt).width; if (w > 0) return w; } catch { } return txt.length * 7.5; };
+  // Counting / solfege under each staff: keep every syllable aligned on ONE crisp horizontal baseline.
+  // If a tight 16th-note run gets crowded, gently scale the font size for that label instead of dropping it to a lower line.
+  // In Kodály mode, draw clean hyphens (-) centered between grouped syllables (ti - ti, ti - ka - ti - ka, syn - co - pa).
+  const measureText = (txt, sz = 14) => { try { const w = ctx.measureText(txt).width; if (w > 0) return w; } catch { } return txt.length * (sz * 0.54); };
+  const useDashes = rhythmSys() === 'kodaly' || rhythmSys() === 'takadimi';
   Object.entries(rowLabels).forEach(([lkey, items]) => {
-    const below = lkey.endsWith('|c') && rowLabels[lkey.slice(0, -2)] ? 36 : 0;   // counts go under the syllables
+    const below = lkey.endsWith('|c') && rowLabels[lkey.slice(0, -2)] ? 24 : 0;   // counts go cleanly under syllables
     if (!items.length) return;
     let bottom = items[0].stave.getYForLine(4) + 14;
     for (const { n } of items) {
@@ -609,20 +688,80 @@ function srDraw(el, st) {
       const down = n.getStemDirection && n.getStemDirection() === -1 && !n.isRest?.();
       if (ys.length) bottom = Math.max(bottom, Math.max(...ys) + (down ? 36 : 10));
     }
-    const lineEnds = [-1e9, -1e9, -1e9];
-    for (const it of items) {
+    const baseY = bottom + 16 + below;
+    const cxs = items.map(it => srHeadX(it.n));
+    const placed = [];
+    for (let idx = 0; idx < items.length; idx++) {
+      const it = items[idx], cx = cxs[idx];
+      const leftGap = idx > 0 ? cx - cxs[idx - 1] : 999;
+      const rightGap = idx < items.length - 1 ? cxs[idx + 1] - cx : 999;
+      const needDash = useDashes && it.isRhy && it.grp && (
+        (idx > 0 && items[idx - 1].grp === it.grp) || (idx < items.length - 1 && items[idx + 1].grp === it.grp)
+      );
+      const maxW = Math.max(14, Math.min(leftGap, rightGap) - (needDash ? 7 : 3));
+      let sz = 14;
       ctx.save();
-      ctx.setFont('Arial', 14, it.rest ? 'italic' : 'bold');
-      const w = measureText(it.text);
-      const cx = srHeadX(it.n), x = cx - w / 2;
-      let line = lineEnds.findIndex(end => x >= end + 4); if (line < 0) line = lineEnds.indexOf(Math.min(...lineEnds));
-      lineEnds[line] = x + w;
+      ctx.setFont('Arial', sz, it.rest ? 'italic' : 'bold');
+      let w = measureText(it.text, sz);
+      if (w > maxW) {
+        sz = Math.max(9.5, Math.floor((sz * (maxW / w)) * 2) / 2);
+        ctx.setFont('Arial', sz, it.rest ? 'italic' : 'bold');
+        w = measureText(it.text, sz);
+      }
+      const x = cx - w / 2;
       ctx.setFillStyle(it.counts ? (it.rest ? '#9aa0b0' : '#5a6072') : it.rest ? '#7a8194' : '#1d2330');
-      ctx.fillText(it.text, x, bottom + 16 + below + line * 17);
+      ctx.fillText(it.text, x, baseY);
       ctx.restore();
+      placed.push({ it, cx, x, w, sz });
+    }
+    // Draw group dashes (-) centered between adjacent syllables in the same rhythmic group (Kodály & Takadimi)
+    if (useDashes) {
+      for (let idx = 1; idx < placed.length; idx++) {
+        const a = placed[idx - 1], b = placed[idx];
+        if (!a.it.isRhy || !b.it.isRhy || !a.it.grp || a.it.grp !== b.it.grp) continue;
+        const aRight = a.x + a.w, bLeft = b.x;
+        const midX = (aRight + bLeft) / 2;
+        const dsz = Math.min(a.sz, b.sz);
+        ctx.save();
+        ctx.setFont('Arial', dsz, 'bold');
+        ctx.setFillStyle(a.it.counts ? '#5a6072' : '#1d2330');
+        const dw = measureText('-', dsz);
+        ctx.fillText('-', midX - dw / 2, baseY);
+        ctx.restore();
+      }
     }
   });
+  // Blank student answer lines underneath each note (for printable worksheets when answers are hidden)
   const svg = el.querySelector('svg');
+  if (showBlanks && svg) {
+    const NS = 'http://www.w3.org/2000/svg';
+    Object.values(rowBlanks).forEach(items => {
+      if (!items.length) return;
+      let bottom = items[0].stave.getYForLine(4) + 14;
+      for (const { n } of items) {
+        const ys = n.getYs ? n.getYs() : [];
+        const down = n.getStemDirection && n.getStemDirection() === -1 && !n.isRest?.();
+        if (ys.length) bottom = Math.max(bottom, Math.max(...ys) + (down ? 36 : 10));
+      }
+      const lineY = bottom + 22;
+      const cxs = items.map(it => srHeadX(it.n));
+      items.forEach((it, idx) => {
+        const cx = cxs[idx];
+        const leftGap = idx > 0 ? cx - cxs[idx - 1] : 999;
+        const rightGap = idx < items.length - 1 ? cxs[idx + 1] - cx : 999;
+        const half = Math.max(6, Math.min(13, Math.min(leftGap, rightGap) * 0.38));
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', (cx - half).toFixed(1));
+        ln.setAttribute('x2', (cx + half).toFixed(1));
+        ln.setAttribute('y1', lineY.toFixed(1));
+        ln.setAttribute('y2', lineY.toFixed(1));
+        ln.setAttribute('stroke', it.rest ? '#9aa2b4' : '#3a4252');
+        ln.setAttribute('stroke-width', '1.4');
+        ln.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(ln);
+      });
+    });
+  }
   if (svg) {
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     Object.assign(svg.style, { width: Math.floor(W * scale) + 'px', height: Math.floor(H * scale) + 'px', display: 'block', margin: '0 auto' });
@@ -942,12 +1081,14 @@ function srSettingsHTML(st) {
   const common = `<label>Time <select data-k="ts">${meters.map(v => opt(v, o.ts)).join('')}</select></label>
     <label>Measures <span class="sr-step sr-mstep"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer" aria-label="Fewer measures">${IC('ico:minus')}</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More" aria-label="More measures">${IC('ico:plus')}</button></span></label>
     <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
+    <label title="Syllables used for rhythm counting across Sight Reading, Score Practice, and Warm-ups">Rhythm counts <select data-k="rhythmSystem">${RHYTHM_SYSTEMS.map(([v, l]) => opt(v, rhythmSys(), l)).join('')}</select></label>
     <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
     ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>` : ''}
     ${metVolSlider()}
-    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
+    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
+    ${mbarPos(SR_BARCFG) ? `<button type="button" class="sr-barreset" data-sr="barreset" title="Put toolbar buttons back in their standard layout">${IC('ico:undo')} Reset toolbar</button>` : ''}`;
   const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
     <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
     <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
@@ -1179,14 +1320,20 @@ function srBuildSettingsHTML(st) {
     <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
     <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
     <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
+    ${mbarPos(SR_BARCFG) ? `<button type="button" class="sr-barreset" data-sr="barreset" title="Put toolbar buttons back in their standard layout">${IC('ico:undo')} Reset toolbar</button>` : ''}
   </div>`;
 }
 
 // the sight-reading bar: items in the order you've arranged (drag to move; "gap" splits left / right)
 // ---------- movable button bar, shared by sight reading and score practice ----------
 // Each player passes a cfg: { key: where it's saved in S.settings ('srBar' / 'spBar'), defaults: the standard order,
-// groups: ids that start a new group (a little extra space before them) }. Drag a button anywhere: it stays there.
+// groups: ids that start a new group, breaks: ids that can start row 2 on medium widths }.
+// Dragging previews the exact landing spot + live neighbor shifts before drop, keeps left/right clusters local
+// (pushing to one side stops at open space instead of disturbing the opposite side), and anchors items to their
+// nearer edge so custom arrangements stay crisp when the window resizes.
 const MB_GAP = 6;
+const MB_PAD_X = 8;
+const MB_PAD_Y = 5;
 const mbSet = () => (typeof S !== 'undefined' && S.settings) || null;
 function mbarOrder(cfg) {
   const saved = mbSet()?.[cfg.key] || [];
@@ -1195,101 +1342,325 @@ function mbarOrder(cfg) {
   return order;
 }
 const mbarPos = cfg => mbSet()?.[cfg.key + 'Pos'] || null;
-const mbarRowH = bar => { let h = 0; bar.querySelectorAll(':scope > [data-bar]').forEach(el => { if (el.dataset.bar !== 'gap' && !el.hidden) h = Math.max(h, el.offsetHeight); }); return (h || 30) + MB_GAP; };
-// lay the bar out: each button keeps its saved spot; nothing overlaps
+const mbarRowH = bar => {
+  let h = 0;
+  bar.querySelectorAll(':scope > [data-bar]').forEach(el => { if (el.dataset.bar !== 'gap' && !el.hidden) h = Math.max(h, el.offsetHeight); });
+  return (h || 32) + MB_GAP;
+};
+// Resolve a saved position record (v2 edge-anchored or legacy fractional) to pixel x at width W.
+function mbarDesiredX(p, w, W) {
+  const maxX = Math.max(0, W - w);
+  if (!p) return maxX;
+  if (p.v === 2) {
+    const raw = p.a === 'r' ? (W - w - (p.ox || 0)) : (p.ox || 0);
+    return Math.max(0, Math.min(maxX, raw));
+  }
+  return Math.max(0, Math.min(maxX, (p.x ?? 0) * W));
+}
+// Pure 2D row solver: resolves overlaps locally (stopping at open gaps so pushing one side doesn't shove the other).
+// `items` = [{ id, w, x, r, saved }], `pin` = optional { id, x, r } for the actively dragged/dropped item.
+// Returns { map: Map(id -> { x, r, w }), maxRow }.
+function mbarSolve(items, W, pin = null) {
+  const clampX = (x, w) => Math.max(0, Math.min(Math.max(0, W - w), x));
+  const work = items.map(it => ({
+    id: it.id, w: it.w, saved: it.saved !== false,
+    x: pin && it.id === pin.id ? clampX(pin.x, it.w) : clampX(it.x, it.w),
+    r: pin && it.id === pin.id ? Math.max(0, Math.min(4, pin.r)) : Math.max(0, Math.min(4, it.r || 0)),
+  }));
+
+  const byRow = new Map();
+  for (const it of work) { (byRow.get(it.r) || byRow.set(it.r, []).get(it.r)).push(it); }
+
+  const out = new Map();
+  let maxRow = 0;
+
+  // Process rows top-to-bottom; any item that physically cannot fit on an overflowing row cascades down
+  // to the next row at the SAME x side instead of pushing the opposite side across the toolbar.
+  for (let r = 0; r <= 6; r++) {
+    const row = byRow.get(r);
+    if (!row || !row.length) continue;
+    maxRow = Math.max(maxRow, r);
+    const overflow = [];
+    const pinItem = pin ? row.find(it => it.id === pin.id) : null;
+
+    if (pinItem) {
+      const others = row.filter(it => it !== pinItem).sort((a, b) => a.x - b.x);
+      const pinC = pinItem.x + pinItem.w / 2;
+      const atLeftWall = pinItem.x <= 6;
+      const atRightWall = pinItem.x + pinItem.w >= W - 6;
+      const lefts = [], rights = [];
+      for (const it of others) {
+        const c = it.x + it.w / 2;
+        if (atLeftWall) rights.push(it);
+        else if (atRightWall) lefts.push(it);
+        else if (c < pinC) lefts.push(it);
+        else rights.push(it);
+      }
+
+      // Push right neighbors ONLY as far as they touch — stop at the first free gap!
+      let edgeR = pinItem.x + pinItem.w + MB_GAP;
+      for (let i = 0; i < rights.length; i++) {
+        if (rights[i].x < edgeR) {
+          rights[i].x = edgeR;
+          edgeR = rights[i].x + rights[i].w + MB_GAP;
+        } else break;
+      }
+      // If right cluster ran past right wall W, compact right cluster inward ONLY against W if it fits;
+      // otherwise drop only the overflowing right item(s) cleanly to row r+1 on the right side.
+      const keptRights = [];
+      for (const it of rights) {
+        if (it.x + it.w <= W + 0.5) keptRights.push(it);
+        else overflow.push(it);
+      }
+
+      // Push left neighbors ONLY as far as they touch — stop at the first free gap!
+      let edgeL = pinItem.x - MB_GAP;
+      for (let i = lefts.length - 1; i >= 0; i--) {
+        if (lefts[i].x + lefts[i].w > edgeL) {
+          lefts[i].x = edgeL - lefts[i].w;
+          edgeL = lefts[i].x - MB_GAP;
+        } else break;
+      }
+      const keptLefts = [];
+      for (const it of lefts) {
+        if (it.x >= -0.5) keptLefts.push(it);
+        else overflow.push(it);
+      }
+
+      for (const it of [...keptLefts, pinItem, ...keptRights]) {
+        it.x = clampX(it.x, it.w);
+        out.set(it.id, { x: it.x, r, w: it.w });
+      }
+    } else {
+      // Normal row (resize / non-active row): keep items near their desired x, pull right-side cluster into
+      // slack if touching W, and only overflow to r+1 if total width genuinely exceeds W.
+      row.sort((a, b) => a.x - b.x);
+      for (let i = 1; i < row.length; i++) {
+        const minX = row[i - 1].x + row[i - 1].w + MB_GAP;
+        if (row[i].x < minX) row[i].x = minX;
+      }
+      // If rightmost item exceeds W, pull backwards into any available slack on the row
+      if (row.length && row[row.length - 1].x + row[row.length - 1].w > W + 0.5) {
+        let rightBound = W;
+        for (let i = row.length - 1; i >= 0; i--) {
+          const maxAllowed = rightBound - row[i].w;
+          if (row[i].x > maxAllowed) row[i].x = maxAllowed;
+          rightBound = row[i].x - MB_GAP;
+        }
+      }
+      // If pulling pushed the first item(s) below 0, row is genuinely too wide for W: pack from left and overflow remainder
+      if (row.length && row[0].x < -0.5) {
+        let cur = 0;
+        for (const it of row) {
+          if (cur === 0 || cur + it.w <= W + 0.5) {
+            it.x = clampX(cur, it.w);
+            cur = it.x + it.w + MB_GAP;
+            out.set(it.id, { x: it.x, r, w: it.w });
+          } else {
+            overflow.push(it);
+          }
+        }
+      } else {
+        for (const it of row) {
+          it.x = clampX(it.x, it.w);
+          out.set(it.id, { x: it.x, r, w: it.w });
+        }
+      }
+    }
+
+    if (overflow.length) {
+      const next = byRow.get(r + 1) || byRow.set(r + 1, []).get(r + 1);
+      for (const it of overflow) {
+        it.r = r + 1;
+        it.x = clampX(it.x, it.w);
+        next.push(it);
+      }
+    }
+  }
+  return { map: out, maxRow };
+}
+
+// Lay the bar out: each button keeps its saved spot; nothing overlaps.
 function mbarLayout(bar, cfg) {
   const pos = mbarPos(cfg); if (!bar) return;
   bar.classList.toggle('sr-free', !!pos);
   if (!pos) { bar.style.height = ''; return; }
-  const W = bar.clientWidth - 16, last = mbSet()?.[cfg.key + 'Last'] || null, RH = mbarRowH(bar);
+  const W = Math.max(120, bar.clientWidth - MB_PAD_X * 2), RH = mbarRowH(bar);
   const items = [...bar.querySelectorAll(':scope > [data-bar]')].filter(el => el.dataset.bar !== 'gap' && !el.hidden);
-  items.forEach(el => { el.style.left = '0px'; });                // measure at full width (not squeezed against the edge)
-  const all = items.map(el => {
-    const p = pos[el.dataset.bar];
-    return { el, id: el.dataset.bar, saved: !!p, x: p ? (p.x ?? 0) * W : 0, r: p ? p.r || 0 : 0, w: el.offsetWidth };
+  items.forEach(el => { el.style.left = '0px'; });                // measure at full intrinsic width
+  const spec = items.map(el => {
+    const id = el.dataset.bar, p = pos[id], w = el.offsetWidth;
+    return { el, id, w, saved: !!p, x: mbarDesiredX(p, w, W), r: p ? (p.r || 0) : 0 };
   });
-  // the button you dropped last keeps its exact spot, then the other saved ones, then any new ones
-  all.sort((a, b) => (b.id === last) - (a.id === last) || (b.saved - a.saved) || a.r - b.r || a.x - b.x);
-  const rows = [];
-  const fit = (r, x, w) => {                                        // the free spot in a row nearest to x (null if full)
-    const used = (rows[r] || []).slice().sort((m, n) => m[0] - n[0]);
-    const gaps = []; let start = 0;
-    for (const [a, b2] of used) { gaps.push([start, a - MB_GAP]); start = b2 + MB_GAP; }
-    gaps.push([start, W]);
-    let best = null;
-    for (const [g0, g1] of gaps) {
-      if (g1 - g0 < w) continue;
-      const cx = Math.max(g0, Math.min(x, g1 - w));
-      if (best == null || Math.abs(cx - x) < Math.abs(best - x)) best = cx;
-    }
-    return best;
-  };
-  let maxRow = 0;
-  for (const it of all) {
-    let r = it.saved ? it.r : 0, x = it.saved ? Math.max(0, Math.min(it.x, W - it.w)) : W, cx = fit(r, x, it.w);
-    for (let k = 1; cx == null && k < 8; k++) { r = it.r + k; cx = fit(r, it.saved ? x : 0, it.w); }   // full row: the next row down
-    (rows[r] ||= []).push([cx, cx + it.w]);
-    maxRow = Math.max(maxRow, r);
-    it.el.style.left = 8 + cx + 'px'; it.el.style.top = 5 + r * RH + 'px';
+  const { map, maxRow } = mbarSolve(spec, W, null);
+  for (const it of spec) {
+    const res = map.get(it.id); if (!res) continue;
+    it.el.style.left = MB_PAD_X + res.x + 'px';
+    it.el.style.top = MB_PAD_Y + res.r * RH + 'px';
   }
-  bar.style.height = 10 + (maxRow + 1) * RH - MB_GAP + 'px';
+  bar.style.height = MB_PAD_Y * 2 + (maxRow + 1) * RH - MB_GAP + 'px';
 }
 function mbarHTML(cfg, items) {
+  const free = !!mbarPos(cfg);
   return mbarOrder(cfg).map(id => {
-    if (id === 'gap') return mbarPos(cfg) ? '' : '<span class="sr-sp" data-bar="gap"></span>';
+    if (id === 'gap') return free ? '' : '<span class="sr-sp" data-bar="gap"></span>';
     const html = items[id] ? items[id]() : ''; if (!html) return '';
-    return `<span class="sr-bi" data-bar="${id}"${cfg.ctl ? ` data-ctl="${id}"` : ''}${cfg.groups?.includes(id) ? ' data-grp' : ''}>${html}</span>`;
+    const brk = !free && cfg.breaks?.includes(id) ? '<span class="sr-brk" aria-hidden="true"></span>' : '';
+    return `${brk}<span class="sr-bi" data-bar="${id}"${cfg.ctl ? ` data-ctl="${id}"` : ''}${cfg.groups?.includes(id) ? ' data-grp' : ''}>${html}</span>`;
   }).join('');
 }
-// dragging: call drag.down(e) from the player's pointerdown; host.__noClick is set briefly after a drag
+// Dragging with live landing ghost + live neighbor preview (Escape cancels cleanly).
 function mbarDrag(host, cfg, barSel, rerender) {
   let d = null;
   const bar = () => host.querySelector(barSel);
-  const down = e => { const it = e.target.closest?.(`${barSel} > [data-bar]`); if (!it || e.button !== 0 || e.target.closest('input, select')) return; d = { it, x: e.clientX, y: e.clientY, moved: false }; };
+
+  const snapTarget = (rawX, rawY, w, W, RH, snap) => {
+    const row = Math.max(0, Math.min(3, Math.round((rawY - MB_PAD_Y) / RH)));
+    let x = Math.max(0, Math.min(Math.max(0, W - w), rawX));
+    // Snap cleanly to left edge, right edge, or neighbors on the target row
+    if (x < 12) x = 0;
+    else if (x + w > W - 12) x = Math.max(0, W - w);
+    else {
+      let snapped = false;
+      for (const it of snap) {
+        if (it.id === d.id || it.r !== row) continue;
+        const L = it.x, R = it.x + it.w;
+        if (Math.abs(x - (R + MB_GAP)) < 14) { x = R + MB_GAP; snapped = true; break; }
+        if (Math.abs(x + w - (L - MB_GAP)) < 14) { x = L - MB_GAP - w; snapped = true; break; }
+      }
+      if (!snapped) x = Math.round(x / 8) * 8;
+    }
+    return { x: Math.max(0, Math.min(Math.max(0, W - w), x)), r: row };
+  };
+
+  const applyPreview = (curX, curY) => {
+    const { b, W, RH, snap, id, w, h, ghost } = d;
+    const tgt = snapTarget(curX, curY, w, W, RH, snap);
+    const solved = mbarSolve(snap, W, { id, x: tgt.x, r: tgt.r });
+    d.lastSolved = solved;
+    const pinRes = solved.map.get(id);
+    if (pinRes && ghost) {
+      ghost.style.left = MB_PAD_X + pinRes.x + 'px';
+      ghost.style.top = MB_PAD_Y + pinRes.r * RH + 'px';
+      ghost.style.width = w + 'px';
+      ghost.style.height = h + 'px';
+    }
+    for (const it of snap) {
+      if (it.id === id) continue;
+      const res = solved.map.get(it.id); if (!res) continue;
+      it.el.style.left = MB_PAD_X + res.x + 'px';
+      it.el.style.top = MB_PAD_Y + res.r * RH + 'px';
+      const moved = Math.abs(res.x - it.x) > 2 || res.r !== it.r;
+      it.el.classList.toggle('mb-moved', moved);
+    }
+    const showRows = Math.max(solved.maxRow + 1, Math.min(4, tgt.r + 1));
+    b.style.height = MB_PAD_Y * 2 + showRows * RH - MB_GAP + 'px';
+  };
+
+  const cleanup = () => {
+    if (!d) return;
+    d.ghost?.remove();
+    d.b?.classList.remove('show-grid', 'mb-dragging');
+    d.b?.querySelectorAll('.mb-moved, .dragging').forEach(el => el.classList.remove('mb-moved', 'dragging'));
+    d = null;
+  };
+
+  const down = e => {
+    const it = e.target.closest?.(`${barSel} > [data-bar]`);
+    if (!it || it.dataset.bar === 'gap' || e.button !== 0 || e.target.closest('input, select')) return;
+    d = { it, id: it.dataset.bar, x0: e.clientX, y0: e.clientY, moved: false };
+  };
+
   const move = e => {
     if (!d) return;
-    const dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (!d.moved && Math.hypot(dx, dy) < 15) return;
-    if (!d.moved) { d.moved = true; d.it.classList.add('dragging'); bar()?.classList.add('show-grid'); }
-    d.it.style.transform = `translate(${dx}px, ${dy}px)`;
-  };
-  const up = () => {
-    const g = d; d = null; if (!g || !g.moved) return;
-    host.__noClick = true; setTimeout(() => host.__noClick = false, 50);   // this was a drag, not a click
-    const b = bar(); if (!b) return;
-    b.classList.remove('show-grid');
-    const br = b.getBoundingClientRect(), RH = mbarRowH(b);
-    const W = br.width - 16, rowOf = el => Math.max(0, Math.min(3, Math.round((el.getBoundingClientRect().top - br.top - 5) / RH)));
-    let pos = mbarPos(cfg);
-    if (!pos || pos[Object.keys(pos)[0]]?.c != null) {               // first time (or old grid save): keep everything where it is now
-      pos = {};
-      b.querySelectorAll(':scope > [data-bar]').forEach(el => {
-        if (el === g.it || el.dataset.bar === 'gap' || el.hidden) return;
-        const r = el.getBoundingClientRect();
-        pos[el.dataset.bar] = { x: Math.max(0, (r.left - br.left - 8) / W), r: rowOf(el) };
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.moved && Math.hypot(dx, dy) < 8) return;
+    if (!d.moved) {
+      const b = bar(); if (!b) { d = null; return; }
+      const br = b.getBoundingClientRect(), RH = mbarRowH(b), W = Math.max(120, b.clientWidth - MB_PAD_X * 2);
+      const els = [...b.querySelectorAll(':scope > [data-bar]')].filter(el => el.dataset.bar !== 'gap' && !el.hidden);
+      // Snapshot exact rendered positions before entering free-drag mode so nothing jumps on drag start
+      const snap = els.map(el => {
+        const er = el.getBoundingClientRect();
+        const x = Math.max(0, er.left - br.left - MB_PAD_X);
+        const r = Math.max(0, Math.min(3, Math.round((er.top - br.top - MB_PAD_Y) / RH)));
+        return { el, id: el.dataset.bar, x, r, w: er.width, h: er.height, saved: true };
       });
+      const self = snap.find(s => s.id === d.id);
+      if (!self) { d = null; return; }
+      // Lock all items to their snapshotted pixel coords before activating live transitions
+      b.classList.add('sr-free', 'show-grid');
+      for (const s of snap) {
+        s.el.style.left = MB_PAD_X + s.x + 'px';
+        s.el.style.top = MB_PAD_Y + s.r * RH + 'px';
+      }
+      b.style.setProperty('--mb-rh', RH + 'px');
+      b.style.height = br.height + 'px';
+      void b.offsetWidth; // flush initial positions before enabling smooth neighbor glide
+      b.classList.add('mb-dragging');
+      d.it.classList.add('dragging');
+      const ghost = document.createElement('div');
+      ghost.className = 'mb-ghost';
+      b.appendChild(ghost);
+      Object.assign(d, { moved: true, b, br, RH, W, snap, startX: self.x, startY: MB_PAD_Y + self.r * RH, w: self.w, h: self.h, ghost });
     }
-    const ir = g.it.getBoundingClientRect(), row = rowOf(g.it), w = ir.width;
-    let x = Math.round((ir.left - br.left - 8) / 8) * 8;               // 8 px steps
-    b.querySelectorAll(':scope > [data-bar]').forEach(el => {          // magnetic edges: land right next to a neighbour
-      if (el === g.it || el.hidden || rowOf(el) !== row) return;
-      const r = el.getBoundingClientRect(), L = r.left - br.left - 8, R = r.right - br.left - 8;
-      if (Math.abs(x - (R + MB_GAP)) < 16) x = R + MB_GAP;
-      if (Math.abs(x + w - (L - MB_GAP)) < 16) x = L - MB_GAP - w;
-    });
-    pos[g.it.dataset.bar] = { x: Math.max(0, Math.min(1, x / W)), r: row };
-    const set = mbSet(); if (set) { set[cfg.key + 'Last'] = g.it.dataset.bar; set[cfg.key + 'Pos'] = pos; save(); }
+    const curX = Math.max(-24, Math.min(d.W - d.w + 24, d.startX + dx));
+    const curY = Math.max(0, Math.min(d.RH * 3 + MB_PAD_Y + 16, d.startY + dy));
+    d.it.style.left = MB_PAD_X + curX + 'px';
+    d.it.style.top = curY + 'px';
+    applyPreview(curX, curY);
+  };
+
+  const up = () => {
+    const g = d;
+    if (!g) return;
+    if (!g.moved) { d = null; return; }
+    host.__noClick = true; setTimeout(() => host.__noClick = false, 60);
+    const { W, snap, lastSolved } = g;
+    const prevPos = mbarPos(cfg) || {};
+    cleanup();
+    if (lastSolved) {
+      const pos = { ...prevPos };
+      // Save every item's solved spot with left/right edge anchoring so resizing stays predictable
+      for (const s of snap) {
+        const res = lastSolved.map.get(s.id); if (!res) continue;
+        const centerFrac = (res.x + s.w / 2) / Math.max(1, W);
+        const anchor = (res.x + s.w >= W - 18 || centerFrac >= 0.62) ? 'r' : 'l';
+        const ox = anchor === 'r' ? Math.max(0, Math.round(W - (res.x + s.w))) : Math.max(0, Math.round(res.x));
+        pos[s.id] = { v: 2, a: anchor, ox, r: res.r };
+      }
+      const set = mbSet(); if (set) { set[cfg.key + 'Last'] = g.id; set[cfg.key + 'Pos'] = pos; save(); }
+    }
     rerender();
   };
+
+  const key = e => {
+    if (e.key === 'Escape' && d && d.moved) {
+      e.preventDefault();
+      cleanup();
+      rerender();
+    }
+  };
+
   const refs = host.__mbRefs ||= {};
-  if (!refs.hooked) { refs.hooked = true; window.addEventListener('pointermove', e => refs.move?.(e)); window.addEventListener('pointerup', e => refs.up?.(e)); }
-  refs.move = move; refs.up = up;
+  if (!refs.hooked) {
+    refs.hooked = true;
+    window.addEventListener('pointermove', e => refs.move?.(e));
+    window.addEventListener('pointerup', e => refs.up?.(e));
+    window.addEventListener('keydown', e => refs.key?.(e));
+  }
+  refs.move = move; refs.up = up; refs.key = key;
   return { down };
 }
 const mbarReset = cfg => { const set = mbSet(); if (set) { delete set[cfg.key]; delete set[cfg.key + 'Pos']; delete set[cfg.key + 'Last']; save(); } };
 
 // Standard layout for both players, left to right: what's on the page → playing it → what's written on the music → tools.
-const SR_BARCFG = { key: 'srBar', defaults: ['tabs', 'new', 'play', 'tempo', 'metro', 'nums', 'show', 'counts', 'rhyonly', 'playhead', 'grade', 'gap', 'save', 'print', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'] };
+const SR_BARCFG = {
+  key: 'srBar',
+  defaults: ['tabs', 'new', 'play', 'tempo', 'metro', 'nums', 'show', 'counts', 'rhyonly', 'playhead', 'grade', 'gap', 'save', 'print', 'zoom', 'settings'],
+  groups: ['play', 'nums', 'grade'],
+  breaks: ['nums'],
+};
 const SR_BAR_DEFAULT = SR_BARCFG.defaults;
 const srBarOrder = () => mbarOrder(SR_BARCFG);
 const srBarPos = () => mbarPos(SR_BARCFG);
@@ -1321,14 +1692,14 @@ function mountSight(host, st, onChange) {
           play: () => `<button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>`,
           rhyonly: () => st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`,
           show: () => kindNow === 'rhythm' ? '' : `<button data-sr="show" class="${st.show ? 'on' : ''}" title="Write the solfege syllables under the notes">${IC('ico:music')} Solfege</button>`,
-          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts (1 e & a) under the notes">${IC('ico:list')} Counts</button>`,
-          playhead: () => `<button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Beat</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Note</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode">Playhead: <b>Off</b></span>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
+          counts: () => `<button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts under the notes">${IC('ico:list')} Counts</button>`,
+          playhead: () => `<button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Beat</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Note</b></span>`, `${IC('ico:playhead')} <span class="sr-phmode"><span class="sr-phpre">Playhead: </span><b>Off</b></span>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>`,
           metro: () => `<button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
           nums: () => `<button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>`,
           grade: () => `<button data-sr="grade" title="Grade a performance of this example: sing or clap into the microphone, or tap the rhythm on the space bar">${IC('ico:mic')} Grade${V().mode === 'rhythm' ? ' ▾' : ''}</button>`,
           settings: () => `<button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>`,
           zoom: () => `<span class="sr-zoom" title="Make the music bigger or smaller (${Math.round((st.zoom || 1) * 100)}%)"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:zoomout')}</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:zoomin')}</button></span>`,
-          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save to class</button>` : '',
+          save: () => typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : '',
           print: () => `<button data-sr="print" title="Print this example or make a worksheet with an answer key">${IC('ico:print')} Worksheet</button>`
         })}
       </div>
@@ -1551,6 +1922,11 @@ function mountSight(host, st, onChange) {
       const set = new Set(o.cells); el.checked ? set.add(el.dataset.cell) : set.delete(el.dataset.cell); o.cells = [...set];
     } else if (el.dataset.k) {
       const k = el.dataset.k;
+      if (k === 'rhythmSystem') {
+        if (typeof S !== 'undefined') { (S.settings ||= {}).rhythmSystem = el.value; save(); }
+        if (typeof refreshRhythmCounts === 'function') refreshRhythmCounts();
+        render(); return;
+      }
       o[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? clamp(Number(el.value) || 1, Number(el.min), Number(el.max)) : k === 'countIn' ? Number(el.value) : el.value;
       if (k === 'ts' && st.mode === 'rhythm') {   // switching simple ↔ compound swaps the note choices
         const table = srCellsFor(o.ts); if (!o.cells.some(c => table[c])) o.cells = SR_METERS[o.ts][1] === 'compound' ? ['dq', 'eee', 'qe', 'dh'] : ['q', 'h', 'ee', 'qr'];
@@ -1628,65 +2004,115 @@ function srOpenWorksheet(st, curView) {
   if (kind === 'solfege' && o) metaParts.push(`${(o.key || 'C').replace('b', '♭')} ${o.scale || 'major'}`);
   const metaLine = metaParts.join(' · ');
 
+  const genOne = () => {
+    const nextV = JSON.parse(JSON.stringify(curView));
+    if (kind === 'rhythm') {
+      const ro = nextV.rhythm;
+      nextV.ex = { rhythm: { rhythm: srGenRhythm(ro.ts, ro.measures, ro.cells, ro.ties) } };
+    } else {
+      nextV.ex = { solfege: srGenParts(nextV.solfege) };
+    }
+    return nextV;
+  };
+
+  let count = isBuild ? 1 : 4;
+  const firstView = JSON.parse(JSON.stringify(curView));
+  firstView.__fromScreen = true;
+  let views = [firstView];
+  const syncCount = n => {
+    count = n;
+    while (views.length < count) views.push(genOne());
+    if (views.length > count) views = views.slice(0, count);
+  };
+  syncCount(count);
+
   const modal = document.createElement('div');
   modal.id = 'sr-ws-modal'; modal.className = 'av-cal sr-ws-modal';
-  modal.innerHTML = `<div class="av-card sr-ws-card">
-    <h3>${IC('ico:print')} Sight-Reading Worksheet</h3>
-    <p>Prints crisp black-on-white notation (choose “Save as PDF” in the print window to share).</p>
-    <div class="sr-ws-form">
-      <label class="fld"><span>Worksheet title</span><input id="ws-title" value="${esc(defTitle)}"></label>
+  modal.innerHTML = `<div class="av-card sr-ws-card sr-ws-wide">
+    <div class="sr-ws-top">
+      <h3>${IC('ico:print')} Sight-Reading Worksheet</h3>
+      <span class="grow"></span>
+      ${isBuild ? '' : `<button class="btn small" data-ws="swapall" title="Generate a fresh set of exercises">${IC('ico:reload')} Swap all</button>`}
+      <button class="btn small" data-ws="cancel">Cancel</button>
+      <button class="btn small primary" data-ws="go">${IC('ico:print')} Print / Save PDF</button>
+    </div>
+    <div class="sr-ws-opts">
+      <label class="fld" style="flex:1 1 200px"><span>Worksheet title</span><input id="ws-title" value="${esc(defTitle)}"></label>
       <label class="fld"><span>Exercises</span><select id="ws-count">
-        <option value="1" ${isBuild ? 'selected' : ''}>This example only (1)</option>
-        ${isBuild ? '' : '<option value="2">2 exercises (current + 1 fresh)</option><option value="4" selected>4 exercises (current + 3 fresh)</option><option value="6">6 exercises (current + 5 fresh)</option>'}
+        <option value="1" ${count === 1 ? 'selected' : ''}>This example (1)</option>
+        ${isBuild ? '' : `<option value="2" ${count === 2 ? 'selected' : ''}>2 exercises</option><option value="3" ${count === 3 ? 'selected' : ''}>3 exercises</option><option value="4" ${count === 4 ? 'selected' : ''}>4 exercises</option><option value="6" ${count === 6 ? 'selected' : ''}>6 exercises</option>`}
       </select></label>
-      <label class="chk"><input type="checkbox" id="ws-hdr" checked> Include Name / Date / Class header</label>
+      <label class="fld"><span>Rhythm counts</span><select id="ws-rhy">${RHYTHM_SYSTEMS.map(([v, l]) => `<option value="${v}" ${rhythmSys() === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    <div class="sr-ws-checks">
+      <label class="chk"><input type="checkbox" id="ws-hdr" checked> Name / Date / Class header</label>
+      <label class="chk"><input type="checkbox" id="ws-blanks" checked> Blank answer lines under notes</label>
       <label class="chk"><input type="checkbox" id="ws-stu-ans"> Show ${kind === 'rhythm' ? 'counts' : 'solfege'} on student sheet</label>
       <label class="chk"><input type="checkbox" id="ws-key" checked> Add Page 2: Teacher Answer Key</label>
     </div>
-    <div class="row" style="width:100%;justify-content:flex-end;margin-top:6px">
-      <button class="btn" data-ws="cancel">Cancel</button>
-      <button class="btn primary" data-ws="go">${IC('ico:print')} Print / Save PDF</button>
-    </div>
+    <div class="sr-ws-prev" id="ws-prev"></div>
   </div>`;
   document.body.appendChild(modal);
+
+  const renderSet = (withAns, interactive = false, withBlanks = false) => views.map((v, i) => {
+    const copy = JSON.parse(JSON.stringify(v));
+    copy.show = kind === 'solfege' ? withAns : false;
+    copy.showCounts = kind === 'rhythm' ? withAns : (withAns && !!st.showCounts);
+    copy.answerBlanks = !withAns && !!withBlanks;
+    const svg = srRenderPrintSVG(copy);
+    if (!interactive) {
+      return `<div class="blk sr-ws-ex">${views.length > 1 ? `<div class="sr-ws-num">${i + 1}.</div>` : ''}<div class="sr-ws-svg">${svg}</div></div>`;
+    }
+    return `<div class="sr-ws-item" data-wsi="${i}">
+      <div class="sr-ws-ih">
+        <b>Exercise ${i + 1}${v.__fromScreen ? ' <span class="muted small">(from screen)</span>' : ''}</b>
+        <span class="grow"></span>
+        ${!isBuild ? `<button class="btn small" data-ws="swap" data-i="${i}" title="Replace with a newly generated exercise">${IC('ico:reload')} Swap</button>` : ''}
+        ${views.length > 1 ? `<button class="btn small" data-ws="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">${IC('ico:up')}</button><button class="btn small" data-ws="down" data-i="${i}" ${i === views.length - 1 ? 'disabled' : ''} title="Move down">${IC('ico:down')}</button>` : ''}
+      </div>
+      <div class="sr-ws-paper">${svg}</div>
+    </div>`;
+  }).join('');
+
+  const drawPreview = () => {
+    const prev = modal.querySelector('#ws-prev');
+    const stuAns = modal.querySelector('#ws-stu-ans').checked;
+    const blanks = modal.querySelector('#ws-blanks').checked;
+    prev.innerHTML = renderSet(stuAns, true, blanks);
+  };
+  drawPreview();
 
   const close = () => { document.removeEventListener('keydown', onKey, true); modal.remove(); };
   const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
+  modal.addEventListener('change', e => {
+    if (e.target.id === 'ws-count') { syncCount(Number(e.target.value) || 1); drawPreview(); }
+    else if (e.target.id === 'ws-stu-ans' || e.target.id === 'ws-blanks') drawPreview();
+    else if (e.target.id === 'ws-rhy') {
+      if (typeof S !== 'undefined') { (S.settings ||= {}).rhythmSystem = e.target.value; save(); }
+      if (typeof refreshRhythmCounts === 'function') refreshRhythmCounts();
+      drawPreview();
+    }
+  });
   modal.addEventListener('click', e => {
     if (e.target === modal || e.target.closest('[data-ws="cancel"]')) { close(); return; }
-    if (!e.target.closest('[data-ws="go"]')) return;
+    const b = e.target.closest('[data-ws]'); if (!b) return;
+    const act = b.dataset.ws, idx = +b.dataset.i;
+    if (act === 'swap') { views[idx] = genOne(); drawPreview(); return; }
+    if (act === 'swapall') { views = views.map(() => genOne()); drawPreview(); return; }
+    if (act === 'up' && idx > 0) { [views[idx - 1], views[idx]] = [views[idx], views[idx - 1]]; drawPreview(); return; }
+    if (act === 'down' && idx < views.length - 1) { [views[idx + 1], views[idx]] = [views[idx], views[idx + 1]]; drawPreview(); return; }
+    if (act !== 'go') return;
     const title = modal.querySelector('#ws-title').value.trim() || defTitle;
-    const count = Number(modal.querySelector('#ws-count').value) || 1;
     const showHdr = modal.querySelector('#ws-hdr').checked;
     const stuAns = modal.querySelector('#ws-stu-ans').checked;
+    const blanks = modal.querySelector('#ws-blanks').checked;
     const addKey = modal.querySelector('#ws-key').checked;
-
-    // Build list of exercise views (first is current example; rest are fresh with same settings)
-    const views = [JSON.parse(JSON.stringify(curView))];
-    for (let i = 1; i < count; i++) {
-      const nextV = JSON.parse(JSON.stringify(curView));
-      if (kind === 'rhythm') {
-        const ro = nextV.rhythm;
-        nextV.ex = { rhythm: { rhythm: srGenRhythm(ro.ts, ro.measures, ro.cells, ro.ties) } };
-      } else {
-        nextV.ex = { solfege: srGenParts(nextV.solfege) };
-      }
-      views.push(nextV);
-    }
-
-    const renderSet = (withAns) => views.map((v, i) => {
-      v.show = kind === 'solfege' ? withAns : false;
-      v.showCounts = kind === 'rhythm' ? withAns : (withAns && !!st.showCounts);
-      const svg = srRenderPrintSVG(v);
-      return `<div class="blk sr-ws-ex">${views.length > 1 ? `<div class="sr-ws-num">${i + 1}.</div>` : ''}<div class="sr-ws-svg">${svg}</div></div>`;
-    }).join('');
-
     let html = `<div class="meta">${esc(metaLine)}</div>`;
     if (showHdr) html += `<div class="sr-ws-hdr"><span>Name: ___________________________</span><span>Date: _______________</span><span>Class: _______________</span></div>`;
-    html += renderSet(stuAns);
+    html += renderSet(stuAns, false, blanks);
     if (addKey) {
-      html += `<div class="sr-ws-key"><h1>${esc(title)} — Answer Key</h1><div class="meta">${esc(metaLine)}</div>${renderSet(true)}</div>`;
+      html += `<div class="sr-ws-key"><h1>${esc(title)} — Answer Key</h1><div class="meta">${esc(metaLine)}</div>${renderSet(true, false, false)}</div>`;
     }
     close();
     if (typeof printHTML === 'function') printHTML(title, html);

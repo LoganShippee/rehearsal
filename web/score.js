@@ -468,7 +468,7 @@ function spPlay(ctl) {
 function spApplyAll() { Object.values(SP_CACHE).forEach(c => c.root?.isConnected && c.applyCtl?.()); }
 // Score practice bar: the same movable bar and standard order as sight reading
 // (what's on the page → playing it → what's written on the music → tools)
-const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums'] };
+const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums'], breaks: ['nums'] };
 const SP_CACHE = {};
 function mountScore(host, st, onChange0, key) {
   spDefaults(st);
@@ -684,6 +684,7 @@ function mountScore(host, st, onChange0, key) {
       <label data-ctl="countin">Count-in <select data-spk="countIn">${opt(0, st.countIn, 'None')}${opt(1, st.countIn, '1 bar')}${opt(2, st.countIn, '2 bars')}</select></label>
       <label class="srchk" data-ctl="countevery"><input type="checkbox" data-spk="countEvery" ${st.countEvery ? 'checked' : ''}> Count in before every repeat</label>
       <label data-ctl="solminor" title="How minor keys are sung">Minor <select data-spk="solMinor">${opt('do', S.settings.solMinor || 'do', 'do-based (do = tonic)')}${opt('la', S.settings.solMinor || 'do', 'la-based (la = tonic)')}</select></label>
+      <label data-ctl="rhysys" title="Syllables used when Counts is turned on">Counts <select data-spk="rhythmSystem">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => opt(v, S.settings.rhythmSystem || 'numbers', l)).join('')}</select></label>
       <label data-ctl="startpitch">Starting pitches <select data-spk="pitches">${opt('none', st.pitches, 'None')}${opt('mine', st.pitches, 'Parts that are playing')}${opt('all', st.pitches, 'All parts (chord)')}</select></label>
       <span class="sp-grp" data-ctl="speedup"><label class="srchk"><input type="checkbox" data-spk="speedOn" ${st.speed.on ? 'checked' : ''}> Speed up each repeat</label>
       <label>start at <input type="number" min="30" max="100" step="5" data-spk="speedStart" value="${st.speed.start}">%</label>
@@ -839,8 +840,13 @@ function mountScore(host, st, onChange0, key) {
     const minor = /minor/i.test(m.mode || '') && S.settings.solMinor !== 'la', tonic = (((m.fifths || 0) * 7) % 12 + 12 + (minor ? 9 : 0)) % 12;
     return (minor ? SOL_MIN : SOL_UP)[(pc - tonic + 12) % 12];
   };
-  const spCount = (dq, m) => {
+  const spCount = (dq, m, dur = 1) => {
     const compound = m.bt === 8 && m.beats % 3 === 0 && m.beats > 3, bu = compound ? 1.5 : 4 / m.bt;
+    const sys = typeof rhythmSys === 'function' ? rhythmSys() : (S.settings?.rhythmSystem || 'numbers');
+    if (sys !== 'numbers' && typeof rhythmSyllable === 'function') {
+      const p = compound ? dq : (bu === 1 ? dq : dq / bu);
+      return rhythmSyllable(p, compound ? 'compound' : 'simple', false, dur, null, 0, sys);
+    }
     const beat = Math.floor(dq / bu + 1e-6), f = dq / bu - beat, n = String(beat + 1), near = x => Math.abs(f - x) < 0.02;
     if (near(0)) return n;
     if (compound) return near(1 / 3) ? 'la' : near(2 / 3) ? 'li' : near(1 / 6) || near(0.5) || near(5 / 6) ? 'ta' : '·';
@@ -885,7 +891,8 @@ function mountScore(host, st, onChange0, key) {
             const sn = notes[notes.length - 1].sourceNote;
             if (sn.NoteTie && sn.NoteTie.StartNote !== sn) continue;
             const pc = ((sn.Pitch.FundamentalNote ?? 0) + Math.round(sn.Pitch.AccidentalHalfTones ?? 0) + 120) % 12;
-            const txt = st.labels === 'solfege' ? spSyl(pc, m) : spCount(dq, m);
+            const dur = (sn.Length?.RealValue ?? 0.25) * 4;
+            const txt = st.labels === 'solfege' ? spSyl(pc, m) : spCount(dq, m, dur);
             const nx = notes[notes.length - 1].PositionAndShape?.AbsolutePosition?.x ?? se.PositionAndShape.AbsolutePosition.x;
             items.push({ gkey, li, x: nx, txt });
           }
@@ -1031,6 +1038,7 @@ function mountScore(host, st, onChange0, key) {
       S.settings.spHidden = [...hid]; save(); spApplyAll(); return;
     }
     else if (k === 'solMinor') { S.settings.solMinor = el.value; save(); ctl.drawLabels(); return; }
+    else if (k === 'rhythmSystem') { S.settings.rhythmSystem = el.value; save(); ctl.drawLabels(); if (typeof refreshRhythmCounts === 'function') refreshRhythmCounts(); return; }
     else if (k === 'view') { st.view = el.value; onChange(); ctl.applyView(); return; }
     else if (k === 'countIn') st.countIn = Number(el.value);
     else if (k === 'metronome') st.metronome = el.checked;

@@ -1199,7 +1199,19 @@ const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: 
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
 // Re-render keeps each widget's scroll position (rebuilding the HTML would otherwise jump to the top).
-const refreshWidgets = kind => document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => keepScroll(h, () => WG_RENDER(kind)(h)));
+function refreshWidgets(kind) { document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => keepScroll(h, () => WG_RENDER(kind)(h))); }
+function refreshRhythmCounts() {
+  if (typeof SP_CACHE !== 'undefined') for (const c of Object.values(SP_CACHE)) c.drawLabels?.();
+  if (typeof refreshWidgets === 'function') refreshWidgets('piano');
+  if (typeof mountSightHosts === 'function') {
+    for (const h of document.querySelectorAll('.sr-host')) {
+      const sel = h.querySelector('select[data-k="rhythmSystem"]'); if (sel) sel.value = S.settings.rhythmSystem || 'numbers';
+    }
+    // re-render open sight-reading hosts cleanly
+    for (const h of document.querySelectorAll('[data-sr-win]')) { const w = findWin(h.dataset.srWin); if (w?.sr) mountSight(h, w.sr, () => save()); }
+    for (const h of document.querySelectorAll('[data-sr-res]')) { const r = findRes(h.dataset.srRes); if (r?.sight) mountSight(h, r.sight, () => save()); }
+  }
+}
 function keepScroll(h, fn) {
   const inner = [...h.querySelectorAll('*')].filter(x => x.scrollTop > 0).map(x => [x.className, x.scrollTop]);
   const top = h.scrollTop, left = h.scrollLeft;
@@ -4059,7 +4071,8 @@ function settingsTab() {
   <div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
     <div class="row"><span style="width:9em">Playhead delay</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay" style="flex:1;max-width:320px"><b class="av-val">${avDelayMs()} ms</b><button class="btn" data-action="av-cal">Calibrate…</button></div>
     <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button></div>
-    <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Rhythm counts</span><select data-action-change="rhythm-sys">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => `<option value="${v}" ${(S.settings.rhythmSystem || 'numbers') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="small muted">Used in Sight Reading, Score Practice, and Warm-up notation.</span></div></div>
   <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or the web version in any browser (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
     <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
 }
@@ -4551,6 +4564,7 @@ const CHANGE = {
     S.settings.saveGradeRecordings = el.checked; save();
     if (!el.checked && HAS_SERVER) fetch('/api/purge-grlogs?keep=0', { method: 'POST', headers: { 'X-Token': TOKEN } }).catch(() => { });
   },
+  'rhythm-sys': el => { S.settings.rhythmSystem = el.value; save(); refreshRhythmCounts(); },
   'sim-on': el => { const s = S.settings.sim; s.on = el.checked; s.setAt = Date.now(); P.fired.clear(); save(); },
   'sim-time': el => { const s = S.settings.sim; s.time = el.value || s.time; s.setAt = Date.now(); P.fired.clear(); save(); },
 };
