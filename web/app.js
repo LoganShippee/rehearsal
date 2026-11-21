@@ -1123,6 +1123,7 @@ function updateClassBody(ctx, t) {
       const k = resKind(res), src = fileDirectURL(res.fileId);
       if (k === 'image') sc.innerHTML = `<img class="res" src="${src}">`;
       else if (k === 'video') sc.innerHTML = `<video src="${src}" controls style="position:absolute;inset:0;width:100%;height:100%;background:#000"></video>`;
+      else if (k === 'audio') sc.innerHTML = `<div class="aud-host" data-aud-file="${res.fileId}"></div>`;
       else if (k === 'missing') sc.innerHTML = `<div class="res-fallback">This file is missing. Re-add it in Setup → Classes.</div>`;
       else if (k === 'pdf') sc.innerHTML = `<div class="pdf-host" data-pdf-res="${res.id}"></div>`;
       else sc.innerHTML = `<iframe src="${src}"></iframe>`;
@@ -1183,6 +1184,7 @@ function mountSightHosts(root = document) {
     }
   }
   mountWidgets(root);
+  if (typeof mountAudioPlayer === 'function') for (const h of root.querySelectorAll('[data-aud-file]')) mountAudioPlayer(h, h.dataset.audFile);
   if (typeof mountTuner === 'function') for (const h of root.querySelectorAll('[data-mu-win]')) {
     const id = h.dataset.muWin; let kind, st;
     if (h.dataset.muRes) { const r = findRes(h.dataset.muRes); if (!r?.music) continue; kind = r.music.kind; st = (r.music.mu ||= muDefaults(kind)); }   // pinned to a class
@@ -2023,6 +2025,7 @@ function winBodyHTML(w) {
     const fid = w.kind === 'file' ? w.fileId : winRes(w).fileId, k = resKind({ fileId: fid }), src = fileDirectURL(fid);
     if (k === 'image') return `<img src="${src}">`;
     if (k === 'video') return `<video src="${src}" controls style="background:#000"></video>`;
+    if (k === 'audio') return `<div class="aud-host" data-aud-file="${fid}"></div>`;
     if (k === 'missing') return `<div class="win-start">This file is missing.</div>`;
     if (k === 'pdf') return `<div class="pdf-host" data-pdf-win="${w.id}"></div>`;
     return `<iframe src="${src}"></iframe>`;
@@ -2933,7 +2936,7 @@ function renderWinMenu() {
   const host = $('#win-menu-host'); if (!host) return;
   if (!P.winMenu) { host.innerHTML = ''; return; }
   const cls = currentClass();
-  const lib = Object.entries(S.files).filter(([, f]) => !f.mime.startsWith('audio/'));
+  const lib = Object.entries(S.files).filter(([, f]) => !f.hiddenScore);
   const list = winList();
   const tile = (act, icon, label, extra = '') => `<button class="wm-tile" data-action="${act}" ${extra}>${IC(icon)}<span>${label}</span></button>`;
   const item = (act, id, icon, name) => `<button data-action="${act}" data-id="${id}" data-q="${esc(name.toLowerCase())}">${icoSp(icon)}${esc(name)}</button>`;

@@ -317,3 +317,308 @@ function renderPiano(h) {
     if (!PIANO_SEQ.playing) renderPiano(h);
   };
 }
+
+// ============================================================ 2. REHEARSAL AUDIO TRACK PLAYER
+const AUD_PEAKS_CACHE = {};
+
+function audFmt(sec) {
+  if (!isFinite(sec) || sec < 0) return '0:00';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function mountAudioPlayer(host, fileId) {
+  if (!host || host.__audId === fileId) return;
+  host.__audCleanup?.();
+  host.__audId = fileId;
+  const meta = S.files[fileId];
+  const src = fileDirectURL(fileId);
+  if (!meta || !src) { host.innerHTML = '<div class="res-fallback">This audio file is missing.</div>'; return; }
+
+  const marks = () => (meta.marks ||= []);
+  const st = {
+    speed: 1, loop: false, loopA: null, loopB: null, countIn: false, bpm: 100,
+    peaks: AUD_PEAKS_CACHE[fileId] || null, dur: 0, counting: false, raf: 0, countTimers: [],
+  };
+  const audio = new Audio(src);
+  audio.preload = 'auto';
+  audio.preservesPitch = true;
+  if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+
+  const stopCount = () => { st.countTimers.forEach(clearTimeout); st.countTimers = []; st.counting = false; };
+  const cleanup = () => {
+    stopCount(); cancelAnimationFrame(st.raf);
+    try { audio.pause(); audio.src = ''; } catch { }
+  };
+  host.__audCleanup = cleanup;
+
+  const title = (meta.name || 'Audio track').replace(/\.[^.]+$/, '');
+  host.innerHTML = `<div class="aud" tabindex="0">
+    <div class="aud-head">
+      <div class="aud-title">${IC('ico:audio')} <b>${esc(title)}</b></div>
+      <span class="aud-time">0:00 / —</span>
+    </div>
+    <div class="aud-wavewrap">
+      <canvas class="aud-wave" title="Click to seek · drag across to set an A–B loop"></canvas>
+      <div class="aud-wstatus" hidden></div>
+    </div>
+    <div class="aud-ctl">
+      <button data-aud="play" class="aud-primary" title="Play / Pause (Space)">${IC('ico:play')} Play</button>
+      <button data-aud="back" title="Back 5 seconds (←)">−5s</button>
+      <button data-aud="fwd" title="Forward 5 seconds (→)">+5s</button>
+      <button data-aud="loop" title="Toggle A–B loop (L)">${IC('ico:repeat')} Loop</button>
+      <button data-aud="clrloop" hidden title="Clear A–B loop">Clear loop</button>
+      <span class="aud-sp"></span>
+      <span class="aud-speeds" title="Playback speed (keeps pitch)">${[0.5, 0.75, 0.85, 1, 1.1, 1.25].map(v => `<button data-aud="spd" data-v="${v}" class="${v === 1 ? 'on' : ''}">${v}×</button>`).join('')}</span>
+    </div>
+    <div class="aud-ctl aud-sub">
+      <label class="aud-chk"><input type="checkbox" data-aud-k="countIn"> Count-in (4 beats)</label>
+      <label class="aud-bpm">at <input type="number" min="40" max="220" step="2" data-aud-k="bpm" value="100"> BPM</label>
+      <span class="aud-sp"></span>
+      <span class="aud-hint">Drag waveform to loop · Space = play · M = marker · [ ] = jump</span>
+    </div>
+    <div class="aud-marks-bar">
+      <span class="aud-mlbl">${IC('ico:flag')} Markers</span>
+      <button data-aud="mprev" title="Previous marker ([)">${IC('ico:chevleft')}</button>
+      <button data-aud="mnext" title="Next marker (])">${IC('ico:chevright')}</button>
+      <button data-aud="madd" class="ic-btn" title="Drop a rehearsal marker here (M)">${IC('ico:plus')} Marker</button>
+      <div class="aud-mlist"></div>
+    </div>
+  </div>`;
+
+  const rootEl = host.querySelector('.aud');
+  const cvs = host.querySelector('.aud-wave');
+  const timeEl = host.querySelector('.aud-time');
+  const statEl = host.querySelector('.aud-wstatus');
+  const playBtn = host.querySelector('[data-aud="play"]');
+  const loopBtn = host.querySelector('[data-aud="loop"]');
+  const clrLoopBtn = host.querySelector('[data-aud="clrloop"]');
+  const mlistEl = host.querySelector('.aud-mlist');
+
+  const drawWaveCanvas = () => {
+    if (!cvs || !host.isConnected) return;
+    const r = cvs.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    if (!r.width || !r.height) return;
+    const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+    if (cvs.width !== W || cvs.height !== H) { cvs.width = W; cvs.height = H; }
+    const g = cvs.getContext('2d');
+    g.clearRect(0, 0, W, H);
+    const cs = getComputedStyle(host);
+    const txt = cs.getPropertyValue('--text').trim() || '#fff';
+    const acc = cs.getPropertyValue('--accent').trim() || '#ffd166';
+    const dur = st.dur || audio.duration || 0;
+    const cur = audio.currentTime || 0;
+    const frac = dur > 0 ? clamp(cur / dur, 0, 1) : 0;
+
+    // A-B loop shading
+    if (dur > 0 && st.loopA != null && st.loopB != null) {
+      const x1 = (st.loopA / dur) * W, x2 = (st.loopB / dur) * W;
+      g.save(); g.globalAlpha = st.loop ? 0.24 : 0.12; g.fillStyle = acc;
+      g.fillRect(x1, 0, Math.max(2, x2 - x1), H);
+      g.globalAlpha = 0.85; g.fillRect(x1, 0, 2 * dpr, H); g.fillRect(x2 - 2 * dpr, 0, 2 * dpr, H);
+      g.restore();
+    }
+
+    // Waveform bars
+    const peaks = st.peaks;
+    if (peaks && peaks.length) {
+      const n = peaks.length, step = W / n, bw = Math.max(1.5 * dpr, step * 0.68);
+      for (let i = 0; i < n; i++) {
+        const x = i * step, h = Math.max(3 * dpr, peaks[i] * (H * 0.82));
+        const played = (i + 0.5) / n <= frac;
+        g.save();
+        g.fillStyle = played ? acc : txt;
+        g.globalAlpha = played ? 0.92 : 0.34;
+        g.fillRect(x, (H - h) / 2, bw, h);
+        g.restore();
+      }
+    } else {
+      // clean progress rail while peaks decode
+      g.save(); g.fillStyle = txt; g.globalAlpha = 0.2; g.fillRect(0, H / 2 - 2 * dpr, W, 4 * dpr);
+      g.fillStyle = acc; g.globalAlpha = 0.9; g.fillRect(0, H / 2 - 2 * dpr, W * frac, 4 * dpr); g.restore();
+    }
+
+    // Rehearsal markers
+    if (dur > 0) {
+      for (const mk of marks()) {
+        const mx = clamp(mk.t / dur, 0, 1) * W;
+        g.save(); g.strokeStyle = '#ff6b6b'; g.lineWidth = 2 * dpr;
+        g.beginPath(); g.moveTo(mx, 0); g.lineTo(mx, H); g.stroke();
+        g.fillStyle = '#ff6b6b'; g.beginPath(); g.arc(mx, 6 * dpr, 4 * dpr, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+    }
+
+    // Playhead
+    if (dur > 0) {
+      const px = frac * W;
+      g.save(); g.fillStyle = txt; g.fillRect(px - 1.5 * dpr, 0, 3 * dpr, H); g.restore();
+    }
+  };
+
+  const renderMarks = () => {
+    const list = marks().sort((a, b) => a.t - b.t);
+    mlistEl.innerHTML = list.length
+      ? list.map(m => `<span class="aud-mk" data-mid="${m.id}"><button data-aud="mgo" data-mid="${m.id}" title="Jump to ${audFmt(m.t)}"><b>${audFmt(m.t)}</b> ${esc(m.label)}</button><button class="x" data-aud="mdel" data-mid="${m.id}" title="Remove marker" aria-label="Remove marker">${IC('ico:close')}</button></span>`).join('')
+      : '<span class="aud-mnone">No markers yet — press + Marker (or M) to tag rehearsal spots.</span>';
+  };
+
+  const syncUI = () => {
+    if (!host.isConnected) { cleanup(); return; }
+    const dur = st.dur || (isFinite(audio.duration) ? audio.duration : 0);
+    if (dur && !st.dur) st.dur = dur;
+    timeEl.textContent = `${audFmt(audio.currentTime)} / ${dur ? audFmt(dur) : '—'}`;
+    playBtn.innerHTML = (!audio.paused || st.counting) ? `${IC('ico:pause')} Pause` : `${IC('ico:play')} Play`;
+    loopBtn.classList.toggle('on', st.loop);
+    const hasLoop = st.loopA != null && st.loopB != null;
+    clrLoopBtn.hidden = !hasLoop;
+    loopBtn.innerHTML = `${IC('ico:repeat')} ${hasLoop ? `Loop ${audFmt(st.loopA)}–${audFmt(st.loopB)}` : 'Loop'}`;
+    drawWaveCanvas();
+  };
+
+  const startWithOptionalCountIn = fromTime => {
+    stopCount();
+    if (fromTime != null) audio.currentTime = fromTime;
+    if (!st.countIn) {
+      statEl.hidden = true;
+      audio.playbackRate = st.speed;
+      audio.play().catch(() => { });
+      syncUI();
+      return;
+    }
+    st.counting = true;
+    const c = ac(); c.resume?.();
+    const beatMs = 60000 / clamp(Number(st.bpm) || 100, 40, 220);
+    statEl.hidden = false;
+    for (let i = 0; i < 4; i++) {
+      st.countTimers.push(setTimeout(() => {
+        if (!st.counting || !host.isConnected) return;
+        statEl.textContent = String(i + 1);
+        if (typeof metClick === 'function') metClick(c.currentTime + 0.01, i === 0 ? 'down' : 'beat');
+      }, i * beatMs));
+    }
+    st.countTimers.push(setTimeout(() => {
+      if (!st.counting || !host.isConnected) return;
+      st.counting = false; statEl.hidden = true;
+      audio.playbackRate = st.speed;
+      audio.play().catch(() => { });
+      syncUI();
+    }, 4 * beatMs));
+    syncUI();
+  };
+
+  const togglePlay = () => {
+    if (st.counting) { stopCount(); statEl.hidden = true; syncUI(); return; }
+    if (!audio.paused) { audio.pause(); syncUI(); return; }
+    const startAt = st.loop && st.loopA != null && (audio.currentTime < st.loopA || (st.loopB != null && audio.currentTime >= st.loopB - 0.05)) ? st.loopA : null;
+    startWithOptionalCountIn(startAt);
+  };
+
+  const addMarkerHere = () => {
+    const t = +(audio.currentTime || 0).toFixed(2);
+    const n = marks().length + 1;
+    const label = prompt(`Label for marker at ${audFmt(t)}:`, `Spot ${n}`);
+    if (label == null) return;
+    marks().push({ id: uid(), t, label: label.trim() || `Spot ${n}` });
+    marks().sort((a, b) => a.t - b.t);
+    save(); renderMarks(); drawWaveCanvas();
+  };
+
+  const jumpMarker = dir => {
+    const list = marks().sort((a, b) => a.t - b.t); if (!list.length) return;
+    const cur = audio.currentTime || 0;
+    const target = dir < 0 ? [...list].reverse().find(m => m.t < cur - 0.6) || list[0]
+      : list.find(m => m.t > cur + 0.3) || list[list.length - 1];
+    if (target) { audio.currentTime = target.t; syncUI(); }
+  };
+
+  const tickLoop = () => {
+    if (!host.isConnected) { cleanup(); return; }
+    if (!audio.paused && st.loop && st.loopA != null && st.loopB != null && audio.currentTime >= st.loopB) {
+      if (st.countIn) { audio.pause(); startWithOptionalCountIn(st.loopA); }
+      else audio.currentTime = st.loopA;
+    }
+    syncUI();
+    st.raf = requestAnimationFrame(tickLoop);
+  };
+  st.raf = requestAnimationFrame(tickLoop);
+
+  audio.addEventListener('loadedmetadata', () => { st.dur = audio.duration || 0; syncUI(); });
+  audio.addEventListener('ended', () => {
+    if (st.loop) startWithOptionalCountIn(st.loopA ?? 0);
+    else syncUI();
+  });
+
+  // Decode waveform peaks asynchronously (cached per fileId)
+  if (!st.peaks && typeof decodePeaks === 'function') {
+    fetch(src).then(r => r.blob()).then(b => decodePeaks(b, 180)).then(p => {
+      if (!p) return;
+      AUD_PEAKS_CACHE[fileId] = p; st.peaks = p; drawWaveCanvas();
+    }).catch(() => { });
+  }
+
+  // Click to seek, drag to set A–B loop
+  let wDrag = null;
+  const xToTime = clientX => {
+    const r = cvs.getBoundingClientRect(), dur = st.dur || audio.duration || 0;
+    return dur ? clamp((clientX - r.left) / r.width, 0, 1) * dur : 0;
+  };
+  cvs.onpointerdown = e => {
+    e.preventDefault(); e.stopPropagation();
+    try { cvs.setPointerCapture(e.pointerId); } catch { }
+    wDrag = { x0: e.clientX, t0: xToTime(e.clientX), dragged: false };
+  };
+  cvs.onpointermove = e => {
+    if (!wDrag) return;
+    if (!wDrag.dragged && Math.abs(e.clientX - wDrag.x0) > 8) wDrag.dragged = true;
+    if (wDrag.dragged) {
+      const t1 = xToTime(e.clientX);
+      st.loopA = Math.min(wDrag.t0, t1); st.loopB = Math.max(wDrag.t0, t1); st.loop = true;
+      syncUI();
+    }
+  };
+  cvs.onpointerup = e => {
+    if (!wDrag) return;
+    const d = wDrag; wDrag = null;
+    if (!d.dragged) { audio.currentTime = d.t0; syncUI(); }
+    else if (st.loopB - st.loopA < 0.25) { st.loopA = st.loopB = null; st.loop = false; audio.currentTime = d.t0; syncUI(); }
+    else { audio.currentTime = st.loopA; syncUI(); }
+  };
+
+  host.onclick = e => {
+    const b = e.target.closest('[data-aud]'); if (!b) return;
+    e.stopPropagation();
+    const act = b.dataset.aud;
+    if (act === 'play') togglePlay();
+    else if (act === 'back') { audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5); syncUI(); }
+    else if (act === 'fwd') { audio.currentTime = Math.min(st.dur || audio.duration || 0, (audio.currentTime || 0) + 5); syncUI(); }
+    else if (act === 'loop') { st.loop = !st.loop; syncUI(); }
+    else if (act === 'clrloop') { st.loopA = st.loopB = null; st.loop = false; syncUI(); }
+    else if (act === 'spd') {
+      st.speed = Number(b.dataset.v); audio.playbackRate = st.speed;
+      host.querySelectorAll('[data-aud="spd"]').forEach(x => x.classList.toggle('on', Number(x.dataset.v) === st.speed));
+    } else if (act === 'madd') addMarkerHere();
+    else if (act === 'mprev') jumpMarker(-1);
+    else if (act === 'mnext') jumpMarker(1);
+    else if (act === 'mgo') { const m = marks().find(x => x.id === b.dataset.mid); if (m) { audio.currentTime = m.t; syncUI(); } }
+    else if (act === 'mdel') { meta.marks = marks().filter(x => x.id !== b.dataset.mid); save(); renderMarks(); drawWaveCanvas(); }
+  };
+  host.onchange = e => {
+    const el = e.target, k = el.dataset.audK; if (!k) return;
+    if (k === 'countIn') st.countIn = el.checked;
+    if (k === 'bpm') st.bpm = clamp(Number(el.value) || 100, 40, 220);
+  };
+  rootEl.onkeydown = e => {
+    if (e.target.closest('input,select,textarea')) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5); syncUI(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); audio.currentTime = Math.min(st.dur || 0, (audio.currentTime || 0) + 5); syncUI(); }
+    else if (e.key.toLowerCase() === 'm') { e.preventDefault(); addMarkerHere(); }
+    else if (e.key.toLowerCase() === 'l') { e.preventDefault(); st.loop = !st.loop; syncUI(); }
+    else if (e.key === '[') { e.preventDefault(); jumpMarker(-1); }
+    else if (e.key === ']') { e.preventDefault(); jumpMarker(1); }
+  };
+
+  renderMarks();
+  syncUI();
+}
