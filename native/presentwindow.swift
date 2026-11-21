@@ -5,11 +5,16 @@
 
 import Cocoa
 import WebKit
+import ApplicationServices
 
 final class RehearsalWindow: NSWindow {
     private var savedFrame: NSRect?
     private var savedStyle: NSWindow.StyleMask = []
     var isCovering: Bool { savedFrame != nil }
+    private var compSavedFrame: NSRect?
+    private var compSavedStyle: NSWindow.StyleMask = []
+    private var compSavedCover = false
+    var isCompanion: Bool { compSavedFrame != nil }
 
     // Borderless windows normally can't take keyboard focus; ours must.
     override var canBecomeKey: Bool { true }
@@ -52,6 +57,75 @@ final class RehearsalWindow: NSWindow {
     private func setSafeTop(_ px: CGFloat) {
         let wv = contentView?.subviews.first(where: { $0 is HoleWebView }) as? WKWebView
         wv?.evaluateJavaScript("document.documentElement.style.setProperty('--safe-top', '\(Int(px.rounded(.up)))px')")
+    }
+
+    /// Dock Rehearsal into a slim 40px top control strip and bring the chosen desktop app forward below it.
+    func enterCompanion(stripHeight: CGFloat = 40, bundleId: String?, pid: Int32?) {
+        let screen = self.screen ?? NSScreen.main
+        guard let s = screen else { return }
+        if !isCompanion {
+            compSavedCover = isCovering
+            compSavedFrame = savedFrame ?? frame
+            compSavedStyle = isCovering ? savedStyle : styleMask
+            savedFrame = nil
+        }
+        let vf = s.visibleFrame
+        NSApp.presentationOptions = []
+        styleMask = [.borderless, .fullSizeContentView]
+        level = .floating
+        let stripFrame = NSRect(x: vf.minX, y: vf.maxY - stripHeight, width: vf.width, height: stripHeight)
+        setFrame(stripFrame, display: true, animate: false)
+        setSafeTop(0)
+        orderFrontRegardless()
+
+        let targetApp: NSRunningApplication? = {
+            if let pid, pid > 0, let a = NSRunningApplication(processIdentifier: pid) { return a }
+            if let bundleId, !bundleId.isEmpty { return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first }
+            return nil
+        }()
+        if let targetApp {
+            targetApp.unhide()
+            targetApp.activate(options: [.activateIgnoringOtherApps])
+            // Best-effort tile target app's front window below the 40px strip if Accessibility is trusted.
+            if AXIsProcessTrusted() {
+                let targetPid = targetApp.processIdentifier
+                let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? s.frame.maxY
+                let axPos = CGPoint(x: vf.minX, y: (primaryMaxY - vf.maxY) + stripHeight)
+                let axSize = CGSize(width: vf.width, height: max(200, vf.height - stripHeight))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    let axApp = AXUIElementCreateApplication(targetPid)
+                    var ref: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref) == .success, let ref {
+                        let win = ref as! AXUIElement
+                        var p = axPos, sz = axSize
+                        if let pv = AXValueCreate(.cgPoint, &p) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, pv) }
+                        if let sv = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, sv) }
+                    }
+                }
+            }
+        }
+    }
+
+    func exitCompanion() {
+        guard let f = compSavedFrame else { return }
+        let wasCover = compSavedCover
+        let st = compSavedStyle
+        compSavedFrame = nil; compSavedCover = false
+        level = .normal
+        if wasCover, let s = self.screen ?? NSScreen.main {
+            savedFrame = f; savedStyle = st
+            styleMask = [.borderless, .fullSizeContentView]
+            setFrame(s.frame, display: true, animate: false)
+            NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+            refreshSafeTop()
+        } else {
+            styleMask = st
+            setFrame(f, display: true, animate: false)
+            NSApp.presentationOptions = []
+            setSafeTop(0)
+        }
+        makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

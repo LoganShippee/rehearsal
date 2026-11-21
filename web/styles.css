@@ -108,12 +108,12 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .p-body { grid-row: 2; grid-column: 1; position: relative; z-index: 1; }
 .p-head { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content; align-items: center; gap: 1em; padding: 1.1em 1.6em .8em 1.6em; position: relative; z-index: 50; }
 .p-head .p-clock { justify-self: end; }
-.p-title { min-width: 0; }
+.p-title { min-width: 0; color: var(--title-text, var(--text)); }
 .p-title .t1 { font-size: 2.1em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
 .p-title .t2 { font-size: 1em; opacity: .8; margin-top: .25em; display: flex; gap: .6em; align-items: center; flex-wrap: wrap; }
 .chip { background: var(--accent); color: var(--bg); font-weight: 700; padding: .12em .6em; border-radius: 99px; font-size: .85em; }
 .chip.test { background: #e63946; color: #fff; }
-.p-clock { text-align: right; }
+.p-clock { text-align: right; color: var(--clock-text, var(--text)); }
 .p-clock .time { font-size: 2.6em; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
 .p-clock .left { opacity: .85; margin-top: .3em; font-variant-numeric: tabular-nums; }
 .p-progress { position: absolute; left: 1.6em; right: 1.6em; bottom: 0; height: 5px; border-radius: 9px; background: var(--line); overflow: hidden; }
@@ -2022,3 +2022,63 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
   #print-area .sr-ws-svg svg { max-width: 100%; height: auto; }
   #print-area .sr-ws-key { page-break-before: always; padding-top: 4pt; }
 }
+
+/* ---------- Companion split-screen bar (40px slim strip) ---------- */
+.p-companion { display: none; }
+.present.companion { grid-template-rows: 40px; }
+.present.companion .p-head,
+.present.companion .p-body,
+.present.companion .p-wins,
+.present.companion .p-timers,
+.present.companion .p-signal,
+.present.companion #win-menu-host,
+.present.companion .ink { display: none !important; }
+.present.companion .p-companion {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  height: 40px; padding: 0 12px; position: relative; z-index: 60;
+  font-size: 13px; white-space: nowrap; overflow: hidden;
+  background: var(--bg); color: var(--text);
+}
+.comp-left, .comp-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.comp-back {
+  border: none; border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+  background: var(--accent); color: var(--bg); cursor: pointer; flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.comp-back:hover { filter: brightness(1.08); }
+.comp-cls { font-weight: 700; color: var(--title-text, var(--text)); overflow: hidden; text-overflow: ellipsis; }
+.comp-step { opacity: .88; overflow: hidden; text-overflow: ellipsis; padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--text) 14%, transparent); font-size: 12px; }
+.comp-timer { padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 26%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
+.comp-sig { padding: 2px 8px; border-radius: 99px; font-weight: 700; font-size: 12px; color: #fff; }
+.comp-clock { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--clock-text, var(--text)); }
+.comp-left-t { opacity: .82; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+/* ---------- Spotlight onboarding tour ---------- */
+.tour-backdrop { position: fixed; inset: 0; background: rgba(6, 14, 24, .64); z-index: 9500; }
+.tour-ring {
+  position: fixed; z-index: 9501; border-radius: 10px; pointer-events: none;
+  border: 2.5px solid #ffd166; box-shadow: 0 0 0 9999px rgba(6, 14, 24, .58), 0 0 24px rgba(255, 209, 102, .75);
+  transition: left .18s, top .18s, width .18s, height .18s;
+}
+.tour-card {
+  position: fixed; z-index: 9502; width: min(370px, calc(100vw - 24px));
+  background: #171c26; color: #f3f6fc; border: 1px solid rgba(255, 209, 102, .5);
+  border-radius: 14px; padding: 14px 16px; box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+  display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.45;
+}
+.tour-top { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #ffd166; font-weight: 700; }
+.tour-card h3 { margin: 0; font-size: 15px; color: #fff; }
+.tour-card p { margin: 0; color: #d5dce8; }
+.tour-foot { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+.tour-dots { display: flex; gap: 5px; margin: 0 auto; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .25); display: block; }
+.tour-dots i.on { background: #ffd166; width: 14px; }
+.tour-card button {
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08);
+  color: #fff; border-radius: 8px; padding: 5px 11px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.tour-card button:hover { background: rgba(255, 255, 255, .16); }
+.tour-card button.primary { background: #ffd166; color: #111827; border-color: transparent; }
+.tour-card button.primary:hover { filter: brightness(1.06); }
+.tour-card button:disabled { opacity: .4; cursor: default; }
+

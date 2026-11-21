@@ -91,7 +91,9 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
                 views[id] = m
                 v = m
             } else {
-                let wv = WKWebView(frame: r, configuration: WKWebViewConfiguration())
+                let cfg = WKWebViewConfiguration()
+                cfg.preferences.isElementFullscreenEnabled = false
+                let wv = WKWebView(frame: r, configuration: cfg)
                 wv.customUserAgent = safariUA
                 wv.navigationDelegate = self
                 wv.uiDelegate = self
@@ -150,6 +152,8 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
         case "forward": v.goForward()
         case "reload": v.reload()
         case "focus": v.window?.makeFirstResponder(v)
+        case "zoom":
+            if let z = (body["zoom"] as? NSNumber)?.doubleValue { v.pageZoom = z }
         default: break
         }
     }

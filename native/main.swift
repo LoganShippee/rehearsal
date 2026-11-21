@@ -470,14 +470,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "webCmd":
             if let wv { webWindows[ObjectIdentifier(wv)]?.command(body) }
         case "listAppWindows":
-            Task { @MainActor in
-                let screen = AppCapture.hasScreenAccess
-                let list = screen ? await AppCapture.listWindows() : []
-                let payload: [String: Any] = ["screen": screen, "input": AppCapture.hasInputAccess, "windows": list]
-                if let d = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: d, encoding: .utf8) {
-                    _ = try? await wv?.evaluateJavaScript("window.__appWindows && window.__appWindows(\(json))")
-                }
+            let list = AppCapture.listRunningApps()
+            let payload: [String: Any] = ["screen": true, "input": true, "windows": list]
+            if let d = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: d, encoding: .utf8) {
+                wv?.evaluateJavaScript("window.__appWindows && window.__appWindows(\(json))")
             }
+        case "companionStart":
+            let bid = body["bundleId"] as? String
+            let pid = (body["pid"] as? NSNumber)?.int32Value
+            (wv?.window as? RehearsalWindow)?.enterCompanion(stripHeight: 40, bundleId: bid, pid: pid)
+        case "companionExit":
+            (wv?.window as? RehearsalWindow)?.exitCompanion()
         case "requestPermission":
             let which = body["which"] as? String
             if which == "screen" {

@@ -24,6 +24,17 @@ enum AppCapture {
         _ = AXIsProcessTrustedWithOptions(opts)
     }
 
+    /// Running desktop apps for Companion Split-Screen (needs zero Screen Recording permissions).
+    static func listRunningApps() -> [[String: Any]] {
+        let me = ProcessInfo.processInfo.processIdentifier
+        let skip = Set(["com.apple.dock", "com.apple.controlcenter", "com.apple.systemuiserver", "com.apple.WindowManager", "com.apple.notificationcenterui", "com.apple.finder"])
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular, app.processIdentifier != me,
+                  let name = app.localizedName, let bid = app.bundleIdentifier, !skip.contains(bid) else { return nil }
+            return ["app": name, "bundleId": bid, "pid": Int(app.processIdentifier), "title": "", "onScreen": !app.isHidden]
+        }.sorted { ($0["app"] as! String).localizedCaseInsensitiveCompare($1["app"] as! String) == .orderedAscending }
+    }
+
     /// Windows of other apps that can be mirrored.
     static func listWindows() async -> [[String: Any]] {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false) else { return [] }

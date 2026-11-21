@@ -1839,13 +1839,13 @@ function mountSight(host, st, onChange) {
   }
   // Listen back (from the grade report): the example from bar 1 at the tempo that was performed,
   // with the playhead. Returns the clock so the take can be lined up with it.
-  host.__listen = tempo => {
+  host.__listen = (tempo, opts) => {
     if (!timeline.length) return null;
     const live = new Proxy({}, { get: (_, key) => {
       const v = V();
       if (key === 'startM') return 0;
       if (key === 'playhead') return v.playhead && v.playhead !== 'off' ? v.playhead : 'beat';
-      if (key === v.mode && tempo) return { ...v[v.mode], tempo };
+      if (key === v.mode) return { ...v[v.mode], ...(tempo ? { tempo } : {}), ...(opts?.noMetro ? { metronome: false } : {}) };
       return v[key];
     } });
     const clock = srPlay(live, timeline, () => srHidePlayhead(host));

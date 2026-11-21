@@ -886,7 +886,7 @@ function grListen(host, mix, btn) {
   const A = take.rec ? grTakeAudio(take) : null;
   if (take.rec && !A) return toast('The recording of this take is not available.');
   const c = ac(); c.resume && c.resume();
-  const clock = host.__listen(take.tempo);                       // the example from bar 1, at the tempo you performed
+  const clock = host.__listen(take.tempo, { noMetro: !!A });                       // the example from bar 1, at the tempo you performed (mute synth metronome when mic audio already has it)
   if (!clock) return;
   if (mix === 'rec' && SR_PLAY.master) SR_PLAY.master.gain.value = 0;   // keep the playhead, mute the example
   const out = c.createGain(); out.connect(musicOut(c));
