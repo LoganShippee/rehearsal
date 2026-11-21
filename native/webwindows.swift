@@ -102,15 +102,19 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
             let v: NSView
             if let existing = views[id] {
                 v = existing
+                let hide = (it["hidden"] as? Bool) ?? false
+                if v.isHidden != hide { v.isHidden = hide }
+                if !hide && r.width > 0 && r.height > 0 && v.frame != r { v.frame = r }
                 if let wv = existing as? WKWebView, let u = httpURL(it["url"]) {
                     let force = (it["forceUrl"] as? Bool) ?? false
                     let urlChanged = lastSyncedURL[id] != u.absoluteString
                     let neverLoaded = wv.url == nil && !wv.isLoading && !failedIDs.contains(id)
                     if force || urlChanged || neverLoaded {
+                        let prevTarget = lastURL[id]
                         lastSyncedURL[id] = u.absoluteString
                         lastURL[id] = u
                         failedIDs.remove(id)
-                        let alreadyLoadingSame = wv.isLoading && wv.url == u
+                        let alreadyLoadingSame = wv.isLoading && (wv.url == u || prevTarget == u)
                         if !alreadyLoadingSame && (force || wv.url?.absoluteString != u.absoluteString || neverLoaded) {
                             wv.load(URLRequest(url: u))
                         }
@@ -326,16 +330,9 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let u = navigationAction.request.url {
-            let scheme = (u.scheme ?? "").lowercased()
-            if scheme == "mailto" {
-                NSWorkspace.shared.open(u)
-                return decisionHandler(.cancel)
-            }
-            if navigationAction.targetFrame == nil, ["http", "https"].contains(scheme) {
-                webView.load(URLRequest(url: u))
-                return decisionHandler(.cancel)
-            }
+        if let u = navigationAction.request.url, (u.scheme ?? "").lowercased() == "mailto" {
+            NSWorkspace.shared.open(u)
+            return decisionHandler(.cancel)
         }
         decisionHandler(.allow)
     }

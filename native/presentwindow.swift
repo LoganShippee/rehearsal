@@ -15,20 +15,68 @@ final class RehearsalWindow: NSWindow {
     private var compSavedCover = false
     private var compDragMouse: NSPoint?
     private var compDragOrigin: NSPoint?
+    private var compResizeEdges: (left: Bool, right: Bool, bottom: Bool, top: Bool)?
+    private var compResizeStartFrame: NSRect?
     var isCompanion: Bool { compSavedFrame != nil }
 
     // Borderless windows normally can't take keyboard focus; ours must.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(frameRect, display: flag)
+        if isCompanion, frame.width >= 220, frame.width <= 720, frame.height >= 64, frame.height <= 220 {
+            let ud = UserDefaults.standard
+            ud.set(Double(frame.width), forKey: "companionHudWidth")
+            ud.set(Double(frame.height), forKey: "companionHudHeight")
+        }
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if isCompanion {
             switch event.type {
             case .leftMouseDown:
-                compDragMouse = NSEvent.mouseLocation
-                compDragOrigin = frame.origin
+                let loc = event.locationInWindow
+                let edge: CGFloat = 8
+                let brCorner = loc.x >= frame.width - 14 && loc.y <= 14
+                let onLeft = loc.x <= edge
+                let onRight = loc.x >= frame.width - edge || brCorner
+                let onBottom = loc.y <= edge || brCorner
+                let onTop = loc.y >= frame.height - edge
+                if onLeft || onRight || onBottom || onTop {
+                    compDragOrigin = nil
+                    compDragMouse = NSEvent.mouseLocation
+                    compResizeStartFrame = frame
+                    compResizeEdges = (onLeft, onRight, onBottom, onTop)
+                } else {
+                    compResizeEdges = nil
+                    compResizeStartFrame = nil
+                    compDragMouse = NSEvent.mouseLocation
+                    compDragOrigin = frame.origin
+                }
             case .leftMouseDragged:
-                if let startMouse = compDragMouse, let startOrigin = compDragOrigin {
+                if let edges = compResizeEdges, let startMouse = compDragMouse, let f0 = compResizeStartFrame {
+                    let cur = NSEvent.mouseLocation
+                    let dx = cur.x - startMouse.x, dy = cur.y - startMouse.y
+                    if hypot(dx, dy) > 2 {
+                        var nf = f0
+                        if edges.right { nf.size.width = min(max(f0.width + dx, minSize.width), maxSize.width) }
+                        if edges.left {
+                            let w = min(max(f0.width - dx, minSize.width), maxSize.width)
+                            nf.origin.x = f0.maxX - w
+                            nf.size.width = w
+                        }
+                        if edges.top { nf.size.height = min(max(f0.height + dy, minSize.height), maxSize.height) }
+                        if edges.bottom {
+                            let h = min(max(f0.height - dy, minSize.height), maxSize.height)
+                            nf.origin.y = f0.maxY - h
+                            nf.size.height = h
+                        }
+                        setFrame(nf, display: true, animate: false)
+                        invalidateShadow()
+                        return
+                    }
+                } else if let startMouse = compDragMouse, let startOrigin = compDragOrigin {
                     let cur = NSEvent.mouseLocation
                     let dx = cur.x - startMouse.x, dy = cur.y - startMouse.y
                     if hypot(dx, dy) > 3 {
@@ -38,6 +86,8 @@ final class RehearsalWindow: NSWindow {
             case .leftMouseUp:
                 compDragMouse = nil
                 compDragOrigin = nil
+                compResizeEdges = nil
+                compResizeStartFrame = nil
             default: break
             }
         }
@@ -83,9 +133,9 @@ final class RehearsalWindow: NSWindow {
         wv?.evaluateJavaScript("document.documentElement.style.setProperty('--safe-top', '\(Int(px.rounded(.up)))px')")
     }
 
-    /// Morph Rehearsal into a compact, draggable 300x88 floating Mini-HUD at the bottom-right
+    /// Morph Rehearsal into a compact, draggable, resizable floating Mini-HUD at the bottom-right
     /// and activate the chosen desktop app at its normal full size.
-    func enterCompanion(stripHeight: CGFloat = 88, bundleId: String?, pid: Int32?) {
+    func enterCompanion(stripHeight: CGFloat = 96, bundleId: String?, pid: Int32?) {
         let screen = self.screen ?? NSScreen.main
         guard let s = screen else { return }
         if !isCompanion {
@@ -95,18 +145,24 @@ final class RehearsalWindow: NSWindow {
             savedFrame = nil
         }
         let vf = s.visibleFrame
+        let ud = UserDefaults.standard
+        let savedW = ud.double(forKey: "companionHudWidth")
+        let savedH = ud.double(forKey: "companionHudHeight")
+        let hudW = min(max(savedW > 0 ? CGFloat(savedW) : 340, 220), 720)
+        let hudH = min(max(savedH > 0 ? CGFloat(savedH) : 96, 64), 220)
+        let pad: CGFloat = 16
         NSApp.presentationOptions = []
-        styleMask = [.borderless, .fullSizeContentView]
+        styleMask = [.borderless, .resizable, .fullSizeContentView]
         level = .floating
         isMovableByWindowBackground = true
         hasShadow = true
         isOpaque = false
         backgroundColor = .clear
-        minSize = NSSize(width: 200, height: 60)
+        minSize = NSSize(width: 220, height: 64)
+        maxSize = NSSize(width: 720, height: 220)
         contentView?.wantsLayer = true
         contentView?.layer?.cornerRadius = 14
         contentView?.layer?.masksToBounds = true
-        let hudW: CGFloat = 300, hudH: CGFloat = 88, pad: CGFloat = 16
         let hudFrame = NSRect(x: vf.maxX - hudW - pad, y: vf.minY + pad, width: hudW, height: hudH)
         setFrame(hudFrame, display: true, animate: false)
         invalidateShadow()
@@ -130,11 +186,13 @@ final class RehearsalWindow: NSWindow {
         let st = compSavedStyle
         compSavedFrame = nil; compSavedCover = false
         compDragMouse = nil; compDragOrigin = nil
+        compResizeEdges = nil; compResizeStartFrame = nil
         level = .normal
         isMovableByWindowBackground = false
         isOpaque = true
         backgroundColor = NSColor(red: 0.04, green: 0.22, blue: 0.33, alpha: 1)
         minSize = NSSize(width: 720, height: 480)
+        maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         contentView?.layer?.cornerRadius = 0
         contentView?.layer?.masksToBounds = false
         if wasCover, let s = self.screen ?? NSScreen.main {

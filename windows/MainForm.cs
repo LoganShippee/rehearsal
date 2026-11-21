@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -20,17 +22,28 @@ internal sealed class MainForm : Form
     private Rectangle _savedBounds;
 
     private bool _isCompanion;
+    private bool _inCompanionSetup;
     private bool _compSavedCover;
     private FormBorderStyle _compSavedBorder;
     private FormWindowState _compSavedState;
     private Rectangle _compSavedBounds;
     private bool _compSavedTopMost;
     private Size _compSavedMinSize;
+    private Size _compSavedMaxSize;
 
     private readonly System.Windows.Forms.Timer _dragTimer = new() { Interval = 12 };
     private Point _dragCursorStart;
-    private Point _dragFormStart;
+    private Rectangle _dragBoundsStart;
+    private int _dragHitMode = HTCAPTION;
     private bool _dragMoving;
+
+    private const int CompMinLogicalW = 220;
+    private const int CompMinLogicalH = 64;
+    private const int CompMaxLogicalW = 720;
+    private const int CompMaxLogicalH = 220;
+    private const int CompDefaultLogicalW = 340;
+    private const int CompDefaultLogicalH = 96;
+    private const int CompResizeGripLogical = 8;
 
     private static readonly HashSet<string> SkipWindowTitles = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -59,6 +72,15 @@ internal sealed class MainForm : Form
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
@@ -85,6 +107,26 @@ internal sealed class MainForm : Form
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessageTimeoutW(
+        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+        uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")]
+    private static extern IntPtr GetClassLongPtr64(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassLongW")]
+    private static extern uint GetClassLong32(IntPtr hWnd, int nIndex);
+
+    private static IntPtr GetClassLongPtr(IntPtr hWnd, int nIndex)
+        => IntPtr.Size == 8 ? GetClassLongPtr64(hWnd, nIndex) : new IntPtr(GetClassLong32(hWnd, nIndex));
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -116,6 +158,14 @@ internal sealed class MainForm : Form
     private const uint GW_OWNER = 4;
     private const int SW_SHOW = 5;
     private const int SW_RESTORE = 9;
+    private const uint PW_RENDERFULLCONTENT = 0x00000002;
+    private const uint WM_GETICON = 0x007F;
+    private const uint SMTO_ABORTIFHUNG = 0x0002;
+    private const int ICON_SMALL = 0;
+    private const int ICON_BIG = 1;
+    private const int ICON_SMALL2 = 2;
+    private const int GCLP_HICON = -14;
+    private const int GCLP_HICONSM = -34;
     private const int DWMWA_CLOAKED = 14;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWCP_DEFAULT = 0;
@@ -123,6 +173,14 @@ internal sealed class MainForm : Form
     private const int WM_NCHITTEST = 0x0084;
     private const int HTCLIENT = 1;
     private const int HTCAPTION = 2;
+    private const int HTLEFT = 10;
+    private const int HTRIGHT = 11;
+    private const int HTTOP = 12;
+    private const int HTTOPLEFT = 13;
+    private const int HTTOPRIGHT = 14;
+    private const int HTBOTTOM = 15;
+    private const int HTBOTTOMLEFT = 16;
+    private const int HTBOTTOMRIGHT = 17;
 
     public MainForm(string view, string title, MainForm? cascadeFrom)
     {
@@ -155,7 +213,14 @@ internal sealed class MainForm : Form
         _dragTimer.Tick += OnDragTimerTick;
 
         Shown += async (_, _) => await InitWebViewAsync();
-        Resize += (_, _) => _webWindows.ReapplyRegion();
+        Resize += (_, _) =>
+        {
+            _webWindows.ReapplyRegion();
+            if (_isCompanion && !_inCompanionSetup)
+            {
+                SaveCompanionLogicalSize();
+            }
+        };
         KeyDown += OnFormKeyDown;
     }
 
@@ -174,12 +239,29 @@ internal sealed class MainForm : Form
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 "window.__REHEARSAL_PLATFORM='windows';" +
                 "window.webkit={messageHandlers:{native:{postMessage:function(m){window.chrome.webview.postMessage(m);}}}};" +
+                "(function(){" +
+                "var G=" + CompResizeGripLogical + ";" +
+                "function edgeOf(e){" +
+                "var x=e.clientX,y=e.clientY,w=window.innerWidth,h=window.innerHeight;" +
+                "var l=x<G,r=x>=w-G,t=y<G,b=y>=h-G;" +
+                "if(t&&l)return 'nwse-resize';if(b&&r)return 'nwse-resize';" +
+                "if(t&&r)return 'nesw-resize';if(b&&l)return 'nesw-resize';" +
+                "if(l||r)return 'ew-resize';if(t||b)return 'ns-resize';return '';" +
+                "}" +
+                "document.addEventListener('pointermove',function(e){" +
+                "if(!document.querySelector('.present.companion')){if(document.documentElement.dataset.compCur){document.documentElement.style.cursor='';delete document.documentElement.dataset.compCur;}return;}" +
+                "var cur=edgeOf(e);" +
+                "if(cur){document.documentElement.style.cursor=cur;document.documentElement.dataset.compCur='1';}" +
+                "else if(document.documentElement.dataset.compCur){document.documentElement.style.cursor='';delete document.documentElement.dataset.compCur;}" +
+                "},true);" +
                 "document.addEventListener('pointerdown',function(e){" +
                 "if(e.button!==0)return;" +
                 "if(!document.querySelector('.present.companion'))return;" +
+                "if(edgeOf(e)){e.preventDefault();window.chrome.webview.postMessage({cmd:'companionResize'});return;}" +
                 "if(e.target&&e.target.closest&&e.target.closest('button,a,input,select,textarea,[data-action]'))return;" +
                 "window.chrome.webview.postMessage({cmd:'companionDrag'});" +
-                "},true);");
+                "},true);" +
+                "})();");
 
             core.WebMessageReceived += OnWebMessageReceived;
             core.PermissionRequested += OnPermissionRequested;
@@ -215,34 +297,59 @@ internal sealed class MainForm : Form
         base.OnFormClosed(e);
     }
 
+    private int HitTestCompanionGrip(Point clientPt)
+    {
+        int grip = Math.Max(6, (int)Math.Round(CompResizeGripLogical * (DeviceDpi / 96f)));
+        bool left = clientPt.X < grip;
+        bool right = clientPt.X >= ClientSize.Width - grip;
+        bool top = clientPt.Y < grip;
+        bool bottom = clientPt.Y >= ClientSize.Height - grip;
+
+        if (top && left) return HTTOPLEFT;
+        if (top && right) return HTTOPRIGHT;
+        if (bottom && left) return HTBOTTOMLEFT;
+        if (bottom && right) return HTBOTTOMRIGHT;
+        if (left) return HTLEFT;
+        if (right) return HTRIGHT;
+        if (top) return HTTOP;
+        if (bottom) return HTBOTTOM;
+        return HTCAPTION;
+    }
+
     protected override void WndProc(ref Message m)
     {
         base.WndProc(ref m);
         if (_isCompanion && m.Msg == WM_NCHITTEST && (int)m.Result == HTCLIENT)
         {
-            m.Result = (IntPtr)HTCAPTION;
+            long lparam = m.LParam.ToInt64();
+            int screenX = (short)(lparam & 0xFFFF);
+            int screenY = (short)((lparam >> 16) & 0xFFFF);
+            var clientPt = PointToClient(new Point(screenX, screenY));
+            m.Result = (IntPtr)HitTestCompanionGrip(clientPt);
         }
     }
 
     public void EvalScript(string js)
     {
-        if (IsDisposed || _webView.IsDisposed || _webView.CoreWebView2 == null) return;
+        if (IsDisposed) return;
         if (InvokeRequired)
         {
             try { BeginInvoke(() => EvalScript(js)); } catch { }
             return;
         }
+        if (_webView.IsDisposed || _webView.CoreWebView2 == null) return;
         _ = _webView.CoreWebView2.ExecuteScriptAsync(js);
     }
 
     public void ReloadWebView()
     {
-        if (IsDisposed || _webView.IsDisposed || _webView.CoreWebView2 == null) return;
+        if (IsDisposed) return;
         if (InvokeRequired)
         {
             try { BeginInvoke(ReloadWebView); } catch { }
             return;
         }
+        if (_webView.IsDisposed || _webView.CoreWebView2 == null) return;
         _webView.CoreWebView2.Reload();
     }
 
@@ -274,56 +381,116 @@ internal sealed class MainForm : Form
         }
     }
 
+    private static string CompanionConfigPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Rehearsal", "companion-hud.json");
+
+    private static (int Width, int Height) LoadCompanionLogicalSize()
+    {
+        try
+        {
+            var path = CompanionConfigPath;
+            if (!File.Exists(path)) return (CompDefaultLogicalW, CompDefaultLogicalH);
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            var root = doc.RootElement;
+            int w = root.TryGetProperty("width", out var wEl) && wEl.ValueKind == JsonValueKind.Number
+                ? wEl.GetInt32() : CompDefaultLogicalW;
+            int h = root.TryGetProperty("height", out var hEl) && hEl.ValueKind == JsonValueKind.Number
+                ? hEl.GetInt32() : CompDefaultLogicalH;
+            return (Math.Clamp(w, CompMinLogicalW, CompMaxLogicalW), Math.Clamp(h, CompMinLogicalH, CompMaxLogicalH));
+        }
+        catch
+        {
+            return (CompDefaultLogicalW, CompDefaultLogicalH);
+        }
+    }
+
+    private void SaveCompanionLogicalSize()
+    {
+        if (!_isCompanion || _inCompanionSetup) return;
+        try
+        {
+            float scale = DeviceDpi / 96f;
+            if (scale <= 0) scale = 1f;
+            int w = Math.Clamp((int)Math.Round(Width / scale), CompMinLogicalW, CompMaxLogicalW);
+            int h = Math.Clamp((int)Math.Round(Height / scale), CompMinLogicalH, CompMaxLogicalH);
+            var path = CompanionConfigPath;
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(new Dictionary<string, int> { ["width"] = w, ["height"] = h });
+            File.WriteAllText(path, json);
+        }
+        catch { }
+    }
+
     private void EnterCompanion(JsonElement root)
     {
         var screen = Screen.FromControl(this);
-        if (!_isCompanion)
+        bool wasCompanion = _isCompanion;
+        _inCompanionSetup = true;
+        try
         {
-            _compSavedCover = _isCovering;
-            _compSavedTopMost = TopMost;
-            _compSavedMinSize = MinimumSize;
-            if (_isCovering)
+            if (!_isCompanion)
             {
-                _compSavedBorder = _savedBorder;
-                _compSavedState = _savedState;
-                _compSavedBounds = _savedBounds;
-                _isCovering = false;
+                _compSavedCover = _isCovering;
+                _compSavedTopMost = TopMost;
+                _compSavedMinSize = MinimumSize;
+                _compSavedMaxSize = MaximumSize;
+                if (_isCovering)
+                {
+                    _compSavedBorder = _savedBorder;
+                    _compSavedState = _savedState;
+                    _compSavedBounds = _savedBounds;
+                    _isCovering = false;
+                }
+                else
+                {
+                    _compSavedBorder = FormBorderStyle;
+                    _compSavedState = WindowState;
+                    _compSavedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                }
+                _isCompanion = true;
             }
-            else
+
+            _webWindows.EnterCompanionMode();
+
+            float scale = DeviceDpi / 96f;
+            var (logicalW, logicalH) = LoadCompanionLogicalSize();
+            int minW = (int)Math.Round(CompMinLogicalW * scale);
+            int minH = (int)Math.Round(CompMinLogicalH * scale);
+            int maxW = (int)Math.Round(CompMaxLogicalW * scale);
+            int maxH = (int)Math.Round(CompMaxLogicalH * scale);
+            int hudW = Math.Clamp((int)Math.Round(logicalW * scale), minW, maxW);
+            int hudH = Math.Clamp((int)Math.Round(logicalH * scale), minH, maxH);
+            int margin = (int)Math.Round(16 * scale);
+
+            var workArea = screen.WorkingArea;
+            int x = wasCompanion ? Left : workArea.Right - hudW - margin;
+            int y = wasCompanion ? Top : workArea.Bottom - hudH - margin;
+
+            WindowState = FormWindowState.Normal;
+            FormBorderStyle = FormBorderStyle.None;
+            MinimumSize = new Size(minW, minH);
+            MaximumSize = new Size(maxW, maxH);
+            if (!wasCompanion)
             {
-                _compSavedBorder = FormBorderStyle;
-                _compSavedState = WindowState;
-                _compSavedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                Bounds = new Rectangle(x, y, hudW, hudH);
             }
-            _isCompanion = true;
+            TopMost = true;
+            SetCornerPreference(DWMWCP_ROUND);
         }
-
-        _webWindows.EnterCompanionMode();
-
-        float scale = DeviceDpi / 96f;
-        int hudW = (int)Math.Round(300 * scale);
-        int hudH = (int)Math.Round(88 * scale);
-        int margin = (int)Math.Round(16 * scale);
-        int minW = (int)Math.Round(200 * scale);
-        int minH = (int)Math.Round(60 * scale);
-
-        var workArea = screen.WorkingArea;
-        int x = workArea.Right - hudW - margin;
-        int y = workArea.Bottom - hudH - margin;
-
-        WindowState = FormWindowState.Normal;
-        FormBorderStyle = FormBorderStyle.None;
-        MinimumSize = new Size(minW, minH);
-        Bounds = new Rectangle(x, y, hudW, hudH);
-        TopMost = true;
-        SetCornerPreference(DWMWCP_ROUND);
+        finally
+        {
+            _inCompanionSetup = false;
+        }
 
         EvalScript("document.documentElement.style.setProperty('--safe-top', '0px')");
         EvalScript("window.__companionState && window.__companionState(true)");
 
         long hwndVal = Int64(root, "hwnd");
         int pid = (int)Int64(root, "pid");
-        var targetHwnd = ResolveTargetWindow(hwndVal, pid);
+        var bundleId = Str(root, "bundleId");
+        var appName = Str(root, "app");
+        var targetHwnd = ResolveTargetWindow(hwndVal, pid, bundleId, appName);
         if (targetHwnd != IntPtr.Zero)
         {
             ActivateExternalWindow(targetHwnd);
@@ -334,6 +501,7 @@ internal sealed class MainForm : Form
     {
         _dragTimer.Stop();
         _dragMoving = false;
+        _dragHitMode = HTCAPTION;
 
         if (!_isCompanion)
         {
@@ -342,30 +510,39 @@ internal sealed class MainForm : Form
             return;
         }
 
-        _isCompanion = false;
-        SetCornerPreference(DWMWCP_DEFAULT);
-        MinimumSize = _compSavedMinSize.Width > 0 ? _compSavedMinSize : new Size(720, 480);
-        TopMost = _compSavedTopMost;
-
-        if (_compSavedCover)
+        _inCompanionSetup = true;
+        try
         {
-            _savedBorder = _compSavedBorder;
-            _savedState = _compSavedState;
-            _savedBounds = _compSavedBounds;
-            _isCovering = true;
+            _isCompanion = false;
+            SetCornerPreference(DWMWCP_DEFAULT);
+            MaximumSize = _compSavedMaxSize;
+            MinimumSize = _compSavedMinSize.Width > 0 ? _compSavedMinSize : new Size(720, 480);
+            TopMost = _compSavedTopMost;
 
-            var screen = Screen.FromControl(this);
-            WindowState = FormWindowState.Normal;
-            FormBorderStyle = FormBorderStyle.None;
-            Bounds = screen.Bounds;
+            if (_compSavedCover)
+            {
+                _savedBorder = _compSavedBorder;
+                _savedState = _compSavedState;
+                _savedBounds = _compSavedBounds;
+                _isCovering = true;
+
+                var screen = Screen.FromControl(this);
+                WindowState = FormWindowState.Normal;
+                FormBorderStyle = FormBorderStyle.None;
+                Bounds = screen.Bounds;
+            }
+            else
+            {
+                _isCovering = false;
+                WindowState = FormWindowState.Normal;
+                FormBorderStyle = _compSavedBorder;
+                Bounds = _compSavedBounds;
+                WindowState = _compSavedState;
+            }
         }
-        else
+        finally
         {
-            _isCovering = false;
-            WindowState = FormWindowState.Normal;
-            FormBorderStyle = _compSavedBorder;
-            Bounds = _compSavedBounds;
-            WindowState = _compSavedState;
+            _inCompanionSetup = false;
         }
 
         EvalScript("document.documentElement.style.setProperty('--safe-top', '0px')");
@@ -380,9 +557,25 @@ internal sealed class MainForm : Form
     private void StartCompanionDrag()
     {
         if (!_isCompanion) return;
-        _dragCursorStart = Cursor.Position;
-        _dragFormStart = Location;
+        var cursor = Cursor.Position;
+        if (HitTestCompanionGrip(PointToClient(cursor)) != HTCAPTION) return;
+        _dragHitMode = HTCAPTION;
+        _dragCursorStart = cursor;
+        _dragBoundsStart = Bounds;
         _dragMoving = false;
+        _dragTimer.Start();
+    }
+
+    private void StartCompanionResize()
+    {
+        if (!_isCompanion) return;
+        var cursor = Cursor.Position;
+        int hit = HitTestCompanionGrip(PointToClient(cursor));
+        if (hit == HTCAPTION) return;
+        _dragHitMode = hit;
+        _dragCursorStart = cursor;
+        _dragBoundsStart = Bounds;
+        _dragMoving = true;
         _dragTimer.Start();
     }
 
@@ -390,21 +583,66 @@ internal sealed class MainForm : Form
     {
         if (!_isCompanion || (MouseButtons & MouseButtons.Left) == 0)
         {
+            bool wasResizing = _dragHitMode != HTCAPTION;
             _dragTimer.Stop();
             _dragMoving = false;
+            _dragHitMode = HTCAPTION;
+            if (wasResizing) SaveCompanionLogicalSize();
             return;
         }
 
         var cur = Cursor.Position;
         int dx = cur.X - _dragCursorStart.X;
         int dy = cur.Y - _dragCursorStart.Y;
-        if (!_dragMoving && (dx * dx + dy * dy) > 9)
+
+        if (_dragHitMode == HTCAPTION)
         {
-            _dragMoving = true;
+            if (!_dragMoving && (dx * dx + dy * dy) > 9)
+            {
+                _dragMoving = true;
+            }
+            if (_dragMoving)
+            {
+                Location = new Point(_dragBoundsStart.X + dx, _dragBoundsStart.Y + dy);
+            }
+            return;
         }
-        if (_dragMoving)
+
+        int minW = MinimumSize.Width > 0 ? MinimumSize.Width : 220;
+        int maxW = MaximumSize.Width > 0 ? MaximumSize.Width : 720;
+        int minH = MinimumSize.Height > 0 ? MinimumSize.Height : 64;
+        int maxH = MaximumSize.Height > 0 ? MaximumSize.Height : 220;
+
+        var b = _dragBoundsStart;
+        int newLeft = b.Left;
+        int newTop = b.Top;
+        int newW = b.Width;
+        int newH = b.Height;
+
+        if (_dragHitMode is HTRIGHT or HTTOPRIGHT or HTBOTTOMRIGHT)
         {
-            Location = new Point(_dragFormStart.X + dx, _dragFormStart.Y + dy);
+            newW = Math.Clamp(b.Width + dx, minW, maxW);
+        }
+        else if (_dragHitMode is HTLEFT or HTTOPLEFT or HTBOTTOMLEFT)
+        {
+            newW = Math.Clamp(b.Width - dx, minW, maxW);
+            newLeft = b.Right - newW;
+        }
+
+        if (_dragHitMode is HTBOTTOM or HTBOTTOMLEFT or HTBOTTOMRIGHT)
+        {
+            newH = Math.Clamp(b.Height + dy, minH, maxH);
+        }
+        else if (_dragHitMode is HTTOP or HTTOPLEFT or HTTOPRIGHT)
+        {
+            newH = Math.Clamp(b.Height - dy, minH, maxH);
+            newTop = b.Bottom - newH;
+        }
+
+        var next = new Rectangle(newLeft, newTop, newW, newH);
+        if (Bounds != next)
+        {
+            Bounds = next;
         }
     }
 
@@ -415,11 +653,131 @@ internal sealed class MainForm : Form
         catch { }
     }
 
-    private static List<Dictionary<string, object>> ListAppWindows()
+    private static string? IconToPngDataUrl(Icon ico)
     {
-        var results = new List<Dictionary<string, object>>();
+        try
+        {
+            using var bmp = new Bitmap(48, 48, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Transparent);
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = SmoothingMode.HighQuality;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawIcon(ico, new Rectangle(0, 0, 48, 48));
+            }
+            using var ms = new MemoryStream();
+            bmp.Save(ms, ImageFormat.Png);
+            return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractWindowIconDataUrl(IntPtr hWnd, string? exePath)
+    {
+        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+        {
+            try
+            {
+                using var ico = Icon.ExtractAssociatedIcon(exePath);
+                if (ico != null)
+                {
+                    var url = IconToPngDataUrl(ico);
+                    if (url != null) return url;
+                }
+            }
+            catch { }
+        }
+
+        if (hWnd == IntPtr.Zero) return null;
+
+        try
+        {
+            IntPtr hIcon = IntPtr.Zero;
+            if (SendMessageTimeoutW(hWnd, WM_GETICON, (IntPtr)ICON_BIG, IntPtr.Zero, SMTO_ABORTIFHUNG, 80, out var res) != IntPtr.Zero && res != IntPtr.Zero)
+                hIcon = res;
+            else if (SendMessageTimeoutW(hWnd, WM_GETICON, (IntPtr)ICON_SMALL2, IntPtr.Zero, SMTO_ABORTIFHUNG, 80, out res) != IntPtr.Zero && res != IntPtr.Zero)
+                hIcon = res;
+            else if (SendMessageTimeoutW(hWnd, WM_GETICON, (IntPtr)ICON_SMALL, IntPtr.Zero, SMTO_ABORTIFHUNG, 80, out res) != IntPtr.Zero && res != IntPtr.Zero)
+                hIcon = res;
+            else
+            {
+                hIcon = GetClassLongPtr(hWnd, GCLP_HICON);
+                if (hIcon == IntPtr.Zero) hIcon = GetClassLongPtr(hWnd, GCLP_HICONSM);
+            }
+
+            if (hIcon != IntPtr.Zero)
+            {
+                using var ico = Icon.FromHandle(hIcon);
+                return IconToPngDataUrl(ico);
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static string? CaptureWindowPreviewDataUrl(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || IsIconic(hWnd)) return null;
+        try
+        {
+            if (!GetWindowRect(hWnd, out var rc)) return null;
+            int srcW = rc.Right - rc.Left;
+            int srcH = rc.Bottom - rc.Top;
+            if (srcW < 80 || srcH < 60 || srcW > 16384 || srcH > 16384) return null;
+
+            using var fullBmp = new Bitmap(srcW, srcH, PixelFormat.Format32bppRgb);
+            bool ok = false;
+            using (var gFull = Graphics.FromImage(fullBmp))
+            {
+                IntPtr hdc = gFull.GetHdc();
+                try
+                {
+                    ok = PrintWindow(hWnd, hdc, PW_RENDERFULLCONTENT);
+                    if (!ok) ok = PrintWindow(hWnd, hdc, 0);
+                }
+                finally
+                {
+                    gFull.ReleaseHdc(hdc);
+                }
+            }
+            if (!ok) return null;
+
+            const int maxThumbW = 240;
+            const int maxThumbH = 150;
+            double ratio = Math.Min((double)maxThumbW / srcW, (double)maxThumbH / srcH);
+            if (ratio > 1.0) ratio = 1.0;
+            int dstW = Math.Max(1, (int)Math.Round(srcW * ratio));
+            int dstH = Math.Max(1, (int)Math.Round(srcH * ratio));
+
+            using var thumbBmp = new Bitmap(dstW, dstH, PixelFormat.Format24bppRgb);
+            using (var gThumb = Graphics.FromImage(thumbBmp))
+            {
+                gThumb.InterpolationMode = InterpolationMode.HighQualityBilinear;
+                gThumb.SmoothingMode = SmoothingMode.HighQuality;
+                gThumb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                gThumb.DrawImage(fullBmp, new Rectangle(0, 0, dstW, dstH), new Rectangle(0, 0, srcW, srcH), GraphicsUnit.Pixel);
+            }
+
+            using var ms = new MemoryStream();
+            thumbBmp.Save(ms, ImageFormat.Jpeg);
+            return "data:image/jpeg;base64," + Convert.ToBase64String(ms.ToArray());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static List<Dictionary<string, object?>> ListAppWindows()
+    {
+        var results = new List<Dictionary<string, object?>>();
         uint myPid = (uint)Environment.ProcessId;
-        var procCache = new Dictionary<uint, (string AppName, string ProcessName, bool Skip)>();
+        var procCache = new Dictionary<uint, (string AppName, string ProcessName, string? ExePath, string? CachedIcon, bool Skip)>();
 
         try
         {
@@ -456,6 +814,8 @@ internal sealed class MainForm : Form
                 {
                     string procName = "";
                     string appName = "";
+                    string? exePath = null;
+                    string? cachedIcon = null;
                     bool skip = false;
                     try
                     {
@@ -465,26 +825,38 @@ internal sealed class MainForm : Form
                         {
                             skip = true;
                         }
-                        else if (string.Equals(procName, "explorer", StringComparison.OrdinalIgnoreCase))
-                        {
-                            appName = "File Explorer";
-                        }
                         else
                         {
                             try
                             {
-                                var desc = proc.MainModule?.FileVersionInfo?.FileDescription?.Trim();
+                                var mod = proc.MainModule;
+                                exePath = mod?.FileName;
+                                var desc = mod?.FileVersionInfo?.FileDescription?.Trim();
                                 if (!string.IsNullOrEmpty(desc)) appName = desc;
                             }
                             catch { }
-                            if (string.IsNullOrEmpty(appName)) appName = procName;
+
+                            if (string.Equals(procName, "explorer", StringComparison.OrdinalIgnoreCase))
+                            {
+                                appName = "File Explorer";
+                            }
+                            else if (string.IsNullOrEmpty(appName))
+                            {
+                                appName = procName;
+                            }
+
+                            if (!string.IsNullOrEmpty(exePath)
+                                && !string.Equals(procName, "ApplicationFrameHost", StringComparison.OrdinalIgnoreCase))
+                            {
+                                cachedIcon = ExtractWindowIconDataUrl(IntPtr.Zero, exePath);
+                            }
                         }
                     }
                     catch
                     {
                         skip = true;
                     }
-                    pInfo = (appName, procName, skip);
+                    pInfo = (appName, procName, exePath, cachedIcon, skip);
                     procCache[pid] = pInfo;
                 }
 
@@ -497,7 +869,11 @@ internal sealed class MainForm : Form
                     displayApp = title;
                 }
 
-                results.Add(new Dictionary<string, object>
+                string? appIcon = pInfo.CachedIcon ?? ExtractWindowIconDataUrl(hWnd, pInfo.ExePath);
+                string? preview = CaptureWindowPreviewDataUrl(hWnd);
+                bool onScreen = !IsIconic(hWnd);
+
+                results.Add(new Dictionary<string, object?>
                 {
                     ["windowID"] = hWnd.ToInt64(),
                     ["hwnd"] = hWnd.ToInt64(),
@@ -505,7 +881,9 @@ internal sealed class MainForm : Form
                     ["app"] = displayApp,
                     ["bundleId"] = pInfo.ProcessName,
                     ["title"] = title,
-                    ["onScreen"] = true,
+                    ["onScreen"] = onScreen,
+                    ["appIcon"] = appIcon,
+                    ["preview"] = preview,
                 });
 
                 return true;
@@ -514,12 +892,13 @@ internal sealed class MainForm : Form
         catch { }
 
         return results
-            .OrderBy(w => (string)w["app"], StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(w => (string)w["title"], StringComparer.CurrentCultureIgnoreCase)
+            .OrderByDescending(w => (bool)(w["onScreen"] ?? false))
+            .ThenBy(w => (string)(w["app"] ?? ""), StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(w => (string)(w["title"] ?? ""), StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
 
-    private static IntPtr ResolveTargetWindow(long hwndVal, int pid)
+    private static IntPtr ResolveTargetWindow(long hwndVal, int pid, string? bundleId, string? appName)
     {
         if (hwndVal != 0)
         {
@@ -555,6 +934,50 @@ internal sealed class MainForm : Form
             catch { }
             if (found != IntPtr.Zero) return found;
         }
+
+        if (!string.IsNullOrEmpty(bundleId) || !string.IsNullOrEmpty(appName))
+        {
+            uint myPid = (uint)Environment.ProcessId;
+            IntPtr found = IntPtr.Zero;
+            try
+            {
+                EnumWindows((hWnd, _) =>
+                {
+                    if (!IsWindowVisible(hWnd)) return true;
+                    int len = GetWindowTextLengthW(hWnd);
+                    if (len <= 0) return true;
+                    GetWindowThreadProcessId(hWnd, out uint wPid);
+                    if (wPid == 0 || wPid == myPid) return true;
+
+                    try
+                    {
+                        using var proc = Process.GetProcessById((int)wPid);
+                        if (!string.IsNullOrEmpty(bundleId)
+                            && string.Equals(proc.ProcessName, bundleId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            found = hWnd;
+                            return false;
+                        }
+                    }
+                    catch { }
+
+                    if (!string.IsNullOrEmpty(appName))
+                    {
+                        var sb = new StringBuilder(len + 1);
+                        if (GetWindowTextW(hWnd, sb, sb.Capacity) > 0
+                            && sb.ToString().Contains(appName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            found = hWnd;
+                            return false;
+                        }
+                    }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+            if (found != IntPtr.Zero) return found;
+        }
+
         return IntPtr.Zero;
     }
 
@@ -656,13 +1079,17 @@ internal sealed class MainForm : Form
                     break;
                 case "listAppWindows":
                 {
-                    var payload = new Dictionary<string, object>
+                    _ = Task.Run(() =>
                     {
-                        ["screen"] = true,
-                        ["input"] = true,
-                        ["windows"] = ListAppWindows(),
-                    };
-                    EvalScript("window.__appWindows && window.__appWindows(" + JsonSerializer.Serialize(payload) + ")");
+                        var payload = new Dictionary<string, object>
+                        {
+                            ["screen"] = true,
+                            ["input"] = true,
+                            ["windows"] = ListAppWindows(),
+                        };
+                        var json = JsonSerializer.Serialize(payload);
+                        EvalScript("window.__appWindows && window.__appWindows(" + json + ")");
+                    });
                     break;
                 }
                 case "companionStart":
@@ -673,6 +1100,9 @@ internal sealed class MainForm : Form
                     break;
                 case "companionDrag":
                     StartCompanionDrag();
+                    break;
+                case "companionResize":
+                    StartCompanionResize();
                     break;
                 case "requestPermission":
                 case "launchApp":

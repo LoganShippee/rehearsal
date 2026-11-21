@@ -130,7 +130,7 @@ function migrate(d) {
   const base = sampleData();
   d.settings = { ...base.settings, ...(d.settings || {}) };
   d.settings.sim = { ...base.settings.sim, ...(d.settings.sim || {}) };
-  for (const k of ['classes', 'templates', 'routines', 'events', 'recordings']) if (!Array.isArray(d[k])) d[k] = [];
+  for (const k of ['classes', 'templates', 'routines', 'events', 'recordings', 'pinnedApps']) if (!Array.isArray(d[k])) d[k] = [];
   // repair: sight-reading windows pinned before the fix became empty web tabs
   for (const list of Object.values(d.windows || {})) for (const w of list || []) {
     if (w.kind !== 'res' || !w.sr) continue;
@@ -662,7 +662,7 @@ function editURL(raw) {
 }
 function slidesPresentURL(raw) {
   const m = String(raw || '').match(/docs\.google\.com\/presentation\/(?:u\/\d+\/)?d\/([\w-]+)/);
-  return m ? `https://docs.google.com/presentation/d/${m[1]}/embed?start=true&loop=false&delayms=60000` : embedURL(raw);
+  return m ? `https://docs.google.com/presentation/d/${m[1]}/preview?rm=minimal` : embedURL(raw);
 }
 function isNativeWeb(r) {
   if (!IS_NATIVE || !r) return false;
@@ -714,7 +714,7 @@ function stopMusicHosts() {
   if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
 }
 function go(view) {
-  VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
+  VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.webModeMenu = null; $('#web-mode-menu')?.remove(); P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
   if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else stopMusicHosts();
   render();
 }
@@ -1031,28 +1031,81 @@ function renderDockCustom() {
   });
 }
 
+function compAppsCombined() {
+  const live = P.lastApps || [], out = [], seen = new Set();
+  for (const p of pinnedApps()) {
+    const k = appKey(p); if (!k || seen.has(k)) continue;
+    seen.add(k);
+    const m = live.find(w => appKey(w) === k);
+    out.push(m ? { ...p, ...m, appIcon: m.appIcon || p.appIcon, preview: m.preview || p.preview, pinned: true } : { ...p, pinned: true });
+  }
+  for (const w of live) {
+    const k = appKey(w); if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ ...w, pinned: false });
+  }
+  return out;
+}
 function renderCompanionBar(ctx, t) {
   const el = $('#p-companion'); if (!el) return;
-  let clsName = `${DAYS_SHORT[t.getDay()]}, ${MONTHS[t.getMonth()].slice(0, 3)} ${t.getDate()}`, stepTxt = '', leftTxt = '';
+  const grip = '<div class="comp-grip" aria-hidden="true"></div>';
+  if (P.compAppsOpen) {
+    const items = compAppsCombined();
+    const cur = P.companion?.appName ? { app: P.companion.appName, bundleId: P.companion.bundleId || '' } : null;
+    const curPin = cur && isAppPinned(cur);
+    const cards = items.length ? items.map(a => {
+      const k = appKey(a), sub = a.title && a.title !== a.app ? a.title : '';
+      return `<div class="comp-app-card ${a.pinned ? 'is-pinned' : ''}">
+        <button class="comp-app-go" data-action="comp-app-switch" data-key="${esc(k)}" title="${esc(a.app + (sub ? ' — ' + sub : ''))}">
+          ${a.preview ? `<div class="comp-app-thumb has-prev"><img src="${a.preview}" alt="">${a.appIcon ? `<img class="comp-app-badge" src="${a.appIcon}" alt="">` : ''}</div>`
+            : `<div class="comp-app-thumb no-prev">${a.appIcon ? `<img class="comp-app-ic" src="${a.appIcon}" alt="">` : IC('ico:app')}</div>`}
+          <span class="comp-app-name">${esc(a.app || 'App')}</span>
+        </button>
+        <button class="comp-app-pin ${a.pinned ? 'on' : ''}" data-action="comp-app-pin" data-key="${esc(k)}" title="${a.pinned ? 'Unpin app' : 'Pin app'}">${IC('ico:pin')}</button>
+      </div>`;
+    }).join('') : '<div class="comp-apps-empty">No other open apps found.</div>';
+    const html = `<div class="comp-apps-panel">
+      <div class="comp-apps-head">
+        <button class="comp-back sm" data-action="companion-exit" title="Return to Rehearsal">↩ Rehearsal</button>
+        <span class="comp-apps-title">Apps</span>
+        ${cur ? `<button class="comp-cur-pin ${curPin ? 'on' : ''}" data-action="comp-pin-cur" title="${curPin ? 'Unpin current app' : 'Pin current app'}">${IC('ico:pin')} <span>${curPin ? 'Pinned' : 'Pin ' + esc(cur.app)}</span></button>` : ''}
+        <span class="comp-spacer"></span>
+        <button class="comp-icon-btn" data-action="comp-apps-refresh" title="Refresh previews">${IC('ico:reload')}</button>
+        <button class="comp-icon-btn" data-action="comp-apps-close" title="Close">${IC('ico:close')}</button>
+      </div>
+      <div class="comp-apps-strip">${cards}</div>
+    </div>${grip}`;
+    setHTML('#p-companion', html);
+    return;
+  }
+  let clsName = `${DAYS_SHORT[t.getDay()]}, ${MONTHS[t.getMonth()].slice(0, 3)} ${t.getDate()}`, stepTxt = '', nextStepTxt = '', leftTxt = '';
   if (ctx.mode === 'class' && ctx.cls) {
     clsName = ctx.cls.name || 'Class';
     const step = agendaStep(ctx, t);
-    const st = ctx.cls.agenda?.[step];
+    const st = ctx.cls.agenda?.[step], nxt = ctx.cls.agenda?.[step + 1];
     if (st?.text) stepTxt = `${step + 1}. ${st.text}`;
+    if (nxt?.text) nextStepTxt = `Next: ${step + 2}. ${nxt.text}`;
     if (ctx.period) leftTxt = `${fmtDur(ctx.period.endAt - t)} left`;
   } else if (ctx.next) {
     clsName = ctx.next.cls.name || 'Next class';
     stepTxt = `Starts ${fmtHM(ctx.next.start)}`;
     leftTxt = `in ${fmtDur(ctx.next.startAt - t)}`;
   }
-  const timers = P.timers.filter(x => !x.doneAt).slice(0, 1).map(tm => {
+  const timers = P.timers.filter(x => !x.doneAt).slice(0, 2).map((tm, idx) => {
     const rem = timerLeft(tm);
-    return `<span class="comp-timer">⏱ ${fmtDur(rem)}</span>`;
+    return `<span class="comp-timer ${idx > 0 ? 'extra' : ''}">⏱ ${fmtDur(rem)}</span>`;
   }).join('');
   const sig = P.signal ? `<span class="comp-sig" style="background:${P.signal.color}">${esc(P.signal.text)}</span>` : '';
-  const html = `<div class="comp-row1"><button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ Back to Rehearsal</button>
+  const pins = pinnedApps();
+  const cur = P.companion?.appName ? { app: P.companion.appName, bundleId: P.companion.bundleId || '' } : null;
+  const curPinned = cur && isAppPinned(cur);
+  const pinChips = pins.slice(0, 6).map(p => `<button class="comp-chip" data-action="comp-app-switch" data-key="${esc(appKey(p))}" title="Switch to ${esc(p.app)}">${p.appIcon ? `<img src="${p.appIcon}" alt="">` : IC('ico:app')}<span>${esc(p.app)}</span></button>`).join('');
+  const row3 = `<div class="comp-row3">${pinChips}${cur && !curPinned ? `<button class="comp-chip pin-cur" data-action="comp-pin-cur" title="Pin ${esc(cur.app)}">${IC('ico:pin')}<span>Pin ${esc(cur.app)}</span></button>` : ''}${!pinChips && nextStepTxt ? `<span class="comp-next-step">${esc(nextStepTxt)}</span>` : ''}</div>`;
+  const html = `<div class="comp-row1"><button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ <span class="comp-back-full">Back to Rehearsal</span><span class="comp-back-short">Back</span></button>
+      <button class="comp-apps-btn" data-action="comp-apps-toggle" title="Switch or pin external apps with previews">${IC('ico:pin')}<span class="comp-apps-lbl">Apps</span>${pins.length ? `<span class="comp-cnt">${pins.length}</span>` : ''}</button>
       <div class="comp-meta"><span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div></div>
-    <div class="comp-row2"><span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>${stepTxt ? `<span class="comp-step" title="${esc(stepTxt)}">${esc(stepTxt)}</span>` : '<span class="comp-spacer"></span>'}${timers}${sig}</div>`;
+    <div class="comp-row2"><span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>${stepTxt ? `<span class="comp-step" title="${esc(stepTxt)}">${esc(stepTxt)}</span>` : '<span class="comp-spacer"></span>'}${timers}${sig}</div>
+    ${row3}${grip}`;
   setHTML('#p-companion', html);
 }
 
@@ -1169,14 +1222,17 @@ function updateClassBody(ctx, t) {
     if (prevStageId && prevStageId !== sel) stopMusicHosts();
     const nat = res && res.url ? isNativeWeb(res) : false;
     const isSlides = res && res.url && resKind(res) === 'slides';
+    const isPresenting = isSlides && res.mode === 'present';
     $('#stage-tabs').innerHTML = `
-      ${cls.hideWarmup ? '' : `<span class="tabwrap"><button class="${!res ? 'on' : ''}" data-action="stage" data-id="warmup">${iconOn('tabs') ? icoSp(icoCfg().kind?.warmup ?? 'ico:warmup') : ''}Warm-up</button><button class="tab-x" data-action="warmup-hide" title="Remove the warm-up tab from this class">${IC('ico:close')}</button></span>`}
-      ${stageTabsHTML(cls, res)}
-      <span class="sp"></span>
-      <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
-      <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Back to normal size' : 'Maximize (markup tools still work)'}">${IC(P.stageMax ? 'ico:restore' : 'ico:maximize')}</button>
-      ${isSlides ? `<button class="mode ${res.mode === 'present' ? 'on' : ''}" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">${res.mode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
-      ${res && res.url && IS_NATIVE ? `<button class="mode" data-action="stage-native" title="${nat ? 'Embedded: lightweight frame inside Rehearsal (drawing/markup works on top)' : 'Full browser: real native browser view (use when a site blocks embedding, requires sign-in, or looks blurry like Google Sheets)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}${res && res.url ? `<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}`;
+      <div class="stage-tabs-scroll">
+        ${cls.hideWarmup ? '' : `<span class="tabwrap"><button class="${!res ? 'on' : ''}" data-action="stage" data-id="warmup">${iconOn('tabs') ? icoSp(icoCfg().kind?.warmup ?? 'ico:warmup') : ''}Warm-up</button><button class="tab-x" data-action="warmup-hide" title="Remove the warm-up tab from this class">${IC('ico:close')}</button></span>`}
+        ${stageTabsHTML(cls, res)}
+      </div>
+      <div class="stage-tabs-end">
+        <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
+        ${isPresenting ? `<button class="mode on" data-action="stage-slideshow" title="Exit Google Slides slideshow">Exit slideshow</button>` : ''}
+        <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Back to normal size' : 'Maximize (markup tools still work)'}">${IC(P.stageMax ? 'ico:restore' : 'ico:maximize')}</button>
+      </div>`;
     const sc = $('#stage-content');
     const keepSight = prevStageId === sel && res && res.sight && sc.querySelector('.stage-sr');
     if (!keepSight) {
@@ -1211,17 +1267,25 @@ function updateClassBody(ctx, t) {
   }
   const wb = $('#stage-webbar');
   if (wb) {
-    if (res && res.url) {
+    const showBar = !!(res && res.url && res.mode !== 'present');
+    if (showBar) {
       wb.hidden = false;
       const nav = WIN.nav['stage-' + res.id] || {};
+      const nat = isNativeWeb(res);
+      const isSlides = resKind(res) === 'slides';
+      const modeOpen = P.webModeMenu?.target === 'stage' && P.webModeMenu?.id === res.id;
+      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${IS_NATIVE ? `<button class="mode web-mode-btn ${modeOpen ? 'on' : ''}" data-action="web-mode-menu" data-target="stage" data-id="${res.id}" title="Choose Embedded or Full browser mode">${nat ? 'Full browser' : 'Embedded'} <span class="mode-q" aria-hidden="true">?</span></button>` : ''}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
       const inp = wb.querySelector('.stage-url');
       if (!inp || inp.dataset.surl !== res.id) {
-        wb.innerHTML = `<button data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button><input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false">`;
+        wb.innerHTML = `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button><input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false"><div class="swb-acts">${actsHTML}</div>`;
+        const a = wb.querySelector('.swb-acts'); if (a) a._h = actsHTML;
       } else {
         if (document.activeElement !== inp && inp.value !== res.url) inp.value = res.url;
         const b = wb.querySelector('[data-action="stage-back"]'), f = wb.querySelector('[data-action="stage-fwd"]');
         if (b) b.disabled = !nav.back;
         if (f) f.disabled = !nav.forward;
+        const a = wb.querySelector('.swb-acts');
+        if (a && a._h !== actsHTML) { a.innerHTML = actsHTML; a._h = actsHTML; }
       }
     } else {
       wb.hidden = true;
@@ -2181,7 +2245,7 @@ function winHTML(w) {
       ${w.kind === 'web' ? `<input class="win-url" data-wurl="${w.id}" value="${esc(w.url || '')}" placeholder="Search or type a web address" spellcheck="false">` : `<span class="win-title">${esc(winTitle(w))}</span>`}
       ${url || w.kind === 'file' ? `<button data-action="win-reload" data-id="${w.id}" title="Reload">${IC('ico:reload')}</button>` : ''}
       ${isSlides ? `<button class="mode ${slideMode === 'present' ? 'on' : ''}" data-action="win-slideshow" data-id="${w.id}" title="Play Google Slides as a live slideshow inside Rehearsal">${slideMode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
-      ${canNative ? `<button class="mode" data-action="win-native" data-id="${w.id}" title="${nat ? 'Embedded: lightweight frame inside Rehearsal (drawing/markup works on top)' : 'Full browser: real native browser view (use when a site blocks embedding, requires sign-in, or looks blurry like Google Sheets)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}
+      ${canNative ? `<button class="mode web-mode-btn ${P.webModeMenu?.target === 'win' && P.webModeMenu?.id === w.id ? 'on' : ''}" data-action="web-mode-menu" data-target="win" data-id="${w.id}" title="Choose Embedded or Full browser mode">${nat ? 'Full browser' : 'Embedded'} <span class="mode-q" aria-hidden="true">?</span></button>` : ''}
       ${w.kind === 'web' && w.url ? `<button data-action="bm-star" data-id="${w.id}" title="Bookmark this page">${IC('ico:star')}</button>` : ''}
       ${pinned ? '' : `<button data-action="win-pin" data-id="${w.id}" title="Save to this class's resources">${IC('ico:pin')}</button>`}
       ${url ? `<button data-action="open-external" data-url="${esc(url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}
@@ -2265,11 +2329,42 @@ function openStageAddress(resId, raw) {
   if (ifr && !isNativeWeb(res)) ifr.src = targetUrl;
   tick();
 }
+function renderWebModeMenu() {
+  $('#web-mode-menu')?.remove();
+  const cfg = P.webModeMenu; if (!cfg || VIEW !== 'present') return;
+  let nat = false, btn = null;
+  if (cfg.target === 'stage') {
+    const r = findRes(cfg.id); if (!r) { P.webModeMenu = null; return; }
+    nat = isNativeWeb(r);
+    btn = $(`#stage-webbar [data-action="web-mode-menu"][data-id="${cfg.id}"]`);
+  } else {
+    const w = findWin(cfg.id); if (!w) { P.webModeMenu = null; return; }
+    nat = winIsNative(w);
+    btn = $(`.win[data-win="${cfg.id}"] [data-action="web-mode-menu"]`);
+  }
+  if (!btn) { P.webModeMenu = null; return; }
+  const r = btn.getBoundingClientRect();
+  const m = document.createElement('div');
+  m.id = 'web-mode-menu';
+  m.className = 'web-mode-menu';
+  m.innerHTML = `<div class="wmm-head"><b>Display mode</b><button class="wmm-x" data-action="web-mode-close" title="Close">${IC('ico:close')}</button></div>
+    <button class="wmm-opt ${!nat ? 'on' : ''}" data-action="web-mode-set" data-target="${cfg.target}" data-id="${cfg.id}" data-native="0">
+      <div class="wmm-t"><b>Embedded</b>${!nat ? '<span class="wmm-badge">Active</span>' : ''}</div>
+      <div class="wmm-d">Fast lightweight frame inside Rehearsal. Drawing &amp; markup tools work on top. Best for simple pages &amp; slide previews.</div>
+    </button>
+    <button class="wmm-opt ${nat ? 'on' : ''}" data-action="web-mode-set" data-target="${cfg.target}" data-id="${cfg.id}" data-native="1">
+      <div class="wmm-t"><b>Full browser</b>${nat ? '<span class="wmm-badge">Active</span>' : ''}</div>
+      <div class="wmm-d">Real browser window with full sign-in &amp; crisp zoom. Use for Google Docs/Sheets or sites that block embedding or look blurry. (Drawing overlay disabled.)</div>
+    </button>`;
+  $('#present').appendChild(m);
+  m.style.left = clamp(r.right - m.offsetWidth, 8, innerWidth - m.offsetWidth - 8) + 'px';
+  m.style.top = clamp(r.bottom + 6 + m.offsetHeight < innerHeight - 8 ? r.bottom + 6 : r.top - m.offsetHeight - 6, 8, innerHeight - m.offsetHeight - 8) + 'px';
+}
 window.__webNav = ({ id, url, title, back, forward }) => {
   WIN.nav[id] = { back, forward };
   if (typeof id === 'string' && id.startsWith('stage-')) {
     const rid = id.slice(6), r = findRes(rid);
-    const keepSlidesUrl = r && r.mode === 'present' && resKind(r) === 'slides' && (url === slidesPresentURL(r.url) || /\/(embed|present)(\?|$)/.test(url || ''));
+    const keepSlidesUrl = r && r.mode === 'present' && resKind(r) === 'slides' && (url === slidesPresentURL(r.url) || /\/(embed|present|preview)(\?|$)/.test(url || ''));
     if (r && url && url !== 'about:blank' && !keepSlidesUrl) { r.url = url; save(); }
     const wb = $('#stage-webbar');
     if (wb) {
@@ -2282,7 +2377,7 @@ window.__webNav = ({ id, url, title, back, forward }) => {
   }
   const w = findWin(id); if (!w) return;
   const target = winRes(w) || w;
-  const keepWinSlidesUrl = target.mode === 'present' && resKind({ url: winURL(w) }) === 'slides' && (url === slidesPresentURL(winURL(w)) || /\/(embed|present)(\?|$)/.test(url || ''));
+  const keepWinSlidesUrl = target.mode === 'present' && resKind({ url: winURL(w) }) === 'slides' && (url === slidesPresentURL(winURL(w)) || /\/(embed|present|preview)(\?|$)/.test(url || ''));
   if (url && url !== 'about:blank' && w.kind === 'web' && !keepWinSlidesUrl) w.url = url;
   if (title) w.title = title;
   save();
@@ -2291,12 +2386,74 @@ window.__webNav = ({ id, url, title, back, forward }) => {
   const b = el.querySelector('[data-action="win-back"]'), f = el.querySelector('[data-action="win-fwd"]');
   if (b) b.disabled = !back; if (f) f.disabled = !forward;
 };
-// ---------- other apps' windows (live view + click-through, done natively)
+// ---------- other apps' windows & pinned apps with previews (done natively)
+const pinnedApps = () => (S.pinnedApps ||= []);
+const appKey = a => String(a?.bundleId || a?.app || '').trim().toLowerCase();
+const isAppPinned = a => { const k = appKey(a); return !!k && pinnedApps().some(p => appKey(p) === k); };
+function syncPinnedAppMeta(wins) {
+  let changed = false;
+  for (const p of pinnedApps()) {
+    const k = appKey(p), live = (wins || []).find(w => appKey(w) === k);
+    if (!live) continue;
+    if (live.appIcon && live.appIcon !== p.appIcon) { p.appIcon = live.appIcon; changed = true; }
+    if (live.preview && live.preview !== p.preview) { p.preview = live.preview; changed = true; }
+    if (live.title && live.title !== p.title) { p.title = live.title; changed = true; }
+    if (live.app && live.app !== p.app) { p.app = live.app; changed = true; }
+  }
+  if (changed) save();
+}
+function togglePinApp(a) {
+  const k = appKey(a); if (!k) return;
+  const list = pinnedApps(), idx = list.findIndex(p => appKey(p) === k);
+  if (idx >= 0) { list.splice(idx, 1); toast(`Unpinned ${a.app || 'app'}`); }
+  else {
+    list.push({ app: a.app || '', bundleId: a.bundleId || '', title: a.title || '', appIcon: a.appIcon || '', preview: a.preview || '' });
+    toast(`Pinned ${a.app || 'app'}`);
+  }
+  save();
+  if (P.winMenu) renderWinMenu();
+  if (P.companion) tick();
+}
+function launchCompanionApp(a) {
+  if (!a) return;
+  const live = (P.lastApps || []).find(w => appKey(w) === appKey(a)) || a;
+  const target = {
+    app: live.app || a.app || '', bundleId: live.bundleId || a.bundleId || '',
+    pid: live.pid || a.pid || 0, hwnd: live.hwnd || a.hwnd || 0,
+    title: live.title || a.title || '', appIcon: live.appIcon || a.appIcon || '', preview: live.preview || a.preview || '',
+  };
+  if (!target.pid && !target.hwnd && target.bundleId) native('launchApp', { bundleId: target.bundleId });
+  P.appPick = null; P.winMenu = false; P.compAppsOpen = false; P.compAppsHover = false;
+  renderWinMenu(); renderDock();
+  P.companion = { appName: target.app, bundleId: target.bundleId, title: target.title, appIcon: target.appIcon, preview: target.preview, pid: target.pid, hwnd: target.hwnd };
+  native('companionStart', { app: target.app, bundleId: target.bundleId, pid: target.pid, hwnd: target.hwnd });
+  native('listAppWindows');
+  tick();
+}
+function appThumbHTML(a) {
+  if (a.preview) {
+    return `<div class="app-thumb has-prev"><img class="app-prev" src="${a.preview}" alt="">${a.appIcon ? `<img class="app-badge-ic" src="${a.appIcon}" alt="">` : ''}</div>`;
+  }
+  return `<div class="app-thumb no-prev">${a.appIcon ? `<img class="app-ic" src="${a.appIcon}" alt="">` : `<span class="app-ic-svg">${IC('ico:app')}</span>`}</div>`;
+}
+function appCardHTML(a, idx, isPinnedList) {
+  const pinned = isAppPinned(a), k = appKey(a), sub = a.title && a.title !== a.app ? a.title : '';
+  const act = isPinnedList ? `data-action="wm-pin-app" data-key="${esc(k)}"` : `data-action="wm-app" data-i="${idx}"`;
+  return `<div class="app-card ${pinned ? 'is-pinned' : ''}">
+    <button class="app-card-go" ${act} title="${esc(a.app + (sub ? ' — ' + sub : ''))}">
+      ${appThumbHTML(a)}
+      <div class="app-card-meta"><span class="app-card-name">${esc(a.app || 'App')}</span>${sub ? `<span class="app-card-sub">${esc(sub)}</span>` : ''}</div>
+    </button>
+    <button class="app-pin-btn ${pinned ? 'on' : ''}" data-action="app-pin" data-key="${esc(k)}" ${isPinnedList ? '' : `data-i="${idx}"`} title="${pinned ? 'Unpin app' : 'Pin app for quick access'}">${IC('ico:pin')}<span>${pinned ? 'Pinned' : 'Pin'}</span></button>
+  </div>`;
+}
 function appPickerHTML() {
-  const a = P.appPick; if (!a) return '';
-  if (a === 'loading') return '<div class="wm-h">Looking for apps…</div>';
+  const pins = pinnedApps(), a = P.appPick;
+  const pinSec = pins.length ? `<div class="wm-h">Pinned apps</div><div class="app-cards">${pins.map((p, i) => appCardHTML(p, i, true)).join('')}</div>` : '';
+  if (!a) return pinSec;
+  if (a === 'loading') return `${pinSec}<div class="wm-h">Looking for apps…</div>`;
   const wins = a.windows || [];
-  return `<div class="wm-h">Split screen with another app</div>${wins.length ? wins.map((w, i) => `<button data-action="wm-app" data-i="${i}" title="${esc(w.app + (w.title ? ' — ' + w.title : ''))}">${IC('ico:app')} ${esc(w.app)}${w.title && w.title !== w.app ? `<span class="app-sub">${esc(w.title)}</span>` : ''}</button>`).join('') : '<div class="wm-note">No other open apps found.</div>'}`;
+  return `${pinSec}<div class="wm-h">Split screen with another app</div>${wins.length ? `<div class="app-cards">${wins.map((w, i) => appCardHTML(w, i, false)).join('')}</div>` : '<div class="wm-note">No other open apps found.</div>'}`;
 }
 // Hide system helper windows, untitled background windows and exact duplicates.
 const APP_SKIP = /^(loginwindow|universalAccessAuthWarn|AutoFill|Window Server|Wallpaper|Spotlight|Notification Center|Control Center|TextInputMenuAgent|CursorUIViewService|Open and Save Panel Service)/i;
@@ -2310,8 +2467,20 @@ window.__appWindows = data => {
       if (seen.has(k) && !w.title) return false;
       seen.add(k); return true;
     }).sort((a, b) => (b.onScreen - a.onScreen) || a.app.localeCompare(b.app) || a.title.localeCompare(b.title));
+    P.lastApps = data.windows;
+    syncPinnedAppMeta(data.windows);
+    if (P.companion?.appName) {
+      const m = data.windows.find(w => appKey(w) === appKey({ app: P.companion.appName, bundleId: P.companion.bundleId }));
+      if (m) {
+        if (m.appIcon) P.companion.appIcon = m.appIcon;
+        if (m.preview) P.companion.preview = m.preview;
+        if (m.title) P.companion.title = m.title;
+      }
+    }
   }
-  P.appPick = data; renderWinMenu();
+  P.appPick = data;
+  if (P.winMenu) renderWinMenu();
+  if (P.companion) tick();
 };
 // Size an app's frame so the real window fits 1:1 (scaled down only if it can't fit the screen).
 function fitAppWindow(w) {
@@ -3068,7 +3237,7 @@ function syncNative() {
   let blockers = [];
   if (pass && items.length) {
     const TOP = 1e9;
-    blockers = $$('.tool, .p-timer, .p-dock:not(.hidden), .p-signal.on, .win-menu, .snap-menu, .bm-menu, .dock-custom, .sound-chip, .toast, .group-menu, .look-panel, .auto-drawer, .rename-inline, .ink-bar').map(el => [...rectOf(el), TOP]);
+    blockers = $$('.tool, .p-timer, .p-dock:not(.hidden), .p-signal.on, .win-menu, .snap-menu, .bm-menu, .web-mode-menu, .dock-custom, .sound-chip, .toast, .group-menu, .look-panel, .auto-drawer, .rename-inline, .ink-bar').map(el => [...rectOf(el), TOP]);
     for (const el of $$('.win')) {
       const w = findWin(el.dataset.win); if (!w) continue;
       // an embedded window blocks with its whole frame; a native one only with its title bar
@@ -3262,7 +3431,7 @@ function inkDoUndo() {
   const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = !inkUndo.length;
 }
 // Things the pen should never draw over — clicks there go to the control instead.
-const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .stage-webbar, .tool, .pdfv-bar, .sr-top, .sr-sub, .sr-settings, .sp-top, .sp-sub, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
+const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .stage-webbar, .web-mode-menu, .tool, .pdfv-bar, .sr-top, .sr-sub, .sr-settings, .sp-top, .sp-sub, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
 function inkUnder(x, y) {
   for (const el of document.elementsFromPoint(x, y)) {
     if (el === inkCanvas || el.id === 'ink' || el.classList.contains('ink-cursor')) continue;
@@ -4440,9 +4609,10 @@ const A = {
     const r = stageNativeRes(true); if (!r) return;
     r.mode = r.mode === 'present' ? 'embed' : 'present';
     P.forceStageUrl = r.id;
+    P.webModeMenu = null; renderWebModeMenu();
     save(); P.stageKey = ''; WIN.lastSync = '';
-    if (isNativeWeb(r)) native('webCmd', { id: 'stage-' + r.id, action: 'load', url: resTargetURL(r) });
     tick();
+    if (isNativeWeb(r)) native('webCmd', { id: 'stage-' + r.id, action: 'load', url: resTargetURL(r) });
   },
   'stage-native': () => {
     const r = stageNativeRes(true); if (!r) return;
@@ -4450,6 +4620,34 @@ const A = {
     if (r.native) P.forceStageUrl = r.id;
     save(); P.stageKey = ''; WIN.lastSync = '';
     tick();
+  },
+  'web-mode-menu': el => {
+    const target = el.dataset.target, id = el.dataset.id;
+    const same = P.webModeMenu && P.webModeMenu.target === target && P.webModeMenu.id === id;
+    P.webModeMenu = same ? null : { target, id };
+    renderWebModeMenu();
+    if (target === 'win') { WIN.sig = ''; renderWins(context(now()), true); if (P.webModeMenu) renderWebModeMenu(); }
+    else tick();
+  },
+  'web-mode-close': () => {
+    P.webModeMenu = null; renderWebModeMenu();
+    WIN.sig = ''; renderWins(context(now()), true); tick();
+  },
+  'web-mode-set': el => {
+    const target = el.dataset.target, id = el.dataset.id, wantNative = el.dataset.native === '1';
+    P.webModeMenu = null; renderWebModeMenu();
+    if (target === 'stage') {
+      const r = findRes(id); if (!r) return;
+      r.native = wantNative;
+      if (r.native) P.forceStageUrl = r.id;
+      save(); P.stageKey = ''; WIN.lastSync = '';
+      tick();
+    } else {
+      const w = findWin(id); if (!w) return;
+      w.native = wantNative;
+      save(); WIN.sig = ''; WIN.lastSync = '';
+      renderWins(context(now()), true);
+    }
   },
   'open-external': el => { const u = el.dataset.url; if (!native('openExternal', { url: u })) window.open(u, '_blank'); },
   'open-drive': el => native('openDrive', { url: el.dataset.url }),
@@ -4468,12 +4666,43 @@ const A = {
   'wm-apps': () => { P.appPick = 'loading'; renderWinMenu(); native('listAppWindows'); },
   'wm-app': el => {
     const a = P.appPick?.windows?.[+el.dataset.i]; if (!a) return;
-    P.appPick = null; P.winMenu = false; renderWinMenu(); renderDock();
-    P.companion = { appName: a.app };
-    native('companionStart', { app: a.app, bundleId: a.bundleId || '', pid: a.pid || 0, hwnd: a.hwnd || 0 });
+    launchCompanionApp(a);
+  },
+  'wm-pin-app': el => {
+    const p = pinnedApps().find(x => appKey(x) === el.dataset.key); if (!p) return;
+    launchCompanionApp(p);
+  },
+  'app-pin': (el, e) => {
+    e?.stopPropagation?.();
+    const k = el.dataset.key;
+    const live = el.dataset.i != null ? P.appPick?.windows?.[+el.dataset.i] : null;
+    const item = live || (P.lastApps || []).find(w => appKey(w) === k) || pinnedApps().find(p => appKey(p) === k);
+    if (item) togglePinApp(item);
+  },
+  'comp-apps-toggle': () => {
+    P.compAppsHover = false;
+    P.compAppsOpen = !P.compAppsOpen;
+    if (P.compAppsOpen) native('listAppWindows');
     tick();
   },
-  'companion-exit': () => { P.companion = null; native('companionExit'); tick(); },
+  'comp-apps-close': () => { P.compAppsOpen = false; P.compAppsHover = false; tick(); },
+  'comp-apps-refresh': () => { native('listAppWindows'); },
+  'comp-app-switch': el => {
+    const k = el.dataset.key;
+    const item = compAppsCombined().find(a => appKey(a) === k);
+    if (item) launchCompanionApp(item);
+  },
+  'comp-app-pin': (el, e) => {
+    e?.stopPropagation?.();
+    const k = el.dataset.key;
+    const item = compAppsCombined().find(a => appKey(a) === k);
+    if (item) togglePinApp(item);
+  },
+  'comp-pin-cur': () => {
+    if (!P.companion?.appName) return;
+    togglePinApp({ app: P.companion.appName, bundleId: P.companion.bundleId || '', title: P.companion.title || '', appIcon: P.companion.appIcon || '', preview: P.companion.preview || '' });
+  },
+  'companion-exit': () => { P.companion = null; P.compAppsOpen = false; P.compAppsHover = false; native('companionExit'); tick(); },
   perm: el => native('requestPermission', { which: el.dataset.which }),
   'app-done': () => { /* clicking Rehearsal already ended editing; this just re-renders */ WIN.sig = ''; },
   'app-front': el => { const w = findWin(el.dataset.id); if (!w) return; if (w.status === 'not-running') native('launchApp', { bundleId: w.bundleId }); else native('webCmd', { id: w.id, action: 'front' }); },
@@ -4894,6 +5123,7 @@ document.addEventListener('keydown', e => {
     else if (P.lookOpen) { P.lookOpen = false; renderLook(); }
     else if (P.autoDrawer) { P.autoDrawer = false; renderAutoDrawer(); }
     else if (P.groupMenu) { P.groupMenu = null; renderGroupMenu(); }
+    else if (P.webModeMenu) { P.webModeMenu = null; renderWebModeMenu(); WIN.sig = ''; renderWins(context(now()), true); tick(); }
     else if (P.snapFor) { P.snapFor = null; renderSnapMenu(); }
     else if (BM.open) { BM.open = null; renderBmMenu(); }
     else if (P.editMode) A['edit-mode']();
@@ -4922,7 +5152,29 @@ document.addEventListener('pointerdown', dockNearCheck, true);
 document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC && AC.state === 'suspended') AC.resume().then(() => $('.sound-chip')?.remove()); }, true);
 
 // ============================================================ boot
-window.__companionState = on => { if (!on && P.companion) { P.companion = null; tick(); } };
+window.__companionState = on => { if (!on && P.companion) { P.companion = null; P.compAppsOpen = false; P.compAppsHover = false; tick(); } };
+let compHoverT = 0;
+document.addEventListener('pointerover', e => {
+  if (!P.companion || P.compAppsOpen) return;
+  if (e.target.closest?.('.comp-apps-btn')) {
+    clearTimeout(compHoverT);
+    compHoverT = setTimeout(() => {
+      if (P.companion && !P.compAppsOpen && $('.comp-apps-btn:hover')) {
+        P.compAppsOpen = true; P.compAppsHover = true; native('listAppWindows'); tick();
+      }
+    }, 240);
+  }
+});
+document.addEventListener('pointerout', e => {
+  if (e.target.closest?.('.comp-apps-btn')) clearTimeout(compHoverT);
+  if (P.companion && P.compAppsOpen && P.compAppsHover && e.target.id === 'p-companion' && !e.relatedTarget) {
+    P.compAppsOpen = false; P.compAppsHover = false; tick();
+  }
+});
+document.addEventListener('mouseleave', () => {
+  clearTimeout(compHoverT);
+  if (P.companion && P.compAppsOpen && P.compAppsHover) { P.compAppsOpen = false; P.compAppsHover = false; tick(); }
+});
 
 const TOUR_STEPS = [
   { sel: '#p-cls', fallback: '[data-dock-id="classpick"], #p-title', title: '1. Class & Bell Schedule', body: 'Rehearsal automatically switches classes on your bell schedule — or pick any class here to show it now. It reopens on whichever class (or Follow schedule) you used last.' },
@@ -5036,6 +5288,7 @@ function renderTour() {
 // ---------- free-window dragging, resizing, focus, address bar
 document.addEventListener('pointerdown', e => {
   if (VIEW !== 'present') return;
+  if (P.webModeMenu && !e.target.closest('.web-mode-menu, [data-action="web-mode-menu"]')) { P.webModeMenu = null; renderWebModeMenu(); WIN.sig = ''; renderWins(context(now()), true); tick(); }
   if (P.snapFor && !e.target.closest('.snap-menu, [data-action="win-snap"]')) { P.snapFor = null; renderSnapMenu(); }
   if (BM.open && !e.target.closest('.bm-menu, [data-action="bm-folder"]')) { BM.open = null; renderBmMenu(); }
   if (P.dockCustom && !e.target.closest('.dock-custom, [data-action="dock-custom"]')) { P.dockCustom = false; renderDockCustom(); renderDock(); }

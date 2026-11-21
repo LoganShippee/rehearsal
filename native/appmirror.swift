@@ -24,14 +24,99 @@ enum AppCapture {
         _ = AXIsProcessTrustedWithOptions(opts)
     }
 
-    /// Running desktop apps for Companion Split-Screen (needs zero Screen Recording permissions).
+    private static func iconDataURL(for app: NSRunningApplication) -> String {
+        let icon = app.icon ?? (app.bundleURL.map { NSWorkspace.shared.icon(forFile: $0.path) })
+        guard let icon else { return "" }
+        let size = NSSize(width: 48, height: 48)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 48, pixelsHigh: 48,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return "" }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .high
+        icon.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return "" }
+        return "data:image/png;base64," + png.base64EncodedString()
+    }
+
+    private static func previewDataURL(windowID wid: CGWindowID) -> String? {
+        guard wid > 0, CGPreflightScreenCaptureAccess() else { return nil }
+        guard let cgImg = CGWindowListCreateImage(.null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .nominalResolution]),
+              cgImg.width > 16, cgImg.height > 16 else { return nil }
+        let maxW: CGFloat = 240, maxH: CGFloat = 150
+        let scale = min(1.0, min(maxW / CGFloat(cgImg.width), maxH / CGFloat(cgImg.height)))
+        let w = max(1, Int((CGFloat(cgImg.width) * scale).rounded()))
+        let h = max(1, Int((CGFloat(cgImg.height) * scale).rounded()))
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .medium
+        ctx.cgContext.draw(cgImg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        NSGraphicsContext.restoreGraphicsState()
+        if let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.72]) {
+            return "data:image/jpeg;base64," + jpg.base64EncodedString()
+        }
+        if let png = rep.representation(using: .png, properties: [:]) {
+            return "data:image/png;base64," + png.base64EncodedString()
+        }
+        return nil
+    }
+
+    /// Running desktop apps for Companion Split-Screen (includes app icons and optional window
+    /// thumbnail previews when Screen Recording access is already granted — never prompts).
     static func listRunningApps() -> [[String: Any]] {
         let me = ProcessInfo.processInfo.processIdentifier
         let skip = Set(["com.apple.dock", "com.apple.controlcenter", "com.apple.systemuiserver", "com.apple.WindowManager", "com.apple.notificationcenterui", "com.apple.finder"])
+        let onScreenList = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
+        var mainWinByPid: [pid_t: (wid: CGWindowID, title: String, area: CGFloat)] = [:]
+        for w in onScreenList {
+            guard let pidNum = w[kCGWindowOwnerPID as String] as? NSNumber,
+                  let widNum = w[kCGWindowNumber as String] as? NSNumber,
+                  (w[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  ((w[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0) > 0.05,
+                  let bd = w[kCGWindowBounds as String] as? NSDictionary,
+                  let r = CGRect(dictionaryRepresentation: bd),
+                  r.width > 120, r.height > 90 else { continue }
+            let pid = pid_t(pidNum.int32Value)
+            if pid == me { continue }
+            let wid = CGWindowID(widNum.uint32Value)
+            let title = (w[kCGWindowName as String] as? String) ?? ""
+            let area = r.width * r.height
+            if let cur = mainWinByPid[pid] {
+                let preferNew = (!title.isEmpty && cur.title.isEmpty) || (title.isEmpty == cur.title.isEmpty && area > cur.area)
+                if preferNew { mainWinByPid[pid] = (wid, title, area) }
+            } else {
+                mainWinByPid[pid] = (wid, title, area)
+            }
+        }
         return NSWorkspace.shared.runningApplications.compactMap { app in
             guard app.activationPolicy == .regular, app.processIdentifier != me,
                   let name = app.localizedName, let bid = app.bundleIdentifier, !skip.contains(bid) else { return nil }
-            return ["app": name, "bundleId": bid, "pid": Int(app.processIdentifier), "title": "", "onScreen": !app.isHidden]
+            let pid = app.processIdentifier
+            let matched = mainWinByPid[pid]
+            let wid = matched?.wid ?? 0
+            let title = matched?.title ?? ""
+            var entry: [String: Any] = [
+                "windowID": Int(wid),
+                "pid": Int(pid),
+                "app": name,
+                "bundleId": bid,
+                "title": title,
+                "onScreen": matched != nil || !app.isHidden,
+                "appIcon": iconDataURL(for: app),
+            ]
+            if let prev = previewDataURL(windowID: wid) {
+                entry["preview"] = prev
+            }
+            return entry
         }.sorted { ($0["app"] as! String).localizedCaseInsensitiveCompare($1["app"] as! String) == .orderedAscending }
     }
 

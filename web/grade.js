@@ -390,10 +390,11 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
 function grCardHTML(res, gradePitch) {
   const word = ms => ms > 0 ? `${ms} ms late` : ms < 0 ? `${-ms} ms early` : 'on time';
   const d = res.diag, tap = res.input === 'tap';
+  const rangeBadge = res.rangeLabel ? `<span class="gr-sub" style="margin-top:2px;font-weight:600;color:#1f6fd1">Graded ${res.partName ? `${res.partName} · ` : ''}${res.rangeLabel}</span>` : '';
   const head = d.heard === 0
-    ? (tap ? `<b>No taps heard.</b> <span class="gr-sub">After the count-in, press the space bar at the start of each note.</span>`
-      : `<b>No notes heard.</b> <span class="gr-sub">Clap or play louder, or move closer to the mic. Check the mic in System Settings → Sound.</span>`)
-    : `<b>Rhythm ${res.rhythmPct}%</b>${gradePitch ? ` · <b>Pitch ${res.pitchPct}%</b>` : ''}
+    ? (tap ? `<b>No taps heard.</b>${rangeBadge} <span class="gr-sub">After the count-in, press the space bar at the start of each note.</span>`
+      : `<b>No notes heard.</b>${rangeBadge} <span class="gr-sub">Clap or play louder, or move closer to the mic. Check the mic in System Settings → Sound.</span>`)
+    : `<b>Rhythm ${res.rhythmPct}%</b>${gradePitch ? ` · <b>Pitch ${res.pitchPct}%</b>` : ''}${rangeBadge}
        <span class="gr-sub">${d.heard} ${tap ? 'tap' : 'note'}${d.heard > 1 ? 's' : ''} ${tap ? 'counted' : 'heard'} · ${res.latUsed ? `overall ${word(res.offsetMs).replace(/ms late$/, 'ms behind the beat').replace(/ms early$/, 'ms ahead of the beat')}` : `average timing ${word(res.offsetMs)}`}${res.extra > 0 ? ` · ${res.extra} extra` : ''}${Math.abs(res.driftCents ?? 0) >= 25 ? ` · went ${Math.abs(res.driftCents)}¢ ${res.driftCents < 0 ? 'flat' : 'sharp'} by the end` : ''}</span>`;
   const rows = res.notes.map(n => {
     const where = `bar ${n.bar}, note ${n.idx}${gradePitch && n.written != null ? ` (${grName(n.written)})` : ''}`;
@@ -624,29 +625,84 @@ async function grMicReady(m, btn) {
   m.ready = true;
 }
 
+// When the user stops a long score grading take early (before reaching the end of the piece),
+// trim expected notes to ONLY the section actually reached/sung so unreached later measures are never penalized.
+function grTrimEarlyExp(frames, exp, q, T0, end, stopTime, taps = null, lat = null) {
+  if (!exp || !exp.length || !isFinite(stopTime) || stopTime >= end - 0.5) return { exp, end, trimmed: false };
+  const actualEnd = Math.min(end, Math.max(T0 + 0.1, stopTime + 0.1));
+  const estLat = Math.max(0, Math.min(0.45, lat ?? 0.18));
+  const stoppedAtQ = Math.max(0, (stopTime - T0 - estLat) / q);
+  let cutoffQ = stoppedAtQ + 0.25;
+  if (taps) {
+    const det = (grTapDetect(taps, q, T0, actualEnd).det || []);
+    if (det.length > 0) {
+      const lastHeardQ = (Math.max(...det.map(d => d.t)) - T0 - estLat) / q;
+      cutoffQ = Math.min(stoppedAtQ + 0.25, Math.max(exp[0].t + 0.1, lastHeardQ + 0.4));
+    }
+  } else {
+    const seg = (frames || []).filter(fr => fr.t >= T0 - 0.1 && fr.t <= actualEnd);
+    const det = (grDetect(seg, q, actualEnd).det || []);
+    const peakRms = seg.reduce((m, fr) => Math.max(m, fr.rms || 0), 0);
+    const activeThr = Math.max(0.012, peakRms * 0.18);
+    let lastSoundT = -1;
+    for (let i = seg.length - 1; i >= 0; i--) {
+      if ((seg[i].rms || 0) >= activeThr || (seg[i].hz && seg[i].hz > 0)) { lastSoundT = seg[i].t; break; }
+    }
+    const lastDetT = det.length > 0 ? Math.max(...det.map(d => d.t)) : -1;
+    const lastHeardT = Math.max(lastSoundT, lastDetT);
+    if (lastHeardT >= T0 - 0.05) {
+      const lastHeardQ = (lastHeardT - T0 - estLat) / q;
+      cutoffQ = Math.min(stoppedAtQ + 0.25, Math.max(exp[0].t + 0.1, lastHeardQ + 0.4));
+    }
+  }
+  let trimmedExp = exp.filter(e => e.t <= cutoffQ);
+  if (!trimmedExp.length) trimmedExp = exp.slice(0, 1);
+  const lastE = trimmedExp[trimmedExp.length - 1];
+  const trimmedEnd = Math.min(actualEnd, T0 + (lastE.t + lastE.len) * q + 0.8);
+  return { exp: trimmedExp, end: Math.max(T0 + 0.25, trimmedEnd), trimmed: trimmedExp.length < exp.length };
+}
+
 function grStop(show = true) {
   if (!GR.on) return;
   clearInterval(GR.timer);
   try { GR.out?.disconnect(); } catch { }
   GR.out = null;
+  const stopTime = GR.c ? GR.c.currentTime : GR.end;
   if (GR.mic) { clearTimeout(GR.mic.idle); GR.mic.idle = setTimeout(grMicClose, GR_MIC_IDLE); }
-  const frames = GR.frames, exp = GR.exp, btn = GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish;
-  GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null; GR.onFinish = null;
+  const frames = GR.frames, rawExp = GR.exp, btn = GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish, trimEarly = !!GR.trimEarlyStop;
+  GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null; GR.onFinish = null; GR.trimEarlyStop = false;
   GR.quietUntil = performance.now() + 1500;                   // a last tap just after the end doesn't start playback
   if (btn) { btn.innerHTML = GR.idleHTML || (IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade')); btn.classList.remove('on'); }
   GR.idleHTML = null;
   if (typeof onFinish === 'function') try { onFinish(show); } catch { }
-  if (!show || !exp || !exp.length) return;
-  const res = grAnalyze(frames, exp, GR.q, GR.T0, GR.end, GR.gradePitch, GR.lat, tap ? taps : null);
-  if (!tap) res.logId = grSaveLog(rec, { ...GR.meta, exp, q: GR.q, T0: GR.T0, end: GR.end, lat: GR.lat, gradePitch: GR.gradePitch }, frames, res);
+  if (!show || !rawExp || !rawExp.length) return;
+  let exp = rawExp, endT = GR.end, trimmed = false;
+  if (trimEarly) {
+    const tr = grTrimEarlyExp(frames, rawExp, GR.q, GR.T0, GR.end, stopTime, tap ? taps : null, GR.lat);
+    exp = tr.exp; endT = tr.end; trimmed = tr.trimmed;
+  }
+  const res = grAnalyze(frames, exp, GR.q, GR.T0, endT, GR.gradePitch, GR.lat, tap ? taps : null);
+  let range = GR.meta?.range ? { ...GR.meta.range } : null;
+  if (GR.meta?.fileId && exp.length) {
+    const firstBar = exp[0].bar, lastBar = exp[exp.length - 1].bar;
+    res.rangeLabel = firstBar === lastBar ? `m. ${firstBar}` : `m. ${firstBar}–${lastBar}`;
+    res.partName = GR.meta?.partName || '';
+    if (trimmed && range) {
+      const lastE = exp[exp.length - 1];
+      if (lastE.pq != null) range.b = Math.min(range.b, lastE.pq + (lastE.dur || 1));
+    }
+  }
+  if (!tap) res.logId = grSaveLog(rec, { ...GR.meta, exp, q: GR.q, T0: GR.T0, end: endT, lat: GR.lat, gradePitch: GR.gradePitch }, frames, res);
   const tl = GR.tl, host = GR.host;
   if (tl) { tl.grHist = tl.grHist || []; tl.grHist.push({ rhythmPct: res.rhythmPct, pitchPct: res.pitchPct, tap }); }
   // the result is kept on the widget so the marks are drawn again whenever the music is redrawn
   // the take itself (the mic recording, or the taps) is kept for listening back against the example
   const gradePitchNow = GR.gradePitch && !tap;
-  const take = { rec: tap ? null : rec, frames, taps: tap ? taps : null, T0: GR.T0, q: GR.q, end: GR.end, offsetSec: res.offsetSec, tempo: GR.meta?.settings?.tempo, range: GR.meta?.range, lineIdx: GR.meta?.lineIdx };
+  const take = { rec: tap ? null : rec, frames, taps: tap ? taps : null, T0: GR.T0, q: GR.q, end: endT, offsetSec: res.offsetSec, tempo: GR.meta?.settings?.tempo, range, lineIdx: GR.meta?.lineIdx };
   const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const modeLabel = GR.meta?.modeLabel || (GR.meta?.mode === 'solfege' ? 'Solfege' : GR.meta?.mode === 'build' ? 'Build' : 'Rhythm');
+  const modeLabel = res.rangeLabel
+    ? `${res.partName || 'Score'} (${res.rangeLabel})`
+    : (GR.meta?.modeLabel || (GR.meta?.mode === 'solfege' ? 'Solfege' : GR.meta?.mode === 'build' ? 'Build' : 'Rhythm'));
   GR_RECENT.unshift({ res, gradePitch: gradePitchNow, hist: (tl?.grHist || []).slice(), host, tap, time: timeStr, modeLabel, ts: GR.meta?.settings?.ts || '' });
   if (GR_RECENT.length > 15) GR_RECENT.length = 15;
   if (host && tl) {
@@ -661,7 +717,7 @@ function grStop(show = true) {
       retry: GR.retry,
       fileId: GR.meta?.fileId,
       lineIdx: GR.meta?.lineIdx,
-      range: GR.meta?.range,
+      range,
     };
     host.__grRedraw?.();
   }

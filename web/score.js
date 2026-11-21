@@ -317,12 +317,34 @@ function spHoldChord(ctl, q, build) {
   toast(`Holding ${names} — click another spot, or Hold chord to stop.${build ? '' : ' (Shift-click to build it up from the bottom)'}`, 3500);
 }
 
+// ---------- Crisp inline SVG icons matching Rehearsal's icons.js stroke style
+function spSvg(kind) {
+  const paths = {
+    mic: '<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',
+    stop: '<rect width="14" height="14" x="5" y="5" rx="2" fill="currentColor"/>',
+    trash: '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    reload: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  };
+  return `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind] || ''}</svg>`;
+}
+
 // ---------- Idempotent CSS injection for Score Practice Vocal Recording & Looper Grading
 function spInjectVoiceGradeCSS() {
   if (typeof document === 'undefined' || !document.head || document.getElementById('sp-voice-grade-css')) return;
   const s = document.createElement('style');
   s.id = 'sp-voice-grade-css';
   s.textContent = `
+    /* Crisp thin playhead cursor & cleanly positioned measure pill above top staff */
+    .sp-ph { width: 2.5px !important; margin-left: -1.25px !important; border-radius: 2px !important;
+      background: var(--accent, #e76f51) !important;
+      box-shadow: 0 0 8px color-mix(in srgb, var(--accent, #e76f51) 65%, transparent) !important; z-index: 6; }
+    .sp-sel.off i.sp-start-line { background: #1f6fd1 !important; border: 0 !important; border-radius: 2px !important;
+      box-shadow: 0 0 6px rgba(31,111,209,.42) !important; }
+    .sp-sel.off i.sp-range-cap { background: transparent !important; border: 0 !important;
+      border-top: 2px dashed rgba(31,111,209,.65) !important; box-shadow: none !important; border-radius: 0 !important; }
+    .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: 0 !important;
+      font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 2px 7px !important; z-index: 7; }
+
     /* Score Practice Looper Grading: note-by-note OSMD SVG color feedback */
     .sp-osmd .gr-n-ok path, .sp-osmd .gr-n-ok rect, .sp-osmd .gr-n-ok polygon { fill: #1b7a2a !important; stroke: #1b7a2a !important; opacity: 1 !important; }
     .sp-osmd .gr-n-timing path, .sp-osmd .gr-n-timing rect, .sp-osmd .gr-n-timing polygon { fill: #d9822b !important; stroke: #d9822b !important; opacity: 1 !important; }
@@ -354,6 +376,9 @@ function spInjectVoiceGradeCSS() {
     .sp-count-cue { font-size: 13px; opacity: .92; margin-top: 2px; }
     .sp-count.rec-live { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; }
     .sp-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; display: inline-block; animation: sprecpulse 1s infinite; }
+    .sp-beat-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px;
+      background: rgba(255,255,255,.16); color: #fff; font-weight: 800; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .sp-beat-pill.one { background: var(--accent, #ffd166); color: #1d2330; }
     @keyframes sprecpulse { 50% { opacity: .25; transform: scale(.85); } }
 
     /* Grade split button & options menu */
@@ -370,24 +395,26 @@ function spInjectVoiceGradeCSS() {
     .sp-grmenu .sp-grm-btn small { display: block; color: #636b7d; font-size: 11.5px; font-weight: 400; }
     .sp-grmenu label.sp-grm-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #333a48; cursor: pointer; padding: 2px 2px; }
 
-    /* Voice parts & Vocal Recording mixer strip (.sp-voices) and settings mixer (.sp-parts) */
-    .sp-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
+    /* Consolidated Voice parts & Vocal Recording mixer strip (.sp-voices) */
+    .sp-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
       background: color-mix(in srgb, var(--text, #1d2330) 4%, transparent); color: var(--text, #1d2330); flex: 0 0 auto; }
     .sp-voices[hidden] { display: none !important; }
-    .sp-voices-head { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .75; margin-right: 2px; }
-    .sp-parts { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
-    .sp-part { display: inline-flex; align-items: center; gap: 6px; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
-      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 9px; padding: 3px 8px; font-size: 12.5px; transition: border-color .15s, background .15s; }
+    .sp-voices-head { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .75; margin-right: 2px; }
+    .sp-parts { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+    .sp-part { display: inline-flex; align-items: center; gap: 5px; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
+      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 9px; padding: 3px 7px; font-size: 12.5px; transition: border-color .15s, background .15s; }
     .sp-part.is-sung { border-color: color-mix(in srgb, var(--accent, #e76f51) 65%, var(--line, transparent)); background: color-mix(in srgb, var(--accent, #e76f51) 12%, transparent); }
     .sp-part.is-rec { border-color: #e5484d; background: rgba(229, 72, 77, 0.14); }
     .sp-part-lbl { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 600; white-space: nowrap; }
-    .sp-part input[type=range] { width: 64px; cursor: pointer; }
+    .sp-part input[type=range] { width: 58px; cursor: pointer; }
     .sp-vrec-btn, .sp-vdel-btn, .sp-vfoc-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
       color: var(--text, #1d2330); border-radius: 7px; padding: 2px 7px !important; height: 24px !important; font-size: 11.5px !important; font-weight: 600;
       cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1; }
+    .sp-vrec-btn .ico, .sp-vdel-btn .ico { width: 13px; height: 13px; flex: none; }
     .sp-vrec-btn:hover, .sp-vdel-btn:hover, .sp-vfoc-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
     .sp-vrec-btn.rec-on { background: #e5484d !important; color: #fff !important; border-color: #e5484d !important; animation: sprecpulse 1s infinite; }
     .sp-vfoc-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
+    .sp-vfoc-btn.solo.on { background: #1f6fd1 !important; color: #fff !important; border-color: transparent !important; }
     .sp-vdel-btn { padding: 2px 5px !important; opacity: .8; }
     .sp-vdel-btn:hover { opacity: 1; background: rgba(229, 72, 77, 0.2); border-color: #e5484d; }
     .sp-vsrc-seg { display: inline-flex; border: 1px solid var(--line, rgba(0,0,0,.2)); border-radius: 7px; overflow: hidden; height: 24px; box-sizing: border-box; }
@@ -397,7 +424,7 @@ function spInjectVoiceGradeCSS() {
     .sp-vsrc-seg button.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; opacity: 1; }
     .sp-vsrc-seg button:disabled { opacity: .35; cursor: default; }
     .sp-vmeta { font-size: 10.5px; opacity: .72; white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .sp-vopts { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; opacity: .88; margin-left: auto; flex-wrap: wrap; }
+    .sp-vopts { display: inline-flex; align-items: center; gap: 10px; font-size: 11.5px; opacity: .88; margin-left: auto; flex-wrap: wrap; }
     .sp-vopts label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
   `;
   document.head.appendChild(s);
@@ -468,6 +495,7 @@ async function spSaveVocalRec(fileId, lineIdx, recObj) {
     startMeasure: recObj.startMeasure,
     endMeasure: recObj.endMeasure,
     loopWasOn: !!recObj.loopWasOn,
+    hadMetro: !!recObj.hadMetro,
     sampleRate: recObj.sampleRate,
     durationSec: recObj.durationSec,
     wavBuf: recObj.wavBuf,
@@ -528,11 +556,11 @@ function spStopVocalNodes(ctl) {
 }
 
 // ---------- Active Vocal Recording State
-const SP_VREC = { on: false, starting: false, ctl: null, lineIdx: -1, c: null, src: null, sp: null, mute: null, chunks: [], marks: [], n: 0, T0: 0, endT: 0, R: null, recordedBpm: 100 };
+const SP_VREC = { on: false, starting: false, ctl: null, lineIdx: -1, c: null, src: null, sp: null, mute: null, chunks: [], marks: [], n: 0, T0: 0, endT: 0, R: null, recordedBpm: 100, hadMetro: false };
 
 function spStopVocalRec(saveTake = true) {
   if (!SP_VREC.on) return;
-  const { ctl, lineIdx, c, chunks, marks, n, T0, endT, R, recordedBpm } = SP_VREC;
+  const { ctl, lineIdx, c, chunks, marks, n, T0, endT, R, recordedBpm, hadMetro } = SP_VREC;
   SP_VREC.on = false;
   try { SP_VREC.sp?.disconnect(); SP_VREC.src?.disconnect(); SP_VREC.mute?.disconnect(); } catch { }
   SP_VREC.sp = null; SP_VREC.src = null; SP_VREC.mute = null;
@@ -592,9 +620,10 @@ function spStopVocalRec(saveTake = true) {
         recordedTempoPct: Number(st.tempo) || 100,
         startBeat: R.a,
         endBeat: R.b,
-        startMeasure: st.loop.on ? Math.min(st.loop.a, st.loop.b) : 0,
+        startMeasure: st.loop.on ? Math.min(st.loop.a, st.loop.b) : (ctl.startAt || 0),
         endMeasure: st.loop.on ? Math.max(st.loop.a, st.loop.b) : Math.max(0, (ctl.sc?.measures?.length || 1) - 1),
         loopWasOn: !!st.loop.on,
+        hadMetro: !!hadMetro,
         sampleRate: sr,
         durationSec: trimmed.length / sr,
         wavBuf,
@@ -657,7 +686,7 @@ async function spStartVocalRec(ctl, lineIdx) {
   const recordedBpm = spBpmAt(sc, R.a) * ((Number(st.tempo) || 100) / 100);
   Object.assign(SP_VREC, {
     on: true, ctl, lineIdx, c, src, sp, mute,
-    chunks: [], marks: [], n: 0, T0: 0, endT: 0, R, recordedBpm,
+    chunks: [], marks: [], n: 0, T0: 0, endT: 0, R, recordedBpm, hadMetro: !!st.recMetro,
   });
   sp.onaudioprocess = e => {
     if (!SP_VREC.on) return;
@@ -706,7 +735,7 @@ function spStop() {
 function spDefaults(st) {
   st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none';
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
-  st.voicesOpen ??= true; st.recGuide ??= true; st.recSelfGuide ??= false;
+  st.voicesOpen ??= true; st.recGuide ??= false; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
   return st;
 }
 function spRange(ctl) {
@@ -726,12 +755,15 @@ function spRange(ctl) {
   const from = Math.max(0, Math.min(ctl.startAt || 0, M.length - 1)), j = P.findIndex(x => x.w === from);
   return { a: j >= 0 ? P[j].start : 0, b: sc.ptotal, loop: false };
 }
-// focus can be several lines; stored as an array (older saves have a single number)
+// focus & solo can be several lines; stored as arrays (older saves have a single number for focus)
 const spFoc = st => st.focus == null ? [] : Array.isArray(st.focus) ? st.focus : [st.focus];
-// the focused line plays out; other voices drop way down, accompaniment a little less; muted parts drop to 0
+const spSolo = st => st.solo == null ? [] : Array.isArray(st.solo) ? st.solo : [st.solo];
+// muted or non-soloed parts drop to 0; focused lines play out while other voices drop down
 function spLineVol(ctl, i) {
   const st = ctl.st, L = ctl.sc.lines[i];
   if (st.parts[i]?.on === false) return 0;
+  const S0 = spSolo(st).filter(s => ctl.sc.lines[s]);
+  if (S0.length && !S0.includes(i)) return 0;
   const base = st.parts[i]?.vol ?? 1;
   const F = spFoc(st).filter(f => ctl.sc.lines[f]); if (!F.length) return base;
   return base * (F.includes(i) ? 1.3 : L?.acc ? 0.35 : 0.2);
@@ -812,7 +844,8 @@ function spPlay(ctl, playOpts = null) {
     if (playOpts?.recordingLine != null) {
       const recLi = playOpts.recordingLine;
       const firsts = spFirstNotes(sc, recLi, R);
-      [...new Set(firsts)].forEach(mi => spPianoNote(master, t0, mi, nb * beatSec * 0.95, 0.6));
+      const cueDur = Math.max(0.2, bars * nb * beatSec - 0.14);
+      [...new Set(firsts)].forEach(mi => spPianoNote(master, t0, mi, cueDur, 0.58));
       countMeta = { t0, endT: t0 + bars * nb * beatSec, nb, beatSec, totalBeats: bars * nb, lineName: sc.lines[recLi]?.name || 'Voice', firstNote: firsts[0] != null ? grName(firsts[0]) : null };
     } else if (st.pitches !== 'none') {
       const firsts = [];
@@ -842,7 +875,7 @@ function spPlay(ctl, playOpts = null) {
     const curFac = factorAt(passIter);
     sc.lines.forEach((_, li) => {
       if (playOpts?.recordingLine === li) return;
-      if (playOpts?.recordingLine != null && st.recGuide === false) return;
+      if (playOpts?.recordingLine != null && !st.recGuide) return;
       if (!spIsLineSung(ctl, li)) return;
       const rec = ctl.vocalRecs?.[li];
       if (!rec || !rec.audioBuffer) return;
@@ -933,6 +966,8 @@ function spPlay(ctl, playOpts = null) {
         const sp = secPerQ(s.q);
         for (const e of s.evs) {
           if (st.parts[e.line]?.on === false) continue;
+          const soloSet = spSolo(st).filter(x => sc.lines[x]);
+          if (soloSet.length && !soloSet.includes(e.line)) continue;
           if (playOpts?.recordingLine != null) {
             if (e.line === playOpts.recordingLine) {
               if (!st.recSelfGuide) continue;
@@ -940,14 +975,18 @@ function spPlay(ctl, playOpts = null) {
               spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.22);
               continue;
             }
-            if (st.recGuide === false) continue;
+            if (!st.recGuide) continue;
           }
           // Skip MIDI notes when this part is in Sung mode with a valid recording
           if (!playOpts?.ignoreVocalRecs && spIsLineSung(ctl, e.line)) continue;
           const len = Math.min(e.q + e.dur, R.b) - e.q;
           spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97);
         }
-        if (s.beat && st.metronome && !playOpts?.noMetro) spClick(master, Math.max(now, walker.t), s.beat.accent);
+        const anySungHasMetro = !playOpts?.ignoreVocalRecs && sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro);
+        const allowMetro = playOpts?.recordingLine != null
+          ? !!st.recMetro
+          : (!playOpts?.noMetro && !anySungHasMetro && !!st.metronome);
+        if (s.beat && allowMetro) spClick(master, Math.max(now, walker.t), s.beat.accent);
         si++;
       } else {
         walker.t += (R.b - walker.q) * secPerQ(walker.q); walker.q = R.b; ctl.marks.push({ t: walker.t, q: R.b });
@@ -974,7 +1013,9 @@ function spPlay(ctl, playOpts = null) {
         const bNum = (bi % countMeta.nb) + 1;
         ctl.showCountOverlay?.(String(bNum), `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`, bNum === 1);
       } else {
-        ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b>…`);
+        const bi = Math.max(0, Math.floor((heard - countMeta.endT) / countMeta.beatSec + 1e-6));
+        const bNum = (bi % countMeta.nb) + 1;
+        ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b>`, bNum, bNum === 1);
       }
     }
     SP_PLAY.raf = requestAnimationFrame(frame);
@@ -994,6 +1035,11 @@ function spGradeLine(ctl) {
   const { sc, st } = ctl;
   if (!sc || !sc.lines.length) return 0;
   if (st.gradeLine != null && sc.lines[st.gradeLine]) return +st.gradeLine;
+  const S0 = spSolo(st).filter(i => sc.lines[i]);
+  if (S0.length) {
+    const sVocal = S0.find(i => !sc.lines[i].acc);
+    return sVocal != null ? sVocal : S0[0];
+  }
   const F = spFoc(st).filter(i => sc.lines[i]);
   if (F.length) {
     const fVocal = F.find(i => !sc.lines[i].acc);
@@ -1006,7 +1052,21 @@ function spGradeRange(ctl) {
   const { sc, st } = ctl;
   if (!sc) return { a: 0, b: 0, loop: false };
   if (st.loop.on && sc.measures.length) return spRange(ctl);
-  return { a: 0, b: sc.ptotal, loop: false };
+  // If the user dragged a multi-measure range without Loop on, grade that exact range;
+  // otherwise start from the selected measure (ctl.startAt) through the end (and trim cleanly on early Stop).
+  if (sc.measures.length && st.loop.a !== st.loop.b) {
+    const a = Math.max(0, Math.min(st.loop.a, st.loop.b, sc.measures.length - 1));
+    const b = Math.min(sc.measures.length - 1, Math.max(st.loop.a, st.loop.b));
+    const P = sc.perf;
+    let best = null;
+    P.forEach((pa, ja) => {
+      if (pa.w !== a) return;
+      for (let jb = ja; jb < P.length; jb++) if (P[jb].w === b) { if (!best || jb - ja < best[1] - best[0]) best = [ja, jb]; break; }
+    });
+    if (best) return { a: P[best[0]].start, b: P[best[1]].start + P[best[1]].len, loop: false };
+    return { a: sc.measures[a].start, b: sc.measures[b].start + sc.measures[b].len, loop: false, written: true };
+  }
+  return spRange(ctl);
 }
 function spExpectedNotes(ctl, lineIdx, R, shift = 0) {
   const { sc, st } = ctl;
@@ -1101,7 +1161,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   for (let b = 0; b < countBeats; b++) grClick(c, t0 + b * beatSec, b % nb === 0);
   const firstMidi = exp[0].midi;
   if (!tap && firstMidi != null) {
-    grTone(c, t0, grCueMidi(firstMidi), bars * nb * beatSec * 0.92);
+    grTone(c, t0, grCueMidi(firstMidi), Math.max(0.2, bars * nb * beatSec - 0.14));
   }
   const T0 = t0 + countBeats * beatSec;
   const last = exp[exp.length - 1];
@@ -1115,7 +1175,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
       }
     }
   }
-  // Optional quiet guide of other parts during grading (when st.gradeGuide is enabled)
+  // Optional quiet guide of other parts during grading (OFF by default — opt-in for headphones)
   if (st.gradeGuide && !tap) {
     for (const e of sc.pevents) {
       if (e.line === lineIdx || st.parts[e.line]?.on === false) continue;
@@ -1137,12 +1197,13 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   const tl = exp.map(e => ({ t: e.t, len: e.len, midi: e.midi, rest: false }));
   tl.grHist = (ctl.grHistByKey[histKey] ||= []);
 
-  const mStartNum = sc.measures[st.loop.on ? Math.min(st.loop.a, st.loop.b) : 0]?.num || '1';
-  const mEndNum = sc.measures[st.loop.on ? Math.max(st.loop.a, st.loop.b) : sc.measures.length - 1]?.num || String(sc.measures.length);
-  const rangeLabel = mStartNum === mEndNum ? `m. ${mStartNum}` : `m. ${mStartNum}–${mEndNum}`;
+  const mStartNum = exp[0]?.bar ?? (sc.measures[st.loop.on ? Math.min(st.loop.a, st.loop.b) : (ctl.startAt || 0)]?.num || '1');
+  const mEndNum = exp[exp.length - 1]?.bar ?? (sc.measures[st.loop.on ? Math.max(st.loop.a, st.loop.b) : sc.measures.length - 1]?.num || String(sc.measures.length));
+  const rangeLabel = String(mStartNum) === String(mEndNum) ? `m. ${mStartNum}` : `m. ${mStartNum}–${mEndNum}`;
   const effBpm = Math.round(spBpmAt(sc, R.a) * fac);
   const meta = {
     mode: gradePitch ? 'solfege' : 'rhythm',
+    partName: line?.name || 'Score',
     modeLabel: `${line?.name || 'Score'} (${rangeLabel})`,
     fileId: st.fileId,
     lineIdx,
@@ -1168,6 +1229,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   };
   Object.assign(GR, {
     on: true,
+    trimEarlyStop: true,
     input: tap ? 'tap' : 'mic',
     c,
     taps: tap ? [] : null,
@@ -1271,7 +1333,7 @@ function mountScore(host, st, onChange0, key) {
     range: () => `<span class="sp-range" data-ctl="range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
     spots: () => `<button data-sp="spots" data-ctl="spots" title="Rehearsal list: saved spots to step through">${IC('ico:agenda')} Spots</button>`,
     grade: () => `<span class="sp-grp sp-grade-ctl" data-ctl="grade"><button data-sp="grade" title="Grade your performance of the selected voice part over the active loop (or full score)">${IC('ico:mic')} <span class="sp-grlbl">Grade</span></button><button data-sp="grade-menu" title="Choose which voice part to grade and grading mode" aria-label="Grading options">▾</button></span>`,
-    voices: () => `<button data-sp="voices" data-ctl="voices" title="Voice parts mixer: per-part volume, Focus/Solo, Record sung voice (🎤 Rec), and Sung vs MIDI toggle">${IC('ico:users')} <span class="sp-voicelbl">Voices</span></button>`,
+    voices: () => `<button data-sp="voices" data-ctl="voices" title="Voice parts mixer: per-part volume, Focus, Solo, Record sung voice, and Sung vs MIDI toggle">${IC('ico:users')} <span class="sp-voicelbl">Voices</span></button>`,
     nums: () => `<button data-sp="nums" data-ctl="nums" title="Number every measure">${IC('ico:hash')} Measure #</button>`,
     solfege: () => `<button data-sp="lbl" data-v="solfege" data-ctl="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>`,
     counts: () => `<button data-sp="lbl" data-v="counts" data-ctl="counts" title="Rhythm counting above the notes">${IC('ico:list')} Counts</button>`,
@@ -1314,15 +1376,15 @@ function mountScore(host, st, onChange0, key) {
   const SP_CTLS = [
     ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['grade', 'Grade'], ['voices', 'Voices & vocal recording'], ['tabs', 'Classes (tab)']]],
     ['Display strip', [['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['layout', 'Down / Sideways'], ['zoom', 'Zoom − ＋']]],
-    ['Choir row', [['focus', 'Focus buttons'], ['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
-    ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Parts & volumes'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
+    ['Choir row', [['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
+    ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Metronome volume'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
   ];
   const SP_DEFAULT_HIDDEN = ['help', 'range'];
   ctl.applyCtl = () => {
     const hid = new Set(S.settings.spHidden ?? SP_DEFAULT_HIDDEN);
     root.querySelectorAll('[data-ctl]').forEach(el => { el.hidden = hid.has(el.dataset.ctl); });
     const ch = $q('.sp-choir');                                      // hide the choir row if everything in it is hidden
-    if (ch && ctl.sc) ch.classList.toggle('sp-empty', ['focus', 'pitches', 'colour', 'show'].every(k => hid.has(k)));
+    if (ch && ctl.sc) ch.classList.toggle('sp-empty', ['pitches', 'colour', 'show'].every(k => hid.has(k)));
     const sub = $q('.sp-sub');
     if (sub) {
       const showHid = ['nums', 'solfege', 'counts'].every(k => hid.has(k));
@@ -1415,11 +1477,13 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.partMixerHTML = (compact = false) => {
     const sc = ctl.sc; if (!sc) return '';
+    const focList = spFoc(st), soloList = spSolo(st);
     return sc.lines.map((p, i) => {
       const rec = ctl.vocalRecs?.[i], hasRec = !!(rec && rec.audioBuffer);
       const srcMode = hasRec ? (st.parts[i]?.source ?? 'sung') : 'midi';
       const isRecThis = SP_VREC.on && SP_VREC.ctl === ctl && SP_VREC.lineIdx === i;
-      const isFoc = spFoc(st).includes(i);
+      const isFoc = focList.includes(i);
+      const isSolo = soloList.includes(i);
       const on = st.parts[i]?.on !== false;
       const vol = st.parts[i]?.vol ?? 1;
       const recRangeLbl = hasRec
@@ -1432,13 +1496,14 @@ function mountScore(host, st, onChange0, key) {
           <span>${esc(compact ? short(p.name) : p.name)}</span>
         </label>
         <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${vol}" title="Volume for ${esc(p.name)} (${Math.round(vol * 100)}%)">
-        <button type="button" class="sp-vfoc-btn ${isFoc ? 'on' : ''}" data-sp="focus" data-i="${i}" title="Focus / Solo ${esc(p.name)}: focused parts play louder, others softer">Solo</button>
-        <button type="button" class="sp-vrec-btn ${isRecThis ? 'rec-on' : ''}" data-sp="vrec" data-line="${i}" title="${isRecThis ? 'Stop recording ' + esc(p.name) : (hasRec ? 'Re-record ' : 'Record ') + 'your sung voice for ' + esc(p.name) + ' over the active loop/range'}">${isRecThis ? '⏹ Stop' : '🎤 Rec'}</button>
+        <button type="button" class="sp-vfoc-btn ${isFoc ? 'on' : ''}" data-sp="focus" data-i="${i}" title="Focus ${esc(p.name)}: plays louder while other parts stay soft">Focus</button>
+        <button type="button" class="sp-vfoc-btn solo ${isSolo ? 'on' : ''}" data-sp="solo" data-i="${i}" title="Solo ${esc(p.name)}: mute all non-soloed parts">Solo</button>
+        <button type="button" class="sp-vrec-btn ${isRecThis ? 'rec-on' : ''}" data-sp="vrec" data-line="${i}" title="${isRecThis ? 'Stop recording ' + esc(p.name) : (hasRec ? 'Re-record ' : 'Record ') + 'your sung voice for ' + esc(p.name) + ' over the active loop/range'}">${isRecThis ? spSvg('stop') + ' Stop' : spSvg('mic') + ' Rec'}</button>
         <span class="sp-vsrc-seg" role="group" aria-label="Audio source for ${esc(p.name)}">
-          <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" ${hasRec ? '' : 'disabled'} title="${hasRec ? 'Play recorded Sung voice for ' + esc(p.name) + ' (' + esc(recRangeLbl) + ')' : 'Record a vocal take (🎤 Rec) first to enable Sung mode'}">Sung</button>
+          <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" ${hasRec ? '' : 'disabled'} title="${hasRec ? 'Play recorded Sung voice for ' + esc(p.name) + ' (' + esc(recRangeLbl) + ')' : 'Record a vocal take (Rec) first to enable Sung mode'}">Sung</button>
           <button type="button" data-sp="vsrc" data-line="${i}" data-src="midi" class="${srcMode === 'midi' ? 'on' : ''}" title="Play MIDI piano notes for ${esc(p.name)}">MIDI</button>
         </span>
-        ${hasRec ? `<span class="sp-vmeta" title="Recorded range &amp; tempo">${esc(recRangeLbl)}</span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} and revert to MIDI">🗑</button>` : ''}
+        ${hasRec ? `<span class="sp-vmeta" title="Recorded range &amp; tempo">${esc(recRangeLbl)}</span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} and revert to MIDI" aria-label="Delete sung recording for ${esc(p.name)}">${spSvg('trash')}</button>` : ''}
       </div>`;
     }).join('');
   };
@@ -1447,12 +1512,13 @@ function mountScore(host, st, onChange0, key) {
     if (!box || !sc) return;
     box.hidden = !st.voicesOpen;
     if (box.hidden) return;
+    const isAll = !spFoc(st).length && !spSolo(st).length;
     box.innerHTML = `<span class="sp-voices-head">${IC('ico:users')} Voices</span>
-      <button type="button" class="sp-vfoc-btn ${!spFoc(st).length ? 'on' : ''}" data-sp="focus" data-i="" title="Reset Focus so all active parts play at normal volume">All</button>
+      <button type="button" class="sp-vfoc-btn ${isAll ? 'on' : ''}" data-sp="focus-all" title="Clear Focus and Solo so all active parts play at normal volume">All</button>
       <div class="sp-parts">${ctl.partMixerHTML(true)}</div>
       <span class="sp-vopts">
-        <label title="Play the other active parts while recording a vocal part so you stay in time and tune"><input type="checkbox" data-spk="recGuide" ${st.recGuide !== false ? 'checked' : ''}> Guide parts</label>
-        <label title="Also play a quiet piano guide of the part being recorded"><input type="checkbox" data-spk="recSelfGuide" ${st.recSelfGuide ? 'checked' : ''}> Self-guide</label>
+        <label title="Play other active parts while recording (use headphones so speakers do not bleed into the mic)"><input type="checkbox" data-spk="recGuide" ${st.recGuide ? 'checked' : ''}> Guide parts (use headphones)</label>
+        <label title="Play audible metronome clicks while recording (use headphones to avoid click bleed)"><input type="checkbox" data-spk="recMetro" ${st.recMetro ? 'checked' : ''}> Click while recording (use headphones)</label>
       </span>`;
   };
   ctl.refreshVoicesUI = () => {
@@ -1478,7 +1544,7 @@ function mountScore(host, st, onChange0, key) {
       cnt.classList.toggle('one', !!isOne);
     }
   };
-  ctl.showRecOverlay = html => {
+  ctl.showRecOverlay = (html, beatNum, isOne) => {
     const scEl = $q('.sp-score'); if (!scEl) return;
     let cnt = scEl.querySelector('.sp-count');
     if (!cnt || !cnt.classList.contains('rec-live')) {
@@ -1487,7 +1553,7 @@ function mountScore(host, st, onChange0, key) {
       cnt.className = 'sp-count rec-live';
       scEl.prepend(cnt);
     }
-    const want = `<i class="sp-rec-dot"></i><span class="sp-count-cue">${html}</span>`;
+    const want = `<i class="sp-rec-dot"></i><span class="sp-count-cue">${html}</span>${beatNum ? `<span class="sp-beat-pill ${isOne ? 'one' : ''}">${beatNum}</span>` : ''}`;
     if (cnt.innerHTML !== want) cnt.innerHTML = want;
   };
   ctl.hideCountOverlay = () => { $q('.sp-score .sp-count')?.remove(); };
@@ -1510,7 +1576,7 @@ function mountScore(host, st, onChange0, key) {
       <select data-spk="gradeLine">${sc.lines.map((L, i) => `<option value="${i}" ${i === curLi ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}</option>`).join('')}</select>
       <div class="sp-grm-sec">Voice / Octave shift</div>
       <select data-spk="gradeVoice">${voices.map(([v, l]) => `<option value="${v}" ${(st.gradeVoice || 'written') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Play other parts softly while grading</label>
+      <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Guide backing (use headphones)</label>
       <div class="sp-grm-sec">Start Grading</div>
       <button type="button" class="sp-grm-btn ${curMode === 'mic' ? 'last' : ''}" data-sp="gradego" data-v="mic">${IC('ico:mic')}<span><b>Microphone (Pitch &amp; Rhythm)</b><small>Sing ${esc(curName)} into the mic</small></span></button>
       <button type="button" class="sp-grm-btn ${curMode === 'rhythm' ? 'last' : ''}" data-sp="gradego" data-v="rhythm">${IC('ico:hand')}<span><b>Microphone (Rhythm only)</b><small>Clap or sing rhythm only</small></span></button>
@@ -1681,11 +1747,8 @@ function mountScore(host, st, onChange0, key) {
     let vocal = sc.lines.map((L, i) => ({ L, i })).filter(x => !x.L.acc);
     if (!vocal.length) vocal = sc.lines.map((L, i) => ({ L, i }));          // no voices found: offer every part
     box.hidden = false;
-    // piano / accompaniment can be focused too (e.g. Alto + Piano)
-    const focusable = vocal.concat(sc.lines.map((L, i) => ({ L, i })).filter(x => x.L.acc));
     const opt = (v, l) => `<option value="${v}" ${(st.view || 'all') === v ? 'selected' : ''}>${l}</option>`;
-    box.innerHTML = `<span class="sp-grp" data-ctl="focus"><span class="sp-lbl" title="Tap one or more parts">Focus</span><button data-sp="focus" data-i="" class="${!spFoc(st).length ? 'on' : ''}" title="Everyone at normal volume">All</button>${focusable.map(({ L, i }) => `<button data-sp="focus" data-i="${i}" class="${spFoc(st).includes(i) ? 'on' : ''}" title="Tap to add/remove ${esc(L.name)}: focused parts are loud, the rest soft">${L.acc ? IC('ico:score') : `<i class="sp-dot" style="background:${ctl.lineColor(i)}"></i>`}${esc(short(L.name))}</button>`).join('')}</span>
-      <span class="sp-grp" data-ctl="pitches"><span class="sp-lbl">Pitches</span>${vocal.map(({ L, i }) => `<button data-sp="pitch" data-w="${i}" title="Play ${esc(L.name)}'s first note">${IC('ico:bell')} ${esc(short(L.name))}</button>`).join('')}<button data-sp="pitch" data-w="order" title="Each section's first note, lowest first">Low → high</button><button data-sp="pitch" data-w="together" title="All sections' first notes at once">Together</button></span>
+    box.innerHTML = `<span class="sp-grp" data-ctl="pitches"><span class="sp-lbl">Pitches</span>${vocal.map(({ L, i }) => `<button data-sp="pitch" data-w="${i}" title="Play ${esc(L.name)}'s first note">${IC('ico:bell')} ${esc(short(L.name))}</button>`).join('')}<button data-sp="pitch" data-w="order" title="Each section's first note, lowest first">Low → high</button><button data-sp="pitch" data-w="together" title="All sections' first notes at once">Together</button></span>
       <label class="sp-colt" data-ctl="colour"><input type="checkbox" data-spk="colorParts" ${st.colorParts !== false ? 'checked' : ''}> Colour parts</label>
       <span class="sp-grp" data-ctl="show"><span class="sp-lbl">Show</span><select data-spk="view">${opt('all', 'All staves')}${opt('voices', 'Voices only')}${opt('focus', 'Focus part only')}</select></span>`;
     ctl.applyCtl?.();
@@ -1693,7 +1756,8 @@ function mountScore(host, st, onChange0, key) {
   // hide staves for projecting (piano, other parts) — the remaining music draws bigger
   ctl.applyView = () => {
     const o = ctl.osmd, sc = ctl.sc; if (!o || !sc) return;
-    const v = st.view || 'all', fps = spFoc(st).map(f => sc.lines[f]?.part).filter(x => x != null);
+    const v = st.view || 'all', activeSel = spSolo(st).length ? spSolo(st) : spFoc(st);
+    const fps = activeSel.map(f => sc.lines[f]?.part).filter(x => x != null);
     const want = sc.parts.map((p, i) => v === 'all' || (v === 'voices' && !p.acc) || (v === 'focus' && (fps.length ? fps.includes(i) : !p.acc)));
     if (!want.some(Boolean)) want.fill(true);
     let changed = false;
@@ -1710,7 +1774,7 @@ function mountScore(host, st, onChange0, key) {
           <button data-sp="spot-done" data-id="${x.id}" class="sp-tick" title="Mark as learned">${x.done ? '✓' : ''}</button>
           <button data-sp="spot-go" data-id="${x.id}" class="sp-spot-name" title="Load this spot">${esc(x.name)}</button>
           <button data-sp="spot-play" data-id="${x.id}" title="Load and play">${IC('ico:play')}</button>
-          ${x.id === ctl.curSpot ? `<button data-sp="spot-save" data-id="${x.id}" title="Replace with the current loop, focus and tempo">⟳</button>` : ''}
+          ${x.id === ctl.curSpot ? `<button data-sp="spot-save" data-id="${x.id}" title="Replace with the current loop, focus and tempo">${spSvg('reload')}</button>` : ''}
           <button data-sp="spot-del" data-id="${x.id}" title="Remove">${IC('ico:close')}</button></li>`).join('')}</ol>`
       : '<div class="sp-note">Set a loop (and a focus part / tempo if you like), then “Save current loop”. Step through the list during rehearsal with the previous and next buttons, and tick spots off as they’re learned.</div>'}`;
   };
@@ -1780,7 +1844,6 @@ function mountScore(host, st, onChange0, key) {
       <label>start at <input type="number" min="30" max="100" step="5" data-spk="speedStart" value="${st.speed.start}">%</label>
       <label>+<input type="number" min="1" max="25" data-spk="speedStep" value="${st.speed.step}">% per loop</label></span>
     </div>
-    <div class="sp-parts" data-ctl="mixer">${ctl.partMixerHTML(false)}</div>
     <div data-ctl="mixer">${metVolSlider()}</div>
     <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
     <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
@@ -1811,14 +1874,20 @@ function mountScore(host, st, onChange0, key) {
         }
       }
       const knots = [...kn.entries()].map(([k, x]) => [k / 1000, base.x + x * U()]).sort((a, b) => a[0] - b[0]);
-      let st0 = 1e9, sb0 = -1e9;
+      // Top line of top visible staff through bottom line of bottom visible staff (gm.PositionAndShape.AbsolutePosition.y is the exact staff top line)
+      let st0 = 1e9, sb0 = -1e9, topClear = 1e9;
       for (const gm of staffs || []) {
-        if (!gm || gm.ParentStaff?.ParentInstrument?.Visible === false) continue;
-        const sy = gm.ParentStaffLine?.PositionAndShape?.AbsolutePosition?.y ?? gm.PositionAndShape.AbsolutePosition.y;
-        st0 = Math.min(st0, sy); sb0 = Math.max(sb0, sy + 4);
+        const ps = gm?.PositionAndShape;
+        if (!ps || gm.ParentStaff?.ParentInstrument?.Visible === false) continue;
+        const sy = ps.AbsolutePosition.y;
+        st0 = Math.min(st0, sy);
+        sb0 = Math.max(sb0, sy + 4);
+        topClear = Math.min(topClear, sy + Math.min(ps.BorderTop ?? 0, -1.2));
       }
-      out[i] = x1 > x0 ? { x: base.x + x0 * U(), y: base.y + y0 * U(), w: (x1 - x0) * U(), h: (y1 - y0) * U(), knots,
-        sysTop: base.y + st0 * U(), sysBot: base.y + sb0 * U() } : null;
+      out[i] = x1 > x0 ? {
+        x: base.x + x0 * U(), y: base.y + y0 * U(), w: (x1 - x0) * U(), h: (y1 - y0) * U(), knots,
+        sysTop: base.y + st0 * U(), sysBot: base.y + sb0 * U(), pillTop: base.y + topClear * U(),
+      } : null;
     });
     return out;
   };
@@ -1826,22 +1895,64 @@ function mountScore(host, st, onChange0, key) {
   ctl.drawSel = () => {
     const sel = $q('.sp-sel'); sel.innerHTML = '';
     if (!BOX.length) return;
-    sel.classList.toggle('off', !st.loop.on);                       // selected but not looping: lighter
+    sel.classList.toggle('off', !st.loop.on);
     const a = Math.min(st.loop.a, st.loop.b), b = Math.max(st.loop.a, st.loop.b);
-    // one even band per line of music (rounded ends where the selection starts / stops)
+    const labelTxt = a === b ? `m. ${mNum(a)}` : `m. ${mNum(a)}–${mNum(b)}`;
+    // When Loop is OFF: draw a crisp thin vertical start-position line (never a wide translucent slab over all staves),
+    // with the measure pill positioned cleanly above the top staff.
+    if (!st.loop.on) {
+      const r = BOX[a]; if (!r) return;
+      const lineX = r.knots?.[0]?.[1] ?? (r.x + 8);
+      const lineH = Math.max(24, r.sysBot - r.sysTop);
+      const pillGap = Math.max(5, Math.round(r.sysTop - r.pillTop));
+      const d = document.createElement('i');
+      d.className = 'sp-start-line';
+      Object.assign(d.style, { left: (lineX - 1.25) + 'px', top: r.sysTop + 'px', width: '2.5px', height: lineH + 'px' });
+      const t = document.createElement('b');
+      t.textContent = labelTxt;
+      t.style.bottom = `calc(100% + ${pillGap}px)`;
+      d.appendChild(t);
+      sel.appendChild(d);
+      if (a !== b) {
+        const groups = [];
+        for (let i = a; i <= b; i++) {
+          const ri = BOX[i]; if (!ri) continue;
+          const g = groups[groups.length - 1];
+          if (g && Math.abs(g.top - ri.sysTop) < 2 && ri.x >= g.right - 2) { g.right = ri.x + ri.w; g.pillTop = Math.min(g.pillTop, ri.pillTop); }
+          else groups.push({ left: ri.x, right: ri.x + ri.w, top: ri.sysTop, pillTop: ri.pillTop });
+        }
+        groups.forEach(g => {
+          const cap = document.createElement('i');
+          cap.className = 'sp-range-cap';
+          Object.assign(cap.style, { left: g.left + 'px', top: (g.pillTop - 2) + 'px', width: Math.max(4, g.right - g.left) + 'px', height: '2px' });
+          sel.appendChild(cap);
+        });
+      }
+      return;
+    }
+    // When Loop is ON: draw clean loop bands tightly aligned to the system's staff lines, with the pill above the top staff.
     const groups = [];
     for (let i = a; i <= b; i++) {
       const r = BOX[i]; if (!r) continue;
       const g = groups[groups.length - 1];
-      if (g && Math.abs(g.top - r.sysTop) < 2 && r.x >= g.right - 2) { g.right = r.x + r.w; g.last = i; }
-      else groups.push({ left: r.x, right: r.x + r.w, top: r.sysTop, bot: r.sysBot, first: i, last: i });
+      if (g && Math.abs(g.top - r.sysTop) < 2 && r.x >= g.right - 2) {
+        g.right = r.x + r.w; g.last = i; g.pillTop = Math.min(g.pillTop, r.pillTop);
+      } else {
+        groups.push({ left: r.x, right: r.x + r.w, top: r.sysTop, bot: r.sysBot, pillTop: r.pillTop, first: i, last: i });
+      }
     }
-    const pad = 1.4 * U();
+    const pad = 4;
     groups.forEach((g, k) => {
       const d = document.createElement('i');
       d.className = (g.first === a ? 'start ' : '') + (g.last === b ? 'end' : '');
-      Object.assign(d.style, { left: g.left - 3 + 'px', top: g.top - pad + 'px', width: g.right - g.left + 6 + 'px', height: g.bot - g.top + pad * 2 + 'px' });
-      if (k === 0) { const t = document.createElement('b'); t.textContent = a === b ? `m. ${mNum(a)}` : `m. ${mNum(a)}–${mNum(b)}`; if (st.loop.on) t.textContent = t.textContent; d.appendChild(t); }
+      const topY = g.top - pad, h = Math.max(24, (g.bot - g.top) + pad * 2);
+      Object.assign(d.style, { left: g.left - 2 + 'px', top: topY + 'px', width: g.right - g.left + 4 + 'px', height: h + 'px' });
+      if (k === 0) {
+        const t = document.createElement('b');
+        t.textContent = labelTxt;
+        t.style.bottom = `calc(100% + ${Math.max(4, Math.round(topY - g.pillTop))}px)`;
+        d.appendChild(t);
+      }
       sel.appendChild(d);
     });
   };
@@ -1863,9 +1974,10 @@ function mountScore(host, st, onChange0, key) {
       const [qa, xa] = K[j], [qb, xb] = K[j + 1] || [m.len, r.x + r.w - 4];
       x = dq <= qa ? xa : xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
     } else { const f = Math.max(0, Math.min(1, dq / (m.len || 1))), pad = Math.min(14, r.w * 0.08); x = r.x + pad + f * (r.w - pad * 1.5); }
-    ph.hidden = false; Object.assign(ph.style, { transform: `translate(${x}px, ${r.y}px)`, height: r.h + 'px' });
+    const phTop = r.sysTop ?? r.y, phH = Math.max(24, (r.sysBot ?? (r.y + r.h)) - phTop);
+    ph.hidden = false; Object.assign(ph.style, { transform: `translate(${x}px, ${phTop}px)`, height: phH + 'px' });
     const sc = $q('.sp-score');                                     // keep the playhead in view
-    if (r.y < sc.scrollTop + 10 || r.y + r.h > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, r.y - sc.clientHeight * 0.25);
+    if (phTop < sc.scrollTop + 10 || phTop + phH > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, phTop - sc.clientHeight * 0.25);
     if (x < sc.scrollLeft + 30 || x > sc.scrollLeft + sc.clientWidth - 60) sc.scrollLeft = Math.max(0, x - sc.clientWidth * 0.3);
     if (ctl.lastIter !== ctl.iter) { ctl.lastIter = ctl.iter; ctl.updateBar(); }
   };
@@ -1887,15 +1999,17 @@ function mountScore(host, st, onChange0, key) {
     }
     ctl.paint();
   };
-  // colour what you're hearing: playing parts in their colour (the focused one strongest), muted parts grey
+  // colour what you're hearing: playing parts in their colour (the focused one strongest), muted/non-soloed parts grey
   ctl.paint = () => {
     const sc = ctl.sc; if (!sc) return;
     const on = st.colorParts !== false;
     $q('.sp-osmd').classList.toggle('sp-colored', on);
+    const F = spFoc(st), S0 = spSolo(st);
     for (const g of root.querySelectorAll('.sp-osmd [data-line]')) {
       const i = +g.getAttribute('data-line'), L = sc.lines[i];
       if (!on || !L) { g.style.removeProperty('--c'); g.style.opacity = ''; continue; }
-      const muted = st.parts[i]?.on === false, F = spFoc(st), dim = F.length && !F.includes(i);
+      const muted = st.parts[i]?.on === false || (S0.length > 0 && !S0.includes(i));
+      const dim = !muted && F.length && !F.includes(i);
       g.style.setProperty('--c', muted ? '#9aa0ad' : L.acc ? '#333a48' : ctl.lineColor(i));
       g.style.opacity = muted ? '0.35' : dim ? '0.55' : '';
     }
@@ -1951,9 +2065,10 @@ function mountScore(host, st, onChange0, key) {
   ctl.drawLabels = () => {
     const box = $q('.sp-lbls'); box.innerHTML = '';
     const o = ctl.osmd, sc = ctl.sc; if (!o || !sc || !st.labels) return;
-    const insts = o.Sheet?.Instruments || [], F = spFoc(st).filter(f => !sc.lines[f]?.acc);
+    const insts = o.Sheet?.Instruments || [], activeSel = spSolo(st).length ? spSolo(st) : spFoc(st);
+    const F = activeSel.filter(f => !sc.lines[f]?.acc);
     let want = F.length ? new Set(F) : new Set(sc.lines.map((L, i) => i).filter(i => !sc.lines[i].acc));
-    if (!want.size) want = new Set(spFoc(st).length ? spFoc(st) : sc.lines.map((L, i) => i));
+    if (!want.size) want = new Set(activeSel.length ? activeSel : sc.lines.map((L, i) => i));
     const svg = $q('.sp-osmd svg'); if (!svg) return;
     const ov = $q('.sp-ov').getBoundingClientRect(), sr = svg.getBoundingClientRect(), bx = sr.left - ov.left, by = sr.top - ov.top, u = U();
     const items = [], tops = new Map();
@@ -2030,16 +2145,26 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'zoom-reset') { st.zoom = 1; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
+      if (k === 'focus-all') {
+        st.focus = null; st.solo = null;
+        onChange(); ctl.refreshVoicesUI(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView();
+      }
       if (k === 'focus') {
         if (b.dataset.i === '') st.focus = null;
         else { const F = new Set(spFoc(st)), i = +b.dataset.i; F.has(i) ? F.delete(i) : F.add(i); st.focus = F.size ? [...F].sort((x, y) => x - y) : null; }
+        onChange(); ctl.refreshVoicesUI(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView();
+      }
+      if (k === 'solo') {
+        const S0 = new Set(spSolo(st)), i = +b.dataset.i;
+        S0.has(i) ? S0.delete(i) : S0.add(i);
+        st.solo = S0.size ? [...S0].sort((x, y) => x - y) : null;
         onChange(); ctl.refreshVoicesUI(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView();
       }
       if (k === 'voices') { st.voicesOpen = !st.voicesOpen; onChange(); ctl.drawVoices(); ctl.updateBar(); return; }
       if (k === 'vrec') { spStartVocalRec(ctl, +b.dataset.line); return; }
       if (k === 'vsrc') {
         const li = +b.dataset.line, src = b.dataset.src;
-        if (src === 'sung' && !ctl.vocalRecs?.[li]?.audioBuffer) { toast('Record your sung voice first (🎤 Rec).'); return; }
+        if (src === 'sung' && !ctl.vocalRecs?.[li]?.audioBuffer) { toast('Record your sung voice first (Rec).'); return; }
         (st.parts[li] ||= {}).source = src;
         onChange(); ctl.refreshVoicesUI();
         return;
@@ -2176,6 +2301,7 @@ function mountScore(host, st, onChange0, key) {
     else if (k === 'gradeVoice') { st.gradeVoice = el.value; onChange(); return; }
     else if (k === 'gradeGuide') { st.gradeGuide = el.checked; onChange(); return; }
     else if (k === 'recGuide') { st.recGuide = el.checked; onChange(); return; }
+    else if (k === 'recMetro') { st.recMetro = el.checked; onChange(); return; }
     else if (k === 'recSelfGuide') { st.recSelfGuide = el.checked; onChange(); return; }
     else if (el.dataset.sppart != null) {
       const i = +el.dataset.sppart;
