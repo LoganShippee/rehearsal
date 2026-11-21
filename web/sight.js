@@ -1117,34 +1117,57 @@ function srSettingsHTML(st) {
   const opt = (v, cur, label = v) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${label}</option>`;
   const meters = m === 'rhythm' ? Object.keys(SR_METERS) : ['2/4', '3/4', '4/4'];
   const table = m === 'rhythm' ? srCellsFor(o.ts) : Object.fromEntries(SR_MEL_CELLS.map(k => [k, SR_SIMPLE[k]]));
-  const common = `<label>Time <select data-k="ts">${meters.map(v => opt(v, o.ts)).join('')}</select></label>
-    <label>Measures <span class="sr-step sr-mstep"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer" aria-label="Fewer measures">${IC('ico:minus')}</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More" aria-label="More measures">${IC('ico:plus')}</button></span></label>
-    <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
-    <label title="Syllables used for rhythm counting across Sight Reading, Score Practice, and Warm-ups">Rhythm counts <select data-k="rhythmSystem">${RHYTHM_SYSTEMS.map(([v, l]) => opt(v, rhythmSys(), l)).join('')}</select></label>
-    ${m === 'solfege' ? `<label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
-    <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
-    <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
-    <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${o.measureNums ? 'checked' : ''}> Measure #</label>
-    ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>` : ''}
-    ${metVolSlider()}
-    <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
-  const sol = m === 'solfege' ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
-    <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
-    <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
-    <label>Range <select data-k="range">${Object.entries(SR_RANGES).map(([k, v]) => opt(k, o.range, v[0])).join('')}</select></label>
-    <label title="Sequences: a short idea repeated a step higher or lower, then a cadence. Mixed: some phrases use a sequence, others are written freely. Free: no sequences.">Melody <select data-k="melodyStyle">${opt('patterns', o.melodyStyle || 'mixed', 'Sequences')}${opt('mixed', o.melodyStyle || 'mixed', 'Mixed')}${opt('free', o.melodyStyle || 'mixed', 'Free')}</select></label>
-    <label>Motion <select data-k="leap">${Object.entries(SR_LEAPS).map(([k, v]) => opt(k, o.leap, v)).join('')}</select></label>
-    <label class="srchk"><input type="checkbox" data-k="startDo" ${o.startDo ? 'checked' : ''}> Start on do</label>
-    <label>Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, o.instrument || 'soft', l)).join('')}</select></label>
-    <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', o.artic || 'full', 'Full')}${opt('detached', o.artic || 'full', 'Detached')}</select></label>
-    <label>Parts <select data-k="parts">${opt(1, o.parts || 1, '1 line')}${opt(2, o.parts || 1, '2 parts')}${opt(3, o.parts || 1, '3 parts')}</select></label>
-    ${(o.parts || 1) > 1 ? `<label>Type <select data-k="texture">${opt('harmony', o.texture || 'harmony', 'Harmony')}${opt('canon', o.texture || 'harmony', 'Canon (round)')}</select></label>
-      ${(o.texture || 'harmony') === 'canon' ? `<label>Next part enters after <select data-k="canonDelay">${opt(1, o.canonDelay || 1, '1 measure')}${opt(2, o.canonDelay || 1, '2 measures')}</select></label>`
-        : `<label>Rhythm <select data-k="partRhythm">${opt('same', o.partRhythm || 'same', 'Same in every part')}${opt('different', o.partRhythm || 'same', 'Different per part')}</select></label>
-           <label>Unison <select data-k="unison">${opt('lots', o.unison || 'lots', 'Lots')}${opt('some', o.unison || 'lots', 'Some')}${opt('none', o.unison || 'lots', 'None')}</select></label>`}
-      ${[2, 3].filter(n => n <= o.parts).map(n => `<label>Part ${n} clef <select data-k="clef${n}">${opt('treble', srPartClef(o, n - 1), 'Treble')}${opt('bass', srPartClef(o, n - 1), 'Bass')}</select></label>`).join('')}` : ''}` : '';
-  const cells = `<div class="sr-cells">${Object.entries(table).map(([k, c]) => `<label class="srchk"><input type="checkbox" data-cell="${k}" ${o.cells.includes(k) ? 'checked' : ''}> ${c.label}</label>`).join('')}</div>`;
-  return `<div class="sr-form">${sol}${common}</div>${cells}`;
+  const pitchCard = m === 'solfege' ? `<div class="sr-scard">
+      <div class="sr-scard-hd">Pitch &amp; Melody</div>
+      <div class="sr-scard-bd">
+        <label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, o.key, k.replace('b', '♭'))).join('')}</select></label>
+        <label>Mode <select data-k="scale">${opt('major', o.scale, 'Major')}${opt('minor', o.scale, 'Minor (do-based)')}</select></label>
+        <label>Clef <select data-k="clef">${opt('treble', o.clef, 'Treble')}${opt('bass', o.clef, 'Bass')}</select></label>
+        <label>Range <select data-k="range">${Object.entries(SR_RANGES).map(([k, v]) => opt(k, o.range, v[0])).join('')}</select></label>
+        <label title="Sequences: a short idea repeated a step higher or lower, then a cadence. Mixed: some phrases use a sequence, others are written freely. Free: no sequences.">Melody <select data-k="melodyStyle">${opt('patterns', o.melodyStyle || 'mixed', 'Sequences')}${opt('mixed', o.melodyStyle || 'mixed', 'Mixed')}${opt('free', o.melodyStyle || 'mixed', 'Free')}</select></label>
+        <label>Motion <select data-k="leap">${Object.entries(SR_LEAPS).map(([k, v]) => opt(k, o.leap, v)).join('')}</select></label>
+        <label>Parts <select data-k="parts">${opt(1, o.parts || 1, '1 line')}${opt(2, o.parts || 1, '2 parts')}${opt(3, o.parts || 1, '3 parts')}</select></label>
+        <label class="srchk"><input type="checkbox" data-k="startDo" ${o.startDo ? 'checked' : ''}> Start on do</label>
+        ${(o.parts || 1) > 1 ? `<label>Type <select data-k="texture">${opt('harmony', o.texture || 'harmony', 'Harmony')}${opt('canon', o.texture || 'harmony', 'Canon (round)')}</select></label>
+          ${(o.texture || 'harmony') === 'canon' ? `<label>Next part enters after <select data-k="canonDelay">${opt(1, o.canonDelay || 1, '1 measure')}${opt(2, o.canonDelay || 1, '2 measures')}</select></label>`
+            : `<label>Rhythm <select data-k="partRhythm">${opt('same', o.partRhythm || 'same', 'Same in every part')}${opt('different', o.partRhythm || 'same', 'Different per part')}</select></label>
+               <label>Unison <select data-k="unison">${opt('lots', o.unison || 'lots', 'Lots')}${opt('some', o.unison || 'lots', 'Some')}${opt('none', o.unison || 'lots', 'None')}</select></label>`}
+          ${[2, 3].filter(n => n <= o.parts).map(n => `<label>Part ${n} clef <select data-k="clef${n}">${opt('treble', srPartClef(o, n - 1), 'Treble')}${opt('bass', srPartClef(o, n - 1), 'Bass')}</select></label>`).join('')}` : ''}
+      </div>
+    </div>` : '';
+  const meterCard = `<div class="sr-scard">
+      <div class="sr-scard-hd">Meter &amp; Counting</div>
+      <div class="sr-scard-bd">
+        <label>Time <select data-k="ts">${meters.map(v => opt(v, o.ts)).join('')}</select></label>
+        <label>Measures <span class="sr-step sr-mstep"><button type="button" data-sr="step" data-f="measures" data-d="-1" title="Fewer" aria-label="Fewer measures">${IC('ico:minus')}</button><input type="number" min="1" max="16" data-k="measures" value="${o.measures}"><button type="button" data-sr="step" data-f="measures" data-d="1" title="More" aria-label="More measures">${IC('ico:plus')}</button></span></label>
+        <label title="Syllables used for rhythm counting across Sight Reading, Score Practice, and Warm-ups">Rhythm counts <select data-k="rhythmSystem">${RHYTHM_SYSTEMS.map(([v, l]) => opt(v, rhythmSys(), l)).join('')}</select></label>
+        <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
+        <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${o.measureNums ? 'checked' : ''}> Measure #</label>
+      </div>
+    </div>`;
+  const playCard = `<div class="sr-scard">
+      <div class="sr-scard-hd">Playback &amp; Grading</div>
+      <div class="sr-scard-bd">
+        ${m === 'solfege' ? `<label>Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, o.instrument || 'soft', l)).join('')}</select></label>
+          <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', o.artic || 'full', 'Full')}${opt('detached', o.artic || 'full', 'Detached')}</select></label>`
+          : `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>`}
+        <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, o.countIn ?? 1, l)).join('')}</select></label>
+        ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>
+          <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>` : ''}
+        ${metVolSlider()}
+        <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
+      </div>
+    </div>`;
+  const cells = `<div class="sr-scard sr-scard-rhy">
+      <div class="sr-scard-bd sr-cells">
+        <span class="sr-scard-inl">Rhythms</span>
+        ${Object.entries(table).map(([k, c]) => {
+          const on = o.cells.includes(k);
+          return `<label class="srchk sr-rhy-pill ${on ? 'on' : ''}"><input type="checkbox" data-cell="${k}" ${on ? 'checked' : ''}> ${c.label}</label>`;
+        }).join('')}
+      </div>
+    </div>`;
+  return `<div class="sr-scards ${m === 'rhythm' ? 'is-two' : ''}">${pitchCard}${meterCard}${playCard}</div>${cells}`;
 }
 
 // ---------- a rhythm block drawn as music (for buttons and choices), cached
@@ -1347,20 +1370,30 @@ function srBuildPanelHTML(st) {
 }
 function srBuildSettingsHTML(st) {
   const b = st.build, opt = (v, cur, label = v) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${label}</option>`;
-  const sol = true, meters = Object.keys(SR_METERS);
-  return `<div class="sr-form">
-    <label>Time <select data-k="ts">${meters.map(v => opt(v, b.ts)).join('')}</select></label>
-    ${sol ? `<label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, b.key, k.replace('b', '♭'))).join('')}</select></label>
-      <label>Mode <select data-k="scale">${opt('major', b.scale, 'Major')}${opt('minor', b.scale, 'Minor (do-based)')}</select></label>
-      <label>Clef <select data-k="clef">${opt('treble', b.clef, 'Treble')}${opt('bass', b.clef, 'Bass')}</select></label>` : ''}
-    <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, b.countIn ?? 1, l)).join('')}</select></label>
-    <label title="Syllables used for rhythm counting across Sight Reading, Score Practice, and Warm-ups">Rhythm counts <select data-k="rhythmSystem">${RHYTHM_SYSTEMS.map(([v, l]) => opt(v, rhythmSys(), l)).join('')}</select></label>
-    <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, b.countPitch ?? 'do', l)).join('')}</select></label>
-    <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
-    <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
-    <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
-    <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
-    <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${b.measureNums ? 'checked' : ''}> Measure #</label>
+  const meters = Object.keys(SR_METERS);
+  return `<div class="sr-scards is-two">
+    <div class="sr-scard">
+      <div class="sr-scard-hd">Music &amp; Counting</div>
+      <div class="sr-scard-bd">
+        <label>Time <select data-k="ts">${meters.map(v => opt(v, b.ts)).join('')}</select></label>
+        <label>Key <select data-k="key">${SR_KEYS.map(k => opt(k, b.key, k.replace('b', '♭'))).join('')}</select></label>
+        <label>Mode <select data-k="scale">${opt('major', b.scale, 'Major')}${opt('minor', b.scale, 'Minor (do-based)')}</select></label>
+        <label>Clef <select data-k="clef">${opt('treble', b.clef, 'Treble')}${opt('bass', b.clef, 'Bass')}</select></label>
+        <label title="Syllables used for rhythm counting across Sight Reading, Score Practice, and Warm-ups">Rhythm counts <select data-k="rhythmSystem">${RHYTHM_SYSTEMS.map(([v, l]) => opt(v, rhythmSys(), l)).join('')}</select></label>
+        <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${b.measureNums ? 'checked' : ''}> Measure #</label>
+      </div>
+    </div>
+    <div class="sr-scard">
+      <div class="sr-scard-hd">Playback &amp; Grading</div>
+      <div class="sr-scard-bd">
+        <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
+        <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
+        <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
+        <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, b.countIn ?? 1, l)).join('')}</select></label>
+        <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, b.countPitch ?? 'do', l)).join('')}</select></label>
+        <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
+      </div>
+    </div>
   </div>`;
 }
 

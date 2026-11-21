@@ -431,14 +431,26 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .sr-tabs, .sr-presets { display: flex; gap: 3px; padding: 3px; border-radius: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
 .sr-tabs button, .sr-presets button { border: none; background: transparent; }
 .sr-sp { flex: 1; }
-.sr-settings { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.sr-settings { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .sr-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
-.sr-form label { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; opacity: .9; }
-.sr-form select, .sr-form input[type=number] { background: rgba(255,255,255,.95); color: #1d2330; border: 1px solid rgba(0,0,0,.15); border-radius: 7px; padding: 4px 6px; font-size: 13px; }
-.sr-form input[type=number] { width: 64px; }
-.sr-cells { display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.srchk { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; cursor: pointer; }
-.srchk input { accent-color: var(--accent); }
+.sr-form label, .sr-scard-bd label { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 600; opacity: .94; }
+.sr-form select, .sr-form input[type=number], .sr-scard-bd select, .sr-scard-bd input[type=number] { background: rgba(255,255,255,.95); color: #1d2330; border: 1px solid rgba(0,0,0,.15); border-radius: 7px; padding: 4px 6px; font-size: 12.5px; }
+.sr-form input[type=number], .sr-scard-bd input[type=number] { width: 56px; }
+.sr-scards { display: grid; grid-template-columns: 1.25fr .95fr 1.25fr; gap: 8px; }
+.sr-scards.is-two { grid-template-columns: 1fr 1.15fr; }
+@container (max-width: 780px) { .sr-scards, .sr-scards.is-two { grid-template-columns: 1fr; } }
+.sr-scard { background: color-mix(in srgb, var(--text) 4.5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 11px; padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; }
+.sr-scard-rhy { padding: 7px 11px; }
+.sr-scard-hd, .sr-scard-inl { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: color-mix(in srgb, var(--text) 62%, transparent); user-select: none; }
+.sr-scard-hd { border-bottom: 1px solid color-mix(in srgb, var(--text) 11%, transparent); padding-bottom: 4px; }
+.sr-scard-inl { margin-right: 4px; }
+.sr-scard-bd { display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: center; }
+.sr-cells { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.srchk { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; cursor: pointer; }
+.srchk input { accent-color: var(--accent); margin: 0; }
+.sr-rhy-pill { padding: 4px 9px; border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); font-size: 12px; font-weight: 600; transition: background .1s, border-color .1s; }
+.sr-rhy-pill:hover { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.sr-rhy-pill.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .sr-staff { flex: 1; margin: 14px; padding: 12px 8px; background: #fff; border-radius: 12px; min-height: 160px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
 .sr-staff svg text { fill: #1d2330; }
 .sr-msg { color: #555; padding: 20px; }
