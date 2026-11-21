@@ -244,7 +244,7 @@ final class LocalServer {
                 guard let app = apps.first(where: { FileManager.default.fileExists(atPath: $0 + "/Contents/MacOS/mscore") }) else {
                     return self.send(c, 404, "text/plain", Data("MuseScore not found".utf8))
                 }
-                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cp-conv-" + UUID().uuidString)
+                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("rehearsal-conv-" + UUID().uuidString)
                 try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
                 defer { try? FileManager.default.removeItem(at: tmp) }
                 let inF = tmp.appendingPathComponent("score." + ext), outF = tmp.appendingPathComponent("score.musicxml")
