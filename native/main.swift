@@ -547,6 +547,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             (wv?.window as? RehearsalWindow)?.startNativeDrag()
         case "windowZoom":
             (wv?.window as? RehearsalWindow)?.toggleZoomWindow()
+        case "captureBugReport":
+            guard let wv else { return }
+            let cfg = WKSnapshotConfiguration()
+            cfg.rect = wv.bounds
+            cfg.snapshotWidth = NSNumber(value: min(1400, max(640, Int(wv.bounds.width))))
+            wv.takeSnapshot(with: cfg) { image, _ in
+                var dataUrl = ""
+                if let image, let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                   let jpg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.78]) {
+                    dataUrl = "data:image/jpeg;base64," + jpg.base64EncodedString()
+                }
+                let logURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Rehearsal/debug.log")
+                var logTail = ""
+                if let raw = try? String(contentsOf: logURL, encoding: .utf8) {
+                    logTail = raw.split(separator: "\n").suffix(60).joined(separator: "\n")
+                }
+                let ver = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+                let payload: [String: Any] = [
+                    "screenshot": dataUrl,
+                    "os": "macOS " + ProcessInfo.processInfo.operatingSystemVersionString,
+                    "version": ver,
+                    "logTail": logTail,
+                ]
+                if let d = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: d, encoding: .utf8) {
+                    wv.evaluateJavaScript("window.__bugReportOpen && window.__bugReportOpen(\(json))")
+                }
+            }
+        case "copyImage":
+            if let s = body["dataUrl"] as? String, let comma = s.firstIndex(of: ",") {
+                let b64 = String(s[s.index(after: comma)...])
+                if let data = Data(base64Encoded: b64), let img = NSImage(data: data) {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.writeObjects([img])
+                }
+            }
         case "saveText":
             let name = (body["name"] as? String) ?? "export.json"
             let text = (body["text"] as? String) ?? ""

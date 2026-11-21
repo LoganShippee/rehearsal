@@ -1532,13 +1532,10 @@ function mountScore(host, st, onChange0, key) {
         <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${vol}" title="Volume for ${esc(p.name)} (${Math.round(vol * 100)}%)">
         <button type="button" class="sp-vfoc-btn ${isFoc ? 'on' : ''}" data-sp="focus" data-i="${i}" title="Focus ${esc(p.name)}: plays louder while other parts stay soft">Focus</button>
         <button type="button" class="sp-vfoc-btn solo ${isSolo ? 'on' : ''}" data-sp="solo" data-i="${i}" title="Solo ${esc(p.name)}: mute all non-soloed parts">Solo</button>
-        ${!showRec && srcMode === 'sung' ? `<span class="sp-sung-badge" title="Playing recorded sung voice (${esc(recRangeLbl)})">Sung</span>` : ''}
-        ${showRec ? `<button type="button" class="sp-vrec-btn ${isRecThis ? 'rec-on' : ''}" data-sp="vrec" data-line="${i}" title="${isRecThis ? 'Stop recording ' + esc(p.name) : (hasRec ? 'Re-record ' : 'Record ') + 'your sung voice for ' + esc(p.name) + ' over the active loop/range'}">${isRecThis ? spSvg('stop') + ' Stop' : spSvg('mic') + ' Rec'}</button>
-        <span class="sp-vsrc-seg" role="group" aria-label="Audio source for ${esc(p.name)}">
-          <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" ${hasRec ? '' : 'disabled'} title="${hasRec ? 'Play recorded Sung voice for ' + esc(p.name) + ' (' + esc(recRangeLbl) + ')' : 'Record a vocal take (Rec) first to enable Sung mode'}">Sung</button>
+        ${hasRec ? `<span class="sp-vsrc-seg" role="group" aria-label="Audio source for ${esc(p.name)}">
+          <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" title="Play recorded Sung voice for ${esc(p.name)} (${esc(recRangeLbl)})">Sung</button>
           <button type="button" data-sp="vsrc" data-line="${i}" data-src="midi" class="${srcMode === 'midi' ? 'on' : ''}" title="Play MIDI piano notes for ${esc(p.name)}">MIDI</button>
-        </span>
-        ${hasRec ? `<span class="sp-vmeta" title="Recorded range &amp; tempo">${esc(recRangeLbl)}</span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} and revert to MIDI" aria-label="Delete sung recording for ${esc(p.name)}">${spSvg('trash')}</button>` : ''}` : ''}
+        </span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} (${esc(recRangeLbl)})" aria-label="Delete sung recording for ${esc(p.name)}">${spSvg('trash')}</button>` : ''}
       </div>`;
     }).join('');
   };
@@ -1548,24 +1545,18 @@ function mountScore(host, st, onChange0, key) {
     box.hidden = !st.voicesOpen;
     if (box.hidden) return;
     const isAll = !spFoc(st).length && !spSolo(st).length;
-    const showRec = !!st.recMode || (SP_VREC.on && SP_VREC.ctl === ctl);
+    const isRecNow = SP_VREC.on && SP_VREC.ctl === ctl;
     const opt = (v, l) => `<option value="${v}" ${(st.view || 'all') === v ? 'selected' : ''}>${l}</option>`;
-    const recRow = showRec ? `<div class="sp-vrec-row">
-      <label title="Silent recording mutes piano &amp; click so only your voice is captured. Check this only when wearing headphones."><input type="checkbox" data-spk="recHeadphones" ${st.recHeadphones ? 'checked' : ''}> Headphones mode (hear backing while recording)</label>
-      ${st.recHeadphones ? `<label title="Play other active parts into your headphones while recording"><input type="checkbox" data-spk="recGuide" ${st.recGuide ? 'checked' : ''}> Guide parts</label>
-      <label title="Play metronome clicks into your headphones while recording"><input type="checkbox" data-spk="recMetro" ${st.recMetro ? 'checked' : ''}> Click track</label>` : '<span class="sp-vrec-note">Silent recording active — starting pitch &amp; count-in play first, then all score audio mutes so your mic captures pure voice.</span>'}
-    </div>` : '';
     box.innerHTML = `<button type="button" class="sp-vfoc-btn ${isAll ? 'on' : ''}" data-sp="focus-all" title="Clear Focus and Solo so all active parts play at normal volume">All</button>
       <button type="button" class="sp-pitch-grp" data-sp="pitch" data-w="order" title="Play each section's starting pitch from lowest to highest">${IC('ico:bell')} Low → high</button>
       <button type="button" class="sp-pitch-grp" data-sp="pitch" data-w="together" title="Play all sections' starting pitches together">${IC('ico:bell')} Chord</button>
       <span class="sp-vbar-sep" aria-hidden="true"></span>
       <div class="sp-parts">${ctl.partMixerHTML(true)}</div>
       <span class="sp-vbar-end">
-        <button type="button" class="sp-vrec-btn ${showRec ? 'on' : ''}" data-sp="rec-mode" title="Show or hide per-part vocal recording controls" style="${showRec ? 'background:var(--accent,#e76f51);color:var(--bg,#fff);border-color:transparent' : ''}">${spSvg('mic')} Record vocals</button>
+        <button type="button" class="sp-vrec-btn ${isRecNow ? 'rec-on' : ''}" data-sp="rec-menu" title="${isRecNow ? 'Stop recording vocals' : 'Record your sung voice for any part (choose Silent or Headphones mode)'}">${isRecNow ? spSvg('stop') + ' Stop rec' : spSvg('mic') + ' Record vocals ▾'}</button>
         <label data-ctl="colour" title="Color each voice part on the sheet music"><input type="checkbox" data-spk="colorParts" ${st.colorParts !== false ? 'checked' : ''}> Colour</label>
         <select data-spk="view" data-ctl="show" title="Choose which staves are visible">${opt('all', 'All staves')}${opt('voices', 'Voices only')}${opt('focus', 'Focus only')}</select>
-      </span>
-      ${recRow}`;
+      </span>`;
     ctl.applyCtl?.();
   };
   ctl.refreshVoicesUI = () => {
@@ -1606,8 +1597,31 @@ function mountScore(host, st, onChange0, key) {
   ctl.hideCountOverlay = () => { $q('.sp-score .sp-count')?.remove(); };
 
   ctl.closeGradeMenu = () => {
-    root.querySelector('.sp-grmenu')?.remove();
+    root.querySelectorAll('.sp-grmenu').forEach(x => x.remove());
     if (ctl.__grMenuAway) document.removeEventListener('pointerdown', ctl.__grMenuAway, true);
+  };
+  ctl.openRecMenu = btn => {
+    ctl.closeGradeMenu();
+    const sc = ctl.sc; if (!sc) return;
+    const defaultLi = st.recLine != null && sc.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
+    st.recLine = defaultLi;
+    const curName = sc.lines[defaultLi]?.name || 'Voice';
+    const r = btn.getBoundingClientRect(), m = document.createElement('div');
+    m.className = 'sp-grmenu sp-recmenu';
+    m.innerHTML = `
+      <div class="sp-grm-sec">Voice / Part to record</div>
+      <select data-spk="recLine">${sc.lines.map((L, i) => `<option value="${i}" ${i === defaultLi ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}${ctl.vocalRecs?.[i]?.audioBuffer ? ' · Sung saved' : ''}</option>`).join('')}</select>
+      <div class="sp-grm-sec">Headphones Options</div>
+      <label class="sp-grm-chk" title="Play other active parts into your headphones when using Headphones mode"><input type="checkbox" data-spk="recGuide" ${st.recGuide !== false ? 'checked' : ''}> Guide parts (piano / other voices)</label>
+      <label class="sp-grm-chk" title="Play metronome click into your headphones when using Headphones mode"><input type="checkbox" data-spk="recMetro" ${st.recMetro ? 'checked' : ''}> Click track (metronome)</label>
+      <div class="sp-grm-sec">Start Recording</div>
+      <button type="button" class="sp-grm-btn ${!st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="0">${spSvg('mic')}<span><b>Silent Recording (No headphones)</b><small>Pure voice — starting pitch &amp; count-in play first, then all score audio mutes for ${esc(curName)}</small></span></button>
+      <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear backing)</b><small>Hear selected guide parts &amp; click in headphones while recording ${esc(curName)}</small></span></button>`;
+    const left = Math.max(8, Math.min(r.right - 310, innerWidth - 322));
+    Object.assign(m.style, { left: left + 'px', top: r.bottom + 6 + 'px' });
+    root.appendChild(m);
+    ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
+    document.addEventListener('pointerdown', ctl.__grMenuAway, true);
   };
   ctl.openGradeMenu = btn => {
     ctl.closeGradeMenu();
@@ -2236,7 +2250,24 @@ function mountScore(host, st, onChange0, key) {
         onChange(); ctl.refreshVoicesUI(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView();
       }
       if (k === 'voices') { st.voicesOpen = !st.voicesOpen; onChange(); ctl.drawVoices(); ctl.updateBar(); return; }
-      if (k === 'rec-mode') { st.recMode = !st.recMode; onChange(); ctl.drawVoices(); return; }
+      if (k === 'rec-menu') {
+        if (SP_VREC.on && SP_VREC.ctl === ctl) { ctl.closeGradeMenu(); spStopVocalRec(true); return; }
+        root.querySelector('.sp-recmenu') ? ctl.closeGradeMenu() : ctl.openRecMenu(b);
+        return;
+      }
+      if (k === 'recgo') {
+        const hp = b.dataset.hp === '1';
+        st.recHeadphones = hp;
+        const gChk = root.querySelector('.sp-recmenu [data-spk="recGuide"]');
+        const mChk = root.querySelector('.sp-recmenu [data-spk="recMetro"]');
+        if (gChk) st.recGuide = gChk.checked;
+        if (mChk) st.recMetro = mChk.checked;
+        const li = st.recLine != null && ctl.sc?.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
+        onChange();
+        ctl.closeGradeMenu();
+        spStartVocalRec(ctl, li);
+        return;
+      }
       if (k === 'vrec') { spStartVocalRec(ctl, +b.dataset.line); return; }
       if (k === 'vsrc') {
         const li = +b.dataset.line, src = b.dataset.src;
@@ -2376,6 +2407,11 @@ function mountScore(host, st, onChange0, key) {
     else if (k === 'gradeLine') { st.gradeLine = Number(el.value); onChange(); ctl.updateBar(); return; }
     else if (k === 'gradeVoice') { st.gradeVoice = el.value; onChange(); return; }
     else if (k === 'gradeGuide') { st.gradeGuide = el.checked; onChange(); return; }
+    else if (k === 'recLine') {
+      st.recLine = Number(el.value); onChange();
+      const btn = $q('[data-sp="rec-menu"]'); if (btn && root.querySelector('.sp-recmenu')) ctl.openRecMenu(btn);
+      return;
+    }
     else if (k === 'recHeadphones') { st.recHeadphones = el.checked; onChange(); ctl.drawVoices(); return; }
     else if (k === 'recGuide') { st.recGuide = el.checked; onChange(); return; }
     else if (k === 'recMetro') { st.recMetro = el.checked; onChange(); return; }

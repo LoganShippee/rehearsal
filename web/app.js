@@ -481,7 +481,7 @@ async function startMusic(fileId, volume = 0.7, loop = true) {
   stopMusic(true);
   if (!S.files[fileId]) return;
   const a = new Audio(await fileBlobURL(fileId)); a.loop = loop; a.volume = clamp(volume, 0, 1);
-  P.music = a; a.play().catch(() => showSoundChip());
+  P.music = a; a.play().catch(() => { });
 }
 function stopMusic(immediate = false) {
   const a = P.music; if (!a) return; P.music = null;
@@ -490,10 +490,7 @@ function stopMusic(immediate = false) {
   const iv = setInterval(() => { i++; a.volume = Math.max(0, v0 * (1 - i / 15)); if (i >= 15) { clearInterval(iv); a.pause(); } }, 100);
 }
 function showSoundChip() {
-  if ($('.sound-chip') || !$('.present')) return;
-  const b = document.createElement('button'); b.className = 'sound-chip'; b.innerHTML = IC('ico:mute') + ' Sound is off — click to enable';
-  b.onclick = async () => { try { await ac().resume(); } catch { } if (P.music) P.music.play().catch(() => { }); b.remove(); };
-  $('.present').appendChild(b);
+  // Removed: audio context auto-resumes silently on first click/keypress or playback action.
 }
 
 // ============================================================ automation engine
@@ -577,10 +574,20 @@ function ringSVG(frac) {
 }
 function renderTimers() {
   const el = $('#p-timers'); if (!el) return;
-  el.innerHTML = P.timers.map(tm => `<div class="p-timer ${tm.pausedLeft != null ? 'paused' : ''}" data-tid="${tm.id}">
-    <span class="ringwrap"></span><div><div class="tl">${esc(tm.label)} <span class="tl-paused" ${tm.pausedLeft != null ? '' : 'hidden'}>Paused</span></div><div class="tv"></div></div>
-    <div class="tbtns tb1"><button data-action="timer-pause" data-id="${tm.id}" class="${tm.pausedLeft != null ? 'on' : ''}" title="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}" aria-label="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}">${IC(tm.pausedLeft != null ? 'ico:play' : 'ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}" title="Add a minute">+1</button></div>
-    <div class="tbtns"><button data-action="timer-mute" data-id="${tm.id}" class="${tm.muted || tm.sound === 'none' ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}" aria-label="Toggle timer sound">${IC(tm.muted || tm.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><button data-action="timer-x" data-id="${tm.id}" title="Remove timer" aria-label="Remove timer">${IC('ico:close')}</button></div></div>`).join('');
+  el.innerHTML = P.timers.map(tm => {
+    const isFull = !!tm.full;
+    const isFloat = !isFull && tm.x != null && tm.y != null;
+    const sty = isFloat
+      ? `left:${Math.round(tm.x)}px;top:${Math.round(tm.y)}px;${tm.w ? `width:${Math.round(tm.w)}px;` : ''}${tm.h ? `height:${Math.round(tm.h)}px;` : ''}`
+      : '';
+    return `<div class="p-timer ${tm.pausedLeft != null ? 'paused' : ''} ${isFloat ? 'floating' : ''} ${isFull ? 'full' : ''}" data-tid="${tm.id}" data-tdrag="${tm.id}" style="${sty}">
+      <span class="ringwrap"></span>
+      <div class="tm-main"><div class="tl">${esc(tm.label)} <span class="tl-paused" ${tm.pausedLeft != null ? '' : 'hidden'}>Paused</span></div><div class="tv"></div></div>
+      <div class="tbtns tb1"><button data-action="timer-pause" data-id="${tm.id}" class="${tm.pausedLeft != null ? 'on' : ''}" title="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}" aria-label="${tm.pausedLeft != null ? 'Resume timer' : 'Pause timer'}">${IC(tm.pausedLeft != null ? 'ico:play' : 'ico:pause')}</button><button data-action="timer-add" data-id="${tm.id}" title="Add a minute">+1</button></div>
+      <div class="tbtns"><button data-action="timer-full" data-id="${tm.id}" class="${isFull ? 'on' : ''}" title="${isFull ? 'Restore timer size' : 'Make timer full screen'}" aria-label="${isFull ? 'Restore timer size' : 'Make timer full screen'}">${IC(isFull ? 'ico:restore' : 'ico:maximize')}</button><button data-action="timer-mute" data-id="${tm.id}" class="${tm.muted || tm.sound === 'none' ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}" aria-label="Toggle timer sound">${IC(tm.muted || tm.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><button data-action="timer-x" data-id="${tm.id}" title="Remove timer" aria-label="Remove timer">${IC('ico:close')}</button></div>
+      ${isFull ? '' : `<div class="tm-rs" data-tresize="${tm.id}" title="Drag corner to resize timer"></div>`}
+    </div>`;
+  }).join('');
   updateTimers();
 }
 function updateTimers() {
@@ -760,8 +767,6 @@ function renderPresent() {
   let fitQueued = false;
   const refit = new ResizeObserver(() => { if (fitQueued) return; fitQueued = true; requestAnimationFrame(() => { fitQueued = false; fitDock(); }); });
   ['#p-title', '#p-clock'].forEach(s => { const el = $(s); if (el) refit.observe(el); });
-  if (AC && AC.state === 'suspended') showSoundChip();
-  else if (!AC) { try { if (ac().state === 'suspended') showSoundChip(); } catch { } }
 }
 function hexA(hex, a) {
   const h = (hex || '#000000').replace('#', ''), n = parseInt(h.length === 3 ? h.replace(/./g, c => c + c) : h, 16);
@@ -905,7 +910,9 @@ function renderDockMore() {
   const groups = [['tools', over.length ? "Didn't fit on the bar" : 'More tools'], ['screen', 'Screen'], ['cls', 'This class'], ['setup', '']]
     .map(([g, title]) => [title, ids.filter(id => (DOCK_GROUP[id] || 'tools') === g)]).filter(([, list]) => list.length);
   m.innerHTML = groups.map(([title, list]) => `${title ? `<div class="dm-head">${title}</div>` : ''}${list.map(row).join('')}`).join('<div class="dm-sep"></div>')
-    + `${groups.length ? '<div class="dm-sep"></div>' : ''}<button class="dm-item" data-action="dock-custom"><span class="i">⋯</span>Customize toolbar…</button>`;
+    + `${groups.length ? '<div class="dm-sep"></div>' : ''}<button class="dm-item" data-action="dock-custom"><span class="i">⋯</span>Customize toolbar…</button>
+    <button class="dm-item" data-action="help-open"><span class="i">${IC('ico:agenda')}</span>Help &amp; feature guide…</button>
+    <button class="dm-item" data-action="bug-report"><span class="i">${IC('ico:warn')}</span>Report a bug (screenshot)…</button>`;
   $('#present').appendChild(m);
   const r = $('#p-dock .dock-more').getBoundingClientRect();
   m.style.left = clamp(r.right - m.offsetWidth, 8, innerWidth - m.offsetWidth - 8) + 'px';
@@ -1411,6 +1418,7 @@ function mountSightHosts(root = document) {
     }
   }
   mountWidgets(root);
+  if (typeof mountFilesBrowser === 'function') for (const h of root.querySelectorAll('[data-files-win]')) mountFilesBrowser(h);
   if (typeof mountAudioPlayer === 'function') for (const h of root.querySelectorAll('[data-aud-file]')) mountAudioPlayer(h, h.dataset.audFile);
   if (typeof mountTuner === 'function') for (const h of root.querySelectorAll('[data-mu-win]')) {
     const id = h.dataset.muWin; let kind, st;
@@ -2200,6 +2208,7 @@ function winTitle(w) {
   if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
+  if (w.kind === 'files') return 'Files';
   if (w.kind === 'file') return S.files[w.fileId]?.name || 'File';
   if (w.kind === 'res') return winRes(w)?.title || 'Resource';
   if (w.title) return w.title;
@@ -2218,6 +2227,7 @@ function winIcon0(w) {
   if (WIDGETS[w.kind]) return WIDGETS[w.kind].icon;
   if (w.kind === 'app') return 'ico:app';
   if (w.kind === 'warmup') return 'ico:warmup';
+  if (w.kind === 'files') return 'ico:folder';
   if (w.kind === 'file') { const r = { fileId: w.fileId }; return kindIcon(resKind(r)); }
   if (w.kind === 'res') { const r = winRes(w); return r ? resIcon(r) : 'ico:warn'; }
   return 'ico:web';
@@ -2280,6 +2290,7 @@ function winBodyHTML(w) {
   if (w.kind === 'res' && winRes(w)?.music) return `<div class="mu-host" data-mu-win="r-${w.resId}-w${w.id}" data-mu-res="${w.resId}"></div>`;
   if (w.kind === 'res' && winRes(w)?.sight) return `<div class="sr-host" data-sr-res="${w.resId}"></div>`;
   if (w.kind === 'warmup') { const cls = currentClass(); return `<div class="warmup"><div class="lbl">Warm-up question</div><div class="q">${esc(cls?.warmup || 'Welcome!')}</div></div>`; }
+  if (w.kind === 'files') return `<div class="files-host" data-files-win="${w.id}"></div>`;
   if (w.kind === 'file' || (w.kind === 'res' && winRes(w)?.fileId)) {
     const fid = w.kind === 'file' ? w.fileId : winRes(w).fileId, k = resKind({ fileId: fid }), src = fileDirectURL(fid);
     if (k === 'image') return `<img src="${src}">`;
@@ -2306,7 +2317,7 @@ function winHTML(w) {
     <div class="win-body"></div></div>`;
   const url = winURL(w), canNative = IS_NATIVE && (w.kind === 'web' || (w.kind === 'res' && !!url));
   const nat = winIsNative(w), isSlides = !!url && resKind({ url }) === 'slides', slideMode = (winRes(w) || w).mode;
-  const pinned = ['res', 'warmup'].includes(w.kind);
+  const pinned = ['res', 'warmup', 'files'].includes(w.kind);
   const nav = WIN.nav[w.id] || {};
   return `<div class="win ${nat ? 'native' : ''}" data-win="${w.id}">
     <div class="win-bar" data-wdrag="${w.id}">
@@ -2498,120 +2509,21 @@ function findStageExternalApp(key) {
   }
   return (P.lastApps || []).find(w => appKey(w) === key) || null;
 }
-function stageExternalAppTabsHTML(activeKey) {
+function stageExternalAppTabsHTML() {
   const seen = new Set(), items = [];
   for (const p of pinnedApps()) {
     const k = appKey(p); if (!k || seen.has(k)) continue;
-    seen.add(k); items.push({ ...p, key: k, pinned: true });
+    seen.add(k); items.push({ ...p, key: k });
   }
-  if (P.dockedApp) {
-    const k = appKey(P.dockedApp);
-    if (k && !seen.has(k)) { seen.add(k); items.push({ ...P.dockedApp, key: k, pinned: false }); }
-  }
-  return items.map(a => `<span class="tabwrap tab-ext-app"><button class="${activeKey === a.key ? 'on' : ''}" data-action="stage-app" data-key="${esc(a.key)}" title="Dock ${esc(a.app)} inside Rehearsal's stage">${a.appIcon ? `<img class="tab-app-ic" src="${a.appIcon}" alt="">` : IC('ico:app')}${esc(a.app || 'App')}</button><button class="tab-x" data-action="stage-app-close" data-key="${esc(a.key)}" title="${a.pinned ? 'Unpin & close app tab' : 'Close app tab'}">${IC('ico:close')}</button></span>`).join('');
+  return items.map(a => `<span class="tabwrap tab-ext-app"><button data-action="stage-app" data-key="${esc(a.key)}" title="Switch to ${esc(a.app)} with floating Agenda Mini-HUD">${a.appIcon ? `<img class="tab-app-ic" src="${a.appIcon}" alt="">` : IC('ico:app')}${esc(a.app || 'App')}</button><button class="tab-x" data-action="stage-app-close" data-key="${esc(a.key)}" title="Unpin app from workspace tabs">${IC('ico:close')}</button></span>`).join('');
 }
-function dockedStageHTML(a) {
-  const st = P.dockedApp && appKey(P.dockedApp) === appKey(a) ? P.dockedApp.status : 'docking';
-  const name = esc(a.app || 'External App');
-  const icon = a.appIcon ? `<img class="dock-ph-ic" src="${a.appIcon}" alt="">` : `<span class="dock-ph-ic-svg">${IC('ico:app')}</span>`;
-  if (st === 'needs-access') {
-    return `<div class="stage-dock-app">
-      <div class="dock-card">
-        ${icon}
-        <h3>Allow Accessibility once to dock ${name}</h3>
-        <p>macOS requires Accessibility permission so Rehearsal can position ${name} cleanly inside this workspace area.</p>
-        <div class="dock-card-btns">
-          <button class="dock-primary" data-action="perm" data-which="input">Grant Accessibility Permission</button>
-          <button data-action="dock-realign">Try Again</button>
-          <button data-action="dock-float">Use Float Mini-HUD instead</button>
-        </div>
-      </div>
-    </div>`;
-  }
-  if (st === 'not-running') {
-    return `<div class="stage-dock-app">
-      <div class="dock-card">
-        ${icon}
-        <h3>${name} isn’t open right now</h3>
-        <p>Launch ${name} and Rehearsal will snap its window right into this stage.</p>
-        <div class="dock-card-btns">
-          <button class="dock-primary" data-action="dock-launch" data-key="${esc(appKey(a))}">Launch ${name}</button>
-          <button data-action="dock-realign">Check Again</button>
-        </div>
-      </div>
-    </div>`;
-  }
-  return `<div class="stage-dock-app is-ready" data-action="dock-realign" title="Click to re-align and bring ${name} into this stage">
-    <div class="dock-card subtle">
-      ${icon}
-      <h3>${name} is docked here</h3>
-      <p>Click <b>Re-align</b> above (or click here) anytime to snap ${name} back inside this stage, or click any other tab to switch back to Rehearsal.</p>
-      <div class="dock-card-btns">
-        <button class="dock-primary" data-action="dock-realign">Re-align ${name}</button>
-        <button data-action="dock-float">Float Mini-HUD</button>
-      </div>
-    </div>
-  </div>`;
-}
-function dockStageApp(a, activate = true) {
-  if (!a || !IS_NATIVE) return;
-  const ctx = context(now());
-  if (ctx.mode !== 'class') {
-    // If not in class view, fall back to Floating Mini-HUD so the teacher can still work seamlessly
-    launchCompanionApp(a);
-    return;
-  }
-  const k = appKey(a);
-  const live = (P.lastApps || []).find(w => appKey(w) === k) || a;
-  const target = {
-    app: live.app || a.app || '', bundleId: live.bundleId || a.bundleId || '',
-    pid: live.pid || a.pid || 0, hwnd: live.hwnd || a.hwnd || 0,
-    title: live.title || a.title || '', appIcon: live.appIcon || a.appIcon || '', preview: live.preview || a.preview || '',
-    status: 'docking',
-  };
-  P.appPick = null; P.winMenu = false; P.compAppsOpen = false; P.compAppsHover = false;
-  renderWinMenu(); renderDock();
-  P.dockedApp = target;
-  P.stageSel[ctx.key] = 'app:' + k;
-  P.stageKey = '';
-  native('listAppWindows');
-  tick();
-  setTimeout(() => syncDockedApp(activate), 40);
-}
-function syncDockedApp(activate = false) {
-  if (!IS_NATIVE || VIEW !== 'present' || P.companion || !P.dockedApp) return;
-  const ctx = context(now());
-  if (ctx.mode !== 'class' || P.stageSel[ctx.key] !== 'app:' + appKey(P.dockedApp)) return;
-  const sc = $('#stage-content'); if (!sc) return;
-  const rect = rectOf(sc);
-  if (rect[2] < 80 || rect[3] < 60) return;
-  const sig = `${appKey(P.dockedApp)}|${rect.join(',')}`;
-  if (!activate && sig === P.lastDockRectSig) return;
-  P.lastDockRectSig = sig;
-  native('dockApp', {
-    app: P.dockedApp.app, bundleId: P.dockedApp.bundleId,
-    pid: P.dockedApp.pid || 0, hwnd: P.dockedApp.hwnd || 0,
-    rect, activate: !!activate,
-  });
-}
-function undockStageApp(bringFront = false) {
-  if (P.dockedApp) {
-    P.lastDockRectSig = '';
-    if (IS_NATIVE) native('undockApp', { bringFront: !!bringFront });
-  }
-}
-window.__dockAppState = st => {
-  if (!st || !P.dockedApp) return;
-  P.dockedApp.status = st.status || 'docked';
-  if (st.pid) P.dockedApp.pid = st.pid;
-  if (st.hwnd) P.dockedApp.hwnd = st.hwnd;
-  if (st.title) P.dockedApp.title = st.title;
-  P.stageKey = '';
-  if (VIEW === 'present' && !P.companion) tick();
-};
+function dockedStageHTML() { return ''; }
+function dockStageApp(a) { launchCompanionApp(a); }
+function syncDockedApp() { }
+function undockStageApp() { }
+window.__dockAppState = () => { };
 function launchCompanionApp(a) {
   if (!a) return;
-  undockStageApp(false);
   const live = (P.lastApps || []).find(w => appKey(w) === appKey(a)) || a;
   const target = {
     app: live.app || a.app || '', bundleId: live.bundleId || a.bundleId || '',
@@ -2635,14 +2547,12 @@ function appThumbHTML(a) {
 function appCardHTML(a, idx, isPinnedList) {
   const pinned = isAppPinned(a), k = appKey(a), sub = a.title && a.title !== a.app ? a.title : '';
   const act = isPinnedList ? `data-action="wm-pin-app" data-key="${esc(k)}"` : `data-action="wm-app" data-i="${idx}"`;
-  const floatAct = isPinnedList ? `data-action="wm-pin-float" data-key="${esc(k)}"` : `data-action="wm-app-float" data-i="${idx}"`;
   return `<div class="app-card ${pinned ? 'is-pinned' : ''}">
-    <button class="app-card-go" ${act} title="Dock ${esc(a.app)} inside Rehearsal's workspace${sub ? ' — ' + esc(sub) : ''}">
+    <button class="app-card-go" ${act} title="Switch to ${esc(a.app)} with floating Agenda Mini-HUD${sub ? ' — ' + esc(sub) : ''}">
       ${appThumbHTML(a)}
       <div class="app-card-meta"><span class="app-card-name">${esc(a.app || 'App')}</span>${sub ? `<span class="app-card-sub">${esc(sub)}</span>` : ''}</div>
     </button>
     <div class="app-card-acts">
-      <button class="app-float-btn" ${floatAct} title="Open full-screen with floating Mini-HUD">HUD</button>
       <button class="app-pin-btn ${pinned ? 'on' : ''}" data-action="app-pin" data-key="${esc(k)}" ${isPinnedList ? '' : `data-i="${idx}"`} title="${pinned ? 'Unpin from workspace tabs' : 'Pin to workspace tabs'}">${IC('ico:pin')}<span>${pinned ? 'Pinned' : 'Pin'}</span></button>
     </div>
   </div>`;
@@ -2653,7 +2563,7 @@ function appPickerHTML() {
   if (!a) return pinSec;
   if (a === 'loading') return `${pinSec}<div class="wm-h">Looking for External Apps…</div>`;
   const wins = a.windows || [];
-  return `${pinSec}<div class="wm-h">External Apps — click to dock in stage</div>${wins.length ? `<div class="app-cards">${wins.map((w, i) => appCardHTML(w, i, false)).join('')}</div>` : '<div class="wm-note">No other open apps found.</div>'}`;
+  return `${pinSec}<div class="wm-h">External Apps — opens with floating Agenda Mini-HUD</div>${wins.length ? `<div class="app-cards">${wins.map((w, i) => appCardHTML(w, i, false)).join('')}</div>` : '<div class="wm-note">No other open apps found.</div>'}`;
 }
 // Hide system helper windows, untitled background windows and exact duplicates.
 const APP_SKIP = /^(loginwindow|universalAccessAuthWarn|AutoFill|Window Server|Wallpaper|Spotlight|Notification Center|Control Center|TextInputMenuAgent|CursorUIViewService|Open and Save Panel Service)/i;
@@ -3541,7 +3451,8 @@ function renderWinMenu() {
     <div class="wm-head">Open</div>
     <div class="wm-grid">
       ${tile('wm-web', 'ico:web', 'Web page')}
-      ${tile('wm-file', 'ico:file', 'File…', `title="PDF, picture or video from this ${DEVICE}"`)}
+      ${tile('wm-files', 'ico:folder', 'Files', 'title="Search and open any audio, PDF, score, image, or video — pin individual files anytime"')}
+      ${tile('wm-file', 'ico:file', 'Import…', `title="Pick a new PDF, audio, score, picture or video from this ${DEVICE}"`)}
       ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'External Apps', 'title="Dock another app inside Rehearsal or float Mini-HUD (MuseScore, PowerPoint…)"') : ''}
     </div>
     ${IS_NATIVE ? appPickerHTML() : ''}
@@ -4611,17 +4522,174 @@ function libraryTab() {
   </div>`;
 }
 
+// ---------- Help & Tutorials feature guide (Settings + live spotlight mini-walkthroughs)
+const FEATURE_GUIDES = [
+  {
+    id: 'score',
+    cat: 'Music',
+    icon: 'ico:score',
+    title: 'Score Practice, Voice Mixer & Vocal Recording',
+    summary: 'Load MusicXML or MuseScore files, loop measures, ring starting pitches inside each voice pill, record silent sung voices (zero piano bleed), and grade parts note-by-note.',
+    tips: [
+      'Click any measure (or drag across measures) to set a start point or loop range.',
+      'Click the bell icon inside any voice pill for its starting pitch, or Low → high / Chord.',
+      'Toggle Record vocals to record pure voice tracks; Headphones mode is optional if you want backing audio.',
+    ],
+    steps: [
+      { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: 'Open Score Practice', body: 'Open ＋ Open → Score (or import any .mxl / .musicxml / .mscz file via Files) to load a choral or instrumental score.' },
+      { sel: '#stage-tabs', fallback: '#p-stage', title: 'Voice Pills, Pitch Bells & Grading', body: 'Use the single-row Voice bar for Focus, Solo, and starting pitch bells. Click Record vocals for pure voice recording, or Grade to see note-by-note pitch & rhythm marks.' },
+    ],
+  },
+  {
+    id: 'sight',
+    cat: 'Music',
+    icon: 'ico:sight',
+    title: 'Sight Reading & Live Grading',
+    summary: 'Generate instant rhythm, solfege, or custom sight-reading examples with live microphone pitch/rhythm grading and Spacebar rhythm tapping.',
+    tips: [
+      'Press Grade for a count-in + starting pitch cue, then sing or clap.',
+      'Use Listen back to hear your recorded voice aligned with the example (without extra metronome overlap).',
+    ],
+    steps: [
+      { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: 'Launch Sight Reading', body: 'Open ＋ Open → Sight reading (or pin it as a class tab) to generate custom rhythm or solfege exercises.' },
+      { sel: '#p-stage', fallback: '#p-body', title: 'Grade & Listen Back', body: 'Click Grade to analyze timing and pitch note-by-note, then use Listen back or Retry right from the score.' },
+    ],
+  },
+  {
+    id: 'extapps',
+    cat: 'Workspace',
+    icon: 'ico:app',
+    title: 'External Apps & Floating Agenda Mini-HUD',
+    summary: 'Switch to MuseScore, PowerPoint, or any desktop app at full size while Rehearsal floats cleanly as a resizable Agenda Mini-HUD — and pin favorite apps directly to your workspace tabs.',
+    tips: [
+      'Open ＋ Open → External Apps and click any open app to float Rehearsal as an Agenda Mini-HUD over it.',
+      'Click Pin on any app to keep a one-click launcher tab right in your main workspace bar.',
+      'Drag the Mini-HUD edges to resize it and reveal more upcoming agenda steps, then click ↩ Rehearsal to return.',
+    ],
+    steps: [
+      { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: 'Open External Apps', body: 'Click ＋ Open → External Apps to see running desktop apps with live previews. Click any app to switch to it with Rehearsal’s floating Agenda Mini-HUD.' },
+      { sel: '#stage-tabs', fallback: '#p-stage', title: 'Pinned External App Tabs', body: 'Pinned apps appear right alongside Warm-up and class tabs for 1-click switching.' },
+    ],
+  },
+  {
+    id: 'web',
+    cat: 'Workspace',
+    icon: 'ico:web',
+    title: 'Web Pages, Google Slides & Draw on Page',
+    summary: 'Rehearsal automatically picks the best browser engine for Google Docs/Sheets/Search and gives you a one-click Draw on page toggle plus live Google Slides Slideshow.',
+    tips: [
+      'Google Docs, Sheets, Drive, and Search automatically run crisp & full-featured with in-app Google Sign-In.',
+      'Click Draw on page in the URL bar whenever you want to annotate over a web page.',
+      'On Google Slides, click Slideshow to play clean minimal slides inside Rehearsal.',
+    ],
+    steps: [
+      { sel: '#stage-tabs', fallback: '#p-stage', title: 'Smart Web Tabs', body: 'Open any website or Google Doc/Sheet/Slides tab. Rehearsal automatically selects crisp Full browser mode and supports in-app Google Sign-In.' },
+      { sel: '[data-dock-id="ink"]', fallback: '#p-dock', title: 'Draw on Page & Slideshow', body: 'Use Draw on page in the URL bar (or the Pen tool here) to annotate on top of slides and websites.' },
+    ],
+  },
+  {
+    id: 'timers',
+    cat: 'Classroom',
+    icon: 'ico:timer',
+    title: 'Moveable, Resizable & Fullscreen Timers',
+    summary: 'Start quick countdown timers, drag them anywhere on screen, resize them from the corner, or expand any active timer to full screen for the whole room.',
+    tips: [
+      'Drag any active timer card to move it anywhere on the Present screen.',
+      'Drag the bottom-right corner handle to scale the ring and numbers up or down.',
+      'Click the Maximize (⤢) button on a running timer for a full-screen classroom countdown.',
+    ],
+    steps: [
+      { sel: '[data-dock-id="timer"]', fallback: '#p-dock', title: 'Start a Timer', body: 'Click Timer in the toolbar to launch a 30s, 1m, 2m, 5m, or custom countdown.' },
+      { sel: '#p-stage', fallback: '#p-body', title: 'Move, Resize & Fullscreen', body: 'Once a timer is running, drag it anywhere, resize its corner handle, or press Maximize (⤢) on the timer card to fill the screen.' },
+    ],
+  },
+  {
+    id: 'files',
+    cat: 'Workspace',
+    icon: 'ico:folder',
+    title: 'Searchable Files Window & Pinning Single Files',
+    summary: 'Search your library by name or filter by Audio, PDF, Scores, Images, or Video — open files immediately without pinning, or pin any single file as a class tab.',
+    tips: [
+      'Open ＋ Open → Files to search and switch between audio tracks, PDFs, and scores without pinning.',
+      'Click ▶ on any audio file for instant inline playback, or click the file row to open its full viewer.',
+      'Click Pin on any single file to add it straight to the current class’s workspace tabs.',
+    ],
+    steps: [
+      { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: 'Open the Files Window', body: 'Click ＋ Open → Files to open a searchable browser for every Audio, PDF, Score, Image, and Video in your library.' },
+      { sel: '#stage-tabs', fallback: '#p-stage', title: 'Open Freely or Pin Single Files', body: 'Open any file in a floating window without pinning — or click Pin on a single PDF/audio/score to keep it right here in your class tabs.' },
+    ],
+  },
+  {
+    id: 'edit',
+    cat: 'Classroom',
+    icon: 'ico:edit',
+    title: 'Quick Edit, Live Agenda & Automations',
+    summary: 'Edit titles, warm-ups, and agenda items live on the Present screen, drag agenda steps to reorder, and schedule timed bells or music automations.',
+    tips: [
+      'Click Quick edit on Present to edit directly on screen without leaving your class.',
+      'Use ‹ › (or Left/Right arrows) to advance your agenda steps.',
+    ],
+    steps: [
+      { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: 'Quick Edit On Screen', body: 'Toggle Quick edit to edit your class name, warm-up prompt, and live agenda items directly on the Present screen.' },
+      { sel: '#p-side .p-card', fallback: '#p-side', title: 'Live Agenda & Reordering', body: 'Step through your agenda with ‹ ›, or drag steps to reorder while Quick edit is active.' },
+    ],
+  },
+  {
+    id: 'bug',
+    cat: 'Support',
+    icon: 'ico:warn',
+    title: 'Bug Reports with Automatic Screenshots',
+    summary: 'Spot something glitchy? Press ⌘⇧B (or ⋯ → Report a bug) to snap an instant screenshot, explain what went wrong, and save or submit a complete report.',
+    tips: [
+      'Uncheck "Include screenshot" anytime if student names are visible on screen.',
+      'Click Copy Screenshot or Open GitHub Issue to submit in seconds.',
+    ],
+    steps: [
+      { sel: '#p-dock .dock-more', fallback: '#p-dock', title: 'One-Click Bug Reports (⌘⇧B)', body: 'Open ⋯ → Report a bug (or press ⌘⇧B / Ctrl+Shift+B anywhere) to capture a screenshot and send feedback with diagnostics.' },
+    ],
+  },
+];
+function helpTutorialsCard() {
+  const q = (P.helpSearch || '').trim().toLowerCase();
+  const list = FEATURE_GUIDES.filter(g => !q || (g.title + ' ' + g.summary + ' ' + g.cat + ' ' + g.tips.join(' ')).toLowerCase().includes(q));
+  return `<div class="card help-card" id="settings-help">
+    <div class="card-head">
+      <h2>Help &amp; Tutorials</h2>
+      <span class="grow"></span>
+      <button class="btn small primary" data-action="tour-replay">${IC('ico:play')} Start Full Guided Tour</button>
+      <button class="btn small" data-action="bug-report">${IC('ico:warn')} Report a Bug</button>
+    </div>
+    <p class="desc">Click any feature below for quick tips, or press <b>Show me on screen</b> to launch a focused interactive spotlight walkthrough right on your Present screen.</p>
+    <input class="help-search" data-help-search placeholder="Search features (e.g. timer, grading, audio, dock, pdf, sign in)…" value="${esc(P.helpSearch || '')}">
+    <div class="help-grid">
+      ${list.length ? list.map(g => `<details class="help-item" ${q ? 'open' : ''}>
+        <summary>
+          <span class="help-ic">${IC(g.icon)}</span>
+          <span class="help-meta"><b>${esc(g.title)}</b><small>${esc(g.summary)}</small></span>
+          <span class="help-cat">${esc(g.cat)}</span>
+        </summary>
+        <div class="help-body">
+          <ul>${g.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+          <div class="help-acts">
+            <button class="btn small primary" data-action="feature-tour" data-fid="${g.id}">Show me on screen →</button>
+          </div>
+        </div>
+      </details>`).join('') : '<div class="empty">No matching features found.</div>'}
+    </div>
+  </div>`;
+}
+
 // ---------- settings
 function settingsTab() {
   const sim = S.settings.sim;
   return `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
     <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}
+  ${helpTutorialsCard()}
   ${updatesCard()}<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
       <label class="chk"><input type="checkbox" data-bind="settings.showSeconds" ${S.settings.showSeconds ? 'checked' : ''}> Show seconds</label>
-      <button class="btn small" data-action="tour-replay">Replay guided tour</button>
       <span class="small muted">Toolbar size, labels and shrinking: ⋯ → Customize toolbar on the Present screen.</span></div></div>
   <div class="card"><h2>Test mode</h2><p class="desc">Pretend it's a different time so you can watch your automations run. The Present screen shows a red TEST TIME badge while this is on.</p>
     <div class="row"><label class="chk"><input type="checkbox" data-action-change="sim-on" ${sim.on ? 'checked' : ''}> Pretend the time is</label><input type="time" value="${sim.time}" data-action-change="sim-time">
@@ -4776,6 +4844,12 @@ const A = {
   'timer-mute': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; if (tm.sound === 'none') { tm.sound = S.settings.timerTool?.lastSound || 'bell'; tm.muted = false; } else tm.muted = !tm.muted; renderTimers(); },
   'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); updateTimers(); },
   'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); updateTimers(); },
+  'timer-full': el => {
+    const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return;
+    tm.full = !tm.full;
+    if (tm.full) P.timers.forEach(o => { if (o !== tm) o.full = false; });
+    renderTimers();
+  },
   'timer-x': el => { P.timers = P.timers.filter(t => t.id !== el.dataset.id); renderTimers(); },
   'overlay-dismiss': () => { if (P.overlay) P.overlay.until = 0; },
   'music-stop': () => { stopMusic(); renderDock(); },
@@ -4922,6 +4996,12 @@ const A = {
   'win-menu': () => { P.winMenu = !P.winMenu; renderWinMenu(); renderDock(); },
   'win-tile': () => { P.winMenu = false; renderWinMenu(); renderDock(); tileWindows(); },
   'wm-web': () => { const w = addWindow({ kind: 'web', url: '', native: false }); setTimeout(() => $(`[data-wurl="${w.id}"]`)?.focus(), 30); },
+  'wm-files': () => {
+    const ex = winList().find(w => w.kind === 'files');
+    if (ex) { P.winMenu = false; renderWinMenu(); renderDock(); bringToFront(ex); setTimeout(() => $(`.win[data-win="${ex.id}"] .fb-search`)?.focus(), 30); return; }
+    const w = addWindow({ kind: 'files' }, { w: 0.46, h: 0.72 });
+    setTimeout(() => $(`.win[data-win="${w.id}"] .fb-search`)?.focus(), 40);
+  },
   'wm-file': async () => { P.winMenu = false; renderWinMenu(); renderDock(); const fs = await pickFile('application/pdf,image/*,video/*,audio/*,.mxl,.musicxml,.mscz,.mscx', true); for (const f of fs) { const id = await storeFile(f); addWindow(spIsScoreName(f.name) ? { kind: 'score', score: { fileId: id, name: f.name } } : { kind: 'file', fileId: id }); } },
   'wm-score': async () => {
     P.winMenu = false; renderWinMenu(); renderDock();
@@ -5252,7 +5332,18 @@ const A = {
   },
   'upd-install': () => native('updateInstallApp'),
   'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },
-  'tour-replay': () => { S.settings.tourDone = false; go('present'); setTimeout(startTour, 120); },
+  'tour-replay': () => { S.settings.tourDone = false; P.tourSteps = null; go('present'); setTimeout(() => startTour(), 120); },
+  'feature-tour': el => {
+    const g = FEATURE_GUIDES.find(x => x.id === el.dataset.fid);
+    if (!g || !g.steps?.length) return;
+    go('present');
+    setTimeout(() => startTour(g.steps), 140);
+  },
+  'help-open': () => {
+    TAB = 'settings'; go('edit');
+    setTimeout(() => { $('#settings-help')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); $('.help-search')?.focus(); }, 80);
+  },
+  'bug-report': () => triggerBugReport(),
   'tour-prev': () => stepTour(-1),
   'tour-next': () => stepTour(1),
   'tour-skip': () => endTour(),
@@ -5468,8 +5559,11 @@ const TOUR_STEPS = [
   { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup: Backend & Automations', body: 'Open Setup to configure classes, bell schedules, automatic class switching, Google Drive, saved resources, Daily Routines, and timed per-class Automations.' },
   { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. Customize Toolbar (⋯)', body: 'Open ⋯ to show, hide, or reorder toolbar buttons, move tools into ＋ Open, and adjust toolbar size or idle shrinking. Replay this tour anytime in Setup → Settings.' },
 ];
-function startTour() {
-  if (VIEW !== 'present' || S.settings.tourDone) return;
+function activeTourSteps() { return P.tourSteps || TOUR_STEPS; }
+function startTour(customSteps = null) {
+  if (VIEW !== 'present') return;
+  if (!customSteps && S.settings.tourDone) return;
+  P.tourSteps = Array.isArray(customSteps) && customSteps.length ? customSteps : null;
   if (P.tour == null) {
     P.tourPrevPinned = P.pinned;
     const cur = context(now()).cls;
@@ -5495,7 +5589,9 @@ function startTour() {
   renderDock(); tick(); renderTour();
 }
 function endTour() {
+  const wasFull = !P.tourSteps;
   P.tour = null;
+  P.tourSteps = null;
   P.tourWin = false;
   if (P.tourSampleCls) {
     S.classes = S.classes.filter(c => c.id !== '__tour_cls' && !c.__tourSample);
@@ -5506,21 +5602,21 @@ function endTour() {
     delete P.tourPrevPinned;
   }
   P.layoutKey = P.sideKey = P.stageKey = ''; WIN.sig = '';
-  S.settings.tourDone = true; save();
+  if (wasFull) { S.settings.tourDone = true; save(); }
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
   renderDock(); tick();
 }
 function stepTour(d) {
   if (P.tour == null) return;
-  const n = P.tour + d;
-  if (n >= TOUR_STEPS.length) return endTour();
+  const steps = activeTourSteps(), n = P.tour + d;
+  if (n >= steps.length) return endTour();
   P.tour = Math.max(0, n);
   renderTour();
 }
 function renderTour() {
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
   if (P.tour == null || VIEW !== 'present') return;
-  const step = TOUR_STEPS[P.tour]; if (!step) return endTour();
+  const steps = activeTourSteps(), step = steps[P.tour]; if (!step) return endTour();
   const wantWin = !!step.sampleWin;
   if (!!P.tourWin !== wantWin) { P.tourWin = wantWin; renderWins(context(now()), true); }
   const target = (step.sel && $(step.sel)) || (step.fallback && $(step.fallback));
@@ -5534,11 +5630,11 @@ function renderTour() {
     document.body.appendChild(ring);
   }
   const card = document.createElement('div'); card.className = 'tour-card';
-  card.innerHTML = `<div class="tour-top"><span>Step ${P.tour + 1} of ${TOUR_STEPS.length}</span><button data-action="tour-skip">Skip</button></div>
+  card.innerHTML = `<div class="tour-top"><span>Step ${P.tour + 1} of ${steps.length}</span><button data-action="tour-skip">Close</button></div>
     <h3>${esc(step.title)}</h3><p>${esc(step.body)}</p>
     <div class="tour-foot"><button data-action="tour-prev" ${P.tour === 0 ? 'disabled' : ''}>← Back</button>
-    <div class="tour-dots">${TOUR_STEPS.map((_, i) => `<i class="${i === P.tour ? 'on' : ''}"></i>`).join('')}</div>
-    <button class="primary" data-action="tour-next">${P.tour === TOUR_STEPS.length - 1 ? 'Done' : 'Next →'}</button></div>`;
+    <div class="tour-dots">${steps.map((_, i) => `<i class="${i === P.tour ? 'on' : ''}"></i>`).join('')}</div>
+    <button class="primary" data-action="tour-next">${P.tour === steps.length - 1 ? 'Done' : 'Next →'}</button></div>`;
   document.body.appendChild(card);
   const cw = card.offsetWidth, ch = card.offsetHeight;
   let left = (innerWidth - cw) / 2, top = (innerHeight - ch) / 2;
@@ -5548,6 +5644,299 @@ function renderTour() {
   }
   card.style.left = left + 'px'; card.style.top = top + 'px';
 }
+
+// ---------- Searchable Files Window (Audio / PDF / Scores / Images / Video + single-file Pin)
+let FB_AUDIO = null, FB_AUDIO_ID = null;
+function fbStopAudio() {
+  if (FB_AUDIO) { try { FB_AUDIO.pause(); } catch { } FB_AUDIO = null; FB_AUDIO_ID = null; }
+}
+function fbCategoryOf(id, f) {
+  if (!f) return 'other';
+  if (typeof spIsScoreName === 'function' && spIsScoreName(f.name || '')) return 'score';
+  const m = (f.mime || '').toLowerCase(), n = (f.name || '').toLowerCase();
+  if (m.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|aac|flac)$/.test(n)) return 'audio';
+  if (m === 'application/pdf' || /\.pdf$/.test(n)) return 'pdf';
+  if (m.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(n)) return 'image';
+  if (m.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/.test(n)) return 'video';
+  return 'other';
+}
+function fbPinFileToClass(id) {
+  const f = S.files[id]; if (!f) return;
+  const cls = currentClass();
+  if (!cls) return toast('Switch to a class first to pin a file as a tab.');
+  const cat = fbCategoryOf(id, f);
+  const existing = cls.resources.find(r => r.fileId === id || r.score?.fileId === id);
+  if (existing) {
+    P.stageSel[context(now()).key] = existing.id;
+    P.stageKey = ''; tick();
+    toast(`Switched to pinned tab “${existing.title}”`);
+    return;
+  }
+  const cleanTitle = (f.name || 'File').replace(/\.[^.]+$/, '');
+  const res = cat === 'score'
+    ? { id: uid(), title: cleanTitle, score: { fileId: id, name: f.name } }
+    : { id: uid(), title: cleanTitle, fileId: id };
+  cls.resources.push(res);
+  P.stageSel[context(now()).key] = res.id;
+  save(); P.stageKey = ''; tick();
+  toast(`Pinned “${cleanTitle}” to ${cls.name}`);
+}
+function fbOpenFileFloating(id) {
+  const f = S.files[id]; if (!f) return;
+  const cat = fbCategoryOf(id, f);
+  if (cat === 'score') {
+    const saved = S.scoreSettings?.[id];
+    addWindow({ kind: 'score', score: saved ? JSON.parse(JSON.stringify(saved)) : { fileId: id, name: f.name } });
+  } else {
+    const sz = cat === 'audio' ? { w: 0.36, h: 0.24 } : { w: 0.58, h: 0.78 };
+    addWindow({ kind: 'file', fileId: id }, sz);
+  }
+}
+function mountFilesBrowser(host) {
+  if (!host) return;
+  if (!host._fbState) host._fbState = { q: '', cat: 'all' };
+  const st = host._fbState;
+  const render = () => {
+    const cls = currentClass();
+    const all = Object.entries(S.files || {}).filter(([, f]) => f && !f.hiddenScore);
+    const counts = { all: all.length, audio: 0, pdf: 0, score: 0, image: 0, video: 0 };
+    all.forEach(([id, f]) => { const c = fbCategoryOf(id, f); if (counts[c] != null) counts[c]++; });
+    const q = (st.q || '').trim().toLowerCase();
+    const list = all
+      .filter(([id, f]) => {
+        const c = fbCategoryOf(id, f);
+        if (st.cat !== 'all' && c !== st.cat) return false;
+        if (q && !(f.name || '').toLowerCase().includes(q) && !c.includes(q)) return false;
+        return true;
+      })
+      .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+    const cats = [
+      ['all', 'All'], ['audio', 'Audio'], ['pdf', 'PDF'], ['score', 'Scores'], ['image', 'Images'], ['video', 'Video'],
+    ];
+    const icoOf = c => c === 'audio' ? 'ico:audio' : c === 'pdf' ? 'ico:file' : c === 'score' ? 'ico:score' : c === 'image' ? 'ico:image' : c === 'video' ? 'ico:video' : 'ico:attach';
+    const isPinned = id => !!cls?.resources.some(r => r.fileId === id || r.score?.fileId === id);
+    const prevVal = host.querySelector('.fb-search')?.value;
+    const hadFocus = document.activeElement && host.contains(document.activeElement) && document.activeElement.classList.contains('fb-search');
+    const selStart = hadFocus ? document.activeElement.selectionStart : null;
+    host.innerHTML = `<div class="fb-wrap">
+      <div class="fb-top">
+        <input class="fb-search" placeholder="Search audio, PDFs, scores, images…" value="${esc(st.q)}">
+        <button class="fb-add" data-fb="add" title="Import new files into your library">${IC('ico:plus')} Add files</button>
+      </div>
+      <div class="fb-cats">
+        ${cats.map(([k, lbl]) => `<button class="fb-cat ${st.cat === k ? 'on' : ''}" data-fb="cat" data-v="${k}">${lbl} <span>${counts[k] || 0}</span></button>`).join('')}
+      </div>
+      <div class="fb-list">
+        ${list.length ? list.map(([id, f]) => {
+          const c = fbCategoryOf(id, f), pin = isPinned(id), playing = FB_AUDIO_ID === id;
+          const sz = f.size ? (f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB') : '';
+          return `<div class="fb-row ${playing ? 'playing' : ''}">
+            <button class="fb-open" data-fb="open" data-id="${id}" title="Open ${esc(f.name)} in a floating viewer (without pinning)">
+              <span class="fb-ic">${IC(icoOf(c))}</span>
+              <span class="fb-meta"><b class="fb-name">${esc(f.name)}</b><small>${c.toUpperCase()}${sz ? ' · ' + sz : ''}</small></span>
+            </button>
+            ${c === 'audio' ? `<button class="fb-btn ${playing ? 'on' : ''}" data-fb="play" data-id="${id}" title="${playing ? 'Stop audio preview' : 'Play audio preview'}">${IC(playing ? 'ico:stop' : 'ico:play')}</button>` : ''}
+            <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin" data-id="${id}" title="${pin ? 'Already pinned to this class — click to view tab' : 'Pin this single file as a tab in the current class'}">${IC('ico:pin')} <span>${pin ? 'Pinned' : 'Pin'}</span></button>
+          </div>`;
+        }).join('') : `<div class="fb-empty">${all.length ? 'No files match your search.' : 'No files in your library yet — click <b>+ Add files</b> or drag &amp; drop files here.'}</div>`}
+      </div>
+    </div>`;
+    const inp = host.querySelector('.fb-search');
+    if (inp) {
+      if (hadFocus && prevVal != null) { inp.focus(); if (selStart != null) try { inp.setSelectionRange(selStart, selStart); } catch { } }
+      inp.addEventListener('input', () => { st.q = inp.value; render(); });
+    }
+  };
+  if (!host._fbBound) {
+    host._fbBound = true;
+    host.addEventListener('click', async e => {
+      const b = e.target.closest('[data-fb]'); if (!b) return;
+      const act = b.dataset.fb, id = b.dataset.id;
+      if (act === 'cat') { st.cat = b.dataset.v; render(); }
+      else if (act === 'open') fbOpenFileFloating(id);
+      else if (act === 'pin') { fbPinFileToClass(id); render(); }
+      else if (act === 'play') {
+        if (FB_AUDIO_ID === id) { fbStopAudio(); render(); return; }
+        fbStopAudio();
+        try {
+          const a = new Audio(await fileBlobURL(id));
+          FB_AUDIO = a; FB_AUDIO_ID = id;
+          a.onended = () => { if (FB_AUDIO === a) { fbStopAudio(); render(); } };
+          a.play().catch(() => { });
+        } catch { }
+        render();
+      } else if (act === 'add') {
+        const fs = await pickFile('application/pdf,image/*,video/*,audio/*,.mxl,.musicxml,.mscz,.mscx', true);
+        for (const f of fs) await storeFile(f);
+        if (fs.length) { toast(`Added ${fs.length} file${fs.length > 1 ? 's' : ''} to library`); render(); }
+      }
+    });
+    host.addEventListener('dragover', e => { e.preventDefault(); host.classList.add('fb-drop'); });
+    host.addEventListener('dragleave', () => host.classList.remove('fb-drop'));
+    host.addEventListener('drop', async e => {
+      e.preventDefault(); host.classList.remove('fb-drop');
+      const fs = [...(e.dataTransfer?.files || [])];
+      for (const f of fs) await storeFile(f);
+      if (fs.length) { toast(`Added ${fs.length} file${fs.length > 1 ? 's' : ''} to library`); render(); }
+    });
+  }
+  render();
+}
+
+// ---------- Subnautica-style In-App Bug Report Modal (auto-screenshot + explanation + diagnostics)
+const BUG_REPO_URL = 'https://github.com/loganshippee/Rehearsal/issues/new';
+let BUG_STATE = null;
+function triggerBugReport() {
+  if (IS_NATIVE) {
+    native('captureBugReport');
+  } else {
+    window.__bugReportOpen({ screenshot: '', os: navigator.platform || 'Web', version: WEB_VERSION || '', logTail: '' });
+  }
+}
+window.__bugReportOpen = data => {
+  $('#bug-modal')?.remove();
+  BUG_STATE = {
+    screenshot: data?.screenshot || '',
+    includeShot: !!(data?.screenshot),
+    cat: 'Bug',
+    os: data?.os || navigator.platform || 'Unknown OS',
+    version: data?.version || WEB_VERSION || 'local',
+    logTail: data?.logTail || '',
+    view: VIEW,
+  };
+  const m = document.createElement('div');
+  m.id = 'bug-modal';
+  m.className = 'bug-backdrop';
+  const cats = [['Bug', 'Bug'], ['Confusing UI', 'Confusing UI'], ['Audio / Grading', 'Audio / Grading'], ['Idea', 'Feature idea']];
+  m.innerHTML = `<div class="bug-card" role="dialog" aria-label="Report a bug">
+    <div class="bug-head">
+      <h3>${IC('ico:warn')} Report a Bug or Feedback</h3>
+      <button class="bug-x" data-bug="close" title="Close">${IC('ico:close')}</button>
+    </div>
+    <div class="bug-cats">
+      ${cats.map(([v, l]) => `<button type="button" class="bug-cat ${v === 'Bug' ? 'on' : ''}" data-bug="cat" data-v="${v}">${l}</button>`).join('')}
+    </div>
+    ${BUG_STATE.screenshot ? `<div class="bug-shot-wrap">
+      <img class="bug-shot" src="${BUG_STATE.screenshot}" alt="Captured screen preview">
+      <div class="bug-shot-bar">
+        <label><input type="checkbox" id="bug-inc-shot" checked> Include screenshot (uncheck if student names are visible)</label>
+        <button type="button" class="bug-sm-btn" data-bug="copy-shot">Copy Screenshot</button>
+      </div>
+    </div>` : ''}
+    <label class="bug-fld"><span>What went wrong? (or what would make this better?)</span>
+      <textarea id="bug-desc" rows="4" placeholder="Describe what you were doing and what happened…"></textarea>
+    </label>
+    <div class="bug-meta">System info attached: Rehearsal ${esc(BUG_STATE.version)} · ${esc(BUG_STATE.os)} · View: ${esc(BUG_STATE.view)}</div>
+    <div class="bug-foot">
+      <button type="button" class="bug-btn" data-bug="save">Save Report File…</button>
+      <span class="grow"></span>
+      <button type="button" class="bug-btn" data-bug="close">Cancel</button>
+      <button type="button" class="bug-btn primary" data-bug="github">${BUG_STATE.screenshot ? 'Copy Screenshot &amp; Submit Issue →' : 'Submit Issue →'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  m.querySelector('#bug-desc')?.focus();
+  m.addEventListener('click', e => {
+    if (e.target === m) { m.remove(); return; }
+    const b = e.target.closest('[data-bug]'); if (!b) return;
+    const act = b.dataset.bug;
+    if (act === 'close') { m.remove(); return; }
+    if (act === 'cat') {
+      BUG_STATE.cat = b.dataset.v;
+      m.querySelectorAll('.bug-cat').forEach(x => x.classList.toggle('on', x === b));
+      return;
+    }
+    const incShot = m.querySelector('#bug-inc-shot') ? m.querySelector('#bug-inc-shot').checked : false;
+    const desc = (m.querySelector('#bug-desc')?.value || '').trim();
+    if (act === 'copy-shot') {
+      if (BUG_STATE.screenshot) {
+        native('copyImage', { dataUrl: BUG_STATE.screenshot });
+        toast('Screenshot copied — press ⌘V / Ctrl+V to paste anywhere.');
+      }
+      return;
+    }
+    if (act === 'save') {
+      const reportHTML = `<!doctype html><html><head><meta charset="utf-8"><title>Rehearsal Bug Report</title><style>body{font:14px/1.5 -apple-system,system-ui,sans-serif;max-width:860px;margin:24px auto;padding:0 16px;color:#111}pre{background:#f3f4f6;padding:12px;border-radius:8px;overflow:auto;font-size:12px}img{max-width:100%;border:1px solid #d1d5db;border-radius:8px;margin-top:8px}</style></head><body><h2>Rehearsal Feedback — ${esc(BUG_STATE.cat)}</h2><p><b>Date:</b> ${new Date().toISOString()}<br><b>Version:</b> ${esc(BUG_STATE.version)}<br><b>OS:</b> ${esc(BUG_STATE.os)}<br><b>View:</b> ${esc(BUG_STATE.view)}</p><h3>Description</h3><p style="white-space:pre-wrap">${esc(desc || '(No description entered)')}</p>${incShot && BUG_STATE.screenshot ? `<h3>Screenshot</h3><img src="${BUG_STATE.screenshot}">` : ''}${BUG_STATE.logTail ? `<h3>Recent Log</h3><pre>${esc(BUG_STATE.logTail)}</pre>` : ''}</body></html>`;
+      const fname = `rehearsal-report-${new Date().toISOString().slice(0, 10)}.html`;
+      if (!native('saveText', { name: fname, text: reportHTML })) {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([reportHTML], { type: 'text/html' })); a.download = fname; a.click();
+      }
+      toast('Bug report saved!');
+      m.remove();
+      return;
+    }
+    if (act === 'github') {
+      if (incShot && BUG_STATE.screenshot) native('copyImage', { dataUrl: BUG_STATE.screenshot });
+      const title = `[${BUG_STATE.cat}] ` + (desc.split('\n')[0].slice(0, 72) || 'Feedback from Rehearsal');
+      const body = `### What happened\n${desc || '_Describe what happened here_'}\n\n${incShot && BUG_STATE.screenshot ? '### Screenshot\n_(Screenshot was copied to your clipboard — press ⌘V / Ctrl+V here to attach it!)_\n\n' : ''}### Diagnostics\n- **App**: Rehearsal ${BUG_STATE.version}\n- **OS**: ${BUG_STATE.os}\n- **View**: ${BUG_STATE.view}${BUG_STATE.logTail ? `\n\n<details><summary>Recent log</summary>\n\n\`\`\`\n${BUG_STATE.logTail.slice(-1500)}\n\`\`\`\n</details>` : ''}`;
+      const url = `${BUG_REPO_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+      if (!native('openExternal', { url })) window.open(url, '_blank');
+      toast(incShot && BUG_STATE.screenshot ? 'Opened issue form & copied screenshot — press ⌘V to paste!' : 'Opened issue form in your browser.');
+      m.remove();
+    }
+  });
+};
+
+// Help search inside Settings → Help & Tutorials
+document.addEventListener('input', e => {
+  if (e.target.matches('[data-help-search]')) {
+    P.helpSearch = e.target.value;
+    const pos = e.target.selectionStart;
+    const card = $('#settings-help');
+    if (card) {
+      card.outerHTML = helpTutorialsCard();
+      const inp = $('#settings-help [data-help-search]');
+      if (inp) { inp.focus(); if (pos != null) try { inp.setSelectionRange(pos, pos); } catch { } }
+    }
+  }
+});
+
+// Global keyboard shortcut: Cmd/Ctrl + Shift + B opens the Subnautica-style Bug Report modal
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'b') {
+    e.preventDefault();
+    triggerBugReport();
+  }
+});
+
+// Active Timer dragging & corner resizing
+let TM_DRAG = null;
+document.addEventListener('pointerdown', e => {
+  if (VIEW !== 'present') return;
+  const rs = e.target.closest('[data-tresize]');
+  const dr = e.target.closest('[data-tdrag]');
+  if (!rs && !dr) return;
+  if (!rs && e.target.closest('button')) return;
+  const tid = (rs || dr).dataset[rs ? 'tresize' : 'tdrag'];
+  const tm = P.timers.find(x => x.id === tid);
+  if (!tm || tm.full) return;
+  const el = $(`.p-timer[data-tid="${tid}"]`); if (!el) return;
+  const r = el.getBoundingClientRect();
+  if (tm.x == null || tm.y == null) {
+    tm.x = r.left; tm.y = r.top; tm.w = r.width; tm.h = r.height;
+    el.classList.add('floating');
+    Object.assign(el.style, { left: tm.x + 'px', top: tm.y + 'px', width: tm.w + 'px', height: tm.h + 'px' });
+  }
+  e.preventDefault();
+  TM_DRAG = { tm, el, mode: rs ? 'resize' : 'move', sx: e.clientX, sy: e.clientY, ox: tm.x, oy: tm.y, ow: tm.w || r.width, oh: tm.h || r.height };
+});
+document.addEventListener('pointermove', e => {
+  if (!TM_DRAG) return;
+  const { tm, el, mode, sx, sy, ox, oy, ow, oh } = TM_DRAG;
+  const dx = e.clientX - sx, dy = e.clientY - sy;
+  if (mode === 'move') {
+    tm.x = clamp(ox + dx, 8, Math.max(8, innerWidth - (tm.w || 220) - 8));
+    tm.y = clamp(oy + dy, 8, Math.max(8, innerHeight - (tm.h || 72) - 8));
+    el.style.left = Math.round(tm.x) + 'px';
+    el.style.top = Math.round(tm.y) + 'px';
+  } else {
+    tm.w = clamp(ow + dx, 210, Math.min(780, innerWidth - tm.x - 12));
+    tm.h = clamp(oh + dy, 70, Math.min(460, innerHeight - tm.y - 12));
+    el.style.width = Math.round(tm.w) + 'px';
+    el.style.height = Math.round(tm.h) + 'px';
+  }
+});
+document.addEventListener('pointerup', () => { TM_DRAG = null; });
 
 (async function boot() {
   await loadData();

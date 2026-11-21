@@ -663,6 +663,29 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async Task CaptureBugReportAsync()
+    {
+        string dataUrl = "";
+        try
+        {
+            if (!_webView.IsDisposed && _webView.CoreWebView2 != null)
+            {
+                using var ms = new MemoryStream();
+                await _webView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Jpeg, ms);
+                dataUrl = "data:image/jpeg;base64," + Convert.ToBase64String(ms.ToArray());
+            }
+        }
+        catch { }
+        var payload = new Dictionary<string, object>
+        {
+            ["screenshot"] = dataUrl,
+            ["os"] = Environment.OSVersion.VersionString,
+            ["version"] = Application.ProductVersion ?? "",
+            ["logTail"] = "",
+        };
+        EvalScript("window.__bugReportOpen && window.__bugReportOpen(" + JsonSerializer.Serialize(payload) + ")");
+    }
+
     private void StartCompanionDrag()
     {
         if (!_isCompanion) return;
@@ -1246,6 +1269,28 @@ internal sealed class MainForm : Form
                 case "fullscreen":
                     ToggleCover();
                     break;
+                case "captureBugReport":
+                {
+                    _ = CaptureBugReportAsync();
+                    break;
+                }
+                case "copyImage":
+                {
+                    var dataUrl = Str(root, "dataUrl") ?? "";
+                    int comma = dataUrl.IndexOf(',');
+                    if (comma > 0)
+                    {
+                        try
+                        {
+                            var bytes = Convert.FromBase64String(dataUrl[(comma + 1)..]);
+                            using var ms = new MemoryStream(bytes);
+                            using var img = Image.FromStream(ms);
+                            Clipboard.SetImage((Image)img.Clone());
+                        }
+                        catch { }
+                    }
+                    break;
+                }
                 case "saveText":
                 {
                     var name = Str(root, "name") ?? "export.json";
