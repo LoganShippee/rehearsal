@@ -2,19 +2,26 @@
 
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/loganshippee)
 
-A Mac app (with a web version for any browser) for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
+A Mac and Windows app (with a web version for any browser) for your classroom screen and music rehearsals. It switches classes by bell schedule and runs your timers, music, reminders and agenda on its own, and it has sight-reading, score practice and grading tools.
 
 ## Install (for teachers)
-1. Download **Rehearsal.zip** from the latest release: `https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip`.
+
+### Mac
+1. Download **[Rehearsal.zip](https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip)** from the latest release.
 2. Double-click the zip and drag **Rehearsal** into Applications. Open it from Applications, not from Downloads: macOS runs apps left in Downloads from a hidden read-only copy, which can block the microphone and updates.
 3. Open it. macOS says it can't check the developer, because the app isn't registered with Apple: click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. This is needed only once.
+
+### Windows (Windows 10 / 11)
+1. Download **[Rehearsal-Setup.exe](https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Setup.exe)** from the latest release (or the portable zip **[Rehearsal-Windows.zip](https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Windows.zip)**).
+2. Run **Rehearsal-Setup.exe**. Windows Defender SmartScreen may show *"Windows protected your PC"* because the app isn't code-signed yet: click **More info → Run anyway**. This is needed only once.
+3. Rehearsal installs for your user account (`%LOCALAPPDATA%\Programs\Rehearsal`) with **no administrator password required** — ideal for school PCs.
 
 **Updates are automatic.** Rehearsal checks GitHub when it opens and every few hours. Most updates download quietly and are used the next time it opens (or click **Restart now**). Updates to the app itself show **Install and reopen**. Settings → Updates shows the version and has **Check for updates**. Every update is signed; the app refuses one whose signature doesn't match. Your classes and files are never touched by an update.
 
 ## Web version (any browser)
 Open **https://loganshippee.github.io/rehearsal/** in any browser: Chrome, Safari, Edge or Firefox, on a Windows PC, Chromebook, Mac or iPad. It works offline after the first visit. To make it feel like an app, install it: in Chrome or Edge use **Install Rehearsal** in the address bar (or the ⋮ menu); on an iPad tap **Share → Add to Home Screen** in Safari, then open it from the Home Screen to run it full screen. On an iPad it works best with a keyboard for now (touch controls come later). It updates itself: each new release is live the next time it's opened online. Settings → Updates (at the top) has **Check for updates**; if a newer version is out, **Reload now** switches to it.
 
-The web version keeps its classes and files in that browser on that device only. Use Settings → Export backup to move data between devices. Mac-only features: windows from other apps, MuseScore files (.mscz; MusicXML works), Google Drive browsing, and automatic dated backups.
+The web version keeps its classes and files in that browser on that device only. Use Settings → Export backup to move data between devices. Desktop-only features (Mac & Windows): MuseScore files (.mscz; MusicXML works), Google Drive browsing, full-browser windows, and automatic dated backups. Mac-only: live windows from other apps.
 
 ## For the developer
 - `./build.sh --install` builds `build/Rehearsal.app` and copies it into Applications (for trying changes on your own Mac).
@@ -75,10 +82,10 @@ If a Google file on the Present screen shows "You need access", use the **Drive 
 
 ## Your data
 
-**Automatic backups:** each day you use the app, the first save keeps a dated copy of your data in `~/Library/Application Support/Rehearsal/backups/` (newest 30 kept). Setup → Settings → Automatic backups lists them with **Restore** (what you have now is backed up first) and **Back up now**.
+**Automatic backups:** each day you use the app, the first save keeps a dated copy of your data in `~/Library/Application Support/Rehearsal/backups/` on Mac or `%LOCALAPPDATA%\Rehearsal\backups\` on Windows (newest 30 kept). Setup → Settings → Automatic backups lists them with **Restore** (what you have now is backed up first) and **Back up now**.
 
 **Fast score tabs:** a few seconds after opening (and when the class changes) the app quietly loads the notation library, the piano, and this class's scores, and draws its first score tab off-screen so it opens instantly.
-Everything is saved in `~/Library/Application Support/Rehearsal/` (`data.json` plus a `files/` folder). Use Settings → Export backup to move it to another Mac.
+Everything is saved in `~/Library/Application Support/Rehearsal/` on Mac or `%LOCALAPPDATA%\Rehearsal\` on Windows (`data.json` plus a `files/` folder). Use Settings → Export backup to move it to another computer.
 
 ## Layout
 - `native/`: Mac Swift app shell (window, local loopback server, Drive window)
