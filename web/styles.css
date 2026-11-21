@@ -237,7 +237,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .p-dock button, .p-dock select { background: transparent; border: none; color: #fff; padding: 5px 7px; border-radius: 9px; cursor: pointer; font-size: 11px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .p-dock button .i { font-size: 18px; line-height: 1; }
 .p-dock button:hover, .p-dock button.on { background: rgba(255,255,255,.16); }
-.p-dock select { background: rgba(255,255,255,.1); max-width: 150px; font-size: 12px; }
+.p-dock select { display: inline-block; background: rgba(255,255,255,.1); max-width: 150px; font-size: 12px; padding: 6px 8px; line-height: 1.2; }
 .p-dock select option { color: #000; }
 .p-dock .sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.2); margin: 4px 4px; }
 .sound-chip { position: absolute; left: 1em; bottom: 1em; z-index: 51; background: #e63946; color: #fff; border: none; padding: 8px 14px; border-radius: 99px; cursor: pointer; font-size: 13px; }
