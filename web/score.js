@@ -1336,7 +1336,7 @@ function spListenGrade(ctl, tempo, opts) {
 function spApplyAll() { Object.values(SP_CACHE).forEach(c => c.root?.isConnected && c.applyCtl?.()); }
 // Score practice bar: the same movable bar and standard order as sight reading
 // (what's on the page → playing it → what's written on the music → tools)
-const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'grade', 'voices', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'], breaks: ['nums'] };
+const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'grade', 'voices', 'nums', 'solfege', 'counts', 'layout', 'gap', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'], breaks: ['nums'] };
 const SP_CACHE = {};
 function mountScore(host, st, onChange0, key) {
   spInjectVoiceGradeCSS();
@@ -1369,14 +1369,13 @@ function mountScore(host, st, onChange0, key) {
     solfege: () => `<button data-sp="lbl" data-v="solfege" data-ctl="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>`,
     counts: () => `<button data-sp="lbl" data-v="counts" data-ctl="counts" title="Rhythm counting above the notes">${IC('ico:list')} Counts</button>`,
     layout: () => `<button data-sp="layout" data-ctl="layout" title="Switch between scrolling down the page and one long line scrolling sideways"></button>`,
-    tabs: () => `<button data-sp="tabs" data-ctl="tabs" title="Keep a Scores tab on the class screen of the classes you choose">${IC('ico:layers')} Classes</button>`,
     zoom: () => `<span class="sp-zoom" data-ctl="zoom"><button data-sp="zoom" data-d="-0.1" title="Smaller">${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sp="zoom-reset" title="Reset zoom to 100%">100%</button><button data-sp="zoom" data-d="0.1" title="Bigger">${IC('ico:plus')}</button></span>`,
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
   const spBarHTML = () => `<div class="sp-top">
       ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.tempo()}${BAR.metronome()}${BAR.loop()}${BAR.range()}${BAR.spots()}${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${BAR.voices()}
       <span class="sr-sp"></span>
-      ${BAR.tabs()}${BAR.settings()}
+      ${BAR.settings()}
     </div>
     <div class="sp-sub">
       <span class="tb-lbl" data-subgrp="show">Show</span>${BAR.nums()}${BAR.solfege()}${BAR.counts()}
@@ -1405,7 +1404,7 @@ function mountScore(host, st, onChange0, key) {
   const mNum = i => ctl.sc?.measures[i]?.num ?? String(i + 1);
   const mIdx = txt => { const M = ctl.sc?.measures || []; const i = M.findIndex(m => m.num === String(txt).trim()); return i >= 0 ? i : Math.max(0, Math.min(M.length - 1, (parseInt(txt) || 1) - 1)); };
   const SP_CTLS = [
-    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['grade', 'Grade'], ['voices', 'Voices & vocal recording'], ['tabs', 'Classes (tab)']]],
+    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['grade', 'Grade'], ['voices', 'Voices & vocal recording']]],
     ['Display strip', [['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['layout', 'Down / Sideways'], ['zoom', 'Zoom − ＋']]],
     ['Choir row', [['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
     ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Metronome volume'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
