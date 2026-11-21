@@ -508,15 +508,35 @@ function srDraw(el, st) {
   const parts = mode === 'solfege' && ex.parts && ex.parts.length > 1 ? ex.parts : [{ rhythm: ex.rhythm, pitches: ex.pitches || [], clef: mode === 'rhythm' ? 'percussion' : o.clef }];
   const P = parts.length, measures = parts[0].rhythm, nM = Math.max(...parts.map(p => p.rhythm.length));
   const keySig = mode === 'solfege' ? (o.scale === 'minor' ? o.key + 'm' : o.key) : null;
-  const firstW = 90 + (keySig ? 50 : 0) + (P > 1 ? 20 : 0);
-  // room each measure needs at "natural" size (busy measures need more for their labels)
-  let maxNotes = 0;
-  for (let i = 0; i < nM; i++) maxNotes = Math.max(maxNotes, ...parts.map(p => (p.rhythm[i] || []).reduce((n, c) => n + c.ev.length, 0)));
+  // Measure exact header width (clef + key sig + time sig) so bar 1 has the exact same playable width as bars 2–N.
+  let firstW = 90 + (keySig ? 50 : 0) + (P > 1 ? 20 : 0);
+  try {
+    const probe = new VF.Stave(0, 0, 320);
+    probe.addClef(mode === 'rhythm' ? 'percussion' : (parts[0].clef || o.clef));
+    if (keySig) probe.addKeySignature(keySig);
+    probe.addTimeSignature(o.ts);
+    const hdr = probe.getNoteStartX() - probe.getX();
+    if (hdr > 20) firstW = Math.ceil(hdr) + (P > 1 ? 10 : 4);
+  } catch { }
+  // Room each measure needs for proportional beat-grid spacing (keeps Beat playhead at constant speed across all rhythms)
+  let maxNotes = 0, minDur = beats;
+  for (let i = 0; i < nM; i++) {
+    for (const p of parts) {
+      const cells = p.rhythm[i] || [];
+      let cnt = 0;
+      for (const c of cells) {
+        for (const e of c.ev) { cnt++; if (e[1] > 0.05) minDur = Math.min(minDur, e[1]); }
+      }
+      if (cnt > maxNotes) maxNotes = cnt;
+    }
+  }
   const showLbl = mode === 'rhythm' ? !!st.showCounts : !!st.show;   // rhythm lines show counts; staves show syllables
   const showBlanks = !!st.answerBlanks && !showLbl && !(mode !== 'rhythm' && st.showCounts);
-  const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 40 : 36) : 26;
+  const needPerNote = (showLbl || st.showCounts || showBlanks) ? (mode === 'solfege' ? 38 : 34) : 26;
+  const subDivMin = (showLbl || st.showCounts) ? (minDur <= 0.26 ? 24 : 28) : (minDur <= 0.26 ? 20 : 24);
+  const propW = Math.min(420, Math.ceil((beats / Math.max(0.25, minDur)) * subDivMin) + 22);
   const pOpts = st.__printOpts || null;
-  const restW = pOpts?.restW || Math.max(150, maxNotes * needPerNote + 30);
+  const restW = pOpts?.restW || Math.max(170, maxNotes * needPerNote + 24, propW);
   const extraC = st.showCounts && mode !== 'rhythm' ? (showLbl ? 34 : 20) : 0;
   const extraB = showBlanks ? 26 : 0;
   const partH = (P > 1 ? (showLbl ? 140 : 100) : (showLbl ? 175 : 125)) + extraC + extraB;
@@ -562,6 +582,10 @@ function srDraw(el, st) {
       }
       if (i === 0) stave.addTimeSignature(o.ts);
       if (i === nM - 1) stave.setEndBarType(VF.Barline.type.END);
+      if (col === 0 && stave.setNoteStartX) {
+        const wantStart = stave.getX() + firstW;
+        if (stave.getNoteStartX() < wantStart) stave.setNoteStartX(wantStart);
+      }
       stave.setContext(ctx).draw();
       staves.push(stave);
       if (o.measureNums && p === 0) {
@@ -627,23 +651,28 @@ function srDraw(el, st) {
     }
     // all parts formatted together, so notes at the same moment line up across the staves
     new VF.Formatter().format(voices, stave0.getNoteEndX() - stave0.getNoteStartX() - 12);
-    // Re-space: every moment first gets room for its widest label, then the rest is shared out by length.
+    // Proportional beat-grid spacing: every beat gets the exact same pixel width across every measure,
+    // so the Beat playhead glides at one constant speed while crossing each notehead right on time.
+    let gridAvail = stave0.getNoteEndX() - stave0.getNoteStartX() - 16;
     {
-      const avail = stave0.getNoteEndX() - stave0.getNoteStartX() - 16;
+      const avail = Math.max(60, gridAvail);
+      const padL = 8;
       const byPos = new Map();
       for (const it of allNotes) {
         const k = Math.round(it.pos * 1000);
-        const g = byPos.get(k) || { pos: it.pos, need: 0, tcs: new Set() };
-        g.need = Math.max(g.need, Math.max(showLbl ? 30 : 24, it.text ? it.text.length * 9 + 14 : 0) + (it.dotted ? 8 : 0));
+        const g = byPos.get(k) || { pos: it.pos, tcs: new Set() };
         const tc = it.n.getTickContext && it.n.getTickContext(); if (tc) g.tcs.add(tc);
         byPos.set(k, g);
       }
       const groups = [...byPos.values()].sort((a, b) => a.pos - b.pos);
-      groups.forEach((g, j) => g.val = (groups[j + 1]?.pos ?? mLen) - g.pos);
-      const totalNeed = groups.reduce((a, g) => a + g.need, 0), dsum = groups.reduce((a, g) => a + g.val, 0) || 1;
-      const extra = Math.max(0, avail - totalNeed), squeeze = totalNeed > avail ? avail / totalNeed : 1;
-      let x = 8;
-      for (const g of groups) { for (const tc of g.tcs) if (tc.setX) tc.setX(x); x += g.need * squeeze + extra * g.val / dsum; }
+      const len = mLen || beats || 1;
+      let prevX = -Infinity;
+      for (const g of groups) {
+        const propX = padL + (g.pos / len) * avail;
+        const x = prevX === -Infinity ? propX : Math.max(prevX + 14, propX);
+        for (const tc of g.tcs) if (tc.setX) tc.setX(x);
+        prevX = x;
+      }
     }
     voices.forEach((v, p) => v.draw(ctx, staves[p]));
     beamsAll.forEach(b => {
@@ -664,8 +693,9 @@ function srDraw(el, st) {
       if (!cur) kmap.set(k, [e.t, x, a, b]); else { cur[2] = Math.min(cur[2], a); cur[3] = Math.max(cur[3], b); }
     }
     const knots = [...kmap.values()].sort((p, q) => p[0] - q[0]);
-    knots.push([t, stave0.getNoteEndX() - 4, mid, mid]);
-    if (knots[0][0] > mStart) knots.unshift([mStart, stave0.getNoteStartX(), mid, mid]);
+    if (knots[0] && knots[0][0] > mStart) knots.unshift([mStart, stave0.getNoteStartX() + 8, mid, mid]);
+    const endGridX = knots[0] ? Math.min(stave0.getNoteEndX() - 2, knots[0][1] + Math.max(60, gridAvail)) : (stave0.getNoteEndX() - 4);
+    knots.push([t, endGridX, mid, mid]);
     geo.measures.push({ t0: mStart, t1: t, y0: stave0.getYForLine(0) - 18, y1: sLast.getYForLine(4) + 18, knots, x0: stave0.getX(), x1: stave0.getX() + stave0.getWidth() });
   }
   for (const tl of tieList) {
