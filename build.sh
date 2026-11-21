@@ -6,6 +6,7 @@ APP="build/Rehearsal.app"
 # version and update settings (release.sh raises the version; release/config names the GitHub repo)
 VERSION=$(cat release/VERSION)
 NATIVE=$(cat release/NATIVE)
+NATIVE_WIN=$(cat release/NATIVE_WIN 2>/dev/null || echo 1)
 REPO=""; source release/config
 PUBKEY=$(cat release/public-key.txt 2>/dev/null || true)
 
@@ -20,7 +21,7 @@ rm build/Rehearsal-arm64 build/Rehearsal-x86_64
 
 cp -R web/. "$APP/Contents/Resources/web/"
 find "$APP/Contents/Resources/web" -name .DS_Store -delete
-printf '{"version":"%s","native":%s}\n' "$VERSION" "$NATIVE" > "$APP/Contents/Resources/web/version.json"
+printf '{"version":"%s","native":%s,"nativeWin":%s}\n' "$VERSION" "$NATIVE" "$NATIVE_WIN" > "$APP/Contents/Resources/web/version.json"
 [[ -f icon/AppIcon.icns ]] && cp icon/AppIcon.icns "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

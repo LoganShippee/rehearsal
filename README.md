@@ -18,7 +18,7 @@ The web version keeps its classes and files in that browser on that device only.
 
 ## For the developer
 - `./build.sh --install` builds `build/Rehearsal.app` and copies it into Applications (for trying changes on your own Mac).
-- `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds, signs and uploads, and publishes the web folder to GitHub Pages (the iPad version). If anything in `native/` or `build.sh` changed, users get a full app update; otherwise only the web files.
+- `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds the Mac app locally and the Windows app/installer via GitHub Actions in parallel, signs and uploads all release files, and publishes the web folder to GitHub Pages (the iPad version). If `native/` or `build.sh` changed, Mac users get a full app update (and likewise `windows/` for Windows users); otherwise only the web files.
 - **Release key:** `~/.rehearsal/release-key` signs every update. **Back it up** (e.g. in a password manager). Without it you can't publish updates that existing copies will accept. Never put it in the repository. The matching public key is `release/public-key.txt`.
 - `tests/run.sh` runs the grader tests. The app icon's artwork is `icon/source-1024.png` (made with IconKitchen; its web icons are in `web/`). To rebuild the Mac icon from it: `swift icon/fromimage.swift icon/source-1024.png build/AppIcon.iconset && iconutil -c icns build/AppIcon.iconset -o icon/AppIcon.icns`.
 - The app's internal ID is `local.rehearsal.app` and its data folder is `~/Library/Application Support/Rehearsal/` (existing data from the legacy folder is migrated automatically on first launch).
@@ -81,6 +81,7 @@ If a Google file on the Present screen shows "You need access", use the **Drive 
 Everything is saved in `~/Library/Application Support/Rehearsal/` (`data.json` plus a `files/` folder). Use Settings → Export backup to move it to another Mac.
 
 ## Layout
-- `native/`: Swift app shell (window, local loopback server, Drive window)
+- `native/`: Mac Swift app shell (window, local loopback server, Drive window)
+- `windows/`: Windows C# / WebView2 app shell and Inno Setup installer
 - `web/`: the app interface (HTML/CSS/JS)
 - `build.sh`: builds `build/Rehearsal.app`

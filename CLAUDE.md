@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Rehearsal is a classroom-display and music-rehearsal app for teachers. It ships two ways from the same `web/` folder:
+Rehearsal is a classroom-display and music-rehearsal app for teachers. It ships three ways from the same `web/` folder:
 - **Mac app**: a small Swift shell (`native/`) that serves `web/` from a loopback HTTP server and shows it in WKWebView windows.
+- **Windows app**: a C# / .NET 8 + WebView2 shell (`windows/`) built on `windows-latest` via `.github/workflows/build-windows.yml`, with a per-user Inno Setup installer (`windows/installer.iss`).
 - **Web version**: the same `web/` folder published to GitHub Pages; it runs in any browser, offline via `web/sw.js`.
 
 Everything uses the Rehearsal name: bundle ID `local.rehearsal.app`, data folder `~/Library/Application Support/Rehearsal/` (with one-time startup migration from the legacy data folder in `native/updater.swift`), the executable, the Info.plist update keys (`RehearsalUpdateRepo`/`RehearsalUpdateKey`), window frame names (`RehearsalMain`, `RehearsalPresent`, `RehearsalDrive`), and the browser's localStorage key `rehearsal`.
@@ -63,7 +64,7 @@ Classic `<script>` files loaded in order by `index.html` (icons → vexflow → 
 `IS_NATIVE` / `HAS_SERVER` in app.js tell the two modes apart. Mac-only features (other apps' windows, MuseScore files, Drive, YouTube search, dated backups) must degrade gracefully in the browser.
 
 ### Releases and updates
-`release.sh` runs the tests, bumps `release/VERSION`, commits everything, tags, builds, zips the app and `web/`, writes and signs `latest.json` (Ed25519 key at `~/.rehearsal/release-key`; public key in `release/public-key.txt`), pushes, publishes `web/` to the `gh-pages` branch, and creates the GitHub release. It also bumps `release/NATIVE` when `native/`, `build.sh` or `icon/AppIcon.icns` changed since the last tag. Installed apps download web-only releases quietly; a NATIVE bump makes them prompt "Install and reopen". So anything that must be inside the .app bundle needs that path added to the diff check in `release.sh`.
+`release.sh` runs the tests, bumps `release/VERSION`, commits everything, tags, pushes immediately so `.github/workflows/build-windows.yml` builds Windows (`Rehearsal-Windows.zip` and `Rehearsal-Setup.exe`) in parallel while `./build.sh` builds Mac locally, downloads the Windows artifacts, zips the Mac app and `web/`, writes and signs `latest.json` (with `native`/`app`, `nativeWin`/`appWin`, and `web`, signed using `~/.rehearsal/release-key`; public key in `release/public-key.txt`), publishes `web/` to the `gh-pages` branch, and creates the GitHub release. It bumps `release/NATIVE` when `native/`, `build.sh`, or `icon/AppIcon.icns` changed, and bumps `release/NATIVE_WIN` when `windows/` or `web/favicon.ico` changed. Installed apps download web-only releases quietly; a platform's NATIVE bump makes that platform prompt "Install and reopen". So anything that must be inside the .app bundle needs that path added to the diff check in `release.sh`.
 
 `web/sw.js` is network-first. New static files the web version needs offline must be added to its `FILES` list.
 
