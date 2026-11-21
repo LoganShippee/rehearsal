@@ -21,9 +21,9 @@ final class Updater {
     var appVersion: String { (info["CFBundleShortVersionString"] as? String) ?? "0" }
     /// native shell number: goes up only when the Swift side changes
     var nativeBuild: Int { Int((info["CFBundleVersion"] as? String) ?? "0") ?? 0 }
-    private var repo: String? { (info["ClassPilotUpdateRepo"] as? String).flatMap { $0.contains("/") ? $0 : nil } }
+    private var repo: String? { (info["RehearsalUpdateRepo"] as? String).flatMap { $0.contains("/") ? $0 : nil } }
     private var publicKey: Curve25519.Signing.PublicKey? {
-        guard let s = info["ClassPilotUpdateKey"] as? String, let d = Data(base64Encoded: s) else { return nil }
+        guard let s = info["RehearsalUpdateKey"] as? String, let d = Data(base64Encoded: s) else { return nil }
         return try? Curve25519.Signing.PublicKey(rawRepresentation: d)
     }
     var enabled: Bool { repo != nil && publicKey != nil }
@@ -32,7 +32,7 @@ final class Updater {
     private func downloadPrefix(_ repo: String) -> String { testBase ?? "https://github.com/\(repo)/releases/download/" }
 
     let supportDir: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ClassPilot", isDirectory: true)
+        .appendingPathComponent("ClassPilot", isDirectory: true)   // old name on purpose: users' data lives here
     private var updatesDir: URL {
         testBase != nil ? FileManager.default.temporaryDirectory.appendingPathComponent("rehearsal-update-test", isDirectory: true)   // testing never touches real data
             : supportDir.appendingPathComponent("updates", isDirectory: true)
@@ -151,7 +151,7 @@ final class Updater {
 
     private func fetch(_ url: URL) async throws -> Data {
         var r = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
-        r.setValue("ClassPilot-Updater", forHTTPHeaderField: "User-Agent")
+        r.setValue("Rehearsal-Updater", forHTTPHeaderField: "User-Agent")
         let (d, resp) = try await URLSession.shared.data(for: r)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw Fail("Couldn't download the update (\((resp as? HTTPURLResponse)?.statusCode ?? 0)).") }
         return d

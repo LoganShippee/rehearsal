@@ -13,10 +13,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/web"
 
 echo "Compiling Rehearsal $VERSION (native $NATIVE)…"
-swiftc -parse-as-library -O -target arm64-apple-macos13.0 native/*.swift -o build/ClassPilot-arm64
-swiftc -parse-as-library -O -target x86_64-apple-macos13.0 native/*.swift -o build/ClassPilot-x86_64
-lipo -create build/ClassPilot-arm64 build/ClassPilot-x86_64 -output "$APP/Contents/MacOS/ClassPilot"
-rm build/ClassPilot-arm64 build/ClassPilot-x86_64
+swiftc -parse-as-library -O -target arm64-apple-macos13.0 native/*.swift -o build/Rehearsal-arm64
+swiftc -parse-as-library -O -target x86_64-apple-macos13.0 native/*.swift -o build/Rehearsal-x86_64
+lipo -create build/Rehearsal-arm64 build/Rehearsal-x86_64 -output "$APP/Contents/MacOS/Rehearsal"
+rm build/Rehearsal-arm64 build/Rehearsal-x86_64
 
 cp -R web/. "$APP/Contents/Resources/web/"
 find "$APP/Contents/Resources/web" -name .DS_Store -delete
@@ -32,13 +32,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Rehearsal</string>
   <key>CFBundleDisplayName</key><string>Rehearsal</string>
   <key>CFBundleIdentifier</key><string>local.classpilot.app</string>
-  <key>CFBundleExecutable</key><string>ClassPilot</string>
+  <key>CFBundleExecutable</key><string>Rehearsal</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$NATIVE</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>ClassPilotUpdateRepo</key><string>$REPO</string>
-  <key>ClassPilotUpdateKey</key><string>$PUBKEY</string>
+  <key>RehearsalUpdateRepo</key><string>$REPO</string>
+  <key>RehearsalUpdateKey</key><string>$PUBKEY</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
   <key>NSHighResolutionCapable</key><true/>

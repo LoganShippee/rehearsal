@@ -99,8 +99,8 @@ final class DriveBrowser: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         w.contentView = root
         w.isReleasedWhenClosed = false
         w.delegate = self
-        w.setFrameAutosaveName("ClassPilotDrive")
-        if !w.setFrameUsingName("ClassPilotDrive") { w.center() }
+        w.setFrameAutosaveName("RehearsalDrive")
+        if !w.setFrameUsingName("RehearsalDrive") && !w.setFrameUsingName("ClassPilotDrive") { w.center() }
         window = w
     }
 

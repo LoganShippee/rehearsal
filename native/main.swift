@@ -346,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         relaxThirdPartyCookies()
         watchPresentationOptions()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClassPilot", isDirectory: true)
+            .appendingPathComponent("ClassPilot", isDirectory: true)   // old name on purpose: users' data lives here
         let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
         let up = Updater.shared
         server = LocalServer(webRoot: up.activeWebRoot(bundled: web), dataDir: support)
@@ -358,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         server.start(preferredPort: 47821) { [weak self] p in
             guard let self, self.port == 0 else { return }
             self.port = p
-            if ProcessInfo.processInfo.environment["CLASSPILOT_PRINT_URL"] != nil {
+            if ProcessInfo.processInfo.environment["REHEARSAL_PRINT_URL"] != nil {
                 print("http://localhost:\(p)/index.html?t=\(self.server.token)")
                 fflush(stdout)
             }
@@ -407,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         wv.uiDelegate = self
         wv.navigationDelegate = self
         if #available(macOS 13.3, *) { wv.isInspectable = true }
-        let win = PilotWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
+        let win = RehearsalWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                            backing: .buffered, defer: false)
         win.title = title
@@ -416,15 +416,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         win.contentView = container
         win.backgroundColor = NSColor(red: 0.04, green: 0.22, blue: 0.33, alpha: 1)
         win.minSize = NSSize(width: 720, height: 480)
-        win.collectionBehavior = [.fullScreenNone]   // full screen = cover this desktop (see PilotWindow)
+        win.collectionBehavior = [.fullScreenNone]   // full screen = cover this desktop (see RehearsalWindow)
         win.delegate = self
         win.isReleasedWhenClosed = false
         if windows.isEmpty {
-            win.setFrameAutosaveName("ClassPilotMain")
-            if !win.setFrameUsingName("ClassPilotMain") { win.center() }
+            // falls back to the frame saved under the app's old name, so window positions carry over
+            win.setFrameAutosaveName("RehearsalMain")
+            if !win.setFrameUsingName("RehearsalMain") && !win.setFrameUsingName("ClassPilotMain") { win.center() }
         } else {
-            win.setFrameAutosaveName("ClassPilotPresent")
-            if !win.setFrameUsingName("ClassPilotPresent") { win.cascadeTopLeft(from: windows.last!.frame.origin) }
+            win.setFrameAutosaveName("RehearsalPresent")
+            if !win.setFrameUsingName("RehearsalPresent") && !win.setFrameUsingName("ClassPilotPresent") { win.cascadeTopLeft(from: windows.last!.frame.origin) }
         }
         windows.append(win)
         webViews.append(wv)
@@ -508,9 +509,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "updateInstallApp":
             Updater.shared.installApp()
         case "hello":
-            (wv?.window as? PilotWindow)?.refreshSafeTop()
+            (wv?.window as? RehearsalWindow)?.refreshSafeTop()
         case "fullscreen":
-            (wv?.window as? PilotWindow)?.toggleCover()
+            (wv?.window as? RehearsalWindow)?.toggleCover()
         case "saveText":
             let name = (body["name"] as? String) ?? "export.json"
             let text = (body["text"] as? String) ?? ""
@@ -628,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     // MARK: Menu
-    @objc func toggleCover(_ s: Any?) { (NSApp.keyWindow as? PilotWindow ?? windows.first as? PilotWindow)?.toggleCover() }
+    @objc func toggleCover(_ s: Any?) { (NSApp.keyWindow as? RehearsalWindow ?? windows.first as? RehearsalWindow)?.toggleCover() }
     @objc func newPresentWindow(_ s: Any?) { openWindow(view: "present", title: "Rehearsal — Present") }
     @objc func newEditorWindow(_ s: Any?) { openWindow(view: "edit", title: "Rehearsal") }
     @objc func reloadPage(_ s: Any?) { (NSApp.keyWindow?.contentView?.subviews.first(where: { $0 is HoleWebView }) as? WKWebView)?.reload() }

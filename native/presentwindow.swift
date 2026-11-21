@@ -6,7 +6,7 @@
 import Cocoa
 import WebKit
 
-final class PilotWindow: NSWindow {
+final class RehearsalWindow: NSWindow {
     private var savedFrame: NSRect?
     private var savedStyle: NSWindow.StyleMask = []
     var isCovering: Bool { savedFrame != nil }
@@ -61,7 +61,7 @@ extension AppDelegate {
     func watchPresentationOptions() {
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            if self.windows.contains(where: { ($0 as? PilotWindow)?.isCovering == true }) {
+            if self.windows.contains(where: { ($0 as? RehearsalWindow)?.isCovering == true }) {
                 NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
             }
         }
