@@ -40,9 +40,13 @@ internal sealed class MainForm : Form
     private const int CompMinLogicalW = 220;
     private const int CompMinLogicalH = 64;
     private const int CompMaxLogicalW = 720;
-    private const int CompMaxLogicalH = 220;
-    private const int CompDefaultLogicalW = 340;
-    private const int CompDefaultLogicalH = 96;
+    private const int CompMaxLogicalH = 360;
+    private const int CompDefaultLogicalW = 360;
+    private const int CompDefaultLogicalH = 118;
+    private IntPtr _dockedHwnd = IntPtr.Zero;
+    private Rectangle _dockedLogicalRect = Rectangle.Empty;
+    private string _dockedAppName = "";
+    private string _dockedBundleId = "";
     private const int CompResizeGripLogical = 8;
 
     private static readonly HashSet<string> SkipWindowTitles = new(StringComparer.OrdinalIgnoreCase)
@@ -134,6 +138,16 @@ internal sealed class MainForm : Form
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    private static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
     [DllImport("user32.dll")]
     private static extern bool BringWindowToTop(IntPtr hWnd);
 
@@ -220,6 +234,14 @@ internal sealed class MainForm : Form
             {
                 SaveCompanionLogicalSize();
             }
+            else if (!_isCompanion)
+            {
+                RealignDockedApp(false);
+            }
+        };
+        Move += (_, _) =>
+        {
+            if (!_isCompanion) RealignDockedApp(false);
         };
         KeyDown += OnFormKeyDown;
     }
@@ -485,6 +507,7 @@ internal sealed class MainForm : Form
 
         EvalScript("document.documentElement.style.setProperty('--safe-top', '0px')");
         EvalScript("window.__companionState && window.__companionState(true)");
+        UndockExternalApp(false);
 
         long hwndVal = Int64(root, "hwnd");
         int pid = (int)Int64(root, "pid");
@@ -551,6 +574,92 @@ internal sealed class MainForm : Form
         if (Handle != IntPtr.Zero)
         {
             try { SetForegroundWindow(Handle); } catch { }
+        }
+    }
+
+    private void DockExternalApp(JsonElement root)
+    {
+        long hwndVal = Int64(root, "hwnd");
+        int pid = (int)Int64(root, "pid");
+        var bundleId = Str(root, "bundleId") ?? "";
+        var appName = Str(root, "app") ?? "";
+        bool activate = !root.TryGetProperty("activate", out var actEl) || actEl.ValueKind != JsonValueKind.False;
+
+        if (!root.TryGetProperty("rect", out var rectEl) || rectEl.ValueKind != JsonValueKind.Array || rectEl.GetArrayLength() != 4)
+            return;
+
+        int lx = (int)Math.Round(rectEl[0].GetDouble());
+        int ly = (int)Math.Round(rectEl[1].GetDouble());
+        int lw = (int)Math.Round(rectEl[2].GetDouble());
+        int lh = (int)Math.Round(rectEl[3].GetDouble());
+        if (lw < 80 || lh < 60) return;
+
+        var targetHwnd = ResolveTargetWindow(hwndVal, pid, bundleId, appName);
+        if (targetHwnd == IntPtr.Zero || !IsWindow(targetHwnd))
+        {
+            _dockedHwnd = IntPtr.Zero;
+            var notRunning = JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["status"] = "not-running",
+                ["app"] = appName,
+                ["bundleId"] = bundleId,
+            });
+            EvalScript("window.__dockAppState && window.__dockAppState(" + notRunning + ")");
+            return;
+        }
+
+        _dockedHwnd = targetHwnd;
+        _dockedLogicalRect = new Rectangle(lx, ly, lw, lh);
+        _dockedAppName = appName;
+        _dockedBundleId = bundleId;
+
+        RealignDockedApp(activate);
+
+        var dockedPayload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["status"] = "docked",
+            ["app"] = appName,
+            ["bundleId"] = bundleId,
+            ["hwnd"] = targetHwnd.ToInt64(),
+        });
+        EvalScript("window.__dockAppState && window.__dockAppState(" + dockedPayload + ")");
+    }
+
+    private void RealignDockedApp(bool activate)
+    {
+        if (_dockedHwnd == IntPtr.Zero || !IsWindow(_dockedHwnd) || _dockedLogicalRect.Width < 80 || _dockedLogicalRect.Height < 60)
+            return;
+        try
+        {
+            float scale = DeviceDpi / 96f;
+            var clientPt = new Point((int)Math.Round(_dockedLogicalRect.X * scale), (int)Math.Round(_dockedLogicalRect.Y * scale));
+            var screenPt = _webView.PointToScreen(clientPt);
+            int w = Math.Max(120, (int)Math.Round(_dockedLogicalRect.Width * scale));
+            int h = Math.Max(100, (int)Math.Round(_dockedLogicalRect.Height * scale));
+
+            ShowWindow(_dockedHwnd, SW_RESTORE);
+            uint flags = SWP_SHOWWINDOW | (activate ? 0u : SWP_NOACTIVATE);
+            SetWindowPos(_dockedHwnd, HWND_TOP, screenPt.X, screenPt.Y, w, h, flags);
+            if (activate)
+            {
+                ActivateExternalWindow(_dockedHwnd);
+            }
+        }
+        catch { }
+    }
+
+    private void UndockExternalApp(bool bringFront)
+    {
+        bool wasDocked = _dockedHwnd != IntPtr.Zero;
+        _dockedHwnd = IntPtr.Zero;
+        _dockedLogicalRect = Rectangle.Empty;
+        if (wasDocked && bringFront)
+        {
+            Activate();
+            if (Handle != IntPtr.Zero)
+            {
+                try { SetForegroundWindow(Handle); } catch { }
+            }
         }
     }
 
@@ -1097,6 +1206,12 @@ internal sealed class MainForm : Form
                     break;
                 case "companionExit":
                     ExitCompanion();
+                    break;
+                case "dockApp":
+                    DockExternalApp(root);
+                    break;
+                case "undockApp":
+                    UndockExternalApp(Bool(root, "bringFront"));
                     break;
                 case "companionDrag":
                     StartCompanionDrag();

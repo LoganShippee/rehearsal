@@ -664,10 +664,27 @@ function slidesPresentURL(raw) {
   const m = String(raw || '').match(/docs\.google\.com\/presentation\/(?:u\/\d+\/)?d\/([\w-]+)/);
   return m ? `https://docs.google.com/presentation/d/${m[1]}/preview?rm=minimal` : embedURL(raw);
 }
+function autoNativeWeb(raw) {
+  if (!IS_NATIVE || !raw) return false;
+  try {
+    const u = new URL(raw), h = u.hostname.toLowerCase(), p = u.pathname.toLowerCase();
+    // Simple lightweight embeds stay Embedded so drawing works immediately without switching:
+    if (h === 'docs.google.com' && p.startsWith('/presentation/') && /\/(embed|preview)(\/|$)/.test(p)) return false;
+    if ((h === 'www.youtube.com' || h === 'youtube.com' || h === 'www.youtube-nocookie.com') && p.startsWith('/embed/')) return false;
+    if (h === 'player.vimeo.com') return false;
+    // Google Workspace, Google Search, sign-in/SSO, classroom/music apps, and major sites default to Full browser:
+    if (/(^|\.)(google\.com|youtube\.com|youtu\.be|microsoft\.com|office\.com|live\.com|onedrive\.live\.com|notion\.so|canva\.com|flat\.io|noteflight\.com|musescore\.com|sightreadingfactory\.com|smartmusic\.com|makemusic\.com|kahoot\.it|kahoot\.com|quizlet\.com|gimkit\.com|blooket\.com|instructure\.com|schoology\.com|clever\.com|classlink\.com|github\.com|spotify\.com|apple\.com)$/.test(h)) return true;
+    return true;
+  } catch {
+    return true;
+  }
+}
 function isNativeWeb(r) {
   if (!IS_NATIVE || !r) return false;
+  if (r.markupMode) return false;
+  if (resKind(r) === 'slides' && r.mode === 'present') return false;
   if (r.native != null) return !!r.native;
-  return resKind(r) === 'sheet';
+  return autoNativeWeb(r.url);
 }
 function resTargetURL(r, raw) {
   const u = raw ?? r?.url ?? '';
@@ -714,6 +731,7 @@ function stopMusicHosts() {
   if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
 }
 function go(view) {
+  if (view !== 'present') undockStageApp(false);
   VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.webModeMenu = null; $('#web-mode-menu')?.remove(); P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
   if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else stopMusicHosts();
   render();
@@ -1078,17 +1096,19 @@ function renderCompanionBar(ctx, t) {
     setHTML('#p-companion', html);
     return;
   }
-  let clsName = `${DAYS_SHORT[t.getDay()]}, ${MONTHS[t.getMonth()].slice(0, 3)} ${t.getDate()}`, stepTxt = '', nextStepTxt = '', leftTxt = '';
+  let clsName = `${DAYS_SHORT[t.getDay()]}, ${MONTHS[t.getMonth()].slice(0, 3)} ${t.getDate()}`, leftTxt = '';
+  let agItems = [], curStep = 0;
   if (ctx.mode === 'class' && ctx.cls) {
     clsName = ctx.cls.name || 'Class';
-    const step = agendaStep(ctx, t);
-    const st = ctx.cls.agenda?.[step], nxt = ctx.cls.agenda?.[step + 1];
-    if (st?.text) stepTxt = `${step + 1}. ${st.text}`;
-    if (nxt?.text) nextStepTxt = `Next: ${step + 2}. ${nxt.text}`;
+    curStep = agendaStep(ctx, t);
+    const ag = ctx.cls.agenda || [];
+    for (let i = curStep; i < Math.min(ag.length, curStep + 5); i++) {
+      if (ag[i]?.text) agItems.push({ idx: i, text: ag[i].text, min: ag[i].min || 0, isNow: i === curStep, offset: i - curStep });
+    }
     if (ctx.period) leftTxt = `${fmtDur(ctx.period.endAt - t)} left`;
   } else if (ctx.next) {
     clsName = ctx.next.cls.name || 'Next class';
-    stepTxt = `Starts ${fmtHM(ctx.next.start)}`;
+    agItems.push({ idx: 0, text: `Starts ${fmtHM(ctx.next.start)}`, min: 0, isNow: true, offset: 0 });
     leftTxt = `in ${fmtDur(ctx.next.startAt - t)}`;
   }
   const timers = P.timers.filter(x => !x.doneAt).slice(0, 2).map((tm, idx) => {
@@ -1097,15 +1117,24 @@ function renderCompanionBar(ctx, t) {
   }).join('');
   const sig = P.signal ? `<span class="comp-sig" style="background:${P.signal.color}">${esc(P.signal.text)}</span>` : '';
   const pins = pinnedApps();
-  const cur = P.companion?.appName ? { app: P.companion.appName, bundleId: P.companion.bundleId || '' } : null;
-  const curPinned = cur && isAppPinned(cur);
-  const pinChips = pins.slice(0, 6).map(p => `<button class="comp-chip" data-action="comp-app-switch" data-key="${esc(appKey(p))}" title="Switch to ${esc(p.app)}">${p.appIcon ? `<img src="${p.appIcon}" alt="">` : IC('ico:app')}<span>${esc(p.app)}</span></button>`).join('');
-  const row3 = `<div class="comp-row3">${pinChips}${cur && !curPinned ? `<button class="comp-chip pin-cur" data-action="comp-pin-cur" title="Pin ${esc(cur.app)}">${IC('ico:pin')}<span>Pin ${esc(cur.app)}</span></button>` : ''}${!pinChips && nextStepTxt ? `<span class="comp-next-step">${esc(nextStepTxt)}</span>` : ''}</div>`;
-  const html = `<div class="comp-row1"><button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ <span class="comp-back-full">Back to Rehearsal</span><span class="comp-back-short">Back</span></button>
-      <button class="comp-apps-btn" data-action="comp-apps-toggle" title="Switch or pin external apps with previews">${IC('ico:pin')}<span class="comp-apps-lbl">Apps</span>${pins.length ? `<span class="comp-cnt">${pins.length}</span>` : ''}</button>
-      <div class="comp-meta"><span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div></div>
-    <div class="comp-row2"><span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>${stepTxt ? `<span class="comp-step" title="${esc(stepTxt)}">${esc(stepTxt)}</span>` : '<span class="comp-spacer"></span>'}${timers}${sig}</div>
-    ${row3}${grip}`;
+  const hasAgendaNav = ctx.mode === 'class' && (ctx.cls?.agenda?.length || 0) > 1;
+  const agendaHTML = agItems.length
+    ? agItems.map(it => {
+        const clsTier = it.offset === 0 ? 'comp-ag-now' : it.offset === 1 ? 'comp-ag-next1' : it.offset === 2 ? 'comp-ag-next2' : it.offset === 3 ? 'comp-ag-next3' : 'comp-ag-next4';
+        const badge = it.offset === 0 ? '<span class="comp-now-tag">NOW</span>' : it.offset === 1 ? '<span class="comp-next-tag">NEXT</span>' : `<span class="comp-num-tag">${it.idx + 1}.</span>`;
+        return `<div class="comp-ag-line ${clsTier}" title="${esc(it.text)}">${badge}<span class="comp-ag-txt">${it.offset <= 1 ? `${it.idx + 1}. ` : ''}${esc(it.text)}</span>${it.min ? `<span class="comp-ag-min">${it.min}m</span>` : ''}</div>`;
+      }).join('')
+    : `<div class="comp-ag-line comp-ag-now comp-ag-empty"><span class="comp-ag-txt">No agenda items for ${esc(clsName)}</span></div>`;
+  const html = `<div class="comp-row1">
+      <button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ <span class="comp-back-full">Rehearsal</span><span class="comp-back-short">Back</span></button>
+      <button class="comp-apps-btn" data-action="comp-apps-toggle" title="Switch or pin External Apps">${IC('ico:app')}<span class="comp-apps-lbl">Apps</span>${pins.length ? `<span class="comp-cnt">${pins.length}</span>` : ''}</button>
+      <span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>
+      <div class="comp-meta">${timers}${sig}<span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div>
+    </div>
+    <div class="comp-agenda">
+      <div class="comp-agenda-list">${agendaHTML}</div>
+      ${hasAgendaNav ? `<div class="comp-ag-nav"><button data-action="agenda-prev" title="Previous agenda step">‹</button><button data-action="agenda-next" title="Next agenda step">›</button></div>` : ''}
+    </div>${grip}`;
   setHTML('#p-companion', html);
 }
 
@@ -1211,22 +1240,34 @@ function updateClassBody(ctx, t) {
   }
   tickStepLeft(ctx, t, step);
   let sel = P.stageSel[ctx.key] || 'warmup';
+  const isAppTab = IS_NATIVE && typeof sel === 'string' && sel.startsWith('app:');
+  const activeAppKey = isAppTab ? sel.slice(4) : '';
+  const activeExtApp = isAppTab ? findStageExternalApp(activeAppKey) : null;
+  if (isAppTab && !activeExtApp) sel = 'warmup';
   // warm-up tab removed for this class: show the first tab instead
-  if (cls.hideWarmup && !cls.resources.some(r => r.id === sel)) sel = cls.resources[0]?.id || 'warmup';
-  const res = cls.resources.find(r => r.id === sel);
-  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.music, !!res.widget, res.native], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup]);
+  if (!activeExtApp && cls.hideWarmup && !cls.resources.some(r => r.id === sel)) sel = cls.resources[0]?.id || 'warmup';
+  const res = activeExtApp ? null : cls.resources.find(r => r.id === sel);
+  const pinnedSig = IS_NATIVE ? pinnedApps().map(p => [appKey(p), p.app, !!p.appIcon]) : [];
+  const dockSig = activeExtApp ? [activeAppKey, P.dockedApp?.status || '', P.dockedApp?.title || '', isAppPinned(activeExtApp)] : null;
+  const stageKey = JSON.stringify([sel, res && [res.id, res.url, res.fileId, res.mode, !!res.sight, !!res.music, !!res.widget, res.native, !!res.markupMode], cls.warmup, cls.resources.map(r => [r.id, r.title, r.group || '', r.icon || '']), (cls.groups || []).map(g => [g.id, g.name]), !!P.editMode, !!P.stageMax, !!cls.hideWarmup, pinnedSig, dockSig]);
   if (stageKey !== P.stageKey && !ieFocused('#stage-content')) {
     const prevStageId = P.lastStageId;
     P.lastStageId = sel;
     P.stageKey = stageKey;
-    if (prevStageId && prevStageId !== sel) stopMusicHosts();
+    if (prevStageId && prevStageId !== sel) {
+      stopMusicHosts();
+      if (typeof prevStageId === 'string' && prevStageId.startsWith('app:') && !activeExtApp) {
+        undockStageApp(true);
+      }
+    }
     const nat = res && res.url ? isNativeWeb(res) : false;
     const isSlides = res && res.url && resKind(res) === 'slides';
     const isPresenting = isSlides && res.mode === 'present';
     $('#stage-tabs').innerHTML = `
       <div class="stage-tabs-scroll">
-        ${cls.hideWarmup ? '' : `<span class="tabwrap"><button class="${!res ? 'on' : ''}" data-action="stage" data-id="warmup">${iconOn('tabs') ? icoSp(icoCfg().kind?.warmup ?? 'ico:warmup') : ''}Warm-up</button><button class="tab-x" data-action="warmup-hide" title="Remove the warm-up tab from this class">${IC('ico:close')}</button></span>`}
+        ${cls.hideWarmup ? '' : `<span class="tabwrap"><button class="${!res && !activeExtApp ? 'on' : ''}" data-action="stage" data-id="warmup">${iconOn('tabs') ? icoSp(icoCfg().kind?.warmup ?? 'ico:warmup') : ''}Warm-up</button><button class="tab-x" data-action="warmup-hide" title="Remove the warm-up tab from this class">${IC('ico:close')}</button></span>`}
         ${stageTabsHTML(cls, res)}
+        ${IS_NATIVE ? stageExternalAppTabsHTML(activeAppKey) : ''}
       </div>
       <div class="stage-tabs-end">
         <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
@@ -1237,7 +1278,9 @@ function updateClassBody(ctx, t) {
     const keepSight = prevStageId === sel && res && res.sight && sc.querySelector('.stage-sr');
     if (!keepSight) {
       if (sc.querySelector('.sr-host, .score-host')) stopMusicHosts();
-      if (res && res.sight) {
+      if (activeExtApp) {
+        sc.innerHTML = dockedStageHTML(activeExtApp);
+      } else if (res && res.sight) {
         sc.innerHTML = `<div class="sr-host stage-sr" data-sr-res="${res.id}"></div>`; mountSightHosts(sc);
       } else if (res && res.widget) {
         sc.innerHTML = widgetHost(res.widget.kind, 'stage-wg'); mountWidgets(sc);
@@ -1260,23 +1303,46 @@ function updateClassBody(ctx, t) {
       } else {
         const src = resTargetURL(res);
         sc.innerHTML = `<iframe src="${esc(src)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+        const ifr = sc.querySelector('iframe');
+        if (ifr && IS_NATIVE && !res.markupMode) {
+          ifr.addEventListener('error', () => {
+            if (!isNativeWeb(res)) { res.native = true; P.forceStageUrl = res.id; save(); P.stageKey = ''; WIN.lastSync = ''; tick(); }
+          }, { once: true });
+        }
       }
       mountSightHosts(sc);
     }
-    setTimeout(applyStageZoom, 0);
+    setTimeout(() => {
+      applyStageZoom();
+      if (activeExtApp) syncDockedApp(prevStageId !== sel);
+    }, 20);
   }
   const wb = $('#stage-webbar');
   if (wb) {
-    const showBar = !!(res && res.url && res.mode !== 'present');
-    if (showBar) {
+    if (activeExtApp) {
+      wb.hidden = false;
+      const pinned = isAppPinned(activeExtApp);
+      const subTitle = P.dockedApp?.title && P.dockedApp.title !== activeExtApp.app ? P.dockedApp.title : (activeExtApp.title && activeExtApp.title !== activeExtApp.app ? activeExtApp.title : '');
+      const barHTML = `<div class="swb-app-info">${activeExtApp.appIcon ? `<img class="swb-app-ic" src="${activeExtApp.appIcon}" alt="">` : IC('ico:app')}<b>${esc(activeExtApp.app || 'External App')}</b>${subTitle ? `<span class="swb-app-sub">${esc(subTitle)}</span>` : ''}</div>
+        <div class="swb-acts">
+          <button class="mode" data-action="dock-realign" title="Snap this app window cleanly inside Rehearsal's stage">${IC('ico:maximize')} Re-align</button>
+          <button class="mode" data-action="dock-float" title="Switch to full-screen app with Rehearsal floating Mini-HUD">${IC('ico:app')} Float Mini-HUD</button>
+          <button class="mode ${pinned ? 'on' : ''}" data-action="dock-pin" data-key="${esc(activeAppKey)}" title="${pinned ? 'Unpin from workspace tabs' : 'Pin to workspace tabs'}">${IC('ico:pin')} ${pinned ? 'Pinned' : 'Pin tab'}</button>
+        </div>`;
+      if (wb._h !== barHTML) { wb.innerHTML = barHTML; wb._h = barHTML; }
+    } else if (res && res.url && res.mode !== 'present') {
       wb.hidden = false;
       const nav = WIN.nav['stage-' + res.id] || {};
       const nat = isNativeWeb(res);
       const isSlides = resKind(res) === 'slides';
-      const modeOpen = P.webModeMenu?.target === 'stage' && P.webModeMenu?.id === res.id;
-      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${IS_NATIVE ? `<button class="mode web-mode-btn ${modeOpen ? 'on' : ''}" data-action="web-mode-menu" data-target="stage" data-id="${res.id}" title="Choose Embedded or Full browser mode">${nat ? 'Full browser' : 'Embedded'} <span class="mode-q" aria-hidden="true">?</span></button>` : ''}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
+      const drawingOn = !!res.markupMode || (!nat && P.ink.on && !P.ink.interact);
+      const drawBtn = IS_NATIVE
+        ? `<button class="mode ${drawingOn ? 'on' : ''}" data-action="web-markup-toggle" data-target="stage" data-id="${res.id}" title="${drawingOn ? 'Exit drawing mode and return to crisp Full browser' : 'Switch to annotation mode so you can draw on top of this page'}">${IC('ico:pen')} ${drawingOn ? 'Done drawing' : 'Draw on page'}</button>`
+        : '';
+      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${drawBtn}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
       const inp = wb.querySelector('.stage-url');
       if (!inp || inp.dataset.surl !== res.id) {
+        wb._h = '';
         wb.innerHTML = `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button><input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false"><div class="swb-acts">${actsHTML}</div>`;
         const a = wb.querySelector('.swb-acts'); if (a) a._h = actsHTML;
       } else {
@@ -1290,6 +1356,7 @@ function updateClassBody(ctx, t) {
     } else {
       wb.hidden = true;
       wb.innerHTML = '';
+      wb._h = '';
     }
   }
 }
@@ -2185,9 +2252,12 @@ function tileWindows() {
 }
 function winIsNative(w) {
   if (!IS_NATIVE || !w) return false;
-  if (w.native != null) return !!w.native;
+  const target = winRes(w) || w;
+  if (target.markupMode) return false;
   const u = winURL(w);
-  return !!u && resKind({ url: u }) === 'sheet';
+  if (resKind({ url: u }) === 'slides' && target.mode === 'present') return false;
+  if (w.native != null) return !!w.native;
+  return !!u && autoNativeWeb(u);
 }
 function winTargetURL(w) {
   const r = winRes(w), u = winURL(w);
@@ -2245,7 +2315,7 @@ function winHTML(w) {
       ${w.kind === 'web' ? `<input class="win-url" data-wurl="${w.id}" value="${esc(w.url || '')}" placeholder="Search or type a web address" spellcheck="false">` : `<span class="win-title">${esc(winTitle(w))}</span>`}
       ${url || w.kind === 'file' ? `<button data-action="win-reload" data-id="${w.id}" title="Reload">${IC('ico:reload')}</button>` : ''}
       ${isSlides ? `<button class="mode ${slideMode === 'present' ? 'on' : ''}" data-action="win-slideshow" data-id="${w.id}" title="Play Google Slides as a live slideshow inside Rehearsal">${slideMode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
-      ${canNative ? `<button class="mode web-mode-btn ${P.webModeMenu?.target === 'win' && P.webModeMenu?.id === w.id ? 'on' : ''}" data-action="web-mode-menu" data-target="win" data-id="${w.id}" title="Choose Embedded or Full browser mode">${nat ? 'Full browser' : 'Embedded'} <span class="mode-q" aria-hidden="true">?</span></button>` : ''}
+      ${canNative ? `<button class="mode ${(winRes(w) || w).markupMode ? 'on' : ''}" data-action="web-markup-toggle" data-target="win" data-id="${w.id}" title="${(winRes(w) || w).markupMode ? 'Exit drawing mode and return to crisp Full browser' : 'Draw on top of this page'}">${IC('ico:pen')} ${(winRes(w) || w).markupMode ? 'Done' : 'Draw'}</button>` : ''}
       ${w.kind === 'web' && w.url ? `<button data-action="bm-star" data-id="${w.id}" title="Bookmark this page">${IC('ico:star')}</button>` : ''}
       ${pinned ? '' : `<button data-action="win-pin" data-id="${w.id}" title="Save to this class's resources">${IC('ico:pin')}</button>`}
       ${url ? `<button data-action="open-external" data-url="${esc(url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}
@@ -2411,11 +2481,137 @@ function togglePinApp(a) {
     toast(`Pinned ${a.app || 'app'}`);
   }
   save();
+  P.stageKey = '';
   if (P.winMenu) renderWinMenu();
-  if (P.companion) tick();
+  if (VIEW === 'present') tick();
 }
+function findStageExternalApp(key) {
+  if (!key) return null;
+  if (P.dockedApp && appKey(P.dockedApp) === key) {
+    const live = (P.lastApps || []).find(w => appKey(w) === key);
+    return live ? { ...P.dockedApp, ...live, appIcon: live.appIcon || P.dockedApp.appIcon, preview: live.preview || P.dockedApp.preview } : P.dockedApp;
+  }
+  const p = pinnedApps().find(x => appKey(x) === key);
+  if (p) {
+    const live = (P.lastApps || []).find(w => appKey(w) === key);
+    return live ? { ...p, ...live, appIcon: live.appIcon || p.appIcon, preview: live.preview || p.preview } : p;
+  }
+  return (P.lastApps || []).find(w => appKey(w) === key) || null;
+}
+function stageExternalAppTabsHTML(activeKey) {
+  const seen = new Set(), items = [];
+  for (const p of pinnedApps()) {
+    const k = appKey(p); if (!k || seen.has(k)) continue;
+    seen.add(k); items.push({ ...p, key: k, pinned: true });
+  }
+  if (P.dockedApp) {
+    const k = appKey(P.dockedApp);
+    if (k && !seen.has(k)) { seen.add(k); items.push({ ...P.dockedApp, key: k, pinned: false }); }
+  }
+  return items.map(a => `<span class="tabwrap tab-ext-app"><button class="${activeKey === a.key ? 'on' : ''}" data-action="stage-app" data-key="${esc(a.key)}" title="Dock ${esc(a.app)} inside Rehearsal's stage">${a.appIcon ? `<img class="tab-app-ic" src="${a.appIcon}" alt="">` : IC('ico:app')}${esc(a.app || 'App')}</button><button class="tab-x" data-action="stage-app-close" data-key="${esc(a.key)}" title="${a.pinned ? 'Unpin & close app tab' : 'Close app tab'}">${IC('ico:close')}</button></span>`).join('');
+}
+function dockedStageHTML(a) {
+  const st = P.dockedApp && appKey(P.dockedApp) === appKey(a) ? P.dockedApp.status : 'docking';
+  const name = esc(a.app || 'External App');
+  const icon = a.appIcon ? `<img class="dock-ph-ic" src="${a.appIcon}" alt="">` : `<span class="dock-ph-ic-svg">${IC('ico:app')}</span>`;
+  if (st === 'needs-access') {
+    return `<div class="stage-dock-app">
+      <div class="dock-card">
+        ${icon}
+        <h3>Allow Accessibility once to dock ${name}</h3>
+        <p>macOS requires Accessibility permission so Rehearsal can position ${name} cleanly inside this workspace area.</p>
+        <div class="dock-card-btns">
+          <button class="dock-primary" data-action="perm" data-which="input">Grant Accessibility Permission</button>
+          <button data-action="dock-realign">Try Again</button>
+          <button data-action="dock-float">Use Float Mini-HUD instead</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (st === 'not-running') {
+    return `<div class="stage-dock-app">
+      <div class="dock-card">
+        ${icon}
+        <h3>${name} isn’t open right now</h3>
+        <p>Launch ${name} and Rehearsal will snap its window right into this stage.</p>
+        <div class="dock-card-btns">
+          <button class="dock-primary" data-action="dock-launch" data-key="${esc(appKey(a))}">Launch ${name}</button>
+          <button data-action="dock-realign">Check Again</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  return `<div class="stage-dock-app is-ready" data-action="dock-realign" title="Click to re-align and bring ${name} into this stage">
+    <div class="dock-card subtle">
+      ${icon}
+      <h3>${name} is docked here</h3>
+      <p>Click <b>Re-align</b> above (or click here) anytime to snap ${name} back inside this stage, or click any other tab to switch back to Rehearsal.</p>
+      <div class="dock-card-btns">
+        <button class="dock-primary" data-action="dock-realign">Re-align ${name}</button>
+        <button data-action="dock-float">Float Mini-HUD</button>
+      </div>
+    </div>
+  </div>`;
+}
+function dockStageApp(a, activate = true) {
+  if (!a || !IS_NATIVE) return;
+  const ctx = context(now());
+  if (ctx.mode !== 'class') {
+    // If not in class view, fall back to Floating Mini-HUD so the teacher can still work seamlessly
+    launchCompanionApp(a);
+    return;
+  }
+  const k = appKey(a);
+  const live = (P.lastApps || []).find(w => appKey(w) === k) || a;
+  const target = {
+    app: live.app || a.app || '', bundleId: live.bundleId || a.bundleId || '',
+    pid: live.pid || a.pid || 0, hwnd: live.hwnd || a.hwnd || 0,
+    title: live.title || a.title || '', appIcon: live.appIcon || a.appIcon || '', preview: live.preview || a.preview || '',
+    status: 'docking',
+  };
+  P.appPick = null; P.winMenu = false; P.compAppsOpen = false; P.compAppsHover = false;
+  renderWinMenu(); renderDock();
+  P.dockedApp = target;
+  P.stageSel[ctx.key] = 'app:' + k;
+  P.stageKey = '';
+  native('listAppWindows');
+  tick();
+  setTimeout(() => syncDockedApp(activate), 40);
+}
+function syncDockedApp(activate = false) {
+  if (!IS_NATIVE || VIEW !== 'present' || P.companion || !P.dockedApp) return;
+  const ctx = context(now());
+  if (ctx.mode !== 'class' || P.stageSel[ctx.key] !== 'app:' + appKey(P.dockedApp)) return;
+  const sc = $('#stage-content'); if (!sc) return;
+  const rect = rectOf(sc);
+  if (rect[2] < 80 || rect[3] < 60) return;
+  const sig = `${appKey(P.dockedApp)}|${rect.join(',')}`;
+  if (!activate && sig === P.lastDockRectSig) return;
+  P.lastDockRectSig = sig;
+  native('dockApp', {
+    app: P.dockedApp.app, bundleId: P.dockedApp.bundleId,
+    pid: P.dockedApp.pid || 0, hwnd: P.dockedApp.hwnd || 0,
+    rect, activate: !!activate,
+  });
+}
+function undockStageApp(bringFront = false) {
+  if (P.dockedApp) {
+    P.lastDockRectSig = '';
+    if (IS_NATIVE) native('undockApp', { bringFront: !!bringFront });
+  }
+}
+window.__dockAppState = st => {
+  if (!st || !P.dockedApp) return;
+  P.dockedApp.status = st.status || 'docked';
+  if (st.pid) P.dockedApp.pid = st.pid;
+  if (st.hwnd) P.dockedApp.hwnd = st.hwnd;
+  if (st.title) P.dockedApp.title = st.title;
+  P.stageKey = '';
+  if (VIEW === 'present' && !P.companion) tick();
+};
 function launchCompanionApp(a) {
   if (!a) return;
+  undockStageApp(false);
   const live = (P.lastApps || []).find(w => appKey(w) === appKey(a)) || a;
   const target = {
     app: live.app || a.app || '', bundleId: live.bundleId || a.bundleId || '',
@@ -2439,21 +2635,25 @@ function appThumbHTML(a) {
 function appCardHTML(a, idx, isPinnedList) {
   const pinned = isAppPinned(a), k = appKey(a), sub = a.title && a.title !== a.app ? a.title : '';
   const act = isPinnedList ? `data-action="wm-pin-app" data-key="${esc(k)}"` : `data-action="wm-app" data-i="${idx}"`;
+  const floatAct = isPinnedList ? `data-action="wm-pin-float" data-key="${esc(k)}"` : `data-action="wm-app-float" data-i="${idx}"`;
   return `<div class="app-card ${pinned ? 'is-pinned' : ''}">
-    <button class="app-card-go" ${act} title="${esc(a.app + (sub ? ' — ' + sub : ''))}">
+    <button class="app-card-go" ${act} title="Dock ${esc(a.app)} inside Rehearsal's workspace${sub ? ' — ' + esc(sub) : ''}">
       ${appThumbHTML(a)}
       <div class="app-card-meta"><span class="app-card-name">${esc(a.app || 'App')}</span>${sub ? `<span class="app-card-sub">${esc(sub)}</span>` : ''}</div>
     </button>
-    <button class="app-pin-btn ${pinned ? 'on' : ''}" data-action="app-pin" data-key="${esc(k)}" ${isPinnedList ? '' : `data-i="${idx}"`} title="${pinned ? 'Unpin app' : 'Pin app for quick access'}">${IC('ico:pin')}<span>${pinned ? 'Pinned' : 'Pin'}</span></button>
+    <div class="app-card-acts">
+      <button class="app-float-btn" ${floatAct} title="Open full-screen with floating Mini-HUD">HUD</button>
+      <button class="app-pin-btn ${pinned ? 'on' : ''}" data-action="app-pin" data-key="${esc(k)}" ${isPinnedList ? '' : `data-i="${idx}"`} title="${pinned ? 'Unpin from workspace tabs' : 'Pin to workspace tabs'}">${IC('ico:pin')}<span>${pinned ? 'Pinned' : 'Pin'}</span></button>
+    </div>
   </div>`;
 }
 function appPickerHTML() {
   const pins = pinnedApps(), a = P.appPick;
-  const pinSec = pins.length ? `<div class="wm-h">Pinned apps</div><div class="app-cards">${pins.map((p, i) => appCardHTML(p, i, true)).join('')}</div>` : '';
+  const pinSec = pins.length ? `<div class="wm-h">Pinned External Apps (also in workspace tabs)</div><div class="app-cards">${pins.map((p, i) => appCardHTML(p, i, true)).join('')}</div>` : '';
   if (!a) return pinSec;
-  if (a === 'loading') return `${pinSec}<div class="wm-h">Looking for apps…</div>`;
+  if (a === 'loading') return `${pinSec}<div class="wm-h">Looking for External Apps…</div>`;
   const wins = a.windows || [];
-  return `${pinSec}<div class="wm-h">Split screen with another app</div>${wins.length ? `<div class="app-cards">${wins.map((w, i) => appCardHTML(w, i, false)).join('')}</div>` : '<div class="wm-note">No other open apps found.</div>'}`;
+  return `${pinSec}<div class="wm-h">External Apps — click to dock in stage</div>${wins.length ? `<div class="app-cards">${wins.map((w, i) => appCardHTML(w, i, false)).join('')}</div>` : '<div class="wm-note">No other open apps found.</div>'}`;
 }
 // Hide system helper windows, untitled background windows and exact duplicates.
 const APP_SKIP = /^(loginwindow|universalAccessAuthWarn|AutoFill|Window Server|Wallpaper|Spotlight|Notification Center|Control Center|TextInputMenuAgent|CursorUIViewService|Open and Save Panel Service)/i;
@@ -3250,6 +3450,7 @@ function syncNative() {
   const shown = items.filter(i => !i.hidden);
   $('#present')?.classList.toggle('has-native', shown.length > 0);
   cutHoles(shown);
+  syncDockedApp(false);
 }
 // Split overlapping rectangles into non-overlapping strips so even-odd cutting never re-fills overlaps.
 function disjointRects(rects) {
@@ -3341,7 +3542,7 @@ function renderWinMenu() {
     <div class="wm-grid">
       ${tile('wm-web', 'ico:web', 'Web page')}
       ${tile('wm-file', 'ico:file', 'File…', `title="PDF, picture or video from this ${DEVICE}"`)}
-      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'App split', 'title="Share the screen with another app (MuseScore, PowerPoint…)"') : ''}
+      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'External Apps', 'title="Dock another app inside Rehearsal or float Mini-HUD (MuseScore, PowerPoint…)"') : ''}
     </div>
     ${IS_NATIVE ? appPickerHTML() : ''}
     ${many ? `<input class="wm-search" placeholder="Search tabs and files…" data-wm-search>` : ''}
@@ -4621,6 +4822,72 @@ const A = {
     save(); P.stageKey = ''; WIN.lastSync = '';
     tick();
   },
+  'web-markup-toggle': el => {
+    const target = el.dataset.target, id = el.dataset.id;
+    if (target === 'stage') {
+      const r = findRes(id); if (!r) return;
+      const turningOn = !r.markupMode;
+      r.markupMode = turningOn;
+      if (!turningOn) P.forceStageUrl = r.id;
+      if (turningOn) {
+        P.ink.on = true; P.ink.interact = false;
+      } else if (P.ink.on) {
+        P.ink.on = false; P.ink.interact = false;
+      }
+      save(); P.stageKey = ''; WIN.lastSync = '';
+      updateInkUI(); renderDock();
+      tick();
+    } else {
+      const w = findWin(id); if (!w) return;
+      const t = winRes(w) || w;
+      const turningOn = !t.markupMode;
+      t.markupMode = turningOn;
+      if (turningOn) { P.ink.on = true; P.ink.interact = false; }
+      else if (P.ink.on) { P.ink.on = false; P.ink.interact = false; }
+      save(); WIN.sig = ''; WIN.lastSync = '';
+      updateInkUI(); renderDock();
+      renderWins(context(now()), true);
+    }
+  },
+  'stage-app': el => {
+    const a = findStageExternalApp(el.dataset.key);
+    if (a) dockStageApp(a, true);
+  },
+  'stage-app-close': (el, e) => {
+    e?.stopPropagation?.();
+    const k = el.dataset.key;
+    const list = pinnedApps(), idx = list.findIndex(p => appKey(p) === k);
+    if (idx >= 0) list.splice(idx, 1);
+    if (P.dockedApp && appKey(P.dockedApp) === k) {
+      undockStageApp(true);
+      P.dockedApp = null;
+    }
+    const ctx = context(now());
+    if (ctx.mode === 'class' && P.stageSel[ctx.key] === 'app:' + k) {
+      P.stageSel[ctx.key] = 'warmup';
+    }
+    save(); P.stageKey = ''; tick();
+  },
+  'dock-realign': () => {
+    if (!P.dockedApp) return;
+    P.lastDockRectSig = '';
+    syncDockedApp(true);
+  },
+  'dock-float': () => {
+    if (!P.dockedApp) return;
+    launchCompanionApp(P.dockedApp);
+  },
+  'dock-pin': el => {
+    const a = findStageExternalApp(el.dataset.key) || P.dockedApp;
+    if (a) togglePinApp(a);
+  },
+  'dock-launch': el => {
+    const a = findStageExternalApp(el.dataset.key) || P.dockedApp;
+    if (!a) return;
+    if (a.bundleId) native('launchApp', { bundleId: a.bundleId });
+    toast(`Launching ${a.app || 'app'}…`);
+    setTimeout(() => { native('listAppWindows'); P.lastDockRectSig = ''; syncDockedApp(true); }, 1800);
+  },
   'web-mode-menu': el => {
     const target = el.dataset.target, id = el.dataset.id;
     const same = P.webModeMenu && P.webModeMenu.target === target && P.webModeMenu.id === id;
@@ -4666,9 +4933,19 @@ const A = {
   'wm-apps': () => { P.appPick = 'loading'; renderWinMenu(); native('listAppWindows'); },
   'wm-app': el => {
     const a = P.appPick?.windows?.[+el.dataset.i]; if (!a) return;
+    dockStageApp(a, true);
+  },
+  'wm-app-float': (el, e) => {
+    e?.stopPropagation?.();
+    const a = P.appPick?.windows?.[+el.dataset.i]; if (!a) return;
     launchCompanionApp(a);
   },
   'wm-pin-app': el => {
+    const p = pinnedApps().find(x => appKey(x) === el.dataset.key); if (!p) return;
+    dockStageApp(p, true);
+  },
+  'wm-pin-float': (el, e) => {
+    e?.stopPropagation?.();
     const p = pinnedApps().find(x => appKey(x) === el.dataset.key); if (!p) return;
     launchCompanionApp(p);
   },
@@ -4886,7 +5163,12 @@ const A = {
   'ink-interact': () => { P.ink.interact = !P.ink.interact; updateInkUI(); },
   'ink-undo': () => inkDoUndo(),
   'ink-clear': () => { inkPushUndo(); inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore(); saveInk(); toast('Drawing cleared — press Undo or ⌘Z to restore.'); },
-  'ink-close': () => { P.ink.on = false; updateInkUI(); renderDock(); },
+  'ink-close': () => {
+    P.ink.on = false;
+    const sr = stageNativeRes(true);
+    if (sr && sr.markupMode) { sr.markupMode = false; P.forceStageUrl = sr.id; P.stageKey = ''; WIN.lastSync = ''; }
+    updateInkUI(); renderDock(); tick();
+  },
   // classes
   'class-sel': el => { SEL_CLASS = el.dataset.id; renderEditor(); renderClip(); $('#e-main').scrollTop = 0; },
   'class-add': () => { const c = newClass('New class', S.classes.length); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
@@ -5181,7 +5463,7 @@ const TOUR_STEPS = [
   { sel: '#p-side .p-card', fallback: '#p-side', title: '2. Live Agenda', body: 'Your class agenda stays visible on the left with a live countdown bar for timed steps. Step forward or back anytime with ‹ › or the arrow keys.' },
   { sel: '#stage-tabs', fallback: '#p-stage', title: '3. Pin Tabs & Nest Folders', body: 'Pin slides, scores, PDFs, websites, or music tools as class tabs. Drag any tab onto the middle of another tab to nest them into a drop-down folder.' },
   { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '4. Floating Window: Pin (📌) & Tiling (▦)', body: 'Every floating window has Pin (📌) to save it as a permanent tab in this class, and Tile (▦) to snap it to a half, corner, or third of the screen.' },
-  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open Tools & Companion Split', body: 'Use ＋ Open (and toolbar tools) for timers, signals, web windows, Sight Reading, Score Practice, Piano, Solfege Board, Tuner, Metronome, or external apps via App split.' },
+  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open Tools & External Apps', body: 'Use ＋ Open (and toolbar tools) for timers, signals, web windows, Sight Reading, Score Practice, Piano, Solfege Board, Tuner, Metronome, or dock/float External Apps.' },
   { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '6. Quick Edit', body: 'Click Quick edit to type directly into the class name, warm-up, or agenda steps right on the Present screen, drag steps to reorder, and customize colors in Look.' },
   { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup: Backend & Automations', body: 'Open Setup to configure classes, bell schedules, automatic class switching, Google Drive, saved resources, Daily Routines, and timed per-class Automations.' },
   { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. Customize Toolbar (⋯)', body: 'Open ⋯ to show, hide, or reorder toolbar buttons, move tools into ＋ Open, and adjust toolbar size or idle shrinking. Replay this tour anytime in Setup → Settings.' },

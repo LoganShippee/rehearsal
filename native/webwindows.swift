@@ -61,6 +61,7 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var lastSyncedURL: [String: String] = [:]
     private var lastURL: [String: URL] = [:]
     private var failedIDs = Set<String>()
+    private var authPopups: [(win: NSWindow, wv: WKWebView, opener: WKWebView, observer: NSObjectProtocol)] = []
 
     init(owner: HoleWebView) { self.owner = owner }
 
@@ -337,13 +338,68 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
         decisionHandler(.allow)
     }
 
-    // Links that want a new tab open in the same window; ignore empty/about:blank popups so they never wipe the page.
+    private func isAuthPopupURL(_ url: URL?) -> Bool {
+        guard let url else { return true }
+        let abs = url.absoluteString.lowercased()
+        if abs.isEmpty || abs == "about:blank" { return true }
+        let host = (url.host ?? "").lowercased()
+        let path = url.path.lowercased()
+        return host.hasSuffix("accounts.google.com")
+            || host.hasSuffix("accounts.youtube.com")
+            || host.hasSuffix("login.microsoftonline.com")
+            || host.hasSuffix("login.live.com")
+            || path.contains("signin")
+            || path.contains("servicelogin")
+            || path.contains("oauth")
+            || path.contains("/sso")
+    }
+
+    // Auth popups (Google Sign-In / SSO / window.open('', ...)) get a real Safari-UA popup window
+    // sharing the same cookie store and window.opener; regular target=_blank links stay in-view.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let u = navigationAction.request.url, ["http", "https"].contains((u.scheme ?? "").lowercased()) {
+        let u = navigationAction.request.url
+        if isAuthPopupURL(u) {
+            let popup = WKWebView(frame: NSRect(x: 0, y: 0, width: 520, height: 680), configuration: configuration)
+            popup.customUserAgent = safariUA
+            popup.uiDelegate = self
+            popup.navigationDelegate = self
+            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680),
+                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            win.title = "Sign in"
+            win.contentView = popup
+            win.isReleasedWhenClosed = false
+            win.center()
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            let obs = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: win, queue: .main) { [weak self, weak win, weak webView] _ in
+                guard let self, let win else { return }
+                if let idx = self.authPopups.firstIndex(where: { $0.win === win }) {
+                    let entry = self.authPopups.remove(at: idx)
+                    NotificationCenter.default.removeObserver(entry.observer)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        webView?.reload()
+                    }
+                }
+            }
+            authPopups.append((win: win, wv: popup, opener: webView, observer: obs))
+            return popup
+        }
+        if let u, ["http", "https"].contains((u.scheme ?? "").lowercased()) {
             webView.load(URLRequest(url: u))
         }
         return nil
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if let idx = authPopups.firstIndex(where: { $0.wv === webView }) {
+            let entry = authPopups.remove(at: idx)
+            NotificationCenter.default.removeObserver(entry.observer)
+            entry.win.close()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                entry.opener.reload()
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

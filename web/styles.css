@@ -2040,25 +2040,23 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .present.companion #win-menu-host,
 .present.companion .ink { display: none !important; }
 .present.companion .p-companion {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: 7px;
   width: 100%; height: 100%; min-height: 0;
-  padding: 9px 12px; box-sizing: border-box;
+  padding: 9px 12px 10px; box-sizing: border-box;
   position: relative; z-index: 60;
-  font-size: 12.5px; line-height: 1.2; white-space: nowrap; overflow: hidden;
-  background: var(--bg); color: var(--text);
-  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  font-size: 13px; line-height: 1.25; white-space: nowrap; overflow: hidden;
+  background: color-mix(in srgb, var(--bg, #132232) 96%, #0d1624);
+  color: var(--text, #f3f6fc);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 62%, var(--line));
   border-radius: 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 12%, transparent);
   user-select: none; -webkit-user-select: none;
   container-type: size;
 }
-.comp-row1, .comp-row2, .comp-row3 {
-  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; overflow: hidden;
+.comp-row1 {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; flex: none; overflow: hidden;
 }
-.comp-row1 { justify-content: space-between; flex: none; }
-.comp-row2 { flex: none; }
-.comp-row3 { display: none; flex: none; gap: 5px; overflow-x: auto; scrollbar-width: none; }
-.comp-row3::-webkit-scrollbar { display: none; }
-.comp-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; }
+.comp-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; flex: none; }
 .comp-spacer { flex: 1; }
 .comp-back {
   border: none; border-radius: 8px; padding: 5px 9px; font-size: 11.5px; font-weight: 800;
@@ -2069,12 +2067,12 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .comp-back:hover { filter: brightness(1.08); }
 .comp-back-short { display: none; }
 .comp-apps-btn {
-  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
-  background: color-mix(in srgb, var(--text) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
   color: var(--text); border-radius: 8px; padding: 4px 7px; font-size: 11px; font-weight: 700;
   cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 4px; line-height: 1.1;
 }
-.comp-apps-btn:hover { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.comp-apps-btn:hover { background: color-mix(in srgb, var(--text) 20%, transparent); }
 .comp-apps-btn .ico { width: 12px; height: 12px; }
 .comp-cnt {
   background: var(--accent); color: var(--bg); font-size: 10px; font-weight: 800;
@@ -2085,26 +2083,59 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
   color: var(--clock-text, var(--text)); flex: none;
 }
 .comp-left-t {
-  opacity: .9; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 700;
+  opacity: .95; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 700;
   padding: 2px 6px; border-radius: 99px;
-  background: color-mix(in srgb, var(--text) 12%, transparent);
+  background: color-mix(in srgb, var(--text) 15%, transparent); color: var(--text);
   max-width: 96px; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto;
 }
 .comp-cls {
-  font-weight: 800; font-size: 12.5px; color: var(--title-text, var(--text));
-  overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; max-width: 150px;
+  font-weight: 800; font-size: 12px; color: var(--title-text, var(--text));
+  overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; max-width: 140px;
 }
-.comp-step {
-  opacity: .92; overflow: hidden; text-overflow: ellipsis;
-  padding: 2px 8px; border-radius: 99px;
-  background: color-mix(in srgb, var(--text) 13%, transparent);
-  font-size: 11.5px; font-weight: 600; flex: 1 1 0; min-width: 0;
+/* Agenda-first Hero Block inside Floating Mini-HUD */
+.comp-agenda {
+  flex: 1 1 0; min-height: 0; width: 100%;
+  display: flex; align-items: stretch; gap: 6px; overflow: hidden;
+  padding-top: 3px; border-top: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
 }
+.comp-agenda-list {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: hidden;
+}
+.comp-ag-line {
+  display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;
+  color: var(--text); line-height: 1.25;
+}
+.comp-ag-now { font-size: 13.5px; font-weight: 700; opacity: 1; }
+.comp-ag-next1, .comp-ag-next2, .comp-ag-next3, .comp-ag-next4 {
+  display: none; font-size: 12px; font-weight: 600; opacity: .86;
+}
+.comp-ag-txt { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comp-ag-min { font-size: 10.5px; font-weight: 700; opacity: .75; flex: none; font-variant-numeric: tabular-nums; }
+.comp-now-tag {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .04em;
+  padding: 2px 5px; border-radius: 5px; flex: none;
+  background: var(--accent); color: var(--bg); line-height: 1.1;
+}
+.comp-next-tag, .comp-num-tag {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .03em; flex: none;
+  padding: 1px 5px; border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 16%, transparent); color: var(--text); line-height: 1.2;
+}
+.comp-ag-nav {
+  display: none; flex-direction: column; justify-content: center; gap: 3px; flex: none;
+}
+.comp-ag-nav button {
+  width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text);
+  font-size: 14px; font-weight: 700; line-height: 1; display: grid; place-items: center;
+}
+.comp-ag-nav button:hover { background: color-mix(in srgb, var(--text) 22%, transparent); }
 .comp-timer {
   padding: 2px 7px; border-radius: 99px;
   background: color-mix(in srgb, var(--accent) 26%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  font-weight: 700; font-variant-numeric: tabular-nums; font-size: 11px; flex: none;
+  color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 11px; flex: none;
 }
 .comp-timer.extra { display: none; }
 .comp-sig {
@@ -2197,16 +2228,34 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
   .comp-back-full { display: none; }
   .comp-back-short { display: inline; }
   .comp-apps-lbl { display: none; }
+  .comp-cls { display: none; }
 }
-@container (max-width: 265px) {
-  .comp-left-t { display: none; }
+@container (max-width: 280px) {
+  .comp-left-t, .comp-timer { display: none; }
+}
+@container (min-width: 340px) {
+  .comp-ag-nav { display: flex; }
 }
 @container (min-width: 440px) {
   .comp-cls { max-width: 220px; }
   .comp-timer.extra { display: inline-flex; }
+  .comp-ag-now { font-size: 14.5px; }
 }
-@container (min-height: 116px) {
-  .comp-row3 { display: flex; }
+@container (min-height: 98px) {
+  .comp-ag-next1 { display: flex; }
+}
+@container (min-height: 132px) {
+  .comp-ag-next2 { display: flex; }
+  .comp-agenda-list { justify-content: flex-start; gap: 5px; }
+  .comp-ag-now { font-size: 14.5px; }
+}
+@container (min-height: 168px) {
+  .comp-ag-next3 { display: flex; }
+  .comp-ag-now { font-size: 15.5px; }
+  .comp-ag-next1, .comp-ag-next2, .comp-ag-next3 { font-size: 13px; }
+}
+@container (min-height: 210px) {
+  .comp-ag-next4 { display: flex; }
 }
 @container (min-height: 145px) {
   .comp-apps-strip { flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; align-content: flex-start; }
@@ -2312,14 +2361,60 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .app-card-meta { padding: 5px 7px 4px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .app-card-name { font-size: 12.5px; font-weight: 700; color: #1d2330; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-card-sub { font-size: 11px; color: #6b7385; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-card-acts {
+  display: flex; align-items: center; gap: 4px; padding: 0 5px 5px;
+}
+.win-menu .app-float-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 7px; border-radius: 7px; font-size: 11px; font-weight: 700;
+  background: #f2f4f9; color: #364152; border: 1px solid #e1e5ee; flex: none;
+}
+.win-menu .app-float-btn:hover { background: #e6ecfc; color: #1d2330; }
 .win-menu .app-pin-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 4px 6px; margin: 0 5px 5px; border-radius: 7px; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 1;
+  padding: 4px 6px; margin: 0; border-radius: 7px; font-size: 11px; font-weight: 700;
   background: #f2f4f9; color: #4a5368; border: 1px solid #e1e5ee;
 }
 .win-menu .app-pin-btn:hover { background: #e6ecfc; color: #1d2330; }
 .win-menu .app-pin-btn.on { background: #3b6cf6; color: #fff; border-color: transparent; }
 .win-menu .app-pin-btn .ico { width: 12px; height: 12px; }
+
+/* ---------- Docked External App tabs & stage frame ---------- */
+.tab-ext-app .tab-app-ic {
+  width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: none;
+}
+.swb-app-info {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; overflow: hidden;
+  font-size: 13px; color: var(--text);
+}
+.swb-app-ic { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; flex: none; }
+.swb-app-sub { opacity: .68; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-dock-app {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
+  background: color-mix(in srgb, var(--bg, #0d1624) 72%, transparent);
+}
+.stage-dock-app.is-ready { cursor: pointer; }
+.dock-card {
+  max-width: 440px; width: 100%; padding: 22px 24px; border-radius: 16px; text-align: center;
+  background: var(--card, color-mix(in srgb, var(--bg) 92%, #111827));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--text); display: flex; flex-direction: column; align-items: center; gap: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .22);
+}
+.dock-card.subtle { opacity: .92; }
+.dock-card h3 { margin: 0; font-size: 16px; font-weight: 800; }
+.dock-card p { margin: 0; font-size: 13px; opacity: .82; line-height: 1.45; }
+.dock-ph-ic { width: 44px; height: 44px; border-radius: 10px; object-fit: contain; }
+.dock-ph-ic-svg .ico { width: 36px; height: 36px; opacity: .8; }
+.dock-card-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding-top: 4px; }
+.dock-card-btns button {
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text); border-radius: 9px; padding: 7px 13px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+.dock-card-btns button:hover { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.dock-card-btns button.dock-primary { background: var(--accent); color: var(--bg); border-color: transparent; }
+.dock-card-btns button.dock-primary:hover { filter: brightness(1.08); }
 
 /* ---------- Spotlight onboarding tour ---------- */
 .tour-backdrop { position: fixed; inset: 0; background: rgba(6, 14, 24, .64); z-index: 9500; }

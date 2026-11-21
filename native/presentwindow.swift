@@ -18,6 +18,7 @@ final class RehearsalWindow: NSWindow {
     private var compResizeEdges: (left: Bool, right: Bool, bottom: Bool, top: Bool)?
     private var compResizeStartFrame: NSRect?
     var isCompanion: Bool { compSavedFrame != nil }
+    var onFrameChanged: (() -> Void)?
 
     // Borderless windows normally can't take keyboard focus; ours must.
     override var canBecomeKey: Bool { true }
@@ -25,10 +26,12 @@ final class RehearsalWindow: NSWindow {
 
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
-        if isCompanion, frame.width >= 220, frame.width <= 720, frame.height >= 64, frame.height <= 220 {
+        if isCompanion, frame.width >= 220, frame.width <= 720, frame.height >= 64, frame.height <= 360 {
             let ud = UserDefaults.standard
             ud.set(Double(frame.width), forKey: "companionHudWidth")
             ud.set(Double(frame.height), forKey: "companionHudHeight")
+        } else if !isCompanion {
+            onFrameChanged?()
         }
     }
 
@@ -153,8 +156,8 @@ final class RehearsalWindow: NSWindow {
         let ud = UserDefaults.standard
         let savedW = ud.double(forKey: "companionHudWidth")
         let savedH = ud.double(forKey: "companionHudHeight")
-        let hudW = min(max(savedW > 0 ? CGFloat(savedW) : 340, 220), 720)
-        let hudH = min(max(savedH > 0 ? CGFloat(savedH) : 96, 64), 220)
+        let hudW = min(max(savedW > 0 ? CGFloat(savedW) : 360, 220), 720)
+        let hudH = min(max(savedH > 0 ? CGFloat(savedH) : 118, 64), 360)
         let pad: CGFloat = 16
         NSApp.presentationOptions = []
         styleMask = [.borderless, .resizable, .fullSizeContentView]
@@ -164,7 +167,7 @@ final class RehearsalWindow: NSWindow {
         isOpaque = false
         backgroundColor = .clear
         minSize = NSSize(width: 220, height: 64)
-        maxSize = NSSize(width: 720, height: 220)
+        maxSize = NSSize(width: 720, height: 360)
         contentView?.wantsLayer = true
         contentView?.layer?.cornerRadius = 14
         contentView?.layer?.masksToBounds = true

@@ -338,6 +338,22 @@ internal sealed class WebWindows
             };
             core.NewWindowRequested += (_, e) =>
             {
+                // Allow OAuth / Google Sign-In popups (including about:blank popups opened via window.open)
+                // to open natively with shared WebView2 cookies and window.opener.
+                var uriStr = e.Uri ?? "";
+                bool isAuthPopup = string.IsNullOrEmpty(uriStr)
+                    || string.Equals(uriStr, "about:blank", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("accounts.google.com", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("accounts.youtube.com", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("signin", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("servicelogin", StringComparison.OrdinalIgnoreCase)
+                    || uriStr.Contains("oauth", StringComparison.OrdinalIgnoreCase);
+                if (isAuthPopup)
+                {
+                    e.Handled = false;
+                    return;
+                }
                 e.Handled = true;
                 if (TryParseHttpUri(e.Uri, out var targetUri) && targetUri != null)
                 {

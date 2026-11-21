@@ -3,6 +3,7 @@
 // Screen Recording permission) and posts input events to that app (needs Accessibility).
 
 import Cocoa
+import WebKit
 import ScreenCaptureKit
 import ApplicationServices
 
@@ -435,5 +436,160 @@ final class AppMirrorView: NSView, SCStreamOutput, SCStreamDelegate {
     func bringAppToFront() {
         if let w = axWindow() { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
         makeFrontmost()
+    }
+}
+
+/// Window-Docking controller: positions a real external macOS app window pixel-aligned inside
+/// Rehearsal's stage rectangle so it looks and behaves like it lives inside Rehearsal (100% Retina sharp,
+/// full native mouse/keyboard/scroll). Requires Accessibility permission once on macOS.
+final class AppDocker {
+    private weak var hostWindow: NSWindow?
+    private weak var ownerWeb: WKWebView?
+    private(set) var active = false
+    private var appName = ""
+    private var bundleId = ""
+    private var pid: pid_t = 0
+    private var stageRectInWindow = CGRect.zero
+    private var realignWork: DispatchWorkItem?
+
+    private func sendState(_ dict: [String: Any]) {
+        guard let d = try? JSONSerialization.data(withJSONObject: dict),
+              let json = String(data: d, encoding: .utf8) else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.ownerWeb?.evaluateJavaScript("window.__dockAppState && window.__dockAppState(\(json))")
+        }
+    }
+
+    private func findRunningApp(pid: pid_t, bundleId: String, appName: String) -> NSRunningApplication? {
+        if pid > 0, let a = NSRunningApplication(processIdentifier: pid), !a.isTerminated { return a }
+        if !bundleId.isEmpty, let a = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first(where: { !$0.isTerminated }) {
+            return a
+        }
+        if !appName.isEmpty {
+            return NSWorkspace.shared.runningApplications.first {
+                $0.activationPolicy == .regular && !$0.isTerminated && ($0.localizedName?.caseInsensitiveCompare(appName) == .orderedSame)
+            }
+        }
+        return nil
+    }
+
+    private func primaryAXWindow(for pid: pid_t) -> (AXUIElement, String)? {
+        let appEl = AXUIElementCreateApplication(pid)
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &v) == .success,
+              let wins = v as? [AXUIElement], !wins.isEmpty else { return nil }
+        var best: (AXUIElement, String)?
+        for w in wins {
+            var sub: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXSubroleAttribute as CFString, &sub)
+            let subStr = (sub as? String) ?? ""
+            var t: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &t)
+            let title = (t as? String) ?? ""
+            if subStr == kAXStandardWindowSubrole as String {
+                return (w, title)
+            }
+            if best == nil { best = (w, title) }
+        }
+        return best
+    }
+
+    private func stageScreenRectTopLeft() -> CGRect? {
+        guard let win = hostWindow, let web = ownerWeb, let primary = NSScreen.screens.first else { return nil }
+        guard stageRectInWindow.width >= 80, stageRectInWindow.height >= 60 else { return nil }
+        let webH = web.bounds.height
+        let cocoaInWeb = NSRect(x: stageRectInWindow.minX,
+                                y: webH - stageRectInWindow.maxY,
+                                width: stageRectInWindow.width,
+                                height: stageRectInWindow.height)
+        let cocoaInWin = web.convert(cocoaInWeb, to: nil)
+        let screenRect = win.convertToScreen(cocoaInWin)
+        return CGRect(x: screenRect.minX,
+                      y: primary.frame.maxY - screenRect.maxY,
+                      width: max(120, screenRect.width),
+                      height: max(100, screenRect.height))
+    }
+
+    func dock(appName: String, bundleId: String, pid: Int32, rect: CGRect,
+              inWindow win: NSWindow, ownerWeb: WKWebView, activate: Bool) {
+        self.hostWindow = win
+        self.ownerWeb = ownerWeb
+        self.appName = appName
+        self.bundleId = bundleId
+        self.pid = pid_t(pid)
+        self.stageRectInWindow = rect
+        self.active = true
+
+        guard AppCapture.hasInputAccess else {
+            sendState(["status": "needs-access", "app": appName, "bundleId": bundleId])
+            return
+        }
+        guard let app = findRunningApp(pid: self.pid, bundleId: bundleId, appName: appName) else {
+            sendState(["status": "not-running", "app": appName, "bundleId": bundleId])
+            return
+        }
+        self.pid = app.processIdentifier
+        self.bundleId = app.bundleIdentifier ?? bundleId
+        self.appName = app.localizedName ?? appName
+
+        app.unhide()
+        guard let (axWin, winTitle) = primaryAXWindow(for: app.processIdentifier),
+              let targetRect = stageScreenRectTopLeft() else {
+            if activate {
+                app.activate(options: [.activateIgnoringOtherApps])
+            }
+            sendState(["status": "no-window", "app": self.appName, "bundleId": self.bundleId, "pid": Int(self.pid)])
+            return
+        }
+
+        AXUIElementSetAttributeValue(axWin, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        var pos = targetRect.origin
+        var sz = targetRect.size
+        if let pv = AXValueCreate(.cgPoint, &pos) { AXUIElementSetAttributeValue(axWin, kAXPositionAttribute as CFString, pv) }
+        if let sv = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(axWin, kAXSizeAttribute as CFString, sv) }
+        // Re-apply position after size in case the app clamped its dimensions near a screen edge
+        if let pv = AXValueCreate(.cgPoint, &pos) { AXUIElementSetAttributeValue(axWin, kAXPositionAttribute as CFString, pv) }
+
+        if activate {
+            AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+            if #available(macOS 14.0, *) {
+                NSApp.yieldActivation(to: app)
+                app.activate(from: NSRunningApplication.current, options: [])
+            } else {
+                app.activate(options: [.activateIgnoringOtherApps])
+            }
+            AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+        sendState([
+            "status": "docked",
+            "app": self.appName,
+            "bundleId": self.bundleId,
+            "pid": Int(self.pid),
+            "title": winTitle,
+        ])
+    }
+
+    func realign(activate: Bool = false) {
+        guard active, let win = hostWindow, let web = ownerWeb else { return }
+        realignWork?.cancel()
+        let work = DispatchWorkItem { [weak self, weak win, weak web] in
+            guard let self, self.active, let win, let web else { return }
+            self.dock(appName: self.appName, bundleId: self.bundleId, pid: Int32(self.pid),
+                      rect: self.stageRectInWindow, inWindow: win, ownerWeb: web, activate: activate)
+        }
+        realignWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: work)
+    }
+
+    func undock(bringRehearsalFront: Bool = false) {
+        realignWork?.cancel()
+        realignWork = nil
+        let wasActive = active
+        active = false
+        if wasActive, bringRehearsalFront, let win = hostWindow {
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
