@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rehearsal">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#1b2a3d">
+<title>Rehearsal</title>
+<link rel="stylesheet" href="styles.css">
+<script>/* iPad / browser: a dark page behind everything from the first frame (no white flash or white strip at the top,
+   no white when the page is pulled past its edge). The Mac app keeps it see-through for its native layers. */
+if (!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native)) document.documentElement.classList.add('web');</script>
+<style>html.web { background: #1b2a3d; overscroll-behavior: none; } html.web body { overscroll-behavior: none; } html.web .loading { color: #9fb0c8; }</style>
+</head>
+<body>
+<div id="app"><div class="loading">Loading…</div></div>
+<div id="print-area"></div>
+<script src="icons.js"></script>
+<script src="vendor/vexflow.js"></script>
+<script src="sight.js"></script>
+<script src="music.js"></script>
+<script src="grade.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="pdfview.js?v=2"></script>
+<script src="app.js"></script>
+<script src="score.js"></script>
+<script src="tools.js"></script>
+</body>
+</html>
