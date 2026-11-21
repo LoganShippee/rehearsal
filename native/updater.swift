@@ -6,7 +6,7 @@
 // into it, and each zip must match the SHA-256 the manifest lists.
 //
 // - Web-only changes (most of them): the new web/ folder is downloaded into
-//   ~/Library/Application Support/ClassPilot/updates/ and used from then on. Nothing is reinstalled.
+//   ~/Library/Application Support/Rehearsal/updates/ and used from then on. Nothing is reinstalled.
 // - Changes to this native shell (the "native" number goes up): the new app is downloaded, swapped in
 //   place and reopened, after the user says so.
 
@@ -31,8 +31,16 @@ final class Updater {
     private let testBase: String? = ProcessInfo.processInfo.environment["REHEARSAL_UPDATE_TEST_BASE"].flatMap { $0.hasPrefix("http://localhost:") ? $0 : nil }
     private func downloadPrefix(_ repo: String) -> String { testBase ?? "https://github.com/\(repo)/releases/download/" }
 
-    let supportDir: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ClassPilot", isDirectory: true)   // old name on purpose: users' data lives here
+    let supportDir: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let newDir = appSupport.appendingPathComponent("Rehearsal", isDirectory: true)
+        let legacyDir = appSupport.appendingPathComponent("ClassPilot", isDirectory: true)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: newDir.path), fm.fileExists(atPath: legacyDir.path) {
+            try? fm.moveItem(at: legacyDir, to: newDir)
+        }
+        return newDir
+    }()
     private var updatesDir: URL {
         testBase != nil ? FileManager.default.temporaryDirectory.appendingPathComponent("rehearsal-update-test", isDirectory: true)   // testing never touches real data
             : supportDir.appendingPathComponent("updates", isDirectory: true)
@@ -169,7 +177,7 @@ final class Updater {
 
     private func unzip(_ data: Data) throws -> URL {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory.appendingPathComponent("cp-update-" + UUID().uuidString, isDirectory: true)
+        let tmp = fm.temporaryDirectory.appendingPathComponent("rehearsal-update-" + UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         let zip = tmp.appendingPathComponent("u.zip"), out = tmp.appendingPathComponent("out", isDirectory: true)
         try data.write(to: zip)

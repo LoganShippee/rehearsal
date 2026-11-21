@@ -345,11 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         buildMenu()
         relaxThirdPartyCookies()
         watchPresentationOptions()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClassPilot", isDirectory: true)   // old name on purpose: users' data lives here
         let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
         let up = Updater.shared
-        server = LocalServer(webRoot: up.activeWebRoot(bundled: web), dataDir: support)
+        server = LocalServer(webRoot: up.activeWebRoot(bundled: web), dataDir: up.supportDir)
         server.onSave = { [weak self] client in self?.broadcast(client) }
         up.onState = { [weak self] st in self?.sendUpdateState(st) }
         // look for updates a few seconds after opening, then every 4 hours
@@ -420,12 +418,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         win.delegate = self
         win.isReleasedWhenClosed = false
         if windows.isEmpty {
-            // falls back to the frame saved under the app's old name, so window positions carry over
             win.setFrameAutosaveName("RehearsalMain")
-            if !win.setFrameUsingName("RehearsalMain") && !win.setFrameUsingName("ClassPilotMain") { win.center() }
+            if !win.setFrameUsingName("RehearsalMain") { win.center() }
         } else {
             win.setFrameAutosaveName("RehearsalPresent")
-            if !win.setFrameUsingName("RehearsalPresent") && !win.setFrameUsingName("ClassPilotPresent") { win.cascadeTopLeft(from: windows.last!.frame.origin) }
+            if !win.setFrameUsingName("RehearsalPresent") { win.cascadeTopLeft(from: windows.last!.frame.origin) }
         }
         windows.append(win)
         webViews.append(wv)

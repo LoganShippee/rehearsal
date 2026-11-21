@@ -6,10 +6,10 @@ import Cocoa
 import ScreenCaptureKit
 import ApplicationServices
 
-/// Small diagnostic log: ~/Library/Application Support/ClassPilot/debug.log
-func cpLog(_ msg: String) {
+/// Small diagnostic log: ~/Library/Application Support/Rehearsal/debug.log
+func rehearsalLog(_ msg: String) {
     let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ClassPilot/debug.log")
+        .appendingPathComponent("Rehearsal/debug.log")
     let line = "\(Date()) \(msg)\n"
     if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
     else { try? line.write(to: url, atomically: true, encoding: .utf8) }

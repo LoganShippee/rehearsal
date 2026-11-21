@@ -164,8 +164,7 @@ async function loadData() {
       if (r.ok) { const t = await r.text(); if (t.trim()) d = JSON.parse(t); }
     } catch (e) { console.warn(e); }
   }
-  // 'classpilot' is the key used under the app's old name, so older browser data still loads
-  if (!d) { try { d = JSON.parse(localStorage.getItem('rehearsal') || localStorage.getItem('classpilot') || 'null'); } catch { } }
+  if (!d) { try { d = JSON.parse(localStorage.getItem('rehearsal') || 'null'); } catch { } }
   S = migrate(d || sampleData());
 }
 let saveTimer = null;
@@ -173,7 +172,7 @@ function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 350);
 async function saveNow() {
   if (window.__noSave) return;
   const body = JSON.stringify(S);
-  try { localStorage.setItem('rehearsal', body); localStorage.removeItem('classpilot'); } catch { }
+  try { localStorage.setItem('rehearsal', body); } catch { }
   if (HAS_SERVER) {
     try { await fetch('/api/data', { method: 'POST', headers: { 'X-Token': TOKEN, 'X-Client': CLIENT, 'Content-Type': 'application/json' }, body }); }
     catch (e) { toast('Could not save — is the app still running?'); }
@@ -4367,7 +4366,7 @@ const A = {
     clearTimeout(saveTimer); window.__noSave = true;
     const r = await fetch('/api/restore?name=' + encodeURIComponent(n), { method: 'POST', headers: { 'X-Token': TOKEN } });
     if (!r.ok) { window.__noSave = false; return toast('Could not restore that backup.'); }
-    try { localStorage.removeItem('rehearsal'); localStorage.removeItem('classpilot'); } catch { }
+    try { localStorage.removeItem('rehearsal'); } catch { }
     location.reload();
   },
   'warmup-hide': () => {

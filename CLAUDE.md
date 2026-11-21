@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Rehearsal (formerly called Class Pilot) is a classroom-display and music-rehearsal app for teachers. It ships two ways from the same `web/` folder:
+Rehearsal is a classroom-display and music-rehearsal app for teachers. It ships two ways from the same `web/` folder:
 - **Mac app**: a small Swift shell (`native/`) that serves `web/` from a loopback HTTP server and shows it in WKWebView windows.
 - **Web version**: the same `web/` folder published to GitHub Pages; it runs in any browser, offline via `web/sw.js`.
 
-The bundle ID `local.classpilot.app` and data folder `~/Library/Application Support/ClassPilot/` keep the old name on purpose (macOS permissions, sign-ins and data are keyed to them). Don't rename them. Everything else uses the Rehearsal name: the executable, the Info.plist update keys (`RehearsalUpdateRepo`/`RehearsalUpdateKey`), window frame names (which fall back to the old `ClassPilot…` names) and the browser's localStorage key `rehearsal` (which falls back to the old `classpilot` key).
+Everything uses the Rehearsal name: bundle ID `local.rehearsal.app`, data folder `~/Library/Application Support/Rehearsal/` (with one-time startup migration from the legacy data folder in `native/updater.swift`), the executable, the Info.plist update keys (`RehearsalUpdateRepo`/`RehearsalUpdateKey`), window frame names (`RehearsalMain`, `RehearsalPresent`, `RehearsalDrive`), and the browser's localStorage key `rehearsal`.
 
 ## Commands
 

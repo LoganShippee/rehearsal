@@ -67,9 +67,9 @@ print(json.dumps({"version": e["VERSION"], "native": int(e["NATIVE"]), "notes": 
   "app": {"url": e["URL"] + "/Rehearsal.zip", "sha256": e["APPSHA"]},
   "web": {"url": e["URL"] + "/web.zip", "sha256": e["WEBSHA"]}}, indent=1))' > "$OUT/latest.json"
 
-[[ build/cpsign -nt tools/cpsign.swift ]] || swiftc -O tools/cpsign.swift -o build/cpsign 2>/dev/null
-build/cpsign sign "$KEY" "$OUT/latest.json" > "$OUT/latest.json.sig"
-build/cpsign verify "$(cat release/public-key.txt)" "$OUT/latest.json" "$OUT/latest.json.sig" || die "signature check failed"
+[[ build/rehearsal-sign -nt tools/rehearsal-sign.swift ]] || swiftc -O tools/rehearsal-sign.swift -o build/rehearsal-sign 2>/dev/null
+build/rehearsal-sign sign "$KEY" "$OUT/latest.json" > "$OUT/latest.json.sig"
+build/rehearsal-sign verify "$(cat release/public-key.txt)" "$OUT/latest.json" "$OUT/latest.json.sig" || die "signature check failed"
 
 git push -q origin HEAD --tags
 

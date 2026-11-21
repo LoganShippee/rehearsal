@@ -1,7 +1,7 @@
 // Release signing for Rehearsal updates (Ed25519, Apple CryptoKit).
-//   cpsign keygen <private-key-file>        makes a key; prints the public key (base64)
-//   cpsign sign <private-key-file> <file>   prints the signature of <file> (base64)
-//   cpsign verify <public-key> <file> <sig> exits 0 if the signature is good
+//   rehearsal-sign keygen <private-key-file>        makes a key; prints the public key (base64)
+//   rehearsal-sign sign <private-key-file> <file>   prints the signature of <file> (base64)
+//   rehearsal-sign verify <public-key> <file> <sig> exits 0 if the signature is good
 import Foundation
 import CryptoKit
 
@@ -13,7 +13,7 @@ func readKey(_ path: String) -> Curve25519.Signing.PrivateKey {
           let k = try? Curve25519.Signing.PrivateKey(rawRepresentation: d) else { die("Can't read the release key at \(path)") }
     return k
 }
-guard a.count >= 3 else { die("usage: cpsign keygen <keyfile> | sign <keyfile> <file> | verify <pub> <file> <sig>") }
+guard a.count >= 3 else { die("usage: rehearsal-sign keygen <keyfile> | sign <keyfile> <file> | verify <pub> <file> <sig>") }
 switch a[1] {
 case "keygen":
     if FileManager.default.fileExists(atPath: a[2]) { die("\(a[2]) already exists — not overwriting your release key.") }

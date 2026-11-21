@@ -18,7 +18,7 @@ Both Antigravity and Claude Code work on this repo on `main`. Follow these hando
    - If you add static files needed offline in the web version, add them to `FILES` in `web/sw.js`.
    - If you add files that must ship inside the `.app` bundle, check the diff list in `release.sh`.
    - If you add or change a user-facing feature, update the "What's in it" section of `README.md`.
-4. **Never rename persistent identifiers.** Keep bundle ID `local.classpilot.app` and data folder `~/Library/Application Support/ClassPilot/` unchanged (macOS permissions, sign-ins, and saved data depend on them).
+4. **Never rename persistent identifiers.** Keep bundle ID `local.rehearsal.app` and data folder `~/Library/Application Support/Rehearsal/` unchanged (macOS permissions, sign-ins, and saved data depend on them).
 5. **Respect teacher-friendly conventions.** Keep UI copy plain, short, and jargon-free, and keep browser-only mode degrading gracefully for Mac-only features.
 
 ## Save states (rollback points)

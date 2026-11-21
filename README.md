@@ -21,7 +21,7 @@ The web version keeps its classes and files in that browser on that device only.
 - `./release.sh "What changed"` publishes a new version to everyone (`--minor` / `--major` for bigger version jumps). It runs the grader tests, raises the version in `release/VERSION`, commits, builds, signs and uploads, and publishes the web folder to GitHub Pages (the iPad version). If anything in `native/` or `build.sh` changed, users get a full app update; otherwise only the web files.
 - **Release key:** `~/.rehearsal/release-key` signs every update. **Back it up** (e.g. in a password manager). Without it you can't publish updates that existing copies will accept. Never put it in the repository. The matching public key is `release/public-key.txt`.
 - `tests/run.sh` runs the grader tests. The app icon's artwork is `icon/source-1024.png` (made with IconKitchen; its web icons are in `web/`). To rebuild the Mac icon from it: `swift icon/fromimage.swift icon/source-1024.png build/AppIcon.iconset && iconutil -c icns build/AppIcon.iconset -o icon/AppIcon.icns`.
-- The app's internal ID (`local.classpilot.app`) and data folder (`~/Library/Application Support/ClassPilot/`) keep the app's old name on purpose, so permissions, sign-ins and data carry over.
+- The app's internal ID is `local.rehearsal.app` and its data folder is `~/Library/Application Support/Rehearsal/` (existing data from the legacy folder is migrated automatically on first launch).
 
 ## What's in it
 - **Present screen:** clock, time left in the period, agenda that moves forward on its own, warm-up question, and resource tabs (Google Slides/Docs/Sheets/Forms/Drive, YouTube, Canva, PDFs, pictures, videos). Use the 📌 menu in the toolbar to show any class off-schedule.
@@ -75,10 +75,10 @@ If a Google file on the Present screen shows "You need access", use the **Drive 
 
 ## Your data
 
-**Automatic backups:** each day you use the app, the first save keeps a dated copy of your data in `~/Library/Application Support/ClassPilot/backups/` (newest 30 kept). Setup → Settings → Automatic backups lists them with **Restore** (what you have now is backed up first) and **Back up now**.
+**Automatic backups:** each day you use the app, the first save keeps a dated copy of your data in `~/Library/Application Support/Rehearsal/backups/` (newest 30 kept). Setup → Settings → Automatic backups lists them with **Restore** (what you have now is backed up first) and **Back up now**.
 
 **Fast score tabs:** a few seconds after opening (and when the class changes) the app quietly loads the notation library, the piano, and this class's scores, and draws its first score tab off-screen so it opens instantly.
-Everything is saved in `~/Library/Application Support/ClassPilot/` (`data.json` plus a `files/` folder). Use Settings → Export backup to move it to another Mac.
+Everything is saved in `~/Library/Application Support/Rehearsal/` (`data.json` plus a `files/` folder). Use Settings → Export backup to move it to another Mac.
 
 ## Layout
 - `native/`: Swift app shell (window, local loopback server, Drive window)

@@ -503,7 +503,7 @@ function grTone(c, time, midi, dur) {
 }
 
 // ---------- Troubleshooting log: every attempt saves the raw mic audio (.wav) and what the grader saw
-// (.json) into the app's files folder (~/Library/Application Support/ClassPilot/files/grlog…),
+// (.json) into the app's files folder (~/Library/Application Support/Rehearsal/files/grlog…),
 // so a take that was graded wrongly can be replayed and the grader fixed against real singing.
 function grWav(chunks, sr) {
   const n = chunks.reduce((s, a) => s + a.length, 0), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
