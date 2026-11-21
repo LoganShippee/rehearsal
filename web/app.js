@@ -445,7 +445,7 @@ function setMetVol(v) {
   document.querySelectorAll('input[data-metvol]').forEach(i => { if (+i.value !== v) i.value = v; const b = i.parentElement?.querySelector('.mv-v'); if (b) b.textContent = Math.round(v * 100) + '%'; });
 }
 // a small "Metronome volume" slider that any tool can drop into its settings
-const metVolSlider = (label = 'Metronome volume') => `<label class="metvol" title="Volume of the metronome and count-in clicks only (the music keeps its own volume)">${IC('ico:metro')} ${label} <input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol><b class="mv-v">${Math.round(metVol() * 100)}%</b></label>`;
+const metVolSlider = (label = 'Metronome volume') => `<label class="metvol" title="Volume of the metronome and count-in clicks only (the music keeps its own volume)">${label} <input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol><b class="mv-v">${Math.round(metVol() * 100)}%</b></label>`;
 document.addEventListener('input', e => { if (e.target.matches?.('input[data-metvol]')) { e.stopPropagation(); setMetVol(e.target.value); } }, true);
 function setMusicVol(v) { try { localStorage.setItem(VOL_KEY, String(v)); } catch { } for (const g of MUSIC_OUTS) try { g.gain.setTargetAtTime(v, g.context.currentTime, 0.03); } catch { } }
 function setAvDelay(ms) { ms = Math.round(Math.max(-200, Math.min(600, ms)) / 10) * 10; try { localStorage.setItem(AV_KEY, String(ms)); } catch { } S.settings.avDelay = ms; save(); return ms; }

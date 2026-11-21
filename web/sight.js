@@ -1124,6 +1124,7 @@ function srSettingsHTML(st) {
     ${m === 'solfege' ? `<label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading (treble clef) <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>
     <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>` : ''}
     <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
+    <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${o.measureNums ? 'checked' : ''}> Measure #</label>
     ${m === 'rhythm' ? `<label>Sound <select data-k="sound">${opt('clap', o.sound || 'clap', 'Clap')}${opt('drum', o.sound, 'Drum')}${opt('woodblock', o.sound, 'Woodblock')}${opt('none', o.sound, 'Playhead only (no sound)')}</select></label>` : ''}
     ${metVolSlider()}
     <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>`;
@@ -1359,6 +1360,7 @@ function srBuildSettingsHTML(st) {
     <label title="Sound for notes with pitch">Sound <select data-k="instrument">${SR_INSTRUMENTS.map(([v, l]) => opt(v, b.instrument || 'soft', l)).join('')}</select></label>
     <label title="Full: each note lasts its whole value. Detached: notes are shorter, with a little space between them.">Note length <select data-k="artic">${opt('full', b.artic || 'full', 'Full')}${opt('detached', b.artic || 'full', 'Detached')}</select></label>
     <label title="Sound when viewing Rhythm only">Rhythm sound <select data-k="sound">${opt('clap', b.sound || 'clap', 'Clap')}${opt('drum', b.sound, 'Drum')}${opt('woodblock', b.sound, 'Woodblock')}${opt('none', b.sound, 'Playhead only (no sound)')}</select></label>
+    <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${b.measureNums ? 'checked' : ''}> Measure #</label>
   </div>`;
 }
 
@@ -1739,7 +1741,6 @@ function mountSight(host, st, onChange) {
       </div>
       <div class="sr-sub">
         <span class="tb-lbl">Show</span>
-        <button data-sr="nums" class="${st[st.mode].measureNums ? 'on' : ''}" title="Show measure numbers">${IC('ico:hash')} Measure #</button>
         ${st.mode === 'rhythm' ? '' : `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="Turn off Rhythm only to show solfege syllables"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:music')} Solfege</button>`}
         <button data-sr="counts" class="${st.showCounts ? 'on' : ''}" title="Write the rhythm counts under the notes">${IC('ico:list')} Counts</button>
         ${st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`}

@@ -139,6 +139,8 @@ function pianoState() {
   if (st.kbdOn === undefined) st.kbdOn = true;
   if (!st.clef) st.clef = 'treble';
   if (st.showCounts === undefined) st.showCounts = false;
+  if (!st.zoom) st.zoom = 1;
+  if (!st.staffH) st.staffH = 136;
   if (st.pattern === 'scale9') st.pattern = 'rossini';
   if (st.pattern === 'octslide') st.pattern = 'siren';
   return st;
@@ -309,9 +311,14 @@ function pianoDrawWarmupStaff(host, st, root) {
 
     const svg = box.querySelector('svg');
     if (svg) {
+      const zm = clamp(Number(st.zoom) || 1, 0.6, 2.2);
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
       svg.removeAttribute('width');
       svg.removeAttribute('height');
+      svg.style.height = `${Math.round(H * zm)}px`;
+      svg.style.maxHeight = 'none';
+      svg.style.width = 'auto';
+      svg.style.maxWidth = 'none';
     }
   } catch { }
 }
@@ -506,12 +513,22 @@ function renderPiano(h) {
       }).join('')}
     </div>
 
-    ${st.seqOpen ? `<div class="pn-seq">
+    ${st.seqOpen ? (() => {
+      const zoomPct = Math.round(clamp(Number(st.zoom) || 1, 0.6, 2.2) * 100);
+      const boxH = clamp(Number(st.staffH) || 136, 88, 360);
+      return `<div class="pn-seq">
       <div class="pq-banner">
         <div class="pq-meta"><b class="pq-key">${TOOL_KEY_LABELS[((activeRoot % 12) + 12) % 12]} Major</b><span class="pq-cnt">${PIANO_SEQ.playing ? `Key ${PIANO_SEQ.stepIdx + 1} of ${PIANO_SEQ.roots.length}` : (pat.tip || pat.name)}</span></div>
         <div class="pq-syls">${pat.syl.map(s => `<span class="pq-syl">${s}</span>`).join('')}</div>
+        <span class="grow"></span>
+        <span class="tb-lbl">Zoom</span>
+        <span class="sr-zoom pq-zoom" title="Make the warm-up music bigger or smaller (${zoomPct}%)"><button type="button" data-pn="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.6 ? 'disabled' : ''}>${IC('ico:minus')}</button><span class="tb-zpct">${zoomPct}%</span><button type="button" data-pn="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.2 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
       </div>
-      <div class="pq-staff" aria-label="Warm-up music notation"></div>
+      <div class="pq-staff-wrap" style="height:${boxH}px">
+        <div class="pq-staff" aria-label="Warm-up music notation"></div>
+        <div class="pq-resize" title="Drag up or down to resize the notation window"><span></span></div>
+      </div>`;
+    })() : ''}${st.seqOpen ? `
       <div class="pq-row">
         <button data-pn="seq-play" class="pn-primary">${PIANO_SEQ.playing && PIANO_SEQ.host === h ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Start warm-up'}</button>
         ${PIANO_SEQ.playing && !st.autoStep ? `<button data-pn="seq-next" class="pn-primary">Next key ${IC('ico:chevright')}</button>` : ''}
@@ -528,7 +545,28 @@ function renderPiano(h) {
     </div>` : ''}
   </div>`;
 
-  if (st.seqOpen) pianoDrawWarmupStaff(h, st, activeRoot);
+  if (st.seqOpen) {
+    pianoDrawWarmupStaff(h, st, activeRoot);
+    const rz = h.querySelector('.pq-resize'), wrap = h.querySelector('.pq-staff-wrap');
+    if (rz && wrap) {
+      rz.onpointerdown = ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        const y0 = ev.clientY, h0 = wrap.offsetHeight;
+        const move = mv => {
+          const nh = clamp(Math.round(h0 + (mv.clientY - y0)), 88, 360);
+          st.staffH = nh;
+          wrap.style.height = nh + 'px';
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          save();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      };
+    }
+  }
 
   const keysEl = h.querySelector('.pn-keys');
   let dragging = false, lastMidi = null;
@@ -560,6 +598,13 @@ function renderPiano(h) {
     e.stopPropagation();
     const act = b.dataset.pn;
     if (act === 'oct') { st.baseOct = clamp(st.baseOct + Number(b.dataset.d), 2, 5); save(); renderPiano(h); }
+    else if (act === 'zoom') {
+      const nextZ = clamp(Math.round(((Number(st.zoom) || 1) + 0.15 * Number(b.dataset.d)) * 100) / 100, 0.6, 2.2);
+      st.zoom = nextZ;
+      const minFit = Math.round(126 * nextZ);
+      if ((st.staffH || 136) < minFit && Number(b.dataset.d) > 0) st.staffH = clamp(minFit, 88, 360);
+      save(); renderPiano(h);
+    }
     else if (act === 'labels') {
       st.labels = b.dataset.v; save();
       if (PIANO_SEQ.playing) {
@@ -941,7 +986,7 @@ function curwenHandHTML(handKey, label) {
 const SB_COLORS = {
   do:  ['#d9383a', '#fff'],
   re:  ['#e87a24', '#fff'],
-  mi:  ['#eab308', '#1d2330'],
+  mi:  ['#c8960c', '#fff'],
   fa:  ['#2ea04e', '#fff'],
   sol: ['#1f85a8', '#fff'],
   la:  ['#7b4bc4', '#fff'],
