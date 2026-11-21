@@ -582,10 +582,6 @@ function srDraw(el, st) {
       }
       if (i === 0) stave.addTimeSignature(o.ts);
       if (i === nM - 1) stave.setEndBarType(VF.Barline.type.END);
-      if (col === 0 && stave.setNoteStartX) {
-        const wantStart = stave.getX() + firstW;
-        if (stave.getNoteStartX() < wantStart) stave.setNoteStartX(wantStart);
-      }
       stave.setContext(ctx).draw();
       staves.push(stave);
       if (o.measureNums && p === 0) {
@@ -653,10 +649,12 @@ function srDraw(el, st) {
     new VF.Formatter().format(voices, stave0.getNoteEndX() - stave0.getNoteStartX() - 12);
     // Proportional beat-grid spacing: every beat gets the exact same pixel width across every measure,
     // so the Beat playhead glides at one constant speed while crossing each notehead right on time.
-    let gridAvail = stave0.getNoteEndX() - stave0.getNoteStartX() - 16;
+    const innerStart = col === 0 ? Math.max(stave0.getNoteStartX(), stave0.getX() + firstW) : stave0.getNoteStartX();
+    const offsetL = innerStart - stave0.getNoteStartX();
+    let gridAvail = stave0.getNoteEndX() - innerStart - 16;
     {
       const avail = Math.max(60, gridAvail);
-      const padL = 8;
+      const padL = 8 + offsetL;
       const byPos = new Map();
       for (const it of allNotes) {
         const k = Math.round(it.pos * 1000);
