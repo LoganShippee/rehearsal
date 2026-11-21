@@ -3,3 +3,6 @@ backups-*/
 .DS_Store
 *.key
 .claude/
+windows/bin/
+windows/obj/
+dist/

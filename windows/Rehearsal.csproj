@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Rehearsal</AssemblyName>
+    <RootNamespace>Rehearsal</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\web\favicon.ico</ApplicationIcon>
+    <RehearsalVersion Condition="'$(RehearsalVersion)' == ''">1.1.5</RehearsalVersion>
+    <RehearsalNativeWin Condition="'$(RehearsalNativeWin)' == ''">1</RehearsalNativeWin>
+    <RehearsalUpdateRepo Condition="'$(RehearsalUpdateRepo)' == ''">LoganShippee/rehearsal</RehearsalUpdateRepo>
+    <RehearsalUpdateKey Condition="'$(RehearsalUpdateKey)' == ''">/Lm172G7zOQ/S+fHhF04LCh7X79WJzaldS7YZ/iVzVM=</RehearsalUpdateKey>
+    <Version>$(RehearsalVersion)</Version>
+    <AssemblyVersion>$(RehearsalVersion).0</AssemblyVersion>
+    <FileVersion>$(RehearsalVersion).0</FileVersion>
+    <Product>Rehearsal</Product>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="RehearsalVersion" Value="$(RehearsalVersion)" />
+    <AssemblyMetadata Include="RehearsalNativeWin" Value="$(RehearsalNativeWin)" />
+    <AssemblyMetadata Include="RehearsalUpdateRepo" Value="$(RehearsalUpdateRepo)" />
+    <AssemblyMetadata Include="RehearsalUpdateKey" Value="$(RehearsalUpdateKey)" />
+  </ItemGroup>
+</Project>

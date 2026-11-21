@@ -17,7 +17,7 @@ function native(cmd, data = {}) {
 }
 const IS_NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
 // what to call this device in messages ("saved on this iPad")
-const DEVICE = IS_NATIVE ? 'Mac' : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
+const DEVICE = IS_NATIVE ? (window.__REHEARSAL_PLATFORM === 'windows' ? 'PC' : 'Mac') : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
 function toast(msg, ms = 2600) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);

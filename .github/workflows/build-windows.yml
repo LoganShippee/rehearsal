@@ -1,0 +1,93 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - 'web/**'
+      - 'release/NATIVE_WIN'
+      - 'release/VERSION'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional GitHub release tag (e.g. v1.1.5) to attach artifacts to'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Read release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $version = (Get-Content release/VERSION -Raw).Trim()
+          $native = (Get-Content release/NATIVE -Raw).Trim()
+          $nativeWin = (Get-Content release/NATIVE_WIN -Raw).Trim()
+          $pubKey = (Get-Content release/public-key.txt -Raw).Trim()
+          $repoLine = Get-Content release/config | Where-Object { $_ -match '^REPO=' } | Select-Object -First 1
+          $repo = ($repoLine -replace '^REPO="?([^"]*)"?$', '$1').Trim()
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "native=$native" >> $env:GITHUB_OUTPUT
+          "native_win=$nativeWin" >> $env:GITHUB_OUTPUT
+          "pub_key=$pubKey" >> $env:GITHUB_OUTPUT
+          "repo=$repo" >> $env:GITHUB_OUTPUT
+
+      - name: Publish Rehearsal.exe
+        shell: pwsh
+        run: |
+          dotnet publish windows/Rehearsal.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:RehearsalVersion=${{ steps.meta.outputs.version }} `
+            -p:RehearsalNativeWin=${{ steps.meta.outputs.native_win }} `
+            -p:RehearsalUpdateRepo=${{ steps.meta.outputs.repo }} `
+            -p:RehearsalUpdateKey=${{ steps.meta.outputs.pub_key }} `
+            -o dist/Rehearsal
+          Get-ChildItem dist/Rehearsal -Filter '*.pdb' | Remove-Item -Force
+          Copy-Item -Path web -Destination dist/Rehearsal/web -Recurse -Force
+          $verJson = @{
+            version = "${{ steps.meta.outputs.version }}"
+            native = [int]${{ steps.meta.outputs.native }}
+            nativeWin = [int]${{ steps.meta.outputs.native_win }}
+          } | ConvertTo-Json -Compress
+          Set-Content -Path dist/Rehearsal/web/version.json -Value $verJson -Encoding UTF8 -NoNewline
+
+      - name: Package portable zip and Inno Setup installer
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/Rehearsal/* -DestinationPath dist/Rehearsal-Windows.zip -Force
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y
+          }
+          & $iscc "/DMyAppVersion=${{ steps.meta.outputs.version }}" "/DSourceDir=..\dist\Rehearsal" windows\installer.iss
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rehearsal-Windows-${{ steps.meta.outputs.version }}
+          path: |
+            dist/Rehearsal-Windows.zip
+            dist/Rehearsal-Setup.exe
+
+      - name: Attach to GitHub Release (if release_tag specified)
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ inputs.release_tag }}" dist/Rehearsal-Windows.zip dist/Rehearsal-Setup.exe --clobber
