@@ -237,7 +237,15 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .p-dock button, .p-dock select { background: transparent; border: none; color: #fff; padding: 5px 7px; border-radius: 9px; cursor: pointer; font-size: 11px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .p-dock button .i { font-size: 18px; line-height: 1; }
 .p-dock button:hover, .p-dock button.on { background: rgba(255,255,255,.16); }
-.p-dock select { display: inline-block; background: rgba(255,255,255,.1); max-width: 150px; font-size: 12px; padding: 6px 8px; line-height: 1.2; }
+.p-dock select {
+  display: inline-block; appearance: none; -webkit-appearance: none;
+  background: rgba(255,255,255,.12) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center / 12px 12px;
+  max-width: 165px; height: 32px; font-size: 12px; font-weight: 600;
+  padding: 0 24px 0 10px; line-height: 32px; white-space: nowrap; text-overflow: ellipsis;
+}
+.p-dock.dock-light select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231d2330' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
 .p-dock select option { color: #000; }
 .p-dock .sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.2); margin: 4px 4px; }
 .sound-chip { position: absolute; left: 1em; bottom: 1em; z-index: 51; background: #e63946; color: #fff; border: none; padding: 8px 14px; border-radius: 99px; cursor: pointer; font-size: 13px; }
@@ -1599,7 +1607,7 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
   background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 .sr-top .sr-step button, .sp-top .sp-step button {
-  height: auto; border: 0; border-radius: 0; padding: 0 7px !important; font-size: 14px;
+  height: 100%; min-height: 0; min-width: 26px; border: 0; border-radius: 0; padding: 0 6px !important; font-size: 14px;
   background: color-mix(in srgb, var(--text) 7%, transparent);
 }
 .sr-top .sr-step button:hover, .sp-top .sp-step button:hover {
@@ -1607,14 +1615,14 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 }
 .sr-tempo label, .sp-step output {
   display: inline-flex; align-items: center; justify-content: center; gap: 3px;
-  height: auto; padding: 0 6px; margin: 0;
+  height: 100%; padding: 0 6px; margin: 0;
   border-inline: 1px solid var(--line); line-height: 1; white-space: nowrap;
   font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
   min-width: 0;
 }
 .sr-tempo input[type=number] {
-  width: 32px; height: 100%; text-align: right; font-size: 13px; font-weight: 700;
-  border: 0; background: transparent; color: var(--text); padding: 0; line-height: 1;
+  width: 32px !important; height: 100% !important; text-align: right; font-size: 13px !important; font-weight: 700;
+  border: 0 !important; background: transparent; color: var(--text); padding: 0 !important; line-height: 1;
   font-variant-numeric: tabular-nums; -moz-appearance: textfield;
 }
 .sr-tempo input[type=number]:focus { outline: none; }
@@ -1658,13 +1666,22 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .sr [data-sr="play"] { min-width: 4.6em; }
 .sp-root.sp-closed .sp-choir, .sp-root.sp-closed .sp-settings, .sp-root.sp-closed .sp-custom { display: none !important; }
 
-/* Responsive scaling across window widths (both tiers stay organized at every size) */
-@container (max-width: 960px) and (min-width: 680px) {
+/* Responsive scaling across window widths (both tiers stay on 1 row each from 680px up) */
+@container (max-width: 1080px) and (min-width: 680px) {
   .sr-top, .sp-top { gap: 4px; padding: 6px 8px; }
   .sr-top button, .sp-top button { padding: 0 7px; font-size: 12px; gap: 4px; }
   .sr-top .sr-tabs button { padding: 0 7px; }
-  .sr-top .sr-step button, .sp-top .sp-step button { padding: 0 6px !important; }
+  .sr-top .sr-step button, .sp-top .sp-step button { padding: 0 5px !important; min-width: 24px; }
   .tb-div { margin: 0 1px; }
+}
+@container (max-width: 940px) and (min-width: 680px) {
+  .sr-top .sr-tabs button .ico { display: none; }
+  .sr-top button[data-sr="new"], .sr-top button[data-sr="metro"],
+  .sr-top button[data-sr="save"], .sr-top button[data-sr="print"],
+  .sp-top button[data-sp="metro"], .sp-top button[data-sp="spots"], .sp-top button[data-sp="tabs"] {
+    font-size: 0; gap: 0; padding: 0 8px;
+  }
+  .sr-top button .ico, .sp-top button .ico { width: 15px; height: 15px; }
 }
 @container (max-width: 679px) {
   .sr-top, .sp-top { gap: 4px; padding: 5px 8px; }
