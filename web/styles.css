@@ -1821,3 +1821,33 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .aud-mk button b { font-variant-numeric: tabular-nums; opacity: .8; margin-right: 3px; }
 .aud-mk .x { border-radius: 0 99px 99px 0; padding: 4px 7px; margin-left: -1px; }
 .aud-mnone { font-size: 12.5px; opacity: .6; }
+
+/* ---------- Feature 5: Interactive Solfege Ladder, Curwen Hand Signs & Echo Board ---------- */
+.sb { display: flex; flex-direction: column; height: 100%; padding: 10px 12px; gap: 10px; box-sizing: border-box; outline: none; }
+.sb-bar, .sb-echo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.sb-bar label { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12.5px; }
+.sb select { background: rgba(255,255,255,.94); color: #1d2330; border: 1px solid rgba(0,0,0,.18); border-radius: 7px; padding: 4px 6px; font-size: 12.5px; }
+.wg-host .sb-bar button { padding: 5px 10px; font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.wg-host .sb-bar button.on, .wg-host .sb .sb-primary { background: var(--accent) !important; color: var(--bg) !important; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+.sb-echo { padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid var(--line); }
+.sb-elbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+.sb-elist { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.sb-ehint { font-size: 12px; opacity: .65; }
+.sb-echo-item { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; padding: 3px 10px; border-radius: 99px; font-weight: 800; font-size: 13px; background: color-mix(in srgb, var(--text) 14%, transparent); transition: transform .12s, box-shadow .12s; }
+.sb.is-col .sb-echo-item.rev { background: var(--sb-bg, var(--accent)); color: var(--sb-fg, var(--bg)); }
+.sb-echo-item.hid { background: color-mix(in srgb, var(--accent) 26%, transparent); border: 1px dashed var(--accent); }
+.sb-echo-item.lit { transform: scale(1.18); box-shadow: 0 0 0 3px var(--accent); }
+.sb-tiles { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+.sb.is-grid .sb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); align-content: start; gap: 8px; }
+.wg-host .sb-tile { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); text-align: left; transition: transform .08s, filter .1s, box-shadow .1s; min-height: 46px; }
+.sb.is-ladder .sb-tile { flex: 1 0 44px; }
+.sb.is-grid .sb-tile { flex-direction: column; justify-content: center; text-align: center; padding: 12px 8px; gap: 4px; min-height: 92px; }
+.sb.is-col .sb-tile { background: var(--sb-bg, var(--accent)); color: var(--sb-fg, #fff); border-color: rgba(0,0,0,.15); }
+.sb.is-col .sb-tile.is-alt { filter: saturate(.75) brightness(.88); border-style: dashed; }
+.wg-host .sb-tile:hover { filter: brightness(1.08); }
+.wg-host .sb-tile.lit { transform: scale(.98); box-shadow: 0 0 0 3px #fff, 0 0 18px var(--accent); filter: brightness(1.18); }
+.sb-hand { width: 42px; height: 32px; flex: none; }
+.sb-syl { font-size: 1.35em; font-weight: 800; letter-spacing: .01em; }
+.sb-note { font-size: .85em; font-weight: 700; opacity: .82; }
+.sb-kbd { margin-left: auto; font-family: inherit; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.18); opacity: .75; }
+.sb.is-grid .sb-kbd { position: absolute; top: 5px; right: 6px; margin: 0; }

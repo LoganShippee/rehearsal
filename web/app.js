@@ -761,6 +761,7 @@ const DOCK_ITEMS = {
   yt: { icon: 'ico:youtube', label: 'YouTube', act: 'wm-yt', on: () => winList().some(w => w.kind === 'yt') },
   rec: { icon: 'ico:mic', label: 'Recorder', act: 'wm-rec', on: () => winList().some(w => w.kind === 'rec') || REC.state === 'rec' },
   piano: { icon: 'ico:piano', label: 'Piano', act: 'wm-piano', on: () => winList().some(w => w.kind === 'piano') },
+  solboard: { icon: 'ico:ladder', label: 'Solfege board', act: 'wm-solboard', on: () => winList().some(w => w.kind === 'solboard') },
   score: { icon: 'ico:score', label: 'Score practice', act: 'wm-score', on: () => winList().some(w => w.kind === 'score') },
   clip: { icon: 'ico:clip', label: 'Copy/paste', act: 'clip-open', on: () => !!P.clipOpen },
   window: { icon: 'ico:plus', label: 'Open', act: 'win-menu', on: () => P.winMenu },
@@ -772,7 +773,7 @@ const DOCK_ITEMS = {
   sep1: { sep: true, label: '— divider —' }, sep2: { sep: true, label: '— divider —' }, sep3: { sep: true, label: '— divider —' },
 };
 // Tools that ＋ Open always lists: on the bar or off, never repeated in ⋯ (unless they don't fit on the bar)
-const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt', 'piano'];
+const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt', 'piano', 'solboard'];
 const DOCK_GROUP = { tile: 'screen', fullscreen: 'screen', classpick: 'screen', editmode: 'cls', clip: 'cls', edit: 'setup' };
 const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'window', 'tile', 'sep2', 'classpick', 'sep3', 'fullscreen', 'editmode', 'edit'];
 function dockCfg() {
@@ -1193,8 +1194,8 @@ function mountSightHosts(root = document) {
   }
 }
 // ============================================================ calendar & progress windows
-const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' }, piano: { title: 'Piano & Warm-up', icon: 'ico:piano' } };
-const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt, piano: typeof renderPiano === 'function' ? renderPiano : null })[k];
+const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' }, piano: { title: 'Piano & Warm-up', icon: 'ico:piano' }, solboard: { title: 'Solfege board', icon: 'ico:ladder' } };
+const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt, piano: typeof renderPiano === 'function' ? renderPiano : null, solboard: typeof renderSolBoard === 'function' ? renderSolBoard : null })[k];
 const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
 // Re-render keeps each widget's scroll position (rebuilding the HTML would otherwise jump to the top).
@@ -1957,6 +1958,7 @@ function winTitle(w) {
   if (w.kind === 'rec') return 'Recorder';
   if (w.kind === 'yt') return 'YouTube';
   if (w.kind === 'piano') return 'Piano & Warm-up';
+  if (w.kind === 'solboard') return 'Solfege board';
   if (w.kind === 'prog') { const c = currentClass(); return 'Progress' + (c ? ' — ' + c.name : ''); }
   if (w.kind === 'app') return (w.appName || 'App') + (w.title ? ' — ' + w.title : '');
   if (w.kind === 'warmup') return 'Warm-up';
@@ -2949,6 +2951,7 @@ function renderWinMenu() {
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
       ${tile('wm-piano', 'ico:piano', 'Piano')}
+      ${tile('wm-solboard', 'ico:ladder', 'Solfege board')}
       ${tile('open-music', 'ico:tuner', 'Tuner', 'data-kind="tuner"')}
       ${tile('open-music', 'ico:metro', 'Metronome', 'data-kind="metro"')}
       ${tile('wm-rec', 'ico:mic', 'Recorder')}
@@ -4246,6 +4249,7 @@ const A = {
   'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
   'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); addWindow({ kind: 'rec' }, { w: 0.42, h: 0.72 }); },
   'wm-piano': () => { const ex = winList().find(w => w.kind === 'piano'); if (ex) return bringToFront(ex); addWindow({ kind: 'piano' }, { w: 0.68, h: 0.74 }); },
+  'wm-solboard': () => { const ex = winList().find(w => w.kind === 'solboard'); if (ex) return bringToFront(ex); addWindow({ kind: 'solboard' }, { w: 0.56, h: 0.84 }); },
   'side-prog-exp': () => { const c = context(now()).cls; if (!c) return; c.sideProgOpen = !c.sideProgOpen; save(); P.sideKey = ''; },
   'side-prog-chk': el => {
     const c = context(now()).cls, it = c?.progress?.find(i => i.id === el.dataset.iid), s = it?.steps?.find(x => x.id === el.dataset.sid); if (!s) return;

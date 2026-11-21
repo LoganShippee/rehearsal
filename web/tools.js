@@ -622,3 +622,225 @@ function mountAudioPlayer(host, fileId) {
   renderMarks();
   syncUI();
 }
+
+// ============================================================ 3. INTERACTIVE SOLFEGE LADDER, CURWEN HAND SIGNS & ECHO BOARD
+const CURWEN_SVG = {
+  do:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="11" y="9" width="24" height="18" rx="7" fill="currentColor" fill-opacity=".16"/><path d="M17 15h14M17 20h14"/><path d="M35 14h4a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-4"/></svg>`,
+  re:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 27 L34 9 L39 14 L13 31 Z" fill="currentColor" fill-opacity=".16"/><path d="M28 13 L36 7"/></svg>`,
+  mi:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 16h34a3 3 0 0 1 0 6H7a3 3 0 0 1 0-6Z" fill="currentColor" fill-opacity=".16"/><path d="M12 22v3M36 22v2"/></svg>`,
+  fa:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="10" y="7" width="20" height="14" rx="5" fill="currentColor" fill-opacity=".16"/><path d="M30 14h4a3 3 0 0 1 3 3v10a3 3 0 0 1-6 0v-6"/></svg>`,
+  sol: `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="10" y="8" width="28" height="20" rx="5" fill="currentColor" fill-opacity=".16"/><path d="M10 14h28M10 19h28M10 24h22"/><path d="M14 8V5a2 2 0 0 1 4 0v3"/></svg>`,
+  la:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 C15 7, 27 7, 34 15 C37 19, 38 25, 36 29 C33 25, 29 22, 23 23 C17 24, 13 21, 9 14 Z" fill="currentColor" fill-opacity=".16"/><path d="M27 18 C30 22, 31 26, 30 29"/></svg>`,
+  ti:  `<svg class="sb-hand" viewBox="0 0 48 36" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="10" y="16" width="16" height="13" rx="5" fill="currentColor" fill-opacity=".16"/><path d="M24 18 L38 6"/><path d="M32 6h6v6"/></svg>`,
+};
+
+const SB_COLORS = {
+  do:  ['#d9383a', '#fff'],
+  re:  ['#e87a24', '#fff'],
+  mi:  ['#eab308', '#1d2330'],
+  fa:  ['#2ea04e', '#fff'],
+  sol: ['#1f85a8', '#fff'],
+  la:  ['#7b4bc4', '#fff'],
+  ti:  ['#d64891', '#fff'],
+};
+
+function solBoardState() {
+  return (S.settings.solboard ||= {
+    keyPc: 0, mode: 'major', range: 'lowsol', sound: 'piano',
+    hands: true, notes: false, colors: true, layout: 'ladder', mysteryLen: 4,
+  });
+}
+
+function solBoardSteps(st) {
+  const root = 60 + (st.keyPc || 0); // C4..B4
+  const defs = {
+    major: [
+      { syl: 'sol,', base: 'sol', semi: -5, kbd: '0' },
+      { syl: 'la,',  base: 'la',  semi: -3 },
+      { syl: 'ti,',  base: 'ti',  semi: -1 },
+      { syl: 'do',   base: 'do',  semi: 0,  kbd: '1' },
+      { syl: 're',   base: 're',  semi: 2,  kbd: '2' },
+      { syl: 'mi',   base: 'mi',  semi: 4,  kbd: '3' },
+      { syl: 'fa',   base: 'fa',  semi: 5,  kbd: '4' },
+      { syl: 'sol',  base: 'sol', semi: 7,  kbd: '5' },
+      { syl: 'la',   base: 'la',  semi: 9,  kbd: '6' },
+      { syl: 'ti',   base: 'ti',  semi: 11, kbd: '7' },
+      { syl: "do'",  base: 'do',  semi: 12, kbd: '8' },
+    ],
+    minor: [
+      { syl: 'sol,', base: 'sol', semi: -5, kbd: '0' },
+      { syl: 'le,',  base: 'la',  semi: -4 },
+      { syl: 'te,',  base: 'ti',  semi: -2 },
+      { syl: 'do',   base: 'do',  semi: 0,  kbd: '1' },
+      { syl: 're',   base: 're',  semi: 2,  kbd: '2' },
+      { syl: 'me',   base: 'mi',  semi: 3,  kbd: '3' },
+      { syl: 'fa',   base: 'fa',  semi: 5,  kbd: '4' },
+      { syl: 'sol',  base: 'sol', semi: 7,  kbd: '5' },
+      { syl: 'le',   base: 'la',  semi: 8,  kbd: '6' },
+      { syl: 'te',   base: 'ti',  semi: 10, kbd: '7' },
+      { syl: "do'",  base: 'do',  semi: 12, kbd: '8' },
+    ],
+    penta: [
+      { syl: 'sol,', base: 'sol', semi: -5, kbd: '0' },
+      { syl: 'la,',  base: 'la',  semi: -3 },
+      { syl: 'do',   base: 'do',  semi: 0,  kbd: '1' },
+      { syl: 're',   base: 're',  semi: 2,  kbd: '2' },
+      { syl: 'mi',   base: 'mi',  semi: 4,  kbd: '3' },
+      { syl: 'sol',  base: 'sol', semi: 7,  kbd: '4' },
+      { syl: 'la',   base: 'la',  semi: 9,  kbd: '5' },
+      { syl: "do'",  base: 'do',  semi: 12, kbd: '6' },
+    ],
+    chromatic: [
+      { syl: 'do', base: 'do', semi: 0, kbd: '1' },
+      { syl: 'di', base: 'do', semi: 1, alt: true },
+      { syl: 're', base: 're', semi: 2, kbd: '2' },
+      { syl: 'ri', base: 're', semi: 3, alt: true },
+      { syl: 'mi', base: 'mi', semi: 4, kbd: '3' },
+      { syl: 'fa', base: 'fa', semi: 5, kbd: '4' },
+      { syl: 'fi', base: 'fa', semi: 6, alt: true },
+      { syl: 'sol', base: 'sol', semi: 7, kbd: '5' },
+      { syl: 'si', base: 'sol', semi: 8, alt: true },
+      { syl: 'la', base: 'la', semi: 9, kbd: '6' },
+      { syl: 'li', base: 'la', semi: 10, alt: true },
+      { syl: 'ti', base: 'ti', semi: 11, kbd: '7' },
+      { syl: "do'", base: 'do', semi: 12, kbd: '8' },
+    ],
+  };
+  let list = defs[st.mode] || defs.major;
+  if (st.range === 'dodo') list = list.filter(x => x.semi >= 0);
+  return list.map(x => ({ ...x, midi: root + x.semi }));
+}
+
+function renderSolBoard(h) {
+  const st = solBoardState();
+  const steps = solBoardSteps(st);
+  toolEnsurePiano(steps.map(s => s.midi));
+  const trail = (h.__trail ||= []);
+  const mys = h.__mystery || null;
+  const playSeq = (seq, revealOnPlay = true) => {
+    (h.__timers ||= []).forEach(clearTimeout); h.__timers = [];
+    seq.forEach((item, idx) => {
+      const tid = setTimeout(() => {
+        if (!h.isConnected) return;
+        toolPlayNote(item.midi, 0.55, 0.85, st.sound || 'piano');
+        if (revealOnPlay) {
+          const btn = h.querySelector(`.sb-tile[data-semi="${item.semi}"]`);
+          if (btn) { btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), 380); }
+        }
+        const chip = h.querySelector(`.sb-echo-item[data-ei="${idx}"]`);
+        if (chip) { chip.classList.add('lit'); setTimeout(() => chip.classList.remove('lit'), 380); }
+      }, idx * 540);
+      h.__timers.push(tid);
+    });
+  };
+
+  const displaySteps = st.layout === 'ladder' ? [...steps].reverse() : steps;
+  const tileStyle = s => {
+    if (!st.colors) return '';
+    const [bg, fg] = SB_COLORS[s.base] || ['#4a5568', '#fff'];
+    return `style="--sb-bg:${bg};--sb-fg:${fg}"`;
+  };
+
+  h.innerHTML = `<div class="sb ${st.layout === 'grid' ? 'is-grid' : 'is-ladder'} ${st.colors ? 'is-col' : ''}" tabindex="0">
+    <div class="sb-bar">
+      <label>Key <select data-sb-k="keyPc">${TOOL_PC_NAMES.map((n, i) => `<option value="${i}" ${st.keyPc === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label>Scale <select data-sb-k="mode">${[['major', 'Major'], ['minor', 'Minor (do)'], ['penta', 'Pentatonic'], ['chromatic', 'Chromatic']].map(([v, l]) => `<option value="${v}" ${st.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${st.mode !== 'chromatic' ? `<label>Range <select data-sb-k="range">${[['lowsol', 'sol, – do\''], ['dodo', 'do – do\'']].map(([v, l]) => `<option value="${v}" ${st.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
+      <label>Sound <select data-sb-k="sound">${[['piano', 'Piano'], ['sine', 'Pure sine'], ['organ', 'Organ']].map(([v, l]) => `<option value="${v}" ${st.sound === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <button data-sb="hands" class="${st.hands ? 'on' : ''}" title="Show Curwen hand signs">Hands</button>
+      <button data-sb="notes" class="${st.notes ? 'on' : ''}" title="Show pitch letter names">Letters</button>
+      <button data-sb="colors" class="${st.colors ? 'on' : ''}" title="Boomwhacker / Kodály pitch colors">Colors</button>
+      <button data-sb="layout" title="Switch vertical ladder / horizontal grid">${st.layout === 'ladder' ? IC('ico:movehoriz') + ' Grid' : IC('ico:movevert') + ' Ladder'}</button>
+    </div>
+
+    <div class="sb-echo">
+      ${mys ? `
+        <span class="sb-elbl">Mystery echo</span>
+        <div class="sb-elist">${mys.notes.map((n, i) => `<span class="sb-echo-item ${mys.revealed ? 'rev' : 'hid'}" data-ei="${i}" ${mys.revealed ? tileStyle(n) : ''}>${mys.revealed ? esc(n.syl) : '?'}</span>`).join('')}</div>
+        <button data-sb="mys-replay">${IC('ico:play')} Replay</button>
+        <button data-sb="mys-reveal" class="sb-primary">${mys.revealed ? 'Hide' : 'Reveal'}</button>
+        <button data-sb="mys-new">New (${st.mysteryLen})</button>
+        <button data-sb="mys-close" title="Back to echo trail">${IC('ico:close')}</button>
+      ` : `
+        <span class="sb-elbl">Echo trail</span>
+        <div class="sb-elist">${trail.length ? trail.map((n, i) => `<span class="sb-echo-item rev" data-ei="${i}" ${tileStyle(n)}>${esc(n.syl)}</span>`).join('') : '<span class="sb-ehint">Tap syllables below (or press 1–8) to build an echo phrase.</span>'}</div>
+        ${trail.length ? `<button data-sb="trail-play">${IC('ico:play')} Replay</button><button data-sb="trail-clear">Clear</button>` : ''}
+        <span class="grow"></span>
+        <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
+        <button data-sb="mys-new" class="sb-primary">${IC('ico:sparkle')} Mystery echo</button>
+      `}
+    </div>
+
+    <div class="sb-tiles">
+      ${displaySteps.map(s => `<button type="button" class="sb-tile ${s.alt ? 'is-alt' : ''}" data-semi="${s.semi}" ${tileStyle(s)}>
+        ${st.hands ? (CURWEN_SVG[s.base] || '') : ''}
+        <b class="sb-syl">${s.syl}</b>
+        ${st.notes ? `<span class="sb-note">${toolMidiName(s.midi)}</span>` : ''}
+        ${s.kbd ? `<kbd class="sb-kbd">${s.kbd}</kbd>` : ''}
+      </button>`).join('')}
+    </div>
+  </div>`;
+
+  const triggerStep = s => {
+    if (!s) return;
+    toolPlayNote(s.midi, 0.72, 0.85, st.sound || 'piano');
+    const btn = h.querySelector(`.sb-tile[data-semi="${s.semi}"]`);
+    if (btn) { btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), 320); }
+    if (!h.__mystery) {
+      trail.push(s); if (trail.length > 8) trail.shift();
+      const list = h.querySelector('.sb-elist');
+      if (list) list.innerHTML = trail.map((n, i) => `<span class="sb-echo-item rev" data-ei="${i}" ${tileStyle(n)}>${esc(n.syl)}</span>`).join('');
+      if (trail.length === 1) renderSolBoard(h); // reveal Replay/Clear buttons
+    }
+  };
+
+  const makeMystery = () => {
+    const pool = steps.filter(s => !s.alt && s.semi >= 0);
+    const start = pool.find(s => s.semi === 0) || pool[0];
+    const notes = [start];
+    let curIdx = pool.indexOf(start);
+    for (let i = 1; i < (st.mysteryLen || 4); i++) {
+      // musical stepwise or small-skip motion
+      const cands = pool.map((p, idx) => ({ p, idx })).filter(x => Math.abs(x.idx - curIdx) <= 2 && x.idx !== curIdx);
+      const pick = cands[Math.floor(Math.random() * cands.length)] || { p: start, idx: 0 };
+      notes.push(pick.p); curIdx = pick.idx;
+    }
+    h.__mystery = { notes, revealed: false };
+    renderSolBoard(h);
+    playSeq(notes, false);
+  };
+
+  h.onclick = e => {
+    const tile = e.target.closest('.sb-tile');
+    if (tile) { e.stopPropagation(); triggerStep(steps.find(x => String(x.semi) === tile.dataset.semi)); return; }
+    const b = e.target.closest('[data-sb]'); if (!b) return;
+    e.stopPropagation();
+    const act = b.dataset.sb;
+    if (act === 'hands') { st.hands = !st.hands; save(); renderSolBoard(h); }
+    else if (act === 'notes') { st.notes = !st.notes; save(); renderSolBoard(h); }
+    else if (act === 'colors') { st.colors = !st.colors; save(); renderSolBoard(h); }
+    else if (act === 'layout') { st.layout = st.layout === 'ladder' ? 'grid' : 'ladder'; save(); renderSolBoard(h); }
+    else if (act === 'trail-play') { playSeq(trail, true); }
+    else if (act === 'trail-clear') { h.__trail = []; renderSolBoard(h); }
+    else if (act === 'mys-new') { makeMystery(); }
+    else if (act === 'mys-replay' && h.__mystery) { playSeq(h.__mystery.notes, h.__mystery.revealed); }
+    else if (act === 'mys-reveal' && h.__mystery) { h.__mystery.revealed = !h.__mystery.revealed; renderSolBoard(h); }
+    else if (act === 'mys-close') { h.__mystery = null; renderSolBoard(h); }
+  };
+  h.onchange = e => {
+    const el = e.target, k = el.dataset.sbK; if (!k) return;
+    st[k] = ['keyPc', 'mysteryLen'].includes(k) ? Number(el.value) : el.value;
+    h.__trail = []; h.__mystery = null;
+    save(); renderSolBoard(h);
+  };
+  h.querySelector('.sb').onkeydown = e => {
+    if (e.target.closest('input,select,textarea')) return;
+    const match = steps.find(s => s.kbd === e.key);
+    if (match) { e.preventDefault(); triggerStep(match); return; }
+    if (e.key.toLowerCase() === 'r') {
+      e.preventDefault();
+      if (h.__mystery) playSeq(h.__mystery.notes, h.__mystery.revealed);
+      else if (trail.length) playSeq(trail, true);
+    }
+  };
+}
