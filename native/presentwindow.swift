@@ -5,7 +5,6 @@
 
 import Cocoa
 import WebKit
-import ApplicationServices
 
 final class RehearsalWindow: NSWindow {
     private var savedFrame: NSRect?
@@ -14,11 +13,36 @@ final class RehearsalWindow: NSWindow {
     private var compSavedFrame: NSRect?
     private var compSavedStyle: NSWindow.StyleMask = []
     private var compSavedCover = false
+    private var compDragMouse: NSPoint?
+    private var compDragOrigin: NSPoint?
     var isCompanion: Bool { compSavedFrame != nil }
 
     // Borderless windows normally can't take keyboard focus; ours must.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if isCompanion {
+            switch event.type {
+            case .leftMouseDown:
+                compDragMouse = NSEvent.mouseLocation
+                compDragOrigin = frame.origin
+            case .leftMouseDragged:
+                if let startMouse = compDragMouse, let startOrigin = compDragOrigin {
+                    let cur = NSEvent.mouseLocation
+                    let dx = cur.x - startMouse.x, dy = cur.y - startMouse.y
+                    if hypot(dx, dy) > 3 {
+                        setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy))
+                    }
+                }
+            case .leftMouseUp:
+                compDragMouse = nil
+                compDragOrigin = nil
+            default: break
+            }
+        }
+        super.sendEvent(event)
+    }
 
     /// The green button and ⌃⌘F come here instead of macOS full screen.
     override func toggleFullScreen(_ sender: Any?) { toggleCover() }
@@ -59,8 +83,9 @@ final class RehearsalWindow: NSWindow {
         wv?.evaluateJavaScript("document.documentElement.style.setProperty('--safe-top', '\(Int(px.rounded(.up)))px')")
     }
 
-    /// Dock Rehearsal into a slim 40px top control strip and bring the chosen desktop app forward below it.
-    func enterCompanion(stripHeight: CGFloat = 40, bundleId: String?, pid: Int32?) {
+    /// Morph Rehearsal into a compact, draggable 300x88 floating Mini-HUD at the bottom-right
+    /// and activate the chosen desktop app at its normal full size.
+    func enterCompanion(stripHeight: CGFloat = 88, bundleId: String?, pid: Int32?) {
         let screen = self.screen ?? NSScreen.main
         guard let s = screen else { return }
         if !isCompanion {
@@ -73,8 +98,18 @@ final class RehearsalWindow: NSWindow {
         NSApp.presentationOptions = []
         styleMask = [.borderless, .fullSizeContentView]
         level = .floating
-        let stripFrame = NSRect(x: vf.minX, y: vf.maxY - stripHeight, width: vf.width, height: stripHeight)
-        setFrame(stripFrame, display: true, animate: false)
+        isMovableByWindowBackground = true
+        hasShadow = true
+        isOpaque = false
+        backgroundColor = .clear
+        minSize = NSSize(width: 200, height: 60)
+        contentView?.wantsLayer = true
+        contentView?.layer?.cornerRadius = 14
+        contentView?.layer?.masksToBounds = true
+        let hudW: CGFloat = 300, hudH: CGFloat = 88, pad: CGFloat = 16
+        let hudFrame = NSRect(x: vf.maxX - hudW - pad, y: vf.minY + pad, width: hudW, height: hudH)
+        setFrame(hudFrame, display: true, animate: false)
+        invalidateShadow()
         setSafeTop(0)
         orderFrontRegardless()
 
@@ -86,23 +121,6 @@ final class RehearsalWindow: NSWindow {
         if let targetApp {
             targetApp.unhide()
             targetApp.activate(options: [.activateIgnoringOtherApps])
-            // Best-effort tile target app's front window below the 40px strip if Accessibility is trusted.
-            if AXIsProcessTrusted() {
-                let targetPid = targetApp.processIdentifier
-                let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? s.frame.maxY
-                let axPos = CGPoint(x: vf.minX, y: (primaryMaxY - vf.maxY) + stripHeight)
-                let axSize = CGSize(width: vf.width, height: max(200, vf.height - stripHeight))
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    let axApp = AXUIElementCreateApplication(targetPid)
-                    var ref: CFTypeRef?
-                    if AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref) == .success, let ref {
-                        let win = ref as! AXUIElement
-                        var p = axPos, sz = axSize
-                        if let pv = AXValueCreate(.cgPoint, &p) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, pv) }
-                        if let sv = AXValueCreate(.cgSize, &sz) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, sv) }
-                    }
-                }
-            }
         }
     }
 
@@ -111,7 +129,14 @@ final class RehearsalWindow: NSWindow {
         let wasCover = compSavedCover
         let st = compSavedStyle
         compSavedFrame = nil; compSavedCover = false
+        compDragMouse = nil; compDragOrigin = nil
         level = .normal
+        isMovableByWindowBackground = false
+        isOpaque = true
+        backgroundColor = NSColor(red: 0.04, green: 0.22, blue: 0.33, alpha: 1)
+        minSize = NSSize(width: 720, height: 480)
+        contentView?.layer?.cornerRadius = 0
+        contentView?.layer?.masksToBounds = false
         if wasCover, let s = self.screen ?? NSScreen.main {
             savedFrame = f; savedStyle = st
             styleMask = [.borderless, .fullSizeContentView]
@@ -124,6 +149,7 @@ final class RehearsalWindow: NSWindow {
             NSApp.presentationOptions = []
             setSafeTop(0)
         }
+        invalidateShadow()
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

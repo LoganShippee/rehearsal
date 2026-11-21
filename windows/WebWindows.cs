@@ -14,6 +14,12 @@ internal sealed class WebWindows
     private readonly MainForm _ownerForm;
     private readonly WebView2 _ownerWeb;
     private readonly Dictionary<string, WebView2> _views = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _lastSyncedUrl = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Uri> _lastUrl = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _navUrls = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _lastZoom = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _failedIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _isLoading = new(StringComparer.Ordinal);
     private List<string> _lastOrder = new();
     private List<(Rectangle Rect, double Z)> _lastHoles = new();
     private List<(Rectangle Rect, double Z)> _lastBlockers = new();
@@ -25,6 +31,32 @@ internal sealed class WebWindows
     }
 
     private float Scale => _ownerForm.DeviceDpi / 96f;
+
+    private static bool TryParseHttpUri(string? raw, out Uri? uri)
+    {
+        uri = null;
+        var s = raw?.Trim();
+        if (string.IsNullOrEmpty(s) || string.Equals(s, "about:blank", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (Uri.TryCreate(s, UriKind.Absolute, out var u)
+            && (string.Equals(u.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            uri = u;
+            return true;
+        }
+        return false;
+    }
+
+    private static string HtmlEsc(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Replace("&", "&amp;", StringComparison.Ordinal)
+                .Replace("<", "&lt;", StringComparison.Ordinal)
+                .Replace(">", "&gt;", StringComparison.Ordinal)
+                .Replace("\"", "&quot;", StringComparison.Ordinal)
+                .Replace("'", "&#39;", StringComparison.Ordinal);
+    }
 
     private Rectangle? ReadRect(JsonElement obj, string prop)
     {
@@ -67,15 +99,59 @@ internal sealed class WebWindows
                 seen.Add(id);
                 order.Add(id);
 
-                if (!_views.TryGetValue(id, out var wv))
+                var rawUrl = MainForm.Str(it, "url");
+                bool hasHttpUrl = TryParseHttpUri(rawUrl, out var u);
+
+                if (_views.TryGetValue(id, out var wv))
                 {
-                    wv = CreateChildWebView(id, rect.Value, MainForm.Str(it, "url"));
+                    if (hasHttpUrl && u != null)
+                    {
+                        bool force = MainForm.Bool(it, "forceUrl");
+                        bool urlChanged = !_lastSyncedUrl.TryGetValue(id, out var prevSynced)
+                                          || !string.Equals(prevSynced, u.AbsoluteUri, StringComparison.Ordinal);
+                        var core = wv.CoreWebView2;
+                        bool neverLoaded = core != null
+                                           && (string.IsNullOrEmpty(core.Source)
+                                               || string.Equals(core.Source, "about:blank", StringComparison.OrdinalIgnoreCase))
+                                           && !_isLoading.Contains(id)
+                                           && !_failedIds.Contains(id);
+                        if (force || urlChanged || neverLoaded)
+                        {
+                            _lastSyncedUrl[id] = u.AbsoluteUri;
+                            _lastUrl[id] = u;
+                            _failedIds.Remove(id);
+                            if (core != null)
+                            {
+                                bool alreadyLoadingSame = _isLoading.Contains(id)
+                                                          && string.Equals(core.Source, u.AbsoluteUri, StringComparison.Ordinal);
+                                if (!alreadyLoadingSame && (force || !string.Equals(core.Source, u.AbsoluteUri, StringComparison.Ordinal) || neverLoaded))
+                                {
+                                    core.Navigate(u.AbsoluteUri);
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Uri? initUri = hasHttpUrl ? u : (_lastUrl.TryGetValue(id, out var savedU) ? savedU : null);
+                    if (initUri != null)
+                    {
+                        _lastSyncedUrl[id] = initUri.AbsoluteUri;
+                        _lastUrl[id] = initUri;
+                        _failedIds.Remove(id);
+                    }
+                    wv = CreateChildWebView(id, rect.Value, initUri?.AbsoluteUri);
                     _views[id] = wv;
+                    _lastOrder.Clear();
                 }
 
                 bool hide = MainForm.Bool(it, "hidden");
                 if (wv.Visible != !hide) wv.Visible = !hide;
-                if (!hide && wv.Bounds != rect.Value) wv.Bounds = rect.Value;
+                if (!hide && rect.Value.Width > 0 && rect.Value.Height > 0 && wv.Bounds != rect.Value)
+                {
+                    wv.Bounds = rect.Value;
+                }
             }
         }
 
@@ -83,6 +159,13 @@ internal sealed class WebWindows
         {
             var v = _views[id];
             _views.Remove(id);
+            _lastSyncedUrl.Remove(id);
+            _lastUrl.Remove(id);
+            _navUrls.Remove(id);
+            _lastZoom.Remove(id);
+            _failedIds.Remove(id);
+            _isLoading.Remove(id);
+            _lastOrder.Clear();
             _ownerForm.Controls.Remove(v);
             v.Dispose();
         }
@@ -127,6 +210,17 @@ internal sealed class WebWindows
         ReapplyRegion();
     }
 
+    public void EnterCompanionMode()
+    {
+        foreach (var v in _views.Values)
+        {
+            if (v.Visible) v.Visible = false;
+        }
+        _lastHoles.Clear();
+        _lastBlockers.Clear();
+        ReapplyRegion();
+    }
+
     public void ReapplyRegion()
     {
         if (_ownerWeb.IsDisposed) return;
@@ -161,9 +255,10 @@ internal sealed class WebWindows
 
     private WebView2 CreateChildWebView(string id, Rectangle bounds, string? initialUrl)
     {
+        var initBounds = new Rectangle(bounds.X, bounds.Y, Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
         var wv = new WebView2
         {
-            Bounds = bounds,
+            Bounds = initBounds,
             Visible = true,
         };
         _ownerForm.Controls.Add(wv);
@@ -182,24 +277,98 @@ internal sealed class WebWindows
             await wv.EnsureCoreWebView2Async(env);
             if (wv.IsDisposed || wv.CoreWebView2 == null) return;
 
+            if (_lastZoom.TryGetValue(id, out var z))
+            {
+                try { wv.ZoomFactor = z; } catch { }
+            }
+
             var core = wv.CoreWebView2;
             core.Settings.IsStatusBarEnabled = false;
-            core.NavigationStarting += (_, _) => ReportNav(id, wv);
-            core.NavigationCompleted += (_, _) => ReportNav(id, wv);
+            core.NavigationStarting += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Uri) && Uri.TryCreate(e.Uri, UriKind.Absolute, out var navUri))
+                {
+                    if (string.Equals(navUri.Scheme, "mailto", StringComparison.OrdinalIgnoreCase))
+                    {
+                        e.Cancel = true;
+                        MainForm.OpenExternalUrl(navUri.AbsoluteUri);
+                        return;
+                    }
+                    if (string.Equals(navUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(navUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _navUrls[id] = navUri.AbsoluteUri;
+                        _lastUrl[id] = navUri;
+                    }
+                }
+                _isLoading.Add(id);
+                ReportNav(id, wv);
+            };
+            core.SourceChanged += (_, _) =>
+            {
+                RecordCommittedUrl(id, core);
+                ReportNav(id, wv);
+            };
+            core.HistoryChanged += (_, _) => ReportNav(id, wv);
+            core.NavigationCompleted += (_, e) =>
+            {
+                _isLoading.Remove(id);
+                if (e.IsSuccess)
+                {
+                    RecordCommittedUrl(id, core);
+                }
+                else
+                {
+                    ShowError(id, wv, e.WebErrorStatus);
+                }
+                ReportNav(id, wv);
+            };
             core.DocumentTitleChanged += (_, _) => ReportNav(id, wv);
+            core.ProcessFailed += (_, _) =>
+            {
+                if (wv.IsDisposed || wv.CoreWebView2 == null) return;
+                if (TryParseHttpUri(core.Source, out _))
+                {
+                    try { core.Reload(); } catch { }
+                }
+                else if (_lastUrl.TryGetValue(id, out var u))
+                {
+                    try { core.Navigate(u.AbsoluteUri); } catch { }
+                }
+            };
             core.NewWindowRequested += (_, e) =>
             {
-                if (!string.IsNullOrEmpty(e.Uri) && e.Uri != "about:blank")
+                e.Handled = true;
+                if (TryParseHttpUri(e.Uri, out var targetUri) && targetUri != null)
                 {
-                    e.Handled = true;
-                    core.Navigate(e.Uri);
+                    _lastUrl[id] = targetUri;
+                    _failedIds.Remove(id);
+                    core.Navigate(targetUri.AbsoluteUri);
+                }
+                else if (!string.IsNullOrEmpty(e.Uri)
+                         && Uri.TryCreate(e.Uri, UriKind.Absolute, out var extUri)
+                         && string.Equals(extUri.Scheme, "mailto", StringComparison.OrdinalIgnoreCase))
+                {
+                    MainForm.OpenExternalUrl(extUri.AbsoluteUri);
                 }
             };
 
-            if (!string.IsNullOrEmpty(initialUrl) && Uri.TryCreate(initialUrl, UriKind.Absolute, out var u)
-                && (u.Scheme == "http" || u.Scheme == "https"))
+            Uri? target = null;
+            if (_lastUrl.TryGetValue(id, out var latestU))
             {
-                wv.Source = u;
+                target = latestU;
+            }
+            else if (TryParseHttpUri(initialUrl, out var initU))
+            {
+                target = initU;
+            }
+
+            if (target != null)
+            {
+                _lastUrl[id] = target;
+                _lastSyncedUrl[id] = target.AbsoluteUri;
+                _failedIds.Remove(id);
+                core.Navigate(target.AbsoluteUri);
             }
         }
         catch { }
@@ -208,18 +377,55 @@ internal sealed class WebWindows
     public void Command(JsonElement body)
     {
         var id = MainForm.Str(body, "id");
-        if (string.IsNullOrEmpty(id) || !_views.TryGetValue(id, out var wv)) return;
-        var core = wv.CoreWebView2;
-        if (core == null) return;
+        if (string.IsNullOrEmpty(id)) return;
+        var action = MainForm.Str(body, "action");
 
-        switch (MainForm.Str(body, "action"))
+        if (!_views.TryGetValue(id, out var wv))
+        {
+            if (action == "load" && TryParseHttpUri(MainForm.Str(body, "url"), out var pendingU) && pendingU != null)
+            {
+                _lastUrl[id] = pendingU;
+                _lastSyncedUrl[id] = pendingU.AbsoluteUri;
+            }
+            else if (action == "zoom" && body.TryGetProperty("zoom", out var pzEl) && pzEl.ValueKind == JsonValueKind.Number)
+            {
+                _lastZoom[id] = Math.Clamp(pzEl.GetDouble(), 0.25, 5.0);
+            }
+            return;
+        }
+
+        if (action == "zoom")
+        {
+            if (body.TryGetProperty("zoom", out var zEl) && zEl.ValueKind == JsonValueKind.Number)
+            {
+                var z = Math.Clamp(zEl.GetDouble(), 0.25, 5.0);
+                _lastZoom[id] = z;
+                try { wv.ZoomFactor = z; } catch { }
+            }
+            return;
+        }
+
+        var core = wv.CoreWebView2;
+        if (core == null)
+        {
+            if (action == "load" && TryParseHttpUri(MainForm.Str(body, "url"), out var pendingU) && pendingU != null)
+            {
+                _lastUrl[id] = pendingU;
+                _lastSyncedUrl[id] = pendingU.AbsoluteUri;
+                _failedIds.Remove(id);
+            }
+            return;
+        }
+
+        switch (action)
         {
             case "load":
             {
-                var url = MainForm.Str(body, "url");
-                if (!string.IsNullOrEmpty(url) && Uri.TryCreate(url, UriKind.Absolute, out var u)
-                    && (u.Scheme == "http" || u.Scheme == "https"))
+                if (TryParseHttpUri(MainForm.Str(body, "url"), out var u) && u != null)
                 {
+                    _lastSyncedUrl[id] = u.AbsoluteUri;
+                    _lastUrl[id] = u;
+                    _failedIds.Remove(id);
                     core.Navigate(u.AbsoluteUri);
                 }
                 break;
@@ -231,7 +437,19 @@ internal sealed class WebWindows
                 if (core.CanGoForward) core.GoForward();
                 break;
             case "reload":
-                core.Reload();
+                if (!_failedIds.Contains(id) && TryParseHttpUri(core.Source, out _))
+                {
+                    core.Reload();
+                }
+                else if (_lastUrl.TryGetValue(id, out var lastU))
+                {
+                    _failedIds.Remove(id);
+                    core.Navigate(lastU.AbsoluteUri);
+                }
+                else
+                {
+                    core.Reload();
+                }
                 break;
             case "focus":
                 wv.Focus();
@@ -247,6 +465,12 @@ internal sealed class WebWindows
             v.Dispose();
         }
         _views.Clear();
+        _lastSyncedUrl.Clear();
+        _lastUrl.Clear();
+        _navUrls.Clear();
+        _lastZoom.Clear();
+        _failedIds.Clear();
+        _isLoading.Clear();
         _lastOrder.Clear();
         _lastHoles.Clear();
         _lastBlockers.Clear();
@@ -255,14 +479,106 @@ internal sealed class WebWindows
         prev?.Dispose();
     }
 
+    private void RecordCommittedUrl(string id, CoreWebView2 core)
+    {
+        if (TryParseHttpUri(core.Source, out var u) && u != null)
+        {
+            _failedIds.Remove(id);
+            _lastUrl[id] = u;
+        }
+    }
+
+    private void ShowError(string id, WebView2 wv, CoreWebView2WebErrorStatus status)
+    {
+        if (status == CoreWebView2WebErrorStatus.OperationCanceled) return;
+        var core = wv.CoreWebView2;
+        if (core == null) return;
+
+        _failedIds.Add(id);
+
+        string failing = "";
+        if (_navUrls.TryGetValue(id, out var navU) && TryParseHttpUri(navU, out _))
+        {
+            failing = navU;
+        }
+        else if (TryParseHttpUri(core.Source, out var srcU) && srcU != null)
+        {
+            failing = srcU.AbsoluteUri;
+        }
+        else if (_lastUrl.TryGetValue(id, out var lastU))
+        {
+            failing = lastU.AbsoluteUri;
+        }
+
+        if (TryParseHttpUri(failing, out var failUri) && failUri != null)
+        {
+            _lastUrl[id] = failUri;
+        }
+
+        bool isGoogle = failing.Contains("google.com", StringComparison.OrdinalIgnoreCase);
+        string hint = isGoogle
+            ? "If this Google file needs your account, open <b>Drive window</b> in the bar above to sign in once, then press <b>Reload</b>."
+            : "Check the web address or internet connection, then press <b>Reload</b>.";
+        string urlLine = string.IsNullOrEmpty(failing) ? "" : $"<div class=\"url\">{HtmlEsc(failing)}</div>";
+        string reloadBtn = string.IsNullOrEmpty(failing)
+            ? ""
+            : $"<button data-url=\"{HtmlEsc(failing)}\" onclick=\"location.href=this.dataset.url\">↻ Reload</button>";
+        string msg = DescribeWebError(status);
+
+        string html =
+            "<!doctype html><html><head><meta charset=\"utf-8\"><style>" +
+            "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;color:#0f172a;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;box-sizing:border-box}" +
+            ".card{max-width:460px;width:100%;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:22px 24px;box-shadow:0 6px 20px rgba(15,23,42,.06)}" +
+            "h3{margin:0 0 8px;font-size:16px;color:#0f172a}" +
+            ".msg{margin:0 0 10px;color:#334155}" +
+            ".url{font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;background:#f1f5f9;color:#475569;padding:8px 10px;border-radius:8px;word-break:break-all;margin:0 0 12px}" +
+            ".hint{margin:0 0 14px;font-size:13px;color:#475569}" +
+            "button{background:#0f172a;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:600 13px -apple-system,'Segoe UI',sans-serif;cursor:pointer}" +
+            "button:hover{background:#1e293b}" +
+            "</style></head><body><div class=\"card\">" +
+            "<h3>Couldn’t load this page</h3>" +
+            $"<p class=\"msg\">{HtmlEsc(msg)}</p>" +
+            urlLine +
+            $"<p class=\"hint\">{hint}</p>" +
+            reloadBtn +
+            "</div></body></html>";
+
+        try { core.NavigateToString(html); } catch { }
+    }
+
+    private static string DescribeWebError(CoreWebView2WebErrorStatus status) => status switch
+    {
+        CoreWebView2WebErrorStatus.HostNameNotResolved => "The server’s address could not be found.",
+        CoreWebView2WebErrorStatus.CannotConnect => "Could not connect to the server.",
+        CoreWebView2WebErrorStatus.ServerUnreachable => "The server is unreachable.",
+        CoreWebView2WebErrorStatus.Timeout => "The connection timed out.",
+        CoreWebView2WebErrorStatus.Disconnected => "The internet connection appears to be offline.",
+        CoreWebView2WebErrorStatus.ConnectionReset => "The connection was reset by the server.",
+        CoreWebView2WebErrorStatus.ConnectionAborted => "The connection was interrupted.",
+        CoreWebView2WebErrorStatus.CertificateCommonNameIsIncorrect or
+        CoreWebView2WebErrorStatus.CertificateExpired or
+        CoreWebView2WebErrorStatus.CertificateIsInvalid or
+        CoreWebView2WebErrorStatus.CertificateRevoked or
+        CoreWebView2WebErrorStatus.ClientCertificateContainsErrors => "This site’s security certificate is not trusted.",
+        CoreWebView2WebErrorStatus.RedirectFailed => "The page redirected too many times.",
+        CoreWebView2WebErrorStatus.ErrorHttpInvalidServerResponse => "The server sent an invalid response.",
+        _ => $"The page could not be loaded ({status}).",
+    };
+
     private void ReportNav(string id, WebView2 wv)
     {
         var core = wv.CoreWebView2;
         if (core == null) return;
+        var cur = core.Source ?? "";
+        var cleanUrl = (string.IsNullOrEmpty(cur)
+                        || string.Equals(cur, "about:blank", StringComparison.OrdinalIgnoreCase)
+                        || cur.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            ? (_lastUrl.TryGetValue(id, out var u) ? u.AbsoluteUri : "")
+            : cur;
         var payload = new Dictionary<string, object>
         {
             ["id"] = id,
-            ["url"] = core.Source ?? "",
+            ["url"] = cleanUrl,
             ["title"] = core.DocumentTitle ?? "",
             ["back"] = core.CanGoBack,
             ["forward"] = core.CanGoForward,

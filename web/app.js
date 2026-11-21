@@ -348,7 +348,7 @@ function context(t) {
   const prev = [...periods].reverse().find(p => p.endAt <= t);
   const template = templateFor(t);
   if (P.pinned) {
-    const cls = S.classes.find(c => c.id === P.pinned);
+    const cls = (P.pinned === '__tour_cls' && P.tourSampleCls) || S.classes.find(c => c.id === P.pinned);
     if (cls) return { mode: 'class', cls, period: cur && cur.cls === cls ? cur : null, next, periods, template, key: 'pin:' + cls.id, pinned: true };
   }
   if (cur) return { mode: 'class', cls: cur.cls, period: cur, next, periods, template, key: dateKey(t) + ':' + cur.id };
@@ -658,11 +658,11 @@ function embedURL(raw) {
 }
 function editURL(raw) {
   // Slides/Docs in edit view (lets you present + click through) instead of the embed player
-  return raw.replace(/\/(embed|preview)(\?.*)?$/, '/edit');
+  return raw.replace(/\/(embed|preview|present)(\?.*)?$/, '/edit');
 }
 function slidesPresentURL(raw) {
   const m = String(raw || '').match(/docs\.google\.com\/presentation\/(?:u\/\d+\/)?d\/([\w-]+)/);
-  return m ? `https://docs.google.com/presentation/d/${m[1]}/present?rm=minimal` : embedURL(raw);
+  return m ? `https://docs.google.com/presentation/d/${m[1]}/embed?start=true&loop=false&delayms=60000` : embedURL(raw);
 }
 function isNativeWeb(r) {
   if (!IS_NATIVE || !r) return false;
@@ -674,7 +674,8 @@ function resTargetURL(r, raw) {
   if (!u) return '';
   if (resKind({ url: u }) === 'slides' && r?.mode === 'present') return slidesPresentURL(u);
   if (r?.mode === 'edit') return editURL(embedURL(u));
-  return isNativeWeb({ ...r, url: u }) ? u : embedURL(u);
+  if (isNativeWeb({ ...r, url: u })) return resKind({ url: u }) === 'slides' ? editURL(u) : u;
+  return embedURL(u);
 }
 function kindIcon(k) { return icoCfg().kind?.[k] ?? KIND_ICON[k] ?? 'ico:attach'; }
 function resIcon(r) { return r.icon || kindIcon(resKind(r)); }
@@ -707,9 +708,14 @@ function render() {
   document.body.classList.toggle('presenting', VIEW === 'present');
   if (VIEW === 'present') renderPresent(); else { renderEditor(); syncNative(); }
 }
+function stopMusicHosts() {
+  if (typeof srStop === 'function') srStop();
+  if (typeof spStop === 'function') spStop();
+  if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
+}
 function go(view) {
   VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
-  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; }
+  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else stopMusicHosts();
   render();
 }
 
@@ -831,9 +837,10 @@ function renderDock() {
   if (P.dockMore) renderDockMore();
 }
 function dockClassPick(id = 'classpick') {
-  return `<select data-dock-id="${id}" data-action-change="pin" title="Show a class now, ignoring the schedule">
+  const list = P.tourSampleCls && !S.classes.some(c => c.id === P.tourSampleCls.id) ? [P.tourSampleCls, ...S.classes] : S.classes;
+  return `<select ${id === 'classpick' ? 'id="p-cls" ' : ''}data-dock-id="${id}" data-action-change="pin" title="Show a class now, ignoring the schedule">
       <option value="">Follow schedule</option>
-      ${S.classes.map(c => `<option value="${c.id}" ${P.pinned === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>`;
+      ${list.map(c => `<option value="${c.id}" ${P.pinned === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>`;
 }
 /** When the bar doesn't fit (small screens, iPad), tuck buttons from the end into the ⋯ menu. Setup is tucked away last, so ⋯ is always visible. */
 function fitDock() {
@@ -1026,7 +1033,7 @@ function renderDockCustom() {
 
 function renderCompanionBar(ctx, t) {
   const el = $('#p-companion'); if (!el) return;
-  let clsName = longDate(t), stepTxt = '', leftTxt = '';
+  let clsName = `${DAYS_SHORT[t.getDay()]}, ${MONTHS[t.getMonth()].slice(0, 3)} ${t.getDate()}`, stepTxt = '', leftTxt = '';
   if (ctx.mode === 'class' && ctx.cls) {
     clsName = ctx.cls.name || 'Class';
     const step = agendaStep(ctx, t);
@@ -1034,16 +1041,18 @@ function renderCompanionBar(ctx, t) {
     if (st?.text) stepTxt = `${step + 1}. ${st.text}`;
     if (ctx.period) leftTxt = `${fmtDur(ctx.period.endAt - t)} left`;
   } else if (ctx.next) {
-    leftTxt = `${ctx.next.cls.name} in ${fmtDur(ctx.next.startAt - t)}`;
+    clsName = ctx.next.cls.name || 'Next class';
+    stepTxt = `Starts ${fmtHM(ctx.next.start)}`;
+    leftTxt = `in ${fmtDur(ctx.next.startAt - t)}`;
   }
-  const timers = P.timers.filter(x => !x.doneAt).slice(0, 2).map(tm => {
+  const timers = P.timers.filter(x => !x.doneAt).slice(0, 1).map(tm => {
     const rem = timerLeft(tm);
     return `<span class="comp-timer">⏱ ${fmtDur(rem)}</span>`;
   }).join('');
   const sig = P.signal ? `<span class="comp-sig" style="background:${P.signal.color}">${esc(P.signal.text)}</span>` : '';
-  const html = `<div class="comp-left"><button class="comp-back" data-action="companion-exit">↩ Back to Rehearsal</button>
-      <span class="comp-cls">${esc(clsName)}</span>${stepTxt ? `<span class="comp-step">${esc(stepTxt)}</span>` : ''}${sig}</div>
-    <div class="comp-right">${timers}<span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div>`;
+  const html = `<div class="comp-row1"><button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ Back to Rehearsal</button>
+      <div class="comp-meta"><span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div></div>
+    <div class="comp-row2"><span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>${stepTxt ? `<span class="comp-step" title="${esc(stepTxt)}">${esc(stepTxt)}</span>` : '<span class="comp-spacer"></span>'}${timers}${sig}</div>`;
   setHTML('#p-companion', html);
 }
 
@@ -1086,7 +1095,7 @@ function tick() {
 
   // body
   const layoutKey = ctx.mode + '|' + (ctx.cls?.id || '') + '|' + ctx.key;
-  if (layoutKey !== P.layoutKey) { if (typeof srStop === 'function') srStop(); P.layoutKey = layoutKey; P.sideKey = P.stageKey = ''; P.lastStageId = null; buildLayout(ctx); }
+  if (layoutKey !== P.layoutKey) { stopMusicHosts(); P.layoutKey = layoutKey; P.sideKey = P.stageKey = ''; P.lastStageId = null; buildLayout(ctx); }
   if (ctx.mode === 'class') updateClassBody(ctx, t);
   else updateCenter(ctx, t);
 
@@ -1113,7 +1122,7 @@ function buildLayout(ctx) {
     body.className = 'p-body';
     body.innerHTML = `<aside class="p-side" id="p-side"></aside>
       <div class="p-split" id="p-split" title="Drag to resize · double-click to hide or show the side panel"><button class="p-split-btn" data-action="side-toggle" title="Hide/show side panel"></button></div>
-      <main class="p-stage" id="p-stage"><div class="stage-tabs" id="stage-tabs"></div><div class="stage-content" id="stage-content"></div></main>`;
+      <main class="p-stage" id="p-stage"><div class="stage-tabs" id="stage-tabs"></div><div class="stage-webbar" id="stage-webbar" hidden></div><div class="stage-content" id="stage-content"></div></main>`;
     applySide(ctx.cls);
   } else {
     body.className = 'p-body full'; body.style.gridTemplateColumns = '';
@@ -1157,7 +1166,7 @@ function updateClassBody(ctx, t) {
     const prevStageId = P.lastStageId;
     P.lastStageId = sel;
     P.stageKey = stageKey;
-    if (prevStageId && prevStageId !== sel && typeof srStop === 'function') srStop();
+    if (prevStageId && prevStageId !== sel) stopMusicHosts();
     const nat = res && res.url ? isNativeWeb(res) : false;
     const isSlides = res && res.url && resKind(res) === 'slides';
     $('#stage-tabs').innerHTML = `
@@ -1167,11 +1176,11 @@ function updateClassBody(ctx, t) {
       <button class="zoom-badge" data-action="stage-zoom-reset" title="Pinch to zoom · click to reset" hidden>100%</button>
       <button class="stage-max" data-action="stage-max" title="${P.stageMax ? 'Back to normal size' : 'Maximize (markup tools still work)'}">${IC(P.stageMax ? 'ico:restore' : 'ico:maximize')}</button>
       ${isSlides ? `<button class="mode ${res.mode === 'present' ? 'on' : ''}" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">${res.mode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
-      ${res && res.url && IS_NATIVE ? `<button class="mode" data-action="stage-native" title="${nat ? 'Switch back to embedded (drawing works on top)' : 'Page not showing? Show it as a full browser (every site works)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}${res && res.url ? `<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}`;
+      ${res && res.url && IS_NATIVE ? `<button class="mode" data-action="stage-native" title="${nat ? 'Embedded: lightweight frame inside Rehearsal (drawing/markup works on top)' : 'Full browser: real native browser view (use when a site blocks embedding, requires sign-in, or looks blurry like Google Sheets)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}${res && res.url ? `<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}`;
     const sc = $('#stage-content');
     const keepSight = prevStageId === sel && res && res.sight && sc.querySelector('.stage-sr');
     if (!keepSight) {
-      if (sc.querySelector('.sr-host') && typeof srStop === 'function') srStop();
+      if (sc.querySelector('.sr-host, .score-host')) stopMusicHosts();
       if (res && res.sight) {
         sc.innerHTML = `<div class="sr-host stage-sr" data-sr-res="${res.id}"></div>`; mountSightHosts(sc);
       } else if (res && res.widget) {
@@ -1200,6 +1209,25 @@ function updateClassBody(ctx, t) {
     }
     setTimeout(applyStageZoom, 0);
   }
+  const wb = $('#stage-webbar');
+  if (wb) {
+    if (res && res.url) {
+      wb.hidden = false;
+      const nav = WIN.nav['stage-' + res.id] || {};
+      const inp = wb.querySelector('.stage-url');
+      if (!inp || inp.dataset.surl !== res.id) {
+        wb.innerHTML = `<button data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button><input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false">`;
+      } else {
+        if (document.activeElement !== inp && inp.value !== res.url) inp.value = res.url;
+        const b = wb.querySelector('[data-action="stage-back"]'), f = wb.querySelector('[data-action="stage-fwd"]');
+        if (b) b.disabled = !nav.back;
+        if (f) f.disabled = !nav.forward;
+      }
+    } else {
+      wb.hidden = true;
+      wb.innerHTML = '';
+    }
+  }
 }
 
 function updateCenter(ctx, t) {
@@ -1224,14 +1252,18 @@ function updateCenter(ctx, t) {
 // Web windows can be "embedded" (an iframe: drawing/timers on top, but some sites refuse) or
 // "full browser" (a real browser view under the page, shown through a hole — every site works).
 const WIN = { key: null, sig: '', drag: null, nav: {}, lastSync: '', cutSig: '' };
+const TOUR_SAMPLE_WIN = {
+  id: '__tour_win', kind: 'tour', customTitle: 'Sample Window — Pin (📌) to Class or Tile (▦)',
+  x: 0.34, y: 0.16, w: 0.48, h: 0.42, z: 999, __tourSample: true,
+};
 const winKeyOf = ctx => ctx.mode === 'class' ? ctx.cls.id : '_free';
 function curWinKey() { return winKeyOf(context(now())); }
 function winList(key = curWinKey()) { S.windows ||= {}; return (S.windows[key] ||= []); }
-const findWin = id => winList().find(w => w.id === id);
+const findWin = id => (P.tourWin && id === '__tour_win') ? TOUR_SAMPLE_WIN : winList().find(w => w.id === id);
 const topZ = list => list.reduce((m, w) => Math.max(m, w.z || 0), 0);
 function winRes(w) { if (w.kind !== 'res') return null; for (const c of S.classes) { const r = c.resources.find(x => x.id === w.resId); if (r) return r; } return null; }
 function winURL(w) { if (w.kind === 'web') return w.url || ''; const r = winRes(w); return r?.url || ''; }
-function findRes(id) { for (const c of S.classes) { const r = c.resources.find(x => x.id === id); if (r) return r; } return null; }
+function findRes(id) { if (P.tourSampleCls) { const r = (P.tourSampleCls.resources || []).find(x => x.id === id); if (r) return r; } for (const c of S.classes) { const r = c.resources.find(x => x.id === id); if (r) return r; } return null; }
 function mountSightHosts(root = document) {
   if (typeof mountScore === 'function') {
     for (const h of root.querySelectorAll('[data-score-win]')) { const w = findWin(h.dataset.scoreWin); if (w?.score) mountScore(h, w.score, () => save(), 'w' + w.id); }
@@ -2099,9 +2131,11 @@ function winTargetURL(w) {
   const target = r || w;
   if (resKind({ url: u }) === 'slides' && target.mode === 'present') return slidesPresentURL(u);
   if (target.mode === 'edit') return editURL(embedURL(u));
-  return winIsNative(w) ? u : embedURL(u);
+  if (winIsNative(w)) return resKind({ url: u }) === 'slides' ? editURL(u) : u;
+  return embedURL(u);
 }
 function winBodyHTML(w) {
+  if (w.id === '__tour_win') return `<div class="win-start"><div><b>Floating Window Preview</b><br><span style="font-size:13px;color:#6b7385">Use <b>Pin</b> (${IC('ico:pin')}) in the top bar to save any tool or web page as a class tab, or <b>Tile</b> (${IC('ico:tile')}) to snap it to part of the screen.</span></div></div>`;
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
@@ -2147,7 +2181,7 @@ function winHTML(w) {
       ${w.kind === 'web' ? `<input class="win-url" data-wurl="${w.id}" value="${esc(w.url || '')}" placeholder="Search or type a web address" spellcheck="false">` : `<span class="win-title">${esc(winTitle(w))}</span>`}
       ${url || w.kind === 'file' ? `<button data-action="win-reload" data-id="${w.id}" title="Reload">${IC('ico:reload')}</button>` : ''}
       ${isSlides ? `<button class="mode ${slideMode === 'present' ? 'on' : ''}" data-action="win-slideshow" data-id="${w.id}" title="Play Google Slides as a live slideshow inside Rehearsal">${slideMode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
-      ${canNative ? `<button class="mode" data-action="win-native" data-id="${w.id}" title="${nat ? 'Switch back to an embedded window (drawing works on top)' : 'Page not showing? Open it as a full browser (every site works)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}
+      ${canNative ? `<button class="mode" data-action="win-native" data-id="${w.id}" title="${nat ? 'Embedded: lightweight frame inside Rehearsal (drawing/markup works on top)' : 'Full browser: real native browser view (use when a site blocks embedding, requires sign-in, or looks blurry like Google Sheets)'}">${nat ? 'Embedded' : 'Full browser'}</button>` : ''}
       ${w.kind === 'web' && w.url ? `<button data-action="bm-star" data-id="${w.id}" title="Bookmark this page">${IC('ico:star')}</button>` : ''}
       ${pinned ? '' : `<button data-action="win-pin" data-id="${w.id}" title="Save to this class's resources">${IC('ico:pin')}</button>`}
       ${url ? `<button data-action="open-external" data-url="${esc(url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}
@@ -2162,9 +2196,10 @@ function winHTML(w) {
 }
 function renderWins(ctx, force = false) {
   const host = $('#p-wins'); if (!host) return;
-  const key = winKeyOf(ctx), list = winList(key);
+  const key = winKeyOf(ctx), baseList = winList(key);
+  const list = P.tourWin ? [...baseList, TOUR_SAMPLE_WIN] : baseList;
   // re-render only when the set of windows or their content changes (keeps iframes alive)
-  const sig = key + '|' + JSON.stringify(S.bookmarks || []).length + '|' + JSON.stringify(list.map(w => [w.id, w.kind, winIsNative(w), winIsNative(w) ? '' : winURL(w), w.fileId, w.resId, w.kind === 'warmup' ? ctx.cls?.warmup : '', (winRes(w) || w).mode, winTitle(w)]));
+  const sig = key + '|' + !!P.tourWin + '|' + JSON.stringify(S.bookmarks || []).length + '|' + JSON.stringify(list.map(w => [w.id, w.kind, winIsNative(w), winIsNative(w) ? '' : winURL(w), w.fileId, w.resId, w.kind === 'warmup' ? ctx.cls?.warmup : '', (winRes(w) || w).mode, winTitle(w)]));
   if (!force && sig === WIN.sig && key === WIN.key) return;
   // keep the URL box the teacher is typing in
   const typing = document.activeElement?.dataset?.wurl;
@@ -2176,7 +2211,7 @@ function renderWins(ctx, force = false) {
   for (const w of list) if ((w.zoom || 1) !== 1) applyZoom(w);
 }
 function applyWinGeom() {
-  const list = winList(), top = topZ(list);
+  const baseList = winList(), list = P.tourWin ? [...baseList, TOUR_SAMPLE_WIN] : baseList, top = topZ(list);
   for (const w of list) {
     const el = $(`.win[data-win="${w.id}"]`); if (!el) continue;
     const g = w.max ? { x: 0, y: 0, w: 1, h: 1 } : w;
@@ -2192,6 +2227,7 @@ function applyWinGeom() {
   if (VIEW === 'present') syncNative();
 }
 function bringToFront(w) {
+  if (w.id === '__tour_win') return;
   if (w.kind === 'piano') window.__spaceTarget = 'piano';
   else if (w.kind === 'sight') window.__spaceTarget = 'sr';
   else if (w.kind === 'score') window.__spaceTarget = 'sp';
@@ -2211,10 +2247,43 @@ function openWebAddress(w, raw) {
   if (w.native) native('webCmd', { id: w.id, action: 'load', url });
   save(); WIN.sig = ''; document.activeElement?.blur(); renderWins(context(now()), true);
 }
+function openStageAddress(resId, raw) {
+  const res = findRes(resId); if (!res) return;
+  let q = String(raw || '').trim(); if (!q) return;
+  const looksURL = /^https?:\/\//i.test(q) || (/^[^\s]+\.[a-z]{2,}([\/?#:].*)?$/i.test(q) && !q.includes(' '));
+  let url;
+  if (looksURL) url = /^https?:\/\//i.test(q) ? q : 'https://' + q;
+  else { url = 'https://www.google.com/search?q=' + encodeURIComponent(q); if (IS_NATIVE && !res.native) res.native = true; }
+  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); return; }
+  res.url = url;
+  if (res.mode === 'present' && resKind(res) !== 'slides') res.mode = 'embed';
+  P.forceStageUrl = res.id;
+  const targetUrl = resTargetURL(res);
+  if (isNativeWeb(res)) native('webCmd', { id: 'stage-' + res.id, action: 'load', url: targetUrl });
+  save(); P.stageKey = ''; WIN.sig = ''; WIN.lastSync = ''; document.activeElement?.blur();
+  const ifr = $('#stage-content iframe');
+  if (ifr && !isNativeWeb(res)) ifr.src = targetUrl;
+  tick();
+}
 window.__webNav = ({ id, url, title, back, forward }) => {
   WIN.nav[id] = { back, forward };
+  if (typeof id === 'string' && id.startsWith('stage-')) {
+    const rid = id.slice(6), r = findRes(rid);
+    const keepSlidesUrl = r && r.mode === 'present' && resKind(r) === 'slides' && (url === slidesPresentURL(r.url) || /\/(embed|present)(\?|$)/.test(url || ''));
+    if (r && url && url !== 'about:blank' && !keepSlidesUrl) { r.url = url; save(); }
+    const wb = $('#stage-webbar');
+    if (wb) {
+      const inp = wb.querySelector(`.stage-url[data-surl="${rid}"]`);
+      if (inp && document.activeElement !== inp && url && url !== 'about:blank') inp.value = keepSlidesUrl ? r.url : url;
+      const b = wb.querySelector('[data-action="stage-back"]'), f = wb.querySelector('[data-action="stage-fwd"]');
+      if (b) b.disabled = !back; if (f) f.disabled = !forward;
+    }
+    return;
+  }
   const w = findWin(id); if (!w) return;
-  if (url && w.kind === 'web') w.url = url;
+  const target = winRes(w) || w;
+  const keepWinSlidesUrl = target.mode === 'present' && resKind({ url: winURL(w) }) === 'slides' && (url === slidesPresentURL(winURL(w)) || /\/(embed|present)(\?|$)/.test(url || ''));
+  if (url && url !== 'about:blank' && w.kind === 'web' && !keepWinSlidesUrl) w.url = url;
   if (title) w.title = title;
   save();
   const el = $(`.win[data-win="${id}"]`); if (!el) return;
@@ -2975,7 +3044,16 @@ function syncNative() {
   }
   const sr = VIEW === 'present' && !P.companion ? stageNativeRes() : null, sce = sr && $('#stage-content .stage-native') && $('#stage-content');
   let stageRect = null;
-  if (sce) { const r = rectOf(sce); if (r[2] > 0 && r[3] > 0) { stageRect = r; (P.keepNative ||= new Set()).add(sr.id); items.push({ id: 'stage-' + sr.id, z: -1, url: resTargetURL(sr), rect: r }); } }
+  if (sce) {
+    const r = rectOf(sce);
+    if (r[2] > 0 && r[3] > 0) {
+      stageRect = r;
+      (P.keepNative ||= new Set()).add(sr.id);
+      const item = { id: 'stage-' + sr.id, z: -1, url: resTargetURL(sr), rect: r };
+      if (P.forceStageUrl === sr.id) { item.forceUrl = true; P.forceStageUrl = null; }
+      items.push(item);
+    }
+  }
   // full-browser tabs you've opened stay alive (hidden) when you switch tabs, so videos keep playing
   if (VIEW === 'present' && !P.companion && P.keepNative) for (const id of [...P.keepNative]) {
     if (sr && id === sr.id && stageRect) continue;
@@ -3023,8 +3101,20 @@ function disjointRects(rects) {
   return out;
 }
 function cutHoles(items) {
-  const targets = [[$('#p-bg'), -Infinity, ''], [$('#p-body'), -Infinity, '']];
-  for (const el of $$('.win')) { const w = findWin(el.dataset.win); if (w) targets.push([el, w.z || 0, w.id]); }
+  const targets = [
+    [$('#p-bg'), -Infinity, ''],
+    [$('#p-body'), -Infinity, ''],
+    [$('#p-stage'), -Infinity, ''],
+    [$('#stage-content'), -Infinity, ''],
+    ...$$('#p-body .sp-paper, #p-body .sp-score, #p-body .sr-staff, #p-body .pdfv-pages, #p-body .p-side, #p-body iframe, #p-body video, #p-body img.res, #p-body .wg-host, #p-body .mu-host, #p-body .aud-host').map(el => [el, -Infinity, '']),
+  ];
+  for (const el of $$('.win')) {
+    const w = findWin(el.dataset.win);
+    if (w) {
+      targets.push([el, w.z || 0, w.id]);
+      for (const sub of el.querySelectorAll('iframe, video, .sp-paper, .sp-score, .sr-staff, .pdfv-pages')) targets.push([sub, w.z || 0, w.id]);
+    }
+  }
   const sig = JSON.stringify(items.map(i => [i.rect, i.z])) + targets.map(([el, z]) => el ? rectOf(el) + ':' + z : '').join(';');
   // redo it if anything changed, or if a layer was rebuilt (a fresh element has no cut-out yet)
   if (sig === WIN.cutSig && targets.every(([el]) => !el || el._cutSig === sig)) return; WIN.cutSig = sig;
@@ -3124,11 +3214,11 @@ function renderWinMenuPos() { if (P.winMenu) { const m = $('#win-menu-host')?.fi
 // ---------- side panel ↔ stage divider (per class)
 function applySide(cls) {
   const body = $('#p-body'); if (!body || !cls) return;
-  const L = cls.layout || {};
+  const L = cls.layout || {}, collapsed = !!L.collapsed && P.tour == null;
   const frac = clamp(L.side ?? 0.22, 0.1, 0.6);
-  body.classList.toggle('side-collapsed', !!L.collapsed);
-  body.style.gridTemplateColumns = L.collapsed ? '0px 1.4em minmax(0, 1fr)' : `${(frac * 100).toFixed(2)}% 1.4em minmax(0, 1fr)`;
-  const btn = $('#p-split .p-split-btn'); if (btn) btn.textContent = L.collapsed ? '›' : '‹';
+  body.classList.toggle('side-collapsed', collapsed);
+  body.style.gridTemplateColumns = collapsed ? '0px 1.4em minmax(0, 1fr)' : `${(frac * 100).toFixed(2)}% 1.4em minmax(0, 1fr)`;
+  const btn = $('#p-split .p-split-btn'); if (btn) btn.textContent = collapsed ? '›' : '‹';
   WIN.cutSig = '';
 }
 let SPLIT = null;
@@ -3172,7 +3262,7 @@ function inkDoUndo() {
   const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = !inkUndo.length;
 }
 // Things the pen should never draw over — clicks there go to the control instead.
-const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .tool, .pdfv-bar, .sr-top, .sr-sub, .sr-settings, .sp-top, .sp-sub, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
+const INK_UI = 'button, a, input, select, textarea, label, [contenteditable="true"], [data-action], [data-sr], [data-mu], [data-pdf], .win-bar, .win-rs, .stage-tabs, .stage-webbar, .tool, .pdfv-bar, .sr-top, .sr-sub, .sr-settings, .sp-top, .sp-sub, .me-controls, .p-dock, .ink-bar, .dock-custom, .look-panel, .win-menu, .snap-menu, .bm-menu, .win-bm, .p-signal.on, .p-timer, .sound-chip';
 function inkUnder(x, y) {
   for (const el of document.elementsFromPoint(x, y)) {
     if (el === inkCanvas || el.id === 'ink' || el.classList.contains('ink-cursor')) continue;
@@ -3714,9 +3804,9 @@ function classesTab() {
         ${IS_NATIVE ? '<button class="btn small primary" data-action="drive-browse">Browse Google Drive…</button>' : ''}
         <button class="btn small ic-btn" data-action="res-add-url">${IC('ico:plus')} Link</button><button class="btn small ic-btn" data-action="res-add-file">${IC('ico:plus')} File (PDF, image, video, audio)</button></div>
       <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your Mac. They appear as tabs on the Present screen.</p>
-      ${cls.resources.map((r, k) => `<div class="res-item"><span style="font-size:18px">${resIcon(r) === '-' ? '' : resIcon(r)}</span>
+      ${cls.resources.map((r, k) => `<div class="res-item"><span class="res-ico" style="font-size:18px">${resIcon(r) === '-' ? '' : IC(resIcon(r))}</span>
         <div class="row" style="gap:6px"><input class="grow" data-bind="${base}.resources.${k}.title" value="${esc(r.title)}" placeholder="Title">
-        ${r.widget ? `<span class="pill">${IC(WIDGETS[r.widget.kind].icon)} ${WIDGETS[r.widget.kind].title}</span>` : r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
+        ${r.widget ? `<span class="pill">${IC(WIDGETS[r.widget.kind].icon)} ${WIDGETS[r.widget.kind].title}</span>` : r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.score ? `<span class="pill">${IC('ico:score')} ${esc(r.score.name || S.files[r.score.fileId]?.name || 'Score')}</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
         ${resKind(r) === 'slides' || resKind(r) === 'doc' ? `<select data-bind="${base}.resources.${k}.mode" title="How it appears"><option value="embed" ${r.mode !== 'edit' ? 'selected' : ''}>Presenter view</option><option value="edit" ${r.mode === 'edit' ? 'selected' : ''}>Editor view</option></select>` : ''}</div>
         <span class="row" style="gap:2px"><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="-1">${IC('ico:up')}</button><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="1">${IC('ico:down')}</button><button class="iconbtn" data-action="res-del" data-k="${k}">${IC('ico:close')}</button></span></div>`).join('') || '<div class="empty">No resources yet.</div>'}
     </div>
@@ -4342,15 +4432,25 @@ const A = {
   'signal-clear': () => { P.signal = null; },
   'agenda-prev': () => { const t = now(), c = context(t); if (c.cls) P.agendaOverride[c.key] = Math.max(0, agendaStep(c, t) - 1); },
   'agenda-next': () => { const t = now(), c = context(t); if (c.cls) P.agendaOverride[c.key] = Math.min(c.cls.agenda.length - 1, agendaStep(c, t) + 1); },
-  stage: el => { const c = context(now()); if (c.cls) { if ((P.stageSel[c.key] || 'warmup') !== el.dataset.id && typeof srStop === 'function') srStop(); P.stageSel[c.key] = el.dataset.id; } P.stageKey = ''; if (P.groupMenu) { P.groupMenu = null; renderGroupMenu(); } },
-  'stage-reload': () => { const r = stageNativeRes(); if (r) native('webCmd', { id: 'stage-' + r.id, action: 'reload' }); P.stageKey = ''; },
+  stage: el => { const c = context(now()); if (c.cls) { if ((P.stageSel[c.key] || 'warmup') !== el.dataset.id) stopMusicHosts(); P.stageSel[c.key] = el.dataset.id; } P.stageKey = ''; if (P.groupMenu) { P.groupMenu = null; renderGroupMenu(); } },
+  'stage-back': () => { const r = stageNativeRes(true); if (r) native('webCmd', { id: 'stage-' + r.id, action: 'back' }); },
+  'stage-fwd': () => { const r = stageNativeRes(true); if (r) native('webCmd', { id: 'stage-' + r.id, action: 'forward' }); },
+  'stage-reload': () => { const r = stageNativeRes(); if (r) native('webCmd', { id: 'stage-' + r.id, action: 'reload' }); P.stageKey = ''; tick(); },
   'stage-slideshow': () => {
     const r = stageNativeRes(true); if (!r) return;
     r.mode = r.mode === 'present' ? 'embed' : 'present';
+    P.forceStageUrl = r.id;
     save(); P.stageKey = ''; WIN.lastSync = '';
     if (isNativeWeb(r)) native('webCmd', { id: 'stage-' + r.id, action: 'load', url: resTargetURL(r) });
+    tick();
   },
-  'stage-native': () => { const r = stageNativeRes(true); if (!r) return; r.native = !isNativeWeb(r); save(); P.stageKey = ''; WIN.lastSync = ''; },
+  'stage-native': () => {
+    const r = stageNativeRes(true); if (!r) return;
+    r.native = !isNativeWeb(r);
+    if (r.native) P.forceStageUrl = r.id;
+    save(); P.stageKey = ''; WIN.lastSync = '';
+    tick();
+  },
   'open-external': el => { const u = el.dataset.url; if (!native('openExternal', { url: u })) window.open(u, '_blank'); },
   'open-drive': el => native('openDrive', { url: el.dataset.url }),
   // free windows
@@ -4395,14 +4495,16 @@ const A = {
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },
-  'wm-closeall': () => { const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
+  'wm-closeall': () => { stopMusicHosts(); const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
   'win-close': el => {
-    if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec' && REC.state !== 'idle') {
+    const closing = winList().find(w => w.id === el.dataset.id);
+    if (closing?.kind === 'rec' && REC.state !== 'idle') {
       if (REC.state === 'rec' || REC.state === 'countin') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
-    if (winList().find(w => w.id === el.dataset.id)?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
-    if (winList().find(w => w.id === el.dataset.id)?.kind === 'piano' && typeof pianoSeqStop === 'function') pianoSeqStop();
+    if (closing?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
+    if (closing?.kind === 'piano' && typeof pianoSeqStop === 'function') pianoSeqStop();
+    if (closing && ['score', 'sight', 'res'].includes(closing.kind)) stopMusicHosts();
     const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {
@@ -4639,7 +4741,7 @@ const A = {
   },
   'upd-install': () => native('updateInstallApp'),
   'upd-later': () => { UPD.dismissed = UPD.version; refreshUpdateUI(); },
-  'tour-replay': () => { S.settings.tourDone = false; P.tour = 0; go('present'); setTimeout(renderTour, 120); },
+  'tour-replay': () => { S.settings.tourDone = false; go('present'); setTimeout(startTour, 120); },
   'tour-prev': () => stepTour(-1),
   'tour-next': () => stepTour(1),
   'tour-skip': () => endTour(),
@@ -4687,7 +4789,7 @@ function calibrateSync() {
 }
 const CHANGE = {
   'board-paper': el => { S.settings.boardPaper = el.value; save(); updateInkUI(); },
-  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; if (typeof srStop === 'function') srStop(); renderDock(); },
+  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); },
   'ink-size': el => { P.ink.size = Number(el.value); },
   'noise-beep': el => { NOISE.beep = el.checked; },
   'noise-dyn': el => { S.settings.noiseDyn = el.checked; save(); rerenderTool('noise'); },
@@ -4823,22 +4925,56 @@ document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC
 window.__companionState = on => { if (!on && P.companion) { P.companion = null; tick(); } };
 
 const TOUR_STEPS = [
-  { sel: '[data-dock-id="classpick"]', title: '1. Class & Bell Schedule', body: 'Rehearsal automatically switches classes on your bell schedule — or pick any class here to show it now. It reopens on whichever class (or Follow schedule) you used last.' },
-  { sel: '#stage-tabs', fallback: '#p-stage', title: '2. Pin Tabs & Nest Folders', body: 'Pin slides, scores, PDFs, or music tools as class tabs. Drag any tab onto the middle of another tab to nest them into a drop-down folder.' },
-  { sel: '[data-dock-id="window"]', title: '3. ＋ Open Tools & Companion Split', body: 'Open Sight Reading, Score Practice, Piano, Solfege Board, Tuner, Metronome, web windows, or App split (shares your screen with MuseScore or PowerPoint).' },
-  { sel: '[data-dock-id="editmode"]', title: '4. Quick Edit Right on Screen', body: 'Click Quick edit to type directly into the class name, warm-up, or agenda steps, drag steps to reorder, and customize class, title, and clock colors in Look.' },
-  { sel: '[data-dock-id="edit"]', title: '5. Setup Backend & Automations', body: 'Open Setup to build classes, bell schedules, your file Library, Daily Routines, and per-class Automations — timed rules that automatically start timers, play sounds/music, switch tabs, or flash signals during class.' },
-  { sel: '#p-dock .dock-more', title: '6. Customize Your Toolbar', body: 'Open ⋯ to show, hide, or reorder toolbar buttons and reach extra tools. You can replay this guided tour anytime in Setup → Settings.' },
+  { sel: '#p-cls', fallback: '[data-dock-id="classpick"], #p-title', title: '1. Class & Bell Schedule', body: 'Rehearsal automatically switches classes on your bell schedule — or pick any class here to show it now. It reopens on whichever class (or Follow schedule) you used last.' },
+  { sel: '#p-side .p-card', fallback: '#p-side', title: '2. Live Agenda', body: 'Your class agenda stays visible on the left with a live countdown bar for timed steps. Step forward or back anytime with ‹ › or the arrow keys.' },
+  { sel: '#stage-tabs', fallback: '#p-stage', title: '3. Pin Tabs & Nest Folders', body: 'Pin slides, scores, PDFs, websites, or music tools as class tabs. Drag any tab onto the middle of another tab to nest them into a drop-down folder.' },
+  { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '4. Floating Window: Pin (📌) & Tiling (▦)', body: 'Every floating window has Pin (📌) to save it as a permanent tab in this class, and Tile (▦) to snap it to a half, corner, or third of the screen.' },
+  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open Tools & Companion Split', body: 'Use ＋ Open (and toolbar tools) for timers, signals, web windows, Sight Reading, Score Practice, Piano, Solfege Board, Tuner, Metronome, or external apps via App split.' },
+  { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '6. Quick Edit', body: 'Click Quick edit to type directly into the class name, warm-up, or agenda steps right on the Present screen, drag steps to reorder, and customize colors in Look.' },
+  { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup: Backend & Automations', body: 'Open Setup to configure classes, bell schedules, automatic class switching, Google Drive, saved resources, Daily Routines, and timed per-class Automations.' },
+  { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. Customize Toolbar (⋯)', body: 'Open ⋯ to show, hide, or reorder toolbar buttons, move tools into ＋ Open, and adjust toolbar size or idle shrinking. Replay this tour anytime in Setup → Settings.' },
 ];
 function startTour() {
   if (VIEW !== 'present' || S.settings.tourDone) return;
-  P.tour = 0; renderTour();
+  if (P.tour == null) {
+    P.tourPrevPinned = P.pinned;
+    const cur = context(now()).cls;
+    const withAg = (cur && cur.agenda?.length ? cur : null) || S.classes.find(c => c.agenda && c.agenda.length > 0);
+    if (withAg) {
+      P.pinned = withAg.id;
+    } else {
+      P.tourSampleCls = Object.assign(newClass('Concert Band', 0), {
+        id: '__tour_cls', __tourSample: true, subtitle: 'Sample Class',
+        warmup: 'Play a concert B♭ scale in whole notes, listening for balance across the ensemble.',
+        agenda: [{ text: 'Warm-up & tuning', min: 8 }, { text: 'Sight-reading exercise', min: 10 }, { text: 'Rehearsal: m. 17–48', min: 25 }],
+        resources: [
+          { id: '__tour_r1', title: 'Warm-up Chorale', sight: { mode: 'solfege' } },
+          { id: '__tour_r2', title: 'Rehearsal Slides', url: 'https://docs.google.com/presentation', mode: 'embed' },
+        ],
+      });
+      P.pinned = '__tour_cls';
+    }
+    if (P.stageMax) P.stageMax = false;
+  }
+  P.tour = 0;
+  P.layoutKey = P.sideKey = P.stageKey = ''; WIN.sig = '';
+  renderDock(); tick(); renderTour();
 }
 function endTour() {
   P.tour = null;
+  P.tourWin = false;
+  if (P.tourSampleCls) {
+    S.classes = S.classes.filter(c => c.id !== '__tour_cls' && !c.__tourSample);
+    P.tourSampleCls = null;
+  }
+  if ('tourPrevPinned' in P) {
+    P.pinned = P.tourPrevPinned;
+    delete P.tourPrevPinned;
+  }
+  P.layoutKey = P.sideKey = P.stageKey = ''; WIN.sig = '';
   S.settings.tourDone = true; save();
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
-  tick();
+  renderDock(); tick();
 }
 function stepTour(d) {
   if (P.tour == null) return;
@@ -4851,6 +4987,8 @@ function renderTour() {
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
   if (P.tour == null || VIEW !== 'present') return;
   const step = TOUR_STEPS[P.tour]; if (!step) return endTour();
+  const wantWin = !!step.sampleWin;
+  if (!!P.tourWin !== wantWin) { P.tourWin = wantWin; renderWins(context(now()), true); }
   const target = (step.sel && $(step.sel)) || (step.fallback && $(step.fallback));
   const r = target && target.offsetWidth > 0 ? target.getBoundingClientRect() : null;
   const bd = document.createElement('div'); bd.className = 'tour-backdrop'; bd.onclick = endTour;
@@ -4925,9 +5063,17 @@ document.addEventListener('pointerup', () => {
   WIN.drag = null; $('#p-wins')?.classList.remove('dragging'); save();
 });
 document.addEventListener('keydown', e => {
-  const id = e.target?.dataset?.wurl; if (!id) return;
-  if (e.key === 'Enter') { const w = findWin(id); if (w) openWebAddress(w, e.target.value); }
-  if (e.key === 'Escape') { e.target.value = findWin(id)?.url || ''; e.target.blur(); }
+  const id = e.target?.dataset?.wurl;
+  if (id) {
+    if (e.key === 'Enter') { const w = findWin(id); if (w) openWebAddress(w, e.target.value); }
+    if (e.key === 'Escape') { e.target.value = findWin(id)?.url || ''; e.target.blur(); }
+    return;
+  }
+  const sid = e.target?.dataset?.surl;
+  if (sid) {
+    if (e.key === 'Enter') { e.preventDefault(); openStageAddress(sid, e.target.value); }
+    if (e.key === 'Escape') { e.preventDefault(); e.target.value = findRes(sid)?.url || ''; e.target.blur(); }
+  }
 });
 // Double-click a window's title bar to maximize / restore it.
 document.addEventListener('dblclick', e => {

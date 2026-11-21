@@ -417,14 +417,16 @@ const GR_RECENT = [];
 window.GR_RECENT = GR_RECENT;
 function grSyncRecentBtn(host) {
   if (!host) return;
-  const gBtn = host.querySelector('[data-sr="grade"]'); if (!gBtn) return;
-  let rBtn = host.querySelector('[data-sr="grrecent"]');
+  const gBtn = host.querySelector('[data-sr="grade"], [data-sp="grade"]'); if (!gBtn) return;
+  const attr = gBtn.hasAttribute('data-sp') ? 'sp' : 'sr';
+  const anchor = gBtn.closest('.sp-grade-ctl') || gBtn;
+  let rBtn = host.querySelector(`[data-${attr}="grrecent"]`);
   if (!GR_RECENT.length) { rBtn?.remove(); return; }
   if (!rBtn) {
     rBtn = document.createElement('button');
-    rBtn.dataset.sr = 'grrecent';
+    rBtn.dataset[attr] = 'grrecent';
     rBtn.title = 'View recent grading attempts';
-    gBtn.after(rBtn);
+    anchor.after(rBtn);
   }
   rBtn.innerHTML = `${IC('ico:agenda')} Recent (${GR_RECENT.length})`;
 }
@@ -468,13 +470,28 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
     ${grCardHTML(res, gradePitch)}${legend}
     ${G?.take && res.diag.heard > 0 && host.__listen ? `<div class="gr-listen-row"><button class="gr-listen" title="Hear your ${res.input === 'tap' ? 'taps' : 'recording'} lined up with the music, with the playhead and these marks">${IC('ico:play')} Listen back</button>
       <select class="gr-mix" title="What to hear"><option value="both">with the example</option><option value="rec">${res.input === 'tap' ? 'taps' : 'recording'} only</option></select></div>` : ''}
-    <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
+    <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${G ? `<button type="button" class="gr-exit" title="Clear grading marks and exit grade mode">${IC('ico:close')} Exit Grade</button>` : ''}${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
   card.querySelector('.gr-x').onclick = () => card.remove();
   card.querySelector('.gr-back')?.addEventListener('click', () => grShowRecent(host));
   card.querySelector('.gr-rec-open')?.addEventListener('click', () => grShowRecent(host));
   const mk = card.querySelector('.gr-marks');
   if (mk) mk.onclick = () => { G.hidden = !G.hidden; mk.textContent = G.hidden ? 'Show marks' : 'Hide marks'; host.__grRedraw?.(); };
-  card.querySelector('.gr-again').onclick = () => { if (typeof srStop === 'function') srStop(); card.remove(); GR.retry && GR.retry(); };
+  const ex = card.querySelector('.gr-exit');
+  if (ex) ex.onclick = () => {
+    if (typeof grStopListen === 'function') grStopListen();
+    if (host?.__listenStop) host.__listenStop();
+    else if (typeof srStop === 'function') srStop();
+    if (host) { host.__grResult = null; host.__grRedraw?.(); }
+    card.remove();
+  };
+  card.querySelector('.gr-again').onclick = () => {
+    if (typeof grStopListen === 'function') grStopListen();
+    if (host?.__listenStop) host.__listenStop();
+    if (typeof srStop === 'function') srStop();
+    if (typeof spStop === 'function') spStop();
+    card.remove();
+    const fn = G?.retry || GR.retry; if (fn) fn();
+  };
   const lb = card.querySelector('.gr-listen');
   if (lb) lb.onclick = () => grListen(host, card.querySelector('.gr-mix')?.value || 'both', lb);
   document.body.appendChild(card);
@@ -613,10 +630,12 @@ function grStop(show = true) {
   try { GR.out?.disconnect(); } catch { }
   GR.out = null;
   if (GR.mic) { clearTimeout(GR.mic.idle); GR.mic.idle = setTimeout(grMicClose, GR_MIC_IDLE); }
-  const frames = GR.frames, exp = GR.exp, btn = GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps;
-  GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null;
+  const frames = GR.frames, exp = GR.exp, btn = GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish;
+  GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null; GR.onFinish = null;
   GR.quietUntil = performance.now() + 1500;                   // a last tap just after the end doesn't start playback
-  if (btn) { btn.innerHTML = IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade'); btn.classList.remove('on'); }
+  if (btn) { btn.innerHTML = GR.idleHTML || (IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade')); btn.classList.remove('on'); }
+  GR.idleHTML = null;
+  if (typeof onFinish === 'function') try { onFinish(show); } catch { }
   if (!show || !exp || !exp.length) return;
   const res = grAnalyze(frames, exp, GR.q, GR.T0, GR.end, GR.gradePitch, GR.lat, tap ? taps : null);
   if (!tap) res.logId = grSaveLog(rec, { ...GR.meta, exp, q: GR.q, T0: GR.T0, end: GR.end, lat: GR.lat, gradePitch: GR.gradePitch }, frames, res);
@@ -625,12 +644,27 @@ function grStop(show = true) {
   // the result is kept on the widget so the marks are drawn again whenever the music is redrawn
   // the take itself (the mic recording, or the taps) is kept for listening back against the example
   const gradePitchNow = GR.gradePitch && !tap;
-  const take = { rec: tap ? null : rec, frames, taps: tap ? taps : null, T0: GR.T0, q: GR.q, end: GR.end, offsetSec: res.offsetSec, tempo: GR.meta?.settings?.tempo };
+  const take = { rec: tap ? null : rec, frames, taps: tap ? taps : null, T0: GR.T0, q: GR.q, end: GR.end, offsetSec: res.offsetSec, tempo: GR.meta?.settings?.tempo, range: GR.meta?.range, lineIdx: GR.meta?.lineIdx };
   const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const modeLabel = GR.meta?.mode === 'solfege' ? 'Solfege' : GR.meta?.mode === 'build' ? 'Build' : 'Rhythm';
+  const modeLabel = GR.meta?.modeLabel || (GR.meta?.mode === 'solfege' ? 'Solfege' : GR.meta?.mode === 'build' ? 'Build' : 'Rhythm');
   GR_RECENT.unshift({ res, gradePitch: gradePitchNow, hist: (tl?.grHist || []).slice(), host, tap, time: timeStr, modeLabel, ts: GR.meta?.settings?.ts || '' });
   if (GR_RECENT.length > 15) GR_RECENT.length = 15;
-  if (host && tl) { host.__grResult = { res, gradePitch: gradePitchNow, hist: tl.grHist || [], sig: grSig(tl), hidden: false, take }; host.__grRedraw?.(); }
+  if (host && tl) {
+    host.__grResult = {
+      res,
+      gradePitch: gradePitchNow,
+      hist: tl.grHist || [],
+      sig: grSig(tl),
+      hidden: false,
+      take,
+      exp,
+      retry: GR.retry,
+      fileId: GR.meta?.fileId,
+      lineIdx: GR.meta?.lineIdx,
+      range: GR.meta?.range,
+    };
+    host.__grRedraw?.();
+  }
   grSyncRecentBtn(host);
   grShowCard(res, gradePitchNow, tl?.grHist || [], host);
 }
@@ -742,10 +776,10 @@ function grTapTime(c, e) {
 }
 // a short flash where the playhead is, so the student sees each tap land
 function grTapFlash() {
-  const staff = GR.host?.querySelector('.sr-staff'); if (!staff) return;
-  const ph = staff.querySelector('.sr-ph'), f = document.createElement('div');
+  const staff = GR.host?.querySelector('.sr-staff, .sp-score'); if (!staff) return;
+  const ph = staff.querySelector('.sr-ph, .sp-ph'), f = document.createElement('div');
   f.className = 'gr-tapflash';
-  if (ph && ph.style.display !== 'none' && ph.style.left) Object.assign(f.style, { left: ph.style.left, top: ph.style.top, height: ph.style.height });
+  if (ph && !ph.hidden && ph.style.display !== 'none' && ph.style.left) Object.assign(f.style, { left: ph.style.left, top: ph.style.top, height: ph.style.height });
   else f.classList.add('corner');
   staff.appendChild(f); setTimeout(() => f.remove(), 450);
 }
@@ -879,18 +913,34 @@ function grTakeAudio(take) {
   take.audio = { x, sr: rec.sr, sampleAt: t => icpt + slope * (t + lag), gain: Math.max(1, Math.min(30, 0.6 / (peak || 1))), lag };
   return take.audio;
 }
+function grStopListen() {
+  for (const n of GR.listenNodes || []) { try { n.stop ? n.stop() : n.disconnect(); } catch { } }
+  GR.listenNodes = [];
+  if (typeof SR_PLAY !== 'undefined') SR_PLAY.extra = [];
+  document.querySelectorAll('.gr-listen.on').forEach(b => { b.classList.remove('on'); if (b.dataset.idle) b.innerHTML = b.dataset.idle; });
+}
 function grListen(host, mix, btn) {
   const G = host.__grResult, take = G?.take; if (!take || !host.__listen) return;
-  if (btn?.classList.contains('on')) { srStop(); return; }      // pressed again: stop
+  if (btn?.classList.contains('on')) {
+    grStopListen();
+    if (host.__listenStop) host.__listenStop();
+    else if (typeof srStop === 'function') srStop();
+    return;
+  }
   if (GR.on) return;
   const A = take.rec ? grTakeAudio(take) : null;
   if (take.rec && !A) return toast('The recording of this take is not available.');
   const c = ac(); c.resume && c.resume();
-  const clock = host.__listen(take.tempo, { noMetro: !!A });                       // the example from bar 1, at the tempo you performed (mute synth metronome when mic audio already has it)
+  const clock = host.__listen(take.tempo, { noMetro: !!A, mix, take });                       // the example from bar 1, at the tempo you performed (mute synth metronome when mic audio already has it)
   if (!clock) return;
-  if (mix === 'rec' && SR_PLAY.master) SR_PLAY.master.gain.value = 0;   // keep the playhead, mute the example
+  if (mix === 'rec') {
+    if (clock.master) clock.master.gain.value = 0;
+    else if (typeof SR_PLAY !== 'undefined' && SR_PLAY.master) SR_PLAY.master.gain.value = 0;   // keep the playhead, mute the example
+  }
   const out = c.createGain(); out.connect(musicOut(c));
-  SR_PLAY.extra = [out];
+  const nodes = [out];
+  GR.listenNodes = nodes;
+  if (typeof SR_PLAY !== 'undefined') SR_PLAY.extra = nodes;
   const when0 = clock.timeAt(0);                                // when bar 1, beat 1 sounds
   if (A) {
     const lead = 0.3, buf = c.createBuffer(1, A.x.length, A.sr); buf.getChannelData(0).set(A.x);
@@ -898,7 +948,7 @@ function grListen(host, mix, btn) {
     src.connect(out);
     let off = A.sampleAt(take.T0 + take.offsetSec - lead) / A.sr, when = when0 - lead;
     if (off < 0) { when -= off; off = 0; }
-    src.start(Math.max(c.currentTime, when), off); SR_PLAY.extra.push(src);
+    src.start(Math.max(c.currentTime, when), off); nodes.push(src);
   } else if (take.taps) {
     for (const t of take.taps) {                                 // each tap as a short wood click
       const at = when0 + (t - take.T0 - take.offsetSec); if (at < c.currentTime) continue;

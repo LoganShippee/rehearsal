@@ -317,6 +317,363 @@ function spHoldChord(ctl, q, build) {
   toast(`Holding ${names} — click another spot, or Hold chord to stop.${build ? '' : ' (Shift-click to build it up from the bottom)'}`, 3500);
 }
 
+// ---------- Idempotent CSS injection for Score Practice Vocal Recording & Looper Grading
+function spInjectVoiceGradeCSS() {
+  if (typeof document === 'undefined' || !document.head || document.getElementById('sp-voice-grade-css')) return;
+  const s = document.createElement('style');
+  s.id = 'sp-voice-grade-css';
+  s.textContent = `
+    /* Score Practice Looper Grading: note-by-note OSMD SVG color feedback */
+    .sp-osmd .gr-n-ok path, .sp-osmd .gr-n-ok rect, .sp-osmd .gr-n-ok polygon { fill: #1b7a2a !important; stroke: #1b7a2a !important; opacity: 1 !important; }
+    .sp-osmd .gr-n-timing path, .sp-osmd .gr-n-timing rect, .sp-osmd .gr-n-timing polygon { fill: #d9822b !important; stroke: #d9822b !important; opacity: 1 !important; }
+    .sp-osmd .gr-n-pitch path, .sp-osmd .gr-n-pitch rect, .sp-osmd .gr-n-pitch polygon { fill: #7b3fbf !important; stroke: #7b3fbf !important; opacity: 1 !important; }
+    .sp-osmd .gr-n-missed path, .sp-osmd .gr-n-missed rect, .sp-osmd .gr-n-missed polygon { fill: #c62828 !important; stroke: #c62828 !important; opacity: 1 !important; }
+
+    /* Score overlay grading marks & floating action chips */
+    .sp-grov { position: absolute; left: 0; top: 0; right: 0; height: 0; pointer-events: none; z-index: 4; }
+    .sp-grov svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+    .sp-grov .gr-lane { stroke: #c9ccd6; stroke-width: 1; stroke-dasharray: 2 4; }
+    .sp-grov .gr-tick { stroke: #8a90a2; stroke-width: 1.5; }
+    .sp-grov .gr-dot { stroke: #fff; stroke-width: 1.5; }
+    .sp-grov .gr-dot.ok { fill: #1b7a2a; }
+    .sp-grov .gr-dot.timing { fill: #d9822b; }
+    .sp-grov .gr-off { stroke-width: 3; stroke-linecap: round; }
+    .sp-grov .gr-off.ok { stroke: #1b7a2a; }
+    .sp-grov .gr-off.timing { stroke: #d9822b; }
+    .sp-grov .gr-ring { fill: none; stroke: #c62828; stroke-width: 2; stroke-dasharray: 4 3; }
+    .sp-grov .gr-extra { stroke: #8a90a2; stroke-width: 2; stroke-linecap: round; }
+    .sp-grov text.gr-lbl { fill: #7b3fbf; font: bold 11.5px -apple-system, system-ui, Arial, sans-serif; }
+    .sp-grov text.gr-lbl.soft { fill: #8a90a2; font-weight: normal; font-style: italic; }
+    .sp-score .gr-chips { position: sticky; top: 8px; float: right; margin: 6px 12px 0 0; z-index: 12; display: inline-flex; gap: 6px; flex-wrap: wrap; pointer-events: auto; }
+
+    /* Count-in & live recording/grading banner on the score */
+    .sp-count { position: sticky; top: 14px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); margin: 0 auto; z-index: 15; pointer-events: none;
+      background: rgba(24, 28, 38, 0.9); color: #fff; border: 1.5px solid var(--accent, #e76f51); border-radius: 14px; padding: 8px 18px; text-align: center; box-shadow: 0 10px 28px rgba(0,0,0,.28); }
+    .sp-count-n { font-size: 36px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--accent, #ffd166); }
+    .sp-count.one .sp-count-n { transform: scale(1.08); }
+    .sp-count-cue { font-size: 13px; opacity: .92; margin-top: 2px; }
+    .sp-count.rec-live { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; }
+    .sp-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; display: inline-block; animation: sprecpulse 1s infinite; }
+    @keyframes sprecpulse { 50% { opacity: .25; transform: scale(.85); } }
+
+    /* Grade split button & options menu */
+    .sp-grade-ctl { display: inline-flex; align-items: stretch; gap: 0 !important; }
+    .sp-top .sp-grade-ctl > button[data-sp="grade"] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+    .sp-top .sp-grade-ctl > button[data-sp="grade-menu"] { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 6px !important; min-width: 22px; }
+    .sp-grmenu { position: fixed; z-index: 9100; width: min(310px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 6px; padding: 10px;
+      background: #ffffff; color: #1d2330; border: 1px solid #d3d9e6; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.25); font-size: 13px; }
+    .sp-grmenu .sp-grm-sec { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7385; margin-top: 2px; }
+    .sp-grmenu select { width: 100%; background: #f7f9fc; color: #1d2330; border: 1px solid #cfd6e3; border-radius: 7px; padding: 5px 8px; font-size: 13px; font-weight: 600; }
+    .sp-grmenu .sp-grm-btn { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 7px 9px; border: 1px solid #e1e6f0; border-radius: 8px; background: #fff; color: #1d2330; cursor: pointer; font-size: 13px; }
+    .sp-grmenu .sp-grm-btn:hover { background: #eef4ff; border-color: #3b6cf6; }
+    .sp-grmenu .sp-grm-btn.last { border-color: #3b6cf6; background: #f4f8ff; }
+    .sp-grmenu .sp-grm-btn small { display: block; color: #636b7d; font-size: 11.5px; font-weight: 400; }
+    .sp-grmenu label.sp-grm-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #333a48; cursor: pointer; padding: 2px 2px; }
+
+    /* Voice parts & Vocal Recording mixer strip (.sp-voices) and settings mixer (.sp-parts) */
+    .sp-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
+      background: color-mix(in srgb, var(--text, #1d2330) 4%, transparent); color: var(--text, #1d2330); flex: 0 0 auto; }
+    .sp-voices[hidden] { display: none !important; }
+    .sp-voices-head { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .75; margin-right: 2px; }
+    .sp-parts { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+    .sp-part { display: inline-flex; align-items: center; gap: 6px; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
+      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 9px; padding: 3px 8px; font-size: 12.5px; transition: border-color .15s, background .15s; }
+    .sp-part.is-sung { border-color: color-mix(in srgb, var(--accent, #e76f51) 65%, var(--line, transparent)); background: color-mix(in srgb, var(--accent, #e76f51) 12%, transparent); }
+    .sp-part.is-rec { border-color: #e5484d; background: rgba(229, 72, 77, 0.14); }
+    .sp-part-lbl { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+    .sp-part input[type=range] { width: 64px; cursor: pointer; }
+    .sp-vrec-btn, .sp-vdel-btn, .sp-vfoc-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
+      color: var(--text, #1d2330); border-radius: 7px; padding: 2px 7px !important; height: 24px !important; font-size: 11.5px !important; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1; }
+    .sp-vrec-btn:hover, .sp-vdel-btn:hover, .sp-vfoc-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
+    .sp-vrec-btn.rec-on { background: #e5484d !important; color: #fff !important; border-color: #e5484d !important; animation: sprecpulse 1s infinite; }
+    .sp-vfoc-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
+    .sp-vdel-btn { padding: 2px 5px !important; opacity: .8; }
+    .sp-vdel-btn:hover { opacity: 1; background: rgba(229, 72, 77, 0.2); border-color: #e5484d; }
+    .sp-vsrc-seg { display: inline-flex; border: 1px solid var(--line, rgba(0,0,0,.2)); border-radius: 7px; overflow: hidden; height: 24px; box-sizing: border-box; }
+    .sp-vsrc-seg button { border: 0 !important; border-radius: 0 !important; padding: 0 7px !important; height: 100% !important; font-size: 11px !important; font-weight: 700;
+      background: transparent; color: var(--text, #1d2330); opacity: .7; cursor: pointer; }
+    .sp-vsrc-seg button + button { border-left: 1px solid var(--line, rgba(0,0,0,.18)) !important; }
+    .sp-vsrc-seg button.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; opacity: 1; }
+    .sp-vsrc-seg button:disabled { opacity: .35; cursor: default; }
+    .sp-vmeta { font-size: 10.5px; opacity: .72; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .sp-vopts { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; opacity: .88; margin-left: auto; flex-wrap: wrap; }
+    .sp-vopts label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+  `;
+  document.head.appendChild(s);
+}
+
+// ---------- Sung-Voice Audio Recording & IndexedDB Persistence (16-bit PCM WAV + Float32 AudioBuffer)
+const SP_VOCAL_MEM = new Map(); // in-memory cache keyed by `${fileId}:${lineIdx}`
+let SP_VOCAL_IDB = null;
+function spVocalIdbOpen() {
+  if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB unavailable'));
+  return SP_VOCAL_IDB ||= new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('rehearsal-vocals', 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('vocals')) r.result.createObjectStore('vocals'); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+}
+async function spVocalIdbDo(mode, fn) {
+  const db = await spVocalIdbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('vocals', mode), req = fn(tx.objectStore('vocals'));
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error);
+  });
+}
+function spEncodeWav(samples, sr) {
+  const n = samples.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+  let o = 44;
+  for (let i = 0; i < n; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(o, s < 0 ? s * 32768 : s * 32767, true);
+  }
+  return buf;
+}
+function spDecodeWavToFloat32(wavBuf) {
+  const v = new DataView(wavBuf);
+  const sr = v.getUint32(24, true) || 48000;
+  const dataBytes = Math.max(0, wavBuf.byteLength - 44);
+  const n = dataBytes >> 1;
+  const out = new Float32Array(n);
+  let o = 44;
+  for (let i = 0; i < n; i++, o += 2) out[i] = v.getInt16(o, true) / 32768;
+  return { samples: out, sampleRate: sr };
+}
+function spToAudioBuffer(c, samples, sr) {
+  const buf = c.createBuffer(1, Math.max(1, samples.length), sr);
+  buf.getChannelData(0).set(samples);
+  return buf;
+}
+async function spSaveVocalRec(fileId, lineIdx, recObj) {
+  if (!fileId) return;
+  const key = `${fileId}:${lineIdx}`;
+  const stored = {
+    key,
+    fileId,
+    lineIdx,
+    recordedBpm: recObj.recordedBpm,
+    recordedTempoPct: recObj.recordedTempoPct,
+    startBeat: recObj.startBeat,
+    endBeat: recObj.endBeat,
+    startMeasure: recObj.startMeasure,
+    endMeasure: recObj.endMeasure,
+    loopWasOn: !!recObj.loopWasOn,
+    sampleRate: recObj.sampleRate,
+    durationSec: recObj.durationSec,
+    wavBuf: recObj.wavBuf,
+    createdAt: recObj.createdAt || Date.now(),
+  };
+  SP_VOCAL_MEM.set(key, { ...stored, audioBuffer: recObj.audioBuffer });
+  try { await spVocalIdbDo('readwrite', st => st.put(stored, key)); } catch { }
+}
+async function spDeleteVocalRec(ctl, lineIdx) {
+  const { st } = ctl, key = `${st.fileId}:${lineIdx}`;
+  if (ctl.vocalRecs) delete ctl.vocalRecs[lineIdx];
+  SP_VOCAL_MEM.delete(key);
+  try { await spVocalIdbDo('readwrite', s => s.delete(key)); } catch { }
+  if (st.parts[lineIdx]) st.parts[lineIdx].source = 'midi';
+  ctl.onChange?.();
+  ctl.refreshVoicesUI?.();
+}
+async function spLoadVocalRecs(ctl) {
+  const { sc, st } = ctl;
+  if (!sc || !st?.fileId) return;
+  ctl.vocalRecs ||= {};
+  let anyLoaded = false;
+  for (let i = 0; i < sc.lines.length; i++) {
+    const key = `${st.fileId}:${i}`;
+    let rec = SP_VOCAL_MEM.get(key);
+    if (!rec) {
+      try { rec = await spVocalIdbDo('readonly', s => s.get(key)); } catch { rec = null; }
+    }
+    if (rec && rec.wavBuf) {
+      if (!rec.audioBuffer) {
+        try {
+          const { samples, sampleRate } = spDecodeWavToFloat32(rec.wavBuf);
+          rec.audioBuffer = spToAudioBuffer(ac(), samples, sampleRate);
+        } catch { }
+      }
+      if (rec.audioBuffer) {
+        ctl.vocalRecs[i] = rec;
+        SP_VOCAL_MEM.set(key, rec);
+        (st.parts[i] ||= {}).source ??= 'sung';
+        anyLoaded = true;
+      }
+    }
+  }
+  if (anyLoaded) ctl.refreshVoicesUI?.();
+}
+function spIsLineSung(ctl, lineIdx) {
+  const rec = ctl?.vocalRecs?.[lineIdx];
+  if (!rec || !rec.audioBuffer) return false;
+  return (ctl.st?.parts?.[lineIdx]?.source ?? 'sung') === 'sung';
+}
+function spStopVocalNodes(ctl) {
+  if (!ctl?.vocalNodes?.length) return;
+  for (const n of ctl.vocalNodes) {
+    try { n.src.stop(); } catch { }
+    try { n.src.disconnect(); n.vg.disconnect(); } catch { }
+  }
+  ctl.vocalNodes = [];
+}
+
+// ---------- Active Vocal Recording State
+const SP_VREC = { on: false, starting: false, ctl: null, lineIdx: -1, c: null, src: null, sp: null, mute: null, chunks: [], marks: [], n: 0, T0: 0, endT: 0, R: null, recordedBpm: 100 };
+
+function spStopVocalRec(saveTake = true) {
+  if (!SP_VREC.on) return;
+  const { ctl, lineIdx, c, chunks, marks, n, T0, endT, R, recordedBpm } = SP_VREC;
+  SP_VREC.on = false;
+  try { SP_VREC.sp?.disconnect(); SP_VREC.src?.disconnect(); SP_VREC.mute?.disconnect(); } catch { }
+  SP_VREC.sp = null; SP_VREC.src = null; SP_VREC.mute = null;
+  if (typeof GR !== 'undefined' && GR.mic && typeof grMicClose === 'function') {
+    clearTimeout(GR.mic.idle);
+    GR.mic.idle = setTimeout(grMicClose, typeof GR_MIC_IDLE !== 'undefined' ? GR_MIC_IDLE : 120000);
+  }
+  if (SP_PLAY.ctl === ctl && ctl?.playing) {
+    clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf);
+    try { SP_PLAY.master && SP_PLAY.master.disconnect(); } catch { }
+    spStopVocalNodes(ctl);
+    SP_PLAY.master = null; SP_PLAY.ctl = null;
+    ctl.playing = false; ctl.hidePlayhead();
+  }
+  ctl?.hideCountOverlay?.();
+  if (saveTake && ctl && c && n > 0 && R) {
+    const sr = c.sampleRate;
+    const raw = new Float32Array(n);
+    let o = 0;
+    for (const a of chunks) { raw.set(a, o); o += a.length; }
+    // Map audio-clock time -> sample index using linear regression on (contextTime, sampleEnd)
+    let sampleAt = t => (t - (marks[0]?.[1] || T0)) * sr;
+    if (marks.length >= 2) {
+      let sx = 0, sy = 0, sxx = 0, sxy = 0; const k = marks.length;
+      for (const [sm, t] of marks) { sx += t; sy += sm; sxx += t * t; sxy += t * sm; }
+      const denom = k * sxx - sx * sx;
+      const slope = Math.abs(denom) > 1e-9 ? (k * sxy - sx * sy) / denom : sr;
+      const icpt = (sy - slope * sx) / k;
+      sampleAt = t => icpt + slope * t;
+    }
+    const latSec = Math.max(0, Math.min(0.35, spAvDelay()));
+    const s0 = Math.max(0, Math.min(raw.length - 1, Math.round(sampleAt(T0 + latSec))));
+    const actualEndT = Math.min(c.currentTime, endT || c.currentTime);
+    const expectedSamples = Math.max(Math.round(sr * 0.25), Math.round(((R.b - R.a) * 60 / (recordedBpm || 100)) * sr));
+    const s1 = Math.max(s0 + 1, Math.min(raw.length, s0 + expectedSamples, Math.round(sampleAt(actualEndT + latSec)) + Math.round(sr * 0.08)));
+    const trimmed = raw.slice(s0, s1);
+    if (trimmed.length >= Math.round(sr * 0.15)) {
+      let peak = 0;
+      for (let i = 0; i < trimmed.length; i++) { const v = Math.abs(trimmed[i]); if (v > peak) peak = v; }
+      // Gentle gain normalization so quiet built-in laptop mics sit nicely next to MIDI piano while keeping part volume slider at 100%
+      const normGain = (peak > 0.003 && peak < 0.3) ? Math.min(4.5, 0.42 / peak) : 1;
+      const fadeIn = Math.min(Math.round(sr * 0.006), trimmed.length >> 2);
+      const fadeOut = Math.min(Math.round(sr * 0.012), trimmed.length >> 2);
+      for (let i = 0; i < trimmed.length; i++) {
+        let g = normGain;
+        if (i < fadeIn) g *= i / (fadeIn || 1);
+        else if (i >= trimmed.length - fadeOut) g *= (trimmed.length - 1 - i) / (fadeOut || 1);
+        trimmed[i] = Math.max(-1, Math.min(1, trimmed[i] * g));
+      }
+      const wavBuf = spEncodeWav(trimmed, sr);
+      const audioBuffer = spToAudioBuffer(c, trimmed, sr);
+      const st = ctl.st;
+      const recObj = {
+        fileId: st.fileId,
+        lineIdx,
+        recordedBpm,
+        recordedTempoPct: Number(st.tempo) || 100,
+        startBeat: R.a,
+        endBeat: R.b,
+        startMeasure: st.loop.on ? Math.min(st.loop.a, st.loop.b) : 0,
+        endMeasure: st.loop.on ? Math.max(st.loop.a, st.loop.b) : Math.max(0, (ctl.sc?.measures?.length || 1) - 1),
+        loopWasOn: !!st.loop.on,
+        sampleRate: sr,
+        durationSec: trimmed.length / sr,
+        wavBuf,
+        audioBuffer,
+        createdAt: Date.now(),
+      };
+      (ctl.vocalRecs ||= {})[lineIdx] = recObj;
+      (st.parts[lineIdx] ||= {}).source = 'sung';
+      spSaveVocalRec(st.fileId, lineIdx, recObj);
+      ctl.onChange?.();
+      const pName = ctl.sc?.lines[lineIdx]?.name || `Part ${lineIdx + 1}`;
+      toast(`Recorded ${pName} — now playing your Sung voice instead of MIDI.`);
+    } else {
+      toast('Recording was too short — sing after the count-in.');
+    }
+  }
+  SP_VREC.chunks = []; SP_VREC.marks = []; SP_VREC.n = 0; SP_VREC.ctl = null;
+  ctl?.updateBar?.();
+  ctl?.refreshVoicesUI?.();
+}
+
+async function spStartVocalRec(ctl, lineIdx) {
+  if (SP_VREC.on && SP_VREC.ctl === ctl && SP_VREC.lineIdx === lineIdx) { spStopVocalRec(true); return; }
+  if (SP_VREC.starting) return;
+  if (SP_VREC.on) spStopVocalRec(false);
+  if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+  if (SP_PLAY.ctl) spStop();
+  const { sc, st } = ctl;
+  if (!sc || !sc.lines[lineIdx]) return;
+  SP_VREC.starting = true;
+  let stream = null;
+  try {
+    const c = ac();
+    await Promise.race([c.resume().catch(() => {}), new Promise(r => setTimeout(r, 1500))]);
+    await spPianoReady(sc.events.map(e => e.midi));
+    if (typeof grMic === 'function') {
+      const m = await grMic();
+      stream = m.stream;
+      // Wait briefly if the mic was just opened on macOS so the initial audio switch doesn't clip beat 1
+      if (!m.ready && !(typeof GR_IOS !== 'undefined' && GR_IOS)) {
+        const waitUntil = () => m.liveAt ?? (m.openedAt + 1200);
+        while (performance.now() < waitUntil()) await new Promise(r => setTimeout(r, 40));
+        m.ready = true;
+      }
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    }
+  } catch (e) {
+    SP_VREC.starting = false;
+    return toast('Microphone not available: ' + (e.message || e));
+  }
+  SP_VREC.starting = false;
+  const c = ac();
+  if (typeof srKeepAwake === 'function') srKeepAwake(c);
+  const src = c.createMediaStreamSource(stream);
+  const sp = c.createScriptProcessor(4096, 1, 1);
+  const mute = c.createGain(); mute.gain.value = 0;
+  src.connect(sp); sp.connect(mute).connect(c.destination);
+  const R = spRange(ctl);
+  const recordedBpm = spBpmAt(sc, R.a) * ((Number(st.tempo) || 100) / 100);
+  Object.assign(SP_VREC, {
+    on: true, ctl, lineIdx, c, src, sp, mute,
+    chunks: [], marks: [], n: 0, T0: 0, endT: 0, R, recordedBpm,
+  });
+  sp.onaudioprocess = e => {
+    if (!SP_VREC.on) return;
+    const d = e.inputBuffer.getChannelData(0);
+    SP_VREC.marks.push([SP_VREC.n + d.length, c.currentTime]);
+    SP_VREC.chunks.push(new Float32Array(d));
+    SP_VREC.n += d.length;
+  };
+  ctl.refreshVoicesUI?.();
+  spPlay(ctl, {
+    recordingLine: lineIdx,
+    forceCountIn: Math.max(1, Number(st.countIn) || 1),
+    noLoop: true,
+  });
+}
+
 // ---------- the player
 const SP_PLAY = { ctl: null, timer: null, raf: 0, master: null };
 // the audio-clock time of the sound reaching your ears right now
@@ -330,14 +687,26 @@ function spHeardRaw(c) {
 }
 let SP_ACTIVE = null;          // the score Space bar plays/stops
 function spStop() {
+  if (SP_VREC.on) {
+    spStopVocalRec(true);
+    spHoldStop();
+    if (typeof grStopListen === 'function') grStopListen();
+    return;
+  }
   clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf);
   try { SP_PLAY.master && SP_PLAY.master.disconnect(); } catch { }
   const ctl = SP_PLAY.ctl; SP_PLAY.master = null; SP_PLAY.ctl = null;
-  if (ctl) { ctl.playing = false; ctl.updateBar(); ctl.hidePlayhead(); }
+  if (ctl) {
+    spStopVocalNodes(ctl);
+    ctl.playing = false; ctl.hideCountOverlay?.(); ctl.updateBar(); ctl.hidePlayhead();
+  }
+  spHoldStop();
+  if (typeof grStopListen === 'function') grStopListen();
 }
 function spDefaults(st) {
   st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none';
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
+  st.voicesOpen ??= true; st.recGuide ??= true; st.recSelfGuide ??= false;
   return st;
 }
 function spRange(ctl) {
@@ -359,11 +728,13 @@ function spRange(ctl) {
 }
 // focus can be several lines; stored as an array (older saves have a single number)
 const spFoc = st => st.focus == null ? [] : Array.isArray(st.focus) ? st.focus : [st.focus];
-// the focused line plays out; other voices drop way down, accompaniment a little less
+// the focused line plays out; other voices drop way down, accompaniment a little less; muted parts drop to 0
 function spLineVol(ctl, i) {
-  const st = ctl.st, L = ctl.sc.lines[i], base = st.parts[i]?.vol ?? 1;
+  const st = ctl.st, L = ctl.sc.lines[i];
+  if (st.parts[i]?.on === false) return 0;
+  const base = st.parts[i]?.vol ?? 1;
   const F = spFoc(st).filter(f => ctl.sc.lines[f]); if (!F.length) return base;
-  return base * (F.includes(i) ? 1.3 : L.acc ? 0.35 : 0.2);
+  return base * (F.includes(i) ? 1.3 : L?.acc ? 0.35 : 0.2);
 }
 function spFirstNotes(sc, li, R) {
   const E = sc.pevents || sc.events;
@@ -382,27 +753,68 @@ async function spGivePitch(ctl, which) {
     order.forEach((x, k) => spFirstNotes(sc, x.i, R).forEach(m => spPianoNote(out, t + k * 0.9, m, 0.85 + (order.length - k - 1) * 0.9 + 1.2, 0.6)));
   } else spFirstNotes(sc, +which, R).forEach(m => spPianoNote(out, t, m, 1.8, 0.7));
 }
-function spPlay(ctl) {
-  spStop();
+// Integrate seconds between two quarter-note positions across any score tempo changes
+function spTimeBetweenQ(sc, qA, qB, fac = 1) {
+  if (qB <= qA + 1e-9) return 0;
+  const T = sc.ptempos || sc.tempos || [{ q: 0, bpm: 100 }];
+  let cur = qA, sec = 0;
+  for (let i = 0; i < T.length && cur < qB - 1e-9; i++) {
+    const nextQ = i + 1 < T.length ? T[i + 1].q : Infinity;
+    if (nextQ <= cur + 1e-9) continue;
+    const segEnd = Math.min(qB, nextQ);
+    if (segEnd > cur) {
+      sec += (segEnd - cur) * (60 / (T[i].bpm * (fac || 1)));
+      cur = segEnd;
+    }
+  }
+  return sec;
+}
+function spPlay(ctl, playOpts = null) {
+  if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+  if (SP_VREC.on && playOpts?.recordingLine == null) spStopVocalRec(false);
+  spHoldStop();
+  if (SP_PLAY.ctl) {
+    clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf);
+    try { SP_PLAY.master && SP_PLAY.master.disconnect(); } catch { }
+    spStopVocalNodes(SP_PLAY.ctl);
+    SP_PLAY.master = null; SP_PLAY.ctl = null;
+  }
   const { sc, st } = ctl, c = ac(); c.resume && c.resume();
+  if (typeof srKeepAwake === 'function') srKeepAwake(c);
   SP_ACTIVE = ctl;
   const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut(c));
   const gains = sc.lines.map((_, i) => { const g = c.createGain(); g.gain.value = spLineVol(ctl, i); g.connect(master); return g; });
   Object.assign(SP_PLAY, { ctl, master });
-  ctl.gains = gains; ctl.playing = true; ctl.iter = 0; ctl.updateBar();
-  let R = spRange(ctl), iter = 0;
-  const factor = () => (Number(st.tempo) || 100) / 100 * (st.speed.on ? Math.min(1, ((Number(st.speed.start) || 70) + (Number(st.speed.step) || 5) * iter) / 100) : 1);
+  ctl.gains = gains; ctl.vocalNodes = []; ctl.playing = true; ctl.iter = 0; ctl.updateBar();
+  let R = playOpts?.range ? { ...playOpts.range } : spRange(ctl), iter = 0;
+  if (playOpts?.noLoop) R.loop = false;
+  const factorAt = it => {
+    const basePct = Number(playOpts?.tempoPct || st.tempo) || 100;
+    const ramp = (!playOpts?.tempoPct && !playOpts?.recordingLine && st.speed.on)
+      ? Math.min(1, ((Number(st.speed.start) || 70) + (Number(st.speed.step) || 5) * it) / 100)
+      : 1;
+    return (basePct / 100) * ramp;
+  };
+  const factor = () => factorAt(iter);
   const secPerQ = q => 60 / spBpmAt(sc, q) / factor();
+  let countMeta = null;
   // count-in, and starting pitches (each part that's playing, from its first note in the range).
   // Returns how long it lasts; used at the start and (optionally) before every repeat of the loop.
   const countIn = (t0, first) => {
+    if (playOpts?.noCountIn) return 0;
     const p0 = sc.perf.find(m => m.start <= R.a + 1e-9 && R.a < m.start + m.len), m0 = (p0 && sc.measures[p0.w]) || sc.measures[0];
     const compound = m0.bt === 8 && m0.beats % 3 === 0 && m0.beats > 3, bu = compound ? 1.5 : 4 / m0.bt, nb = compound ? m0.beats / 3 : m0.beats;
     const beatSec = bu * secPerQ(R.a);
-    let bars = Number(st.countIn) || 0; if (st.pitches !== 'none' && !bars) bars = 1;
+    let bars = playOpts?.forceCountIn != null ? Number(playOpts.forceCountIn) : (Number(st.countIn) || 0);
+    if ((st.pitches !== 'none' || playOpts?.recordingLine != null) && !bars) bars = 1;
     if (!first && !bars) return 0;
     for (let k = 0; k < bars * nb; k++) spClick(master, t0 + k * beatSec, k % nb === 0);
-    if (st.pitches !== 'none') {
+    if (playOpts?.recordingLine != null) {
+      const recLi = playOpts.recordingLine;
+      const firsts = spFirstNotes(sc, recLi, R);
+      [...new Set(firsts)].forEach(mi => spPianoNote(master, t0, mi, nb * beatSec * 0.95, 0.6));
+      countMeta = { t0, endT: t0 + bars * nb * beatSec, nb, beatSec, totalBeats: bars * nb, lineName: sc.lines[recLi]?.name || 'Voice', firstNote: firsts[0] != null ? grName(firsts[0]) : null };
+    } else if (st.pitches !== 'none') {
       const firsts = [];
       sc.lines.forEach((L, li) => {
         if (L.acc && st.pitches !== 'all') return;
@@ -413,9 +825,78 @@ function spPlay(ctl) {
     }
     return bars * nb * beatSec;
   };
-  const t0 = c.currentTime + 0.15;
-  const walker = { q: R.a, t: t0 + countIn(t0, true) };
+  const leadSec = playOpts?.leadSec ?? 0.15;
+  const t0 = c.currentTime + leadSec;
+  const countDur = countIn(t0, true);
+  const pass0StartT = t0 + countDur;
+  const walker = { q: R.a, t: pass0StartT };
   ctl.marks = [{ t: c.currentTime, q: R.a, hold: true }, { t: walker.t, q: R.a }];
+  if (playOpts?.recordingLine != null && SP_VREC.on) {
+    SP_VREC.T0 = pass0StartT;
+    SP_VREC.endT = pass0StartT + spTimeBetweenQ(sc, R.a, R.b, factorAt(0));
+  }
+  // Schedule sung-voice AudioBufferSourceNodes for a pass over [passStartBeat, passEndBeat] starting at passStartTime
+  const scheduleVocalPass = (passStartBeat, passEndBeat, passStartTime, passIter) => {
+    if (playOpts?.ignoreVocalRecs) return;
+    spStopVocalNodes(ctl);
+    const curFac = factorAt(passIter);
+    sc.lines.forEach((_, li) => {
+      if (playOpts?.recordingLine === li) return;
+      if (playOpts?.recordingLine != null && st.recGuide === false) return;
+      if (!spIsLineSung(ctl, li)) return;
+      const rec = ctl.vocalRecs?.[li];
+      if (!rec || !rec.audioBuffer) return;
+      const segStartBeat = Math.max(passStartBeat, rec.startBeat ?? 0);
+      const segEndBeat = Math.min(passEndBeat, rec.endBeat ?? sc.ptotal);
+      if (segEndBeat <= segStartBeat + 1e-6) return;
+      const currentBpm = spBpmAt(sc, segStartBeat) * curFac;
+      const recBpm = rec.recordedBpm || 100;
+      const playbackRate = Math.max(0.25, Math.min(4, currentBpm / recBpm));
+      const delaySec = spTimeBetweenQ(sc, passStartBeat, segStartBeat, curFac);
+      let whenSec = passStartTime + delaySec;
+      let offsetSec = (segStartBeat - (rec.startBeat ?? 0)) * 60 / recBpm;
+      let durBufSec = (segEndBeat - segStartBeat) * 60 / recBpm;
+      if (whenSec < c.currentTime) {
+        const lateWall = c.currentTime - whenSec;
+        offsetSec += lateWall * playbackRate;
+        durBufSec -= lateWall * playbackRate;
+        whenSec = c.currentTime;
+      }
+      if (offsetSec < 0) {
+        const earlyWall = -offsetSec / playbackRate;
+        whenSec += earlyWall;
+        durBufSec += offsetSec;
+        offsetSec = 0;
+      }
+      if (durBufSec <= 0.01 || offsetSec >= rec.audioBuffer.duration - 0.01) return;
+      durBufSec = Math.min(durBufSec, rec.audioBuffer.duration - offsetSec);
+      const wallDur = durBufSec / playbackRate;
+      const src = c.createBufferSource(), vg = c.createGain();
+      src.buffer = rec.audioBuffer;
+      src.playbackRate.setValueAtTime(playbackRate, whenSec);
+      vg.gain.setValueAtTime(0.0001, whenSec);
+      vg.gain.linearRampToValueAtTime(1, whenSec + Math.min(0.008, wallDur * 0.25));
+      if (wallDur > 0.03) {
+        vg.gain.setValueAtTime(1, whenSec + wallDur - 0.012);
+        vg.gain.linearRampToValueAtTime(0.0001, whenSec + wallDur);
+      }
+      // Route directly through this voice part's existing GainNode (controlled by volume slider, mute, solo/focus)
+      src.connect(vg).connect(ctl.gains[li]);
+      src.start(whenSec, offsetSec, durBufSec);
+      ctl.vocalNodes.push({ src, vg, li });
+    });
+  };
+  scheduleVocalPass(R.a, R.b, pass0StartT, 0);
+  const vocalSigOf = () => `${playOpts?.tempoPct || st.tempo}|${R.a}|${R.b}|${R.loop}|${sc.lines.map((_, i) => spIsLineSung(ctl, i) ? 1 : 0).join(',')}`;
+  let lastVocalSig = vocalSigOf();
+  // Estimate the current quarter-note beat at audio time `now` from ctl.marks
+  const beatAtTime = nowT => {
+    const M = ctl.marks;
+    if (!M || !M.length) return R.a;
+    let i = M.length - 1; while (i > 0 && M[i].t > nowT) i--;
+    const a = M[i], b = M[i + 1];
+    return a.hold || !b || b.jump ? a.q : a.q + (b.q - a.q) * Math.max(0, Math.min(1, (nowT - a.t) / ((b.t - a.t) || 1)));
+  };
   // what happens at each position: notes, metronome beats, tempo changes
   const byQ = new Map(); const at = q => { const k = spKey(q); if (!byQ.has(k)) byQ.set(k, { q, evs: [], beat: null }); return byQ.get(k); };
   for (const e of sc.pevents) at(e.q).evs.push(e);
@@ -426,11 +907,22 @@ function spPlay(ctl) {
   let si = firstIdx(R.a), ending = 0;
   const step = () => {
     const now = c.currentTime, horizon = now + 0.15;
-    const nr = spRange(ctl);                                     // loop range / loop on-off can change while playing
-    if (nr.a !== R.a || nr.b !== R.b || nr.loop !== R.loop) {
-      R = nr;
-      if (walker.q < R.a - 1e-9 || walker.q >= R.b - 1e-9) { walker.q = R.a; ctl.marks.push({ t: walker.t, q: R.a, jump: true }); }
-      si = firstIdx(walker.q);
+    if (!playOpts?.range) {
+      const nr = spRange(ctl);                                   // loop range / loop on-off can change while playing
+      if (playOpts?.noLoop) nr.loop = false;
+      if (nr.a !== R.a || nr.b !== R.b || nr.loop !== R.loop) {
+        R = nr;
+        if (walker.q < R.a - 1e-9 || walker.q >= R.b - 1e-9) { walker.q = R.a; ctl.marks.push({ t: walker.t, q: R.a, jump: true }); }
+        si = firstIdx(walker.q);
+      }
+    }
+    const curSig = vocalSigOf();
+    if (curSig !== lastVocalSig) {
+      lastVocalSig = curSig;
+      const curQ = beatAtTime(now);
+      if (curQ >= R.a - 1e-6 && curQ < R.b - 1e-6 && now >= pass0StartT - 1e-3) {
+        scheduleVocalPass(curQ, R.b, now, iter);
+      }
     }
     ctl.gains.forEach((g, i) => { const v = spLineVol(ctl, i); if (Math.abs(g.gain.value - v) > 1e-3) g.gain.setTargetAtTime(v, now, 0.03); });
     let guard = 0;
@@ -441,17 +933,29 @@ function spPlay(ctl) {
         const sp = secPerQ(s.q);
         for (const e of s.evs) {
           if (st.parts[e.line]?.on === false) continue;
+          if (playOpts?.recordingLine != null) {
+            if (e.line === playOpts.recordingLine) {
+              if (!st.recSelfGuide) continue;
+              const len = Math.min(e.q + e.dur, R.b) - e.q;
+              spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.22);
+              continue;
+            }
+            if (st.recGuide === false) continue;
+          }
+          // Skip MIDI notes when this part is in Sung mode with a valid recording
+          if (!playOpts?.ignoreVocalRecs && spIsLineSung(ctl, e.line)) continue;
           const len = Math.min(e.q + e.dur, R.b) - e.q;
           spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97);
         }
-        if (s.beat && st.metronome) spClick(master, Math.max(now, walker.t), s.beat.accent);
+        if (s.beat && st.metronome && !playOpts?.noMetro) spClick(master, Math.max(now, walker.t), s.beat.accent);
         si++;
       } else {
         walker.t += (R.b - walker.q) * secPerQ(walker.q); walker.q = R.b; ctl.marks.push({ t: walker.t, q: R.b });
-        if (R.loop) {
+        if (R.loop && !playOpts?.noLoop) {
           iter++; walker.q = R.a; si = firstIdx(R.a); ctl.iter = iter;
           ctl.marks.push({ t: walker.t, q: R.a, jump: true, hold: true });
           if (st.countEvery) { walker.t += countIn(walker.t, false); ctl.marks.push({ t: walker.t, q: R.a }); }   // count in again
+          scheduleVocalPass(R.a, R.b, walker.t, iter);
         }
         else ending = walker.t;
       }
@@ -460,24 +964,301 @@ function spPlay(ctl) {
     if (ending && now > ending + 0.3) spStop();
   };
   step(); SP_PLAY.timer = setInterval(step, 25);
-  const frame = () => { if (SP_PLAY.ctl !== ctl) return; ctl.drawPlayhead(spHeardTime(c)); SP_PLAY.raf = requestAnimationFrame(frame); };
+  const frame = () => {
+    if (SP_PLAY.ctl !== ctl) return;
+    const heard = spHeardTime(c);
+    ctl.drawPlayhead(heard);
+    if (countMeta && playOpts?.recordingLine != null) {
+      if (heard < countMeta.endT) {
+        const bi = Math.max(0, Math.floor((heard - countMeta.t0) / countMeta.beatSec + 1e-6));
+        const bNum = (bi % countMeta.nb) + 1;
+        ctl.showCountOverlay?.(String(bNum), `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`, bNum === 1);
+      } else {
+        ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b>…`);
+      }
+    }
+    SP_PLAY.raf = requestAnimationFrame(frame);
+  };
   SP_PLAY.raf = requestAnimationFrame(frame);
+  const q0 = 60 / spBpmAt(sc, R.a) / factorAt(0);
+  return {
+    when0: pass0StartT,
+    q: q0,
+    master,
+    timeAt(pos) { return pass0StartT + pos * q0; },
+  };
+}
+
+// ---------- Score Practice Looper Grading (Sight-Reading-equivalent grading on any voice part & measure range)
+function spGradeLine(ctl) {
+  const { sc, st } = ctl;
+  if (!sc || !sc.lines.length) return 0;
+  if (st.gradeLine != null && sc.lines[st.gradeLine]) return +st.gradeLine;
+  const F = spFoc(st).filter(i => sc.lines[i]);
+  if (F.length) {
+    const fVocal = F.find(i => !sc.lines[i].acc);
+    return fVocal != null ? fVocal : F[0];
+  }
+  const firstVocal = sc.lines.findIndex(L => !L.acc);
+  return firstVocal >= 0 ? firstVocal : 0;
+}
+function spGradeRange(ctl) {
+  const { sc, st } = ctl;
+  if (!sc) return { a: 0, b: 0, loop: false };
+  if (st.loop.on && sc.measures.length) return spRange(ctl);
+  return { a: 0, b: sc.ptotal, loop: false };
+}
+function spExpectedNotes(ctl, lineIdx, R, shift = 0) {
+  const { sc, st } = ctl;
+  if (!sc) return [];
+  const fac = (Number(st.tempo) || 100) / 100;
+  const q0 = 60 / spBpmAt(sc, R.a) / fac;
+  const raw = (sc.pevents || sc.events)
+    .filter(e => e.line === lineIdx && e.q >= R.a - 1e-6 && e.q < R.b - 1e-6)
+    .sort((a, b) => a.q - b.q || b.midi - a.midi);
+  // Deduplicate simultaneous chord notes in the same voice line (keep highest note at each attack time)
+  const dedup = [];
+  for (const e of raw) {
+    const prev = dedup[dedup.length - 1];
+    if (prev && Math.abs(e.q - prev.q) < 1e-3) continue;
+    dedup.push(e);
+  }
+  const exp = [];
+  let lastPm = -1, idxInBar = 0;
+  for (const e of dedup) {
+    const pm = e.pm ?? e.m;
+    idxInBar = pm === lastPm ? idxInBar + 1 : 1;
+    lastPm = pm;
+    const tSec = spTimeBetweenQ(sc, R.a, e.q, fac);
+    const endQ = Math.min(e.q + e.dur, R.b);
+    const durSec = Math.max(0.04, spTimeBetweenQ(sc, e.q, endQ, fac));
+    const perfM = sc.perf?.[pm];
+    const dq = perfM ? (e.q - perfM.start) : (e.q - (sc.measures[e.m]?.start || 0));
+    const barNum = Number(sc.measures[e.m]?.num) || (e.m + 1);
+    exp.push({
+      t: tSec / q0,
+      len: durSec / q0,
+      midi: e.midi == null ? null : e.midi + shift,
+      writtenMidi: e.midi,
+      bar: barNum,
+      idx: idxInBar,
+      m: e.m,
+      pm,
+      dq,
+      pq: e.q,
+      dur: e.dur,
+      line: lineIdx,
+    });
+  }
+  return exp;
+}
+async function spGradeStart(ctl, btn, inputOverride = null) {
+  if (typeof GR === 'undefined') return toast('Grading engine not loaded.');
+  if (GR.on) { grStop(true); return; }
+  if (GR.starting) return;
+  if (SP_VREC.on) spStopVocalRec(false);
+  if (SP_PLAY.ctl) spStop();
+  spHoldStop();
+  const { sc, st, host } = ctl;
+  if (!sc) return;
+  const lineIdx = spGradeLine(ctl);
+  const line = sc.lines[lineIdx];
+  const R = spGradeRange(ctl);
+  const shift = (typeof GR_VOICE_SHIFT !== 'undefined' ? GR_VOICE_SHIFT[st.gradeVoice || 'written'] : 0) || 0;
+  const exp = spExpectedNotes(ctl, lineIdx, R, shift);
+  if (!exp.length) return toast(`No notes found for ${line?.name || 'this part'} in the selected measure range.`);
+  const mode = inputOverride || st.gradeMode || 'mic'; // 'mic' (pitch+rhythm), 'rhythm' (mic rhythm only), 'tap' (spacebar rhythm)
+  const tap = mode === 'tap';
+  const gradePitch = mode === 'mic';
+  GR.starting = true;
+  let mic = null, c0 = null;
+  try {
+    c0 = ac();
+    await grResume(c0);
+    if (c0.state !== 'running') return toast('Sound is not running yet. Press Grade again.');
+    if (!tap) {
+      try { mic = await grMic(); } catch (e) { return toast('Microphone not available: ' + e.message); }
+      await grMicReady(mic, btn);
+      await grResume(mic.c);
+    }
+  } finally { GR.starting = false; }
+  await spPianoReady(sc.events.map(e => e.midi)).catch(() => {});
+  const c = tap ? c0 : mic.c;
+  document.getElementById('gr-card')?.remove();
+  host.__grResult = null;
+  ctl.drawGradeMarks?.();
+  if (typeof srKeepAwake === 'function') srKeepAwake(c);
+  GR.out = c.createGain();
+  GR.out.connect(musicOut(c));
+
+  const fac = (Number(st.tempo) || 100) / 100;
+  const q0 = 60 / spBpmAt(sc, R.a) / fac;
+  const p0 = sc.perf.find(m => m.start <= R.a + 1e-9 && R.a < m.start + m.len), m0 = (p0 && sc.measures[p0.w]) || sc.measures[0];
+  const compound = m0.bt === 8 && m0.beats % 3 === 0 && m0.beats > 3, bu = compound ? 1.5 : 4 / m0.bt, nb = compound ? m0.beats / 3 : m0.beats;
+  const beatSec = bu * q0;
+  const bars = Math.max(1, Number(st.countIn) || 1), countBeats = bars * nb;
+  const t0 = c.currentTime + 0.3;
+  for (let b = 0; b < countBeats; b++) grClick(c, t0 + b * beatSec, b % nb === 0);
+  const firstMidi = exp[0].midi;
+  if (!tap && firstMidi != null) {
+    grTone(c, t0, grCueMidi(firstMidi), bars * nb * beatSec * 0.92);
+  }
+  const T0 = t0 + countBeats * beatSec;
+  const last = exp[exp.length - 1];
+  const end = T0 + (last.t + last.len) * q0 + 0.8;
+  // Schedule metronome clicks while performing if Metronome is active
+  if (st.metronome) {
+    for (const b of sc.pbeats) {
+      if (b.q >= R.a - 1e-6 && b.q < R.b - 1e-6) {
+        const dt = spTimeBetweenQ(sc, R.a, b.q, fac);
+        grClick(c, T0 + dt, b.accent, 0.5);
+      }
+    }
+  }
+  // Optional quiet guide of other parts during grading (when st.gradeGuide is enabled)
+  if (st.gradeGuide && !tap) {
+    for (const e of sc.pevents) {
+      if (e.line === lineIdx || st.parts[e.line]?.on === false) continue;
+      if (e.q < R.a - 1e-6 || e.q >= R.b - 1e-6) continue;
+      const dt = spTimeBetweenQ(sc, R.a, e.q, fac);
+      const durSec = spTimeBetweenQ(sc, e.q, Math.min(e.q + e.dur, R.b), fac);
+      grTone(c, T0 + dt, e.midi, Math.max(0.05, durSec * 0.9), 0.12);
+    }
+  }
+  // Build playhead marks on clock `c` so the score playhead glides smoothly across the measures while grading
+  const marks = [{ t: c.currentTime, q: R.a, hold: true }, { t: T0, q: R.a }];
+  const stopQs = [...new Set(sc.pevents.filter(e => e.q >= R.a - 1e-6 && e.q <= R.b + 1e-6).map(e => e.q).concat([R.b]))].sort((a, b) => a - b);
+  for (const sq of stopQs) marks.push({ t: T0 + spTimeBetweenQ(sc, R.a, sq, fac), q: sq });
+  ctl.marks = marks;
+
+  // Persist attempt history per (score, line, range)
+  const histKey = `${st.fileId}|${lineIdx}|${R.a.toFixed(2)}-${R.b.toFixed(2)}`;
+  ctl.grHistByKey ||= {};
+  const tl = exp.map(e => ({ t: e.t, len: e.len, midi: e.midi, rest: false }));
+  tl.grHist = (ctl.grHistByKey[histKey] ||= []);
+
+  const mStartNum = sc.measures[st.loop.on ? Math.min(st.loop.a, st.loop.b) : 0]?.num || '1';
+  const mEndNum = sc.measures[st.loop.on ? Math.max(st.loop.a, st.loop.b) : sc.measures.length - 1]?.num || String(sc.measures.length);
+  const rangeLabel = mStartNum === mEndNum ? `m. ${mStartNum}` : `m. ${mStartNum}–${mEndNum}`;
+  const effBpm = Math.round(spBpmAt(sc, R.a) * fac);
+  const meta = {
+    mode: gradePitch ? 'solfege' : 'rhythm',
+    modeLabel: `${line?.name || 'Score'} (${rangeLabel})`,
+    fileId: st.fileId,
+    lineIdx,
+    range: R,
+    settings: { ts: `${m0.beats}/${m0.bt}`, tempo: st.tempo, effBpm, gradeVoice: st.gradeVoice || 'written', countIn: bars, metronome: !!st.metronome },
+    beatSec, countBeats, t0, avDelay: avDelayMs(),
+  };
+  let lat = null;
+  try {
+    const outLat = Math.max(0, c.currentTime - spHeardRaw(c));
+    lat = outLat + spAvDelay();
+    if (!isFinite(lat)) lat = null;
+  } catch { lat = null; }
+
+  const rec = tap ? null : { sr: c.sampleRate, chunks: [], marks: [], n: 0 };
+  const idleHTML = btn ? btn.innerHTML : null;
+  let gradeRaf = 0;
+  const onFinish = () => {
+    cancelAnimationFrame(gradeRaf);
+    ctl.hideCountOverlay?.();
+    ctl.hidePlayhead?.();
+    ctl.updateBar?.();
+  };
+  Object.assign(GR, {
+    on: true,
+    input: tap ? 'tap' : 'mic',
+    c,
+    taps: tap ? [] : null,
+    an: tap ? null : mic.an,
+    rec,
+    meta,
+    buf: new Float32Array(2048),
+    poll: 0,
+    frames: [],
+    host,
+    exp,
+    q: q0,
+    T0,
+    end,
+    btn,
+    idleHTML,
+    onFinish,
+    lat,
+    gradePitch,
+    tl,
+    retry: () => spGradeStart(ctl, btn, mode),
+  });
+  if (btn) {
+    btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade');
+    btn.classList.add('on');
+  }
+  if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
+
+  const startNoteLbl = firstMidi != null ? grName(firstMidi) : null;
+  const animFrame = () => {
+    if (!GR.on || GR.host !== host) return;
+    const heard = spHeardTime(c);
+    ctl.drawPlayhead(heard);
+    if (heard < T0) {
+      const bi = Math.max(0, Math.floor((heard - t0) / beatSec + 1e-6));
+      const bNum = (bi % nb) + 1;
+      ctl.showCountOverlay?.(String(bNum), `Grade <b>${esc(line?.name || 'Part')}</b> (${rangeLabel})${!tap && startNoteLbl ? ` · start on <b>${startNoteLbl}</b>` : tap ? ' · tap Space on each note' : ''}`, bNum === 1);
+    } else {
+      ctl.hideCountOverlay?.();
+    }
+    gradeRaf = requestAnimationFrame(animFrame);
+  };
+  gradeRaf = requestAnimationFrame(animFrame);
+
+  GR.timer = setInterval(() => {
+    const now = c.currentTime;
+    if (tap) { if (now > GR.end) grStop(true); return; }
+    const { an, buf } = GR; if (!an) return;
+    if (now > GR.end) { grStop(true); return; }
+    an.getFloatTimeDomainData(buf);
+    const W = Math.min(buf.length, Math.round(c.sampleRate * 0.02));
+    let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
+    const rms = Math.sqrt(s / W);
+    const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;
+    GR.frames.push({ t: now, rms, f });
+  }, 10);
+}
+function spListenGrade(ctl, tempo, opts) {
+  const G = ctl.host?.__grResult;
+  if (!ctl.sc || !G) return null;
+  const R = G.range || spGradeRange(ctl);
+  return spPlay(ctl, {
+    range: R,
+    tempoPct: tempo || ctl.st.tempo || 100,
+    noCountIn: true,
+    leadSec: 0.35,
+    noMetro: !!opts?.noMetro,
+    noLoop: true,
+    ignoreVocalRecs: true,
+  });
 }
 
 // ---------- UI
 function spApplyAll() { Object.values(SP_CACHE).forEach(c => c.root?.isConnected && c.applyCtl?.()); }
 // Score practice bar: the same movable bar and standard order as sight reading
 // (what's on the page → playing it → what's written on the music → tools)
-const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums'], breaks: ['nums'] };
+const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'grade', 'voices', 'nums', 'solfege', 'counts', 'layout', 'gap', 'tabs', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'], breaks: ['nums'] };
 const SP_CACHE = {};
 function mountScore(host, st, onChange0, key) {
+  spInjectVoiceGradeCSS();
   spDefaults(st);
   // every change is also remembered per score, so reopening or switching back restores it
   const onChange = () => { try { (S.scoreSettings ||= {})[st.fileId] = JSON.parse(JSON.stringify(st)); } catch { } onChange0 && onChange0(); };
   const ck = key || st.fileId;
   const cached = SP_CACHE[ck];
   if (cached && cached.st === st && cached.root) {             // re-attach the already-drawn score
-    host.innerHTML = ''; host.appendChild(cached.root); cached.host = host; cached.relayout(); cached.fillFiles?.(); return cached;
+    host.innerHTML = ''; host.appendChild(cached.root); cached.host = host;
+    host.__grRedraw = () => cached.drawGradeMarks?.();
+    host.__listen = (tempo, opts) => spListenGrade(cached, tempo, opts);
+    host.__listenStop = () => spStop();
+    cached.relayout(); cached.fillFiles?.(); return cached;
   }
   if (cached && SP_PLAY.ctl === cached) spStop();
   const root = document.createElement('div'); root.className = 'sp-root';
@@ -489,6 +1270,8 @@ function mountScore(host, st, onChange0, key) {
     loop: () => `<button data-sp="loop" data-ctl="loop" title="Loop the selected measures (click or drag on the music to choose them)">${IC('ico:repeat')} <span class="sp-looplbl">Loop</span></button>`,
     range: () => `<span class="sp-range" data-ctl="range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
     spots: () => `<button data-sp="spots" data-ctl="spots" title="Rehearsal list: saved spots to step through">${IC('ico:agenda')} Spots</button>`,
+    grade: () => `<span class="sp-grp sp-grade-ctl" data-ctl="grade"><button data-sp="grade" title="Grade your performance of the selected voice part over the active loop (or full score)">${IC('ico:mic')} <span class="sp-grlbl">Grade</span></button><button data-sp="grade-menu" title="Choose which voice part to grade and grading mode" aria-label="Grading options">▾</button></span>`,
+    voices: () => `<button data-sp="voices" data-ctl="voices" title="Voice parts mixer: per-part volume, Focus/Solo, Record sung voice (🎤 Rec), and Sung vs MIDI toggle">${IC('ico:users')} <span class="sp-voicelbl">Voices</span></button>`,
     nums: () => `<button data-sp="nums" data-ctl="nums" title="Number every measure">${IC('ico:hash')} Measure #</button>`,
     solfege: () => `<button data-sp="lbl" data-v="solfege" data-ctl="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>`,
     counts: () => `<button data-sp="lbl" data-v="counts" data-ctl="counts" title="Rhythm counting above the notes">${IC('ico:list')} Counts</button>`,
@@ -498,7 +1281,7 @@ function mountScore(host, st, onChange0, key) {
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
   const spBarHTML = () => `<div class="sp-top">
-      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.tempo()}${BAR.metronome()}${BAR.loop()}${BAR.range()}${BAR.spots()}
+      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.tempo()}${BAR.metronome()}${BAR.loop()}${BAR.range()}${BAR.spots()}${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${BAR.voices()}
       <span class="sr-sp"></span>
       ${BAR.tabs()}${BAR.settings()}
     </div>
@@ -513,19 +1296,23 @@ function mountScore(host, st, onChange0, key) {
     <div class="sp-custom" hidden></div>
     <div class="sp-tabs sp-custom" hidden></div>
     <div class="sp-spots" hidden></div>
+    <div class="sp-voices" hidden></div>
     <div class="sp-choir" hidden></div>
     <div class="sp-settings" hidden></div>
     <div class="sp-hint"></div>
-    <div class="sp-score"><div class="sp-osmd"></div><div class="sp-ov"><div class="sp-sel"></div><div class="sp-lbls"></div><div class="sp-ph" hidden></div></div></div>`;
+    <div class="sp-score"><div class="sp-osmd"></div><div class="sp-ov"><div class="sp-sel"></div><div class="sp-lbls"></div><div class="sp-grov"></div><div class="sp-ph" hidden></div></div></div>`;
   host.innerHTML = ''; host.appendChild(root);
   const $q = s => root.querySelector(s);
-  const ctl = { st, host, root, sc: null, osmd: null, playing: false, marks: [], startAt: 0, iter: 0, pick: null };
+  const ctl = { st, host, root, sc: null, osmd: null, playing: false, marks: [], startAt: 0, iter: 0, pick: null, vocalRecs: {}, vocalNodes: [], onChange };
   SP_CACHE[ck] = ctl;
+  host.__grRedraw = () => ctl.drawGradeMarks?.();
+  host.__listen = (tempo, opts) => spListenGrade(ctl, tempo, opts);
+  host.__listenStop = () => spStop();
   const status = msg => { $q('.sp-hint').textContent = msg || ''; };
   const mNum = i => ctl.sc?.measures[i]?.num ?? String(i + 1);
   const mIdx = txt => { const M = ctl.sc?.measures || []; const i = M.findIndex(m => m.num === String(txt).trim()); return i >= 0 ? i : Math.max(0, Math.min(M.length - 1, (parseInt(txt) || 1) - 1)); };
   const SP_CTLS = [
-    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['tabs', 'Classes (tab)']]],
+    ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['grade', 'Grade'], ['voices', 'Voices & vocal recording'], ['tabs', 'Classes (tab)']]],
     ['Display strip', [['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['layout', 'Down / Sideways'], ['zoom', 'Zoom − ＋']]],
     ['Choir row', [['focus', 'Focus buttons'], ['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
     ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Parts & volumes'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
@@ -601,6 +1388,8 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.switchTo = id => {
     if (!id || id === st.fileId) return;
+    if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+    if (SP_VREC.on && SP_VREC.ctl === ctl) spStopVocalRec(false);
     if (SP_PLAY.ctl === ctl) spStop();
     spHoldStop();
     (S.scoreSettings ||= {})[st.fileId] = JSON.parse(JSON.stringify(st));
@@ -624,6 +1413,269 @@ function mountScore(host, st, onChange0, key) {
     if (S.files[cur]) S.files[cur].hiddenScore = true;
     ctl.switchTo(other.id);
   };
+  ctl.partMixerHTML = (compact = false) => {
+    const sc = ctl.sc; if (!sc) return '';
+    return sc.lines.map((p, i) => {
+      const rec = ctl.vocalRecs?.[i], hasRec = !!(rec && rec.audioBuffer);
+      const srcMode = hasRec ? (st.parts[i]?.source ?? 'sung') : 'midi';
+      const isRecThis = SP_VREC.on && SP_VREC.ctl === ctl && SP_VREC.lineIdx === i;
+      const isFoc = spFoc(st).includes(i);
+      const on = st.parts[i]?.on !== false;
+      const vol = st.parts[i]?.vol ?? 1;
+      const recRangeLbl = hasRec
+        ? `${rec.startMeasure === rec.endMeasure ? 'm.' + mNum(rec.startMeasure) : 'm.' + mNum(rec.startMeasure) + '–' + mNum(rec.endMeasure)} · ${Math.round(rec.recordedBpm)} BPM`
+        : '';
+      return `<div class="sp-part ${srcMode === 'sung' ? 'is-sung' : ''} ${isRecThis ? 'is-rec' : ''}" data-partrow="${i}">
+        <label class="sp-part-lbl" title="Mute / unmute ${esc(p.name)}">
+          <input type="checkbox" data-sppart="${i}" ${on ? 'checked' : ''}>
+          ${p.acc ? IC('ico:score') : `<i class="sp-dot" style="background:${ctl.lineColor(i)}"></i>`}
+          <span>${esc(compact ? short(p.name) : p.name)}</span>
+        </label>
+        <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${vol}" title="Volume for ${esc(p.name)} (${Math.round(vol * 100)}%)">
+        <button type="button" class="sp-vfoc-btn ${isFoc ? 'on' : ''}" data-sp="focus" data-i="${i}" title="Focus / Solo ${esc(p.name)}: focused parts play louder, others softer">Solo</button>
+        <button type="button" class="sp-vrec-btn ${isRecThis ? 'rec-on' : ''}" data-sp="vrec" data-line="${i}" title="${isRecThis ? 'Stop recording ' + esc(p.name) : (hasRec ? 'Re-record ' : 'Record ') + 'your sung voice for ' + esc(p.name) + ' over the active loop/range'}">${isRecThis ? '⏹ Stop' : '🎤 Rec'}</button>
+        <span class="sp-vsrc-seg" role="group" aria-label="Audio source for ${esc(p.name)}">
+          <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" ${hasRec ? '' : 'disabled'} title="${hasRec ? 'Play recorded Sung voice for ' + esc(p.name) + ' (' + esc(recRangeLbl) + ')' : 'Record a vocal take (🎤 Rec) first to enable Sung mode'}">Sung</button>
+          <button type="button" data-sp="vsrc" data-line="${i}" data-src="midi" class="${srcMode === 'midi' ? 'on' : ''}" title="Play MIDI piano notes for ${esc(p.name)}">MIDI</button>
+        </span>
+        ${hasRec ? `<span class="sp-vmeta" title="Recorded range &amp; tempo">${esc(recRangeLbl)}</span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} and revert to MIDI">🗑</button>` : ''}
+      </div>`;
+    }).join('');
+  };
+  ctl.drawVoices = () => {
+    const box = $q('.sp-voices'), sc = ctl.sc;
+    if (!box || !sc) return;
+    box.hidden = !st.voicesOpen;
+    if (box.hidden) return;
+    box.innerHTML = `<span class="sp-voices-head">${IC('ico:users')} Voices</span>
+      <button type="button" class="sp-vfoc-btn ${!spFoc(st).length ? 'on' : ''}" data-sp="focus" data-i="" title="Reset Focus so all active parts play at normal volume">All</button>
+      <div class="sp-parts">${ctl.partMixerHTML(true)}</div>
+      <span class="sp-vopts">
+        <label title="Play the other active parts while recording a vocal part so you stay in time and tune"><input type="checkbox" data-spk="recGuide" ${st.recGuide !== false ? 'checked' : ''}> Guide parts</label>
+        <label title="Also play a quiet piano guide of the part being recorded"><input type="checkbox" data-spk="recSelfGuide" ${st.recSelfGuide ? 'checked' : ''}> Self-guide</label>
+      </span>`;
+  };
+  ctl.refreshVoicesUI = () => {
+    ctl.drawVoices();
+    ctl.drawChoir();
+    const s = $q('.sp-settings');
+    if (s && !s.hidden) s.innerHTML = settingsHTML();
+    ctl.updateBar();
+    ctl.paint();
+  };
+  ctl.showCountOverlay = (beatStr, cueHTML, isOne) => {
+    const scEl = $q('.sp-score'); if (!scEl) return;
+    let cnt = scEl.querySelector('.sp-count');
+    if (!cnt || cnt.classList.contains('rec-live')) {
+      cnt?.remove();
+      cnt = document.createElement('div');
+      cnt.className = 'sp-count';
+      scEl.prepend(cnt);
+    }
+    if (cnt.dataset.n !== beatStr) {
+      cnt.dataset.n = beatStr;
+      cnt.innerHTML = `<div class="sp-count-n">${esc(beatStr)}</div>${cueHTML ? `<div class="sp-count-cue">${cueHTML}</div>` : ''}`;
+      cnt.classList.toggle('one', !!isOne);
+    }
+  };
+  ctl.showRecOverlay = html => {
+    const scEl = $q('.sp-score'); if (!scEl) return;
+    let cnt = scEl.querySelector('.sp-count');
+    if (!cnt || !cnt.classList.contains('rec-live')) {
+      cnt?.remove();
+      cnt = document.createElement('div');
+      cnt.className = 'sp-count rec-live';
+      scEl.prepend(cnt);
+    }
+    const want = `<i class="sp-rec-dot"></i><span class="sp-count-cue">${html}</span>`;
+    if (cnt.innerHTML !== want) cnt.innerHTML = want;
+  };
+  ctl.hideCountOverlay = () => { $q('.sp-score .sp-count')?.remove(); };
+
+  ctl.closeGradeMenu = () => {
+    root.querySelector('.sp-grmenu')?.remove();
+    if (ctl.__grMenuAway) document.removeEventListener('pointerdown', ctl.__grMenuAway, true);
+  };
+  ctl.openGradeMenu = btn => {
+    ctl.closeGradeMenu();
+    const sc = ctl.sc; if (!sc) return;
+    const curLi = spGradeLine(ctl);
+    const curName = sc.lines[curLi]?.name || 'Selected part';
+    const curMode = st.gradeMode || 'mic';
+    const voices = typeof GR_VOICES !== 'undefined' ? GR_VOICES : [['written', 'Soprano / alto (as written)'], ['tenor', 'Tenor (1 octave lower)'], ['bass', 'Bass (1 octave lower)'], ['lowbass', 'Low bass (2 octaves lower)']];
+    const r = btn.getBoundingClientRect(), m = document.createElement('div');
+    m.className = 'sp-grmenu';
+    m.innerHTML = `
+      <div class="sp-grm-sec">Voice / Part to grade</div>
+      <select data-spk="gradeLine">${sc.lines.map((L, i) => `<option value="${i}" ${i === curLi ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}</option>`).join('')}</select>
+      <div class="sp-grm-sec">Voice / Octave shift</div>
+      <select data-spk="gradeVoice">${voices.map(([v, l]) => `<option value="${v}" ${(st.gradeVoice || 'written') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Play other parts softly while grading</label>
+      <div class="sp-grm-sec">Start Grading</div>
+      <button type="button" class="sp-grm-btn ${curMode === 'mic' ? 'last' : ''}" data-sp="gradego" data-v="mic">${IC('ico:mic')}<span><b>Microphone (Pitch &amp; Rhythm)</b><small>Sing ${esc(curName)} into the mic</small></span></button>
+      <button type="button" class="sp-grm-btn ${curMode === 'rhythm' ? 'last' : ''}" data-sp="gradego" data-v="rhythm">${IC('ico:hand')}<span><b>Microphone (Rhythm only)</b><small>Clap or sing rhythm only</small></span></button>
+      <button type="button" class="sp-grm-btn ${curMode === 'tap' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Space bar (Tap rhythm)</b><small>Tap each note on the Space bar</small></span></button>`;
+    Object.assign(m.style, { left: Math.max(8, Math.min(r.left, innerWidth - 320)) + 'px', top: r.bottom + 6 + 'px' });
+    root.appendChild(m);
+    ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
+    document.addEventListener('pointerdown', ctl.__grMenuAway, true);
+  };
+
+  ctl.drawGradeMarks = () => {
+    const grov = $q('.sp-grov'), scEl = $q('.sp-score');
+    if (grov) grov.innerHTML = '';
+    scEl?.querySelectorAll('.gr-chips').forEach(x => x.remove());
+    const markCls = typeof GR_MARK_CLS !== 'undefined' ? GR_MARK_CLS : ['gr-n-ok', 'gr-n-timing', 'gr-n-missed', 'gr-n-pitch'];
+    root.querySelectorAll(markCls.map(c => '.' + c).join(',')).forEach(x => x.classList.remove(...markCls));
+    const G = host.__grResult;
+    if (!G || !ctl.sc || !ctl.osmd) return;
+    if (G.fileId && G.fileId !== st.fileId) {
+      if (!(typeof GR !== 'undefined' && GR.on)) host.__grResult = null;
+      return;
+    }
+    // Floating action chips at top-right of the score: Report, Listen back, Retry, Show/Hide marks, Exit Grade
+    const chips = document.createElement('div');
+    chips.className = 'gr-chips gr-marks-chip-row';
+    const rep = document.createElement('button');
+    rep.className = 'gr-marks-chip'; rep.dataset.grchip = '1';
+    rep.innerHTML = `${IC('ico:agenda')} Report`;
+    rep.title = 'Reopen the grading report for this take';
+    rep.onclick = e => { e.stopPropagation(); if (typeof grShowCard === 'function') grShowCard(G.res, !!G.gradePitch, G.hist || [], host); };
+    chips.appendChild(rep);
+
+    if (G.take && G.res?.diag?.heard > 0 && typeof grListen === 'function') {
+      const lb = document.createElement('button');
+      lb.className = 'gr-marks-chip gr-listen'; lb.dataset.grchip = '1';
+      const playing = !!(typeof GR !== 'undefined' && GR.listenNodes?.length);
+      lb.innerHTML = playing ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Listen back';
+      if (playing) { lb.classList.add('on'); lb.dataset.idle = IC('ico:play') + ' Listen back'; }
+      lb.onclick = e => { e.stopPropagation(); grListen(host, document.querySelector('#gr-card .gr-mix')?.value || 'both', lb); };
+      chips.appendChild(lb);
+    }
+
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'gr-marks-chip'; retryBtn.dataset.grchip = '1';
+    retryBtn.innerHTML = `${IC('ico:mic')} Retry`;
+    retryBtn.title = 'Record and grade another take';
+    retryBtn.onclick = e => {
+      e.stopPropagation();
+      if (typeof grStopListen === 'function') grStopListen();
+      spStop();
+      document.getElementById('gr-card')?.remove();
+      const fn = G.retry || (typeof GR !== 'undefined' && GR.retry);
+      if (fn) fn(); else spGradeStart(ctl, $q('[data-sp="grade"]'));
+    };
+    chips.appendChild(retryBtn);
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'gr-marks-chip'; toggleBtn.dataset.grchip = '1';
+    toggleBtn.innerHTML = G.hidden ? 'Show marks' : 'Hide marks';
+    toggleBtn.onclick = e => {
+      e.stopPropagation();
+      G.hidden = !G.hidden;
+      ctl.drawGradeMarks();
+      const mk = document.querySelector('#gr-card .gr-marks');
+      if (mk) mk.textContent = G.hidden ? 'Show marks' : 'Hide marks';
+    };
+    chips.appendChild(toggleBtn);
+
+    const exitBtn = document.createElement('button');
+    exitBtn.className = 'gr-marks-chip'; exitBtn.dataset.grchip = '1';
+    exitBtn.innerHTML = `${IC('ico:close')} Exit Grade`;
+    exitBtn.title = 'Clear grading marks from the score and close the report';
+    exitBtn.onclick = e => {
+      e.stopPropagation();
+      if (typeof grStopListen === 'function') grStopListen();
+      spStop();
+      host.__grResult = null;
+      document.getElementById('gr-card')?.remove();
+      ctl.drawGradeMarks();
+    };
+    chips.appendChild(exitBtn);
+    scEl?.prepend(chips);
+
+    if (G.hidden || !grov) return;
+    const svg = $q('.sp-osmd svg'); if (!svg) return;
+    const ov = $q('.sp-ov').getBoundingClientRect(), sr = svg.getBoundingClientRect();
+    const bx = sr.left - ov.left, by = sr.top - ov.top, u = U();
+    const insts = ctl.osmd.Sheet?.Instruments || [], ML = ctl.osmd.GraphicSheet?.MeasureList || [];
+    const NS = 'http://www.w3.org/2000/svg';
+    const osvg = document.createElementNS(NS, 'svg');
+    osvg.setAttribute('width', Math.max(10, Math.ceil(sr.width + bx + 40)));
+    osvg.setAttribute('height', Math.max(10, Math.ceil(sr.height + by + 40)));
+    const mk = (tag, a) => { const el = document.createElementNS(NS, tag); for (const k in a) el.setAttribute(k, a[k]); osvg.appendChild(el); return el; };
+
+    const res = G.res, exp = G.exp || [];
+    const targetPart = ctl.sc.lines[G.lineIdx ?? spGradeLine(ctl)]?.part ?? 0;
+    const drawnMeasures = new Set();
+
+    res.notes.forEach((n, i) => {
+      const e = exp[i]; if (!e) return;
+      const pitchBad = n.pitch && n.pitch !== 'ok';
+      const cls = !n.match ? 'missed' : pitchBad ? 'pitch' : n.status === 'timing' ? 'timing' : 'ok';
+      const staffs = ML[e.m] || [];
+      let noteX = null, noteY = null, laneY = null;
+      for (const gm of staffs) {
+        if (!gm || gm.ParentStaff?.ParentInstrument?.Visible === false) continue;
+        const pi = insts.indexOf(gm.ParentStaff?.ParentInstrument);
+        for (const se of gm.staffEntries || []) {
+          const tq = (se.relInMeasureTimestamp?.RealValue ?? NaN) * 4;
+          if (!isFinite(tq) || Math.abs(tq - e.dq) > 0.08) continue;
+          for (const gve of se.graphicalVoiceEntries || []) {
+            const vid = String(gve.parentVoiceEntry?.ParentVoice?.VoiceId ?? '1');
+            let li = ctl.sc.lines.findIndex(L => L.part === pi && L.voice === vid);
+            if (li < 0) li = ctl.sc.lines.findIndex(L => L.part === pi);
+            if (li !== e.line && pi !== targetPart) continue;
+            const gnotes = (gve.notes || []).filter(gn => gn.sourceNote && !gn.sourceNote.isRest?.());
+            if (!gnotes.length) continue;
+            for (const gn of gnotes) {
+              const svgEl = gn.getSVGGElement?.();
+              if (svgEl?.classList) svgEl.classList.add('gr-n-' + cls);
+            }
+            const gn0 = gnotes[gnotes.length - 1];
+            const ax = gn0.PositionAndShape?.AbsolutePosition?.x ?? se.PositionAndShape?.AbsolutePosition?.x;
+            const ay = gn0.PositionAndShape?.AbsolutePosition?.y ?? se.PositionAndShape?.AbsolutePosition?.y;
+            const sy = gm.ParentStaffLine?.PositionAndShape?.AbsolutePosition?.y ?? gm.PositionAndShape?.AbsolutePosition?.y ?? ay;
+            if (isFinite(ax)) noteX = bx + ax * u;
+            if (isFinite(ay)) noteY = by + ay * u;
+            if (isFinite(sy)) laneY = by + (sy - 1.35) * u;
+          }
+        }
+      }
+      // Fallback to measure box interpolation if OSMD graphical entry wasn't matched directly
+      const box = BOX[e.m];
+      if (noteX == null && box) {
+        const mLen = ctl.sc.measures[e.m]?.len || 4;
+        noteX = box.x + 12 + (e.dq / mLen) * Math.max(10, box.w - 20);
+      }
+      if (laneY == null && box) laneY = box.y - 10;
+      if (noteY == null && box) noteY = box.y + box.h * 0.35;
+      if (noteX == null || laneY == null) return;
+
+      if (box && !drawnMeasures.has(e.m)) {
+        drawnMeasures.add(e.m);
+        mk('line', { x1: box.x + 6, x2: box.x + box.w - 6, y1: laneY, y2: laneY, class: 'gr-lane' });
+      }
+      mk('line', { x1: noteX, x2: noteX, y1: laneY - 5, y2: laneY + 5, class: 'gr-tick' });
+      if (!n.match) {
+        mk('circle', { cx: noteX, cy: noteY, r: 10, class: 'gr-ring' });
+        return;
+      }
+      const tcls = n.status === 'timing' ? 'timing' : 'ok';
+      const pxPerQ = box ? Math.max(18, Math.min(70, box.w / (ctl.sc.measures[e.m]?.len || 4))) : 32;
+      const dx = Math.max(-28, Math.min(28, ((n.errMs || 0) / 1000 / (res.q || 0.5)) * pxPerQ));
+      const hx = noteX + dx;
+      if (Math.abs(dx) > 1.5) mk('line', { x1: noteX, x2: hx, y1: laneY, y2: laneY, class: 'gr-off ' + tcls });
+      mk('circle', { cx: hx, cy: laneY, r: 4.5, class: 'gr-dot ' + tcls });
+      const lbl = n.pitch === 'wrong' && n.sungAs ? n.sungAs.replace(/-?\d+$/, '') : n.pitch === 'octave' ? (n.octave > 0 ? 'oct ↑' : 'oct ↓') : n.pitch === 'none' ? '?' : n.joined ? 'joined' : '';
+      if (lbl) {
+        const tx = mk('text', { x: hx, y: laneY - 8, 'text-anchor': 'middle', class: 'gr-lbl' + (n.joined && !pitchBad ? ' soft' : '') });
+        tx.textContent = lbl;
+      }
+    });
+    grov.appendChild(osvg);
+  };
+
   ctl.drawChoir = () => {
     const box = $q('.sp-choir'), sc = ctl.sc; if (!sc) return;
     let vocal = sc.lines.map((L, i) => ({ L, i })).filter(x => !x.L.acc);
@@ -666,7 +1718,7 @@ function mountScore(host, st, onChange0, key) {
     const x = (st.spots || [])[i]; if (!x) return;
     ctl.curSpot = x.id;
     Object.assign(st.loop, { on: true, a: x.a, b: x.b }); st.focus = x.focus == null ? null : spFoc({ focus: x.focus }).slice(); st.tempo = x.tempo;
-    onChange(); ctl.updateBar(); ctl.drawSel(); ctl.drawChoir(); ctl.paint(); ctl.drawSpots();
+    onChange(); ctl.updateBar(); ctl.drawSel(); ctl.drawChoir(); ctl.drawVoices(); ctl.paint(); ctl.drawSpots();
     if ((st.view || 'all') === 'focus') ctl.applyView();
     const r = BOX[x.a], sc = $q('.sp-score'); if (r) { sc.scrollTop = Math.max(0, r.y - 20); sc.scrollLeft = Math.max(0, r.x - 40); }
     if (play) spPlay(ctl); else if (ctl.playing) spPlay(ctl);
@@ -683,6 +1735,20 @@ function mountScore(host, st, onChange0, key) {
       ctl.sc.measures.forEach((m, i) => { const prev = ctl.sc.measures[i - 1]; if (!prev || prev.fifths !== m.fifths || prev.mode !== m.mode) {
         const maj = (((m.fifths || 0) * 7) % 12 + 12) % 12, minor = /minor/i.test(m.mode); keys.push(`m. ${m.num}: ${NAMES[minor ? (maj + 9) % 12 : maj]} ${minor ? 'minor' : 'major'}`); } });
       const sb = $q('[data-sp="lbl"][data-v="solfege"]'); if (sb) sb.title = 'Solfege (movable do; minor is do-based)\nKeys: ' + keys.join(' · ');
+    }
+    const gBtn = $q('[data-sp="grade"]');
+    if (gBtn && !(typeof GR !== 'undefined' && GR.on && GR.host === host)) {
+      const gli = ctl.sc ? spGradeLine(ctl) : 0;
+      const gName = ctl.sc && ctl.sc.lines.length > 1 ? short(ctl.sc.lines[gli]?.name || '') : '';
+      gBtn.innerHTML = `${IC('ico:mic')} <span class="sp-grlbl">Grade${gName ? ': ' + esc(gName) : ''}</span>`;
+      gBtn.classList.remove('on');
+    }
+    const vBtn = $q('[data-sp="voices"]');
+    if (vBtn) {
+      vBtn.classList.toggle('on', !!st.voicesOpen);
+      const sungN = ctl.sc ? ctl.sc.lines.filter((_, i) => spIsLineSung(ctl, i)).length : 0;
+      const vLbl = vBtn.querySelector('.sp-voicelbl');
+      if (vLbl) vLbl.textContent = sungN > 0 ? `Voices (${sungN} Sung)` : 'Voices';
     }
     const f = $q('[data-spk="from"]'), t = $q('[data-spk="to"]');
     if (document.activeElement !== f) f.value = mNum(Math.min(st.loop.a, st.loop.b));
@@ -714,8 +1780,7 @@ function mountScore(host, st, onChange0, key) {
       <label>start at <input type="number" min="30" max="100" step="5" data-spk="speedStart" value="${st.speed.start}">%</label>
       <label>+<input type="number" min="1" max="25" data-spk="speedStep" value="${st.speed.step}">% per loop</label></span>
     </div>
-    <div class="sp-parts" data-ctl="mixer">${(ctl.sc?.lines || []).map((p, i) => `<label class="sp-part"><input type="checkbox" data-sppart="${i}" ${st.parts[i]?.on === false ? '' : 'checked'}> <span>${esc(p.name)}</span>
-      <input type="range" min="0" max="1.5" step="0.05" data-spvol="${i}" value="${st.parts[i]?.vol ?? 1}" title="Volume"></label>`).join('')}</div>
+    <div class="sp-parts" data-ctl="mixer">${ctl.partMixerHTML(false)}</div>
     <div data-ctl="mixer">${metVolSlider()}</div>
     <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
     <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
@@ -946,10 +2011,11 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.relayout = () => {
     if (!ctl.osmd) return;
-    const w = $q('.sp-score').clientWidth; if (!w || w === ctl.lastW) { BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); return; }
+    const w = $q('.sp-score').clientWidth;
+    if (!w || w === ctl.lastW) { BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); ctl.drawGradeMarks(); return; }
     ctl.lastW = w;
     try { ctl.osmd.render(); } catch { }
-    BOX = boxes(); ctl.drawSel(); ctl.tagNotes(); ctl.drawLabels();
+    BOX = boxes(); ctl.drawSel(); ctl.tagNotes(); ctl.drawLabels(); ctl.drawGradeMarks();
   };
   // ----- events
   root.addEventListener('pointerdown', () => { SP_ACTIVE = ctl; window.__spaceTarget = 'sp'; });
@@ -966,7 +2032,37 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'zoom-reset') { st.zoom = 1; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'focus') {
         if (b.dataset.i === '') st.focus = null;
-        else { const F = new Set(spFoc(st)), i = +b.dataset.i; F.has(i) ? F.delete(i) : F.add(i); st.focus = F.size ? [...F].sort((x, y) => x - y) : null; } onChange(); ctl.drawChoir(); ctl.paint(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView(); }
+        else { const F = new Set(spFoc(st)), i = +b.dataset.i; F.has(i) ? F.delete(i) : F.add(i); st.focus = F.size ? [...F].sort((x, y) => x - y) : null; }
+        onChange(); ctl.refreshVoicesUI(); ctl.drawLabels(); if ((st.view || 'all') === 'focus') ctl.applyView();
+      }
+      if (k === 'voices') { st.voicesOpen = !st.voicesOpen; onChange(); ctl.drawVoices(); ctl.updateBar(); return; }
+      if (k === 'vrec') { spStartVocalRec(ctl, +b.dataset.line); return; }
+      if (k === 'vsrc') {
+        const li = +b.dataset.line, src = b.dataset.src;
+        if (src === 'sung' && !ctl.vocalRecs?.[li]?.audioBuffer) { toast('Record your sung voice first (🎤 Rec).'); return; }
+        (st.parts[li] ||= {}).source = src;
+        onChange(); ctl.refreshVoicesUI();
+        return;
+      }
+      if (k === 'vdel') { spDeleteVocalRec(ctl, +b.dataset.line); return; }
+      if (k === 'grade') {
+        ctl.closeGradeMenu();
+        spGradeStart(ctl, $q('[data-sp="grade"]'), st.gradeMode || 'mic');
+        return;
+      }
+      if (k === 'grade-menu') {
+        if (typeof GR !== 'undefined' && (GR.on || GR.starting)) { ctl.closeGradeMenu(); grStop(true); return; }
+        root.querySelector('.sp-grmenu') ? ctl.closeGradeMenu() : ctl.openGradeMenu(b);
+        return;
+      }
+      if (k === 'gradego') {
+        const v = b.dataset.v;
+        st.gradeMode = v; onChange();
+        ctl.closeGradeMenu();
+        spGradeStart(ctl, $q('[data-sp="grade"]'), v);
+        return;
+      }
+      if (k === 'grrecent') { if (typeof grShowRecent === 'function') grShowRecent(host); return; }
       if (k === 'pitch') spGivePitch(ctl, b.dataset.w);
       if (k === 'layout') {
         st.layout = st.layout === 'h' ? 'v' : 'h'; onChange(); ctl.updateBar();
@@ -1040,7 +2136,12 @@ function mountScore(host, st, onChange0, key) {
   root.addEventListener('input', e => {
     const el = e.target, k = el.dataset.spk;
     if (k === 'avDelay') { setAvDelay(Number(el.value)); el.nextElementSibling.textContent = el.value + ' ms'; return; }
-    if (el.dataset.spvol != null) { const i = +el.dataset.spvol; (st.parts[i] ||= {}).vol = Number(el.value); onChange(); }
+    if (el.dataset.spvol != null) {
+      const i = +el.dataset.spvol, v = Number(el.value);
+      (st.parts[i] ||= {}).vol = v;
+      root.querySelectorAll(`input[data-spvol="${i}"]`).forEach(inp => { if (inp !== el) inp.value = v; });
+      onChange();
+    }
   });
   root.addEventListener('change', e => {
     const el = e.target, k = el.dataset.spk;
@@ -1071,7 +2172,17 @@ function mountScore(host, st, onChange0, key) {
     else if (k === 'speedOn') st.speed.on = el.checked;
     else if (k === 'speedStart') st.speed.start = Math.max(30, Math.min(100, Number(el.value) || 70));
     else if (k === 'speedStep') st.speed.step = Math.max(1, Math.min(25, Number(el.value) || 5));
-    else if (el.dataset.sppart != null) { (st.parts[+el.dataset.sppart] ||= {}).on = el.checked; ctl.paint(); }
+    else if (k === 'gradeLine') { st.gradeLine = Number(el.value); onChange(); ctl.updateBar(); return; }
+    else if (k === 'gradeVoice') { st.gradeVoice = el.value; onChange(); return; }
+    else if (k === 'gradeGuide') { st.gradeGuide = el.checked; onChange(); return; }
+    else if (k === 'recGuide') { st.recGuide = el.checked; onChange(); return; }
+    else if (k === 'recSelfGuide') { st.recSelfGuide = el.checked; onChange(); return; }
+    else if (el.dataset.sppart != null) {
+      const i = +el.dataset.sppart;
+      (st.parts[i] ||= {}).on = el.checked;
+      root.querySelectorAll(`input[data-sppart="${i}"]`).forEach(chk => { if (chk !== el) chk.checked = el.checked; });
+      ctl.paint();
+    }
     else if (k === 'colorParts') { st.colorParts = el.checked; ctl.paint(); }
     else return;
     onChange(); ctl.updateBar(); ctl.drawSel();
@@ -1085,6 +2196,7 @@ function mountScore(host, st, onChange0, key) {
       const xml = await spGetXml(st, status);
       ctl.sc = spParse(xml);
       if (!ctl.sc.measures.length) throw new Error('no measures found');
+      await spLoadVocalRecs(ctl);
       status('Drawing the music…');
       await spLoadScript('vendor/osmd.min.js');
       const O = window.opensheetmusicdisplay;
@@ -1092,7 +2204,7 @@ function mountScore(host, st, onChange0, key) {
       ctl.applyNums(); ctl.applySpacing();
       { const R = ctl.osmd.EngravingRules; if (R) { R.PageTopMargin = 1; R.TitleTopDistance = 1; } }
       await ctl.osmd.load(xml);
-      ctl.osmd.zoom = st.zoom; ctl.drawChoir();
+      ctl.osmd.zoom = st.zoom; ctl.drawChoir(); ctl.drawVoices();
       if (st.settingsOpen) { const sp = $q('.sp-settings'); sp.hidden = false; sp.innerHTML = settingsHTML(); }
       ctl.updateBar();
       ctl.applyCtl();   // controls shown unless you hide them
