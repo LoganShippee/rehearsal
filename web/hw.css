@@ -668,6 +668,16 @@ body.hw-page {
 .hw-pill.score { background: #dcfce7; color: #166534; }
 .hw-pill.flag { background: #fef3c7; color: #92400e; }
 .hw-pill.offline { background: #dbeafe; color: #1e40af; }
+.hw-pill.queued { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.hw-pill.locked { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.hw-pill.type { background: #eff6ff; color: #1d4ed8; }
+.hw-pill.truesr { background: #fef3c7; color: #92400e; }
+
+.hw-chip-btn.offline-on {
+  background: #d97706;
+  border-color: #fbbf24;
+  color: #ffffff;
+}
 
 .hw-take-audio { width: 100%; height: 36px; }
 
@@ -692,8 +702,284 @@ body.hw-page {
   font-size: 14px;
 }
 
+/* ---------- Milestone 3: Offline Banner, Student Sign-In, Assignment List, Back Bar */
+[hidden] { display: none !important; }
+
+.hw-offline-banner {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: #78350f;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  box-shadow: 0 2px 10px rgba(217, 119, 6, .12);
+}
+
+.hw-auth-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 32px;
+}
+
+.hw-auth-card {
+  width: 100%;
+  max-width: 480px;
+  background: #ffffff;
+  border: 1px solid #dce2ec;
+  border-radius: 18px;
+  padding: 26px 24px;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, .08);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hw-auth-head h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.hw-auth-head p {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.hw-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.hw-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.hw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.hw-field input {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #ffffff;
+  color: #0f172a;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hw-field input:focus {
+  outline: 2px solid #93c5fd;
+  border-color: #2563eb;
+}
+
+.hw-code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px !important;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.hw-auth-err {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hw-btn-full {
+  width: 100%;
+  justify-content: center;
+  padding: 11px 16px;
+  font-size: 14px;
+}
+
+.hw-btn-google {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.hw-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.hw-divider::before,
+.hw-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.hw-google-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hw-google-classes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.hw-demo-bar {
+  background: #f0f9ff;
+  border: 1px dashed #7dd3fc;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: #0369a1;
+}
+
+.hw-demo-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* My Assignments List */
+.hw-list-head {
+  background: #ffffff;
+  border: 1px solid #dce2ec;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, .04);
+}
+
+.hw-list-head h2 {
+  margin: 0 0 3px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.hw-asgn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
+}
+
+.hw-asgn-card {
+  background: #ffffff;
+  border: 1px solid #dce2ec;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, .05);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hw-asgn-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hw-asgn-card h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hw-asgn-desc {
+  margin: 0;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.hw-asgn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.hw-asgn-foot {
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Runner workspace back bar */
+#hw-runner-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hw-back-bar {
+  background: #ffffff;
+  border: 1px solid #dce2ec;
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hw-back-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  flex: 1;
+  min-width: 180px;
+}
+
 @media (max-width: 720px) {
   .hw-header { padding: 10px 14px; }
   .hw-main { padding: 12px 10px 44px; }
   .hw-stage { height: 400px; }
+  .hw-field-row { grid-template-columns: 1fr; }
 }

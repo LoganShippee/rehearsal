@@ -8,52 +8,118 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="theme-color" content="#142238">
 <title>Rehearsal Online Homework — Student Portal</title>
-<link rel="stylesheet" href="styles.css?v=5">
-<link rel="stylesheet" href="hw.css?v=5">
+<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="hw.css?v=9">
 </head>
 <body class="hw-page">
   <header class="hw-header">
     <div class="hw-brand">
       <img src="icon-192.png" alt="Rehearsal">
       <h1>Rehearsal Homework</h1>
-      <span class="hw-badge">Student Portal</span>
+      <span class="hw-badge" id="hw-mode-badge">Student Portal</span>
     </div>
     <div class="hw-header-right">
-      <button type="button" class="hw-chip hw-chip-btn" id="hw-sync-btn" title="Re-run the audio sync check for this device">Sync: -- ms</button>
-      <button type="button" class="hw-chip hw-chip-btn" id="hw-teacher-toggle" title="Preview & configure assignment settings (Teacher preview only)">Teacher Setup ▾</button>
+      <span class="hw-chip" id="hw-student-chip" hidden></span>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-sync-btn" hidden title="Re-run the audio sync check for this device">Sync: -- ms</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-offline-btn" hidden title="Simulate Wi-Fi drop to test local save & Retry Upload">Offline Test: Off</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-teacher-toggle" hidden title="Preview & configure assignment settings (Preview only)">Teacher Setup ▾</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-signout-btn" hidden>Sign Out</button>
       <span class="hw-chip" id="hw-dev-chip"></span>
     </div>
   </header>
 
   <main class="hw-main">
-    <!-- Collapsible Teacher Assignment Configurator (for testing all assignment types & modes) -->
-    <section class="hw-teacher-drawer" id="hw-teacher-drawer" hidden>
-      <div class="hw-teacher-drawer-title">
-        <span>Teacher Assignment Setup (Preview Only — Students Never See This)</span>
-        <button type="button" class="hw-btn primary" id="hw-teacher-close" style="padding:6px 13px;font-size:13px">Preview Assignment as Student →</button>
+    <!-- Persistent Offline Upload Queue Banner -->
+    <section class="hw-offline-banner" id="hw-offline-banner" hidden>
+      <div>
+        <strong id="hw-offline-msg">1 recording saved on this device — waiting to upload</strong>
+        <div class="small">Your work is safe locally. Reconnect to Wi-Fi and click Retry Upload.</div>
       </div>
-      <div class="hw-tabs" aria-label="Assignment type preview">
-        <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading</button>
-        <button class="hw-tab" data-hw-tab="score">2. Score Practice</button>
-        <button class="hw-tab" data-hw-tab="audio">3. Audio-Only</button>
-      </div>
-      <div class="hw-controls" id="hw-teacher-opts"></div>
+      <button type="button" class="hw-btn primary" id="hw-retry-all">Retry Upload Now</button>
     </section>
 
-    <!-- Student-Facing Assignment Runner -->
-    <section id="hw-runner-body" class="hw-student-view"></section>
+    <!-- 1. Student Sign-In Screen -->
+    <section class="hw-auth-wrap" id="hw-auth-view" hidden>
+      <div class="hw-auth-card">
+        <div class="hw-auth-head">
+          <h2>Sign In to Homework</h2>
+          <p>Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.</p>
+        </div>
 
-    <!-- Offline-Safe Saved Takes Queue -->
-    <section class="hw-card">
-      <div class="hw-card-head">
-        <div>
-          <h2>My Recorded Takes <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+        <form id="hw-code-form" class="hw-auth-form" autocomplete="off">
+          <div class="hw-field-row">
+            <label class="hw-field">
+              <span>Class Code</span>
+              <input type="text" class="hw-code-input" id="hw-in-joincode" placeholder="K7M-4P2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+            </label>
+            <label class="hw-field">
+              <span>Personal Code</span>
+              <input type="text" class="hw-code-input" id="hw-in-stucode" placeholder="H7P-9KM" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+          </div>
+          <label class="hw-field">
+            <span>Your Name <small class="muted">(optional)</small></span>
+            <input type="text" id="hw-in-stuname" placeholder="Enter your name if your teacher asked for it" maxlength="100" autocomplete="off">
+          </label>
+          <div class="hw-auth-err" id="hw-auth-err" hidden role="alert"></div>
+          <button type="submit" class="hw-btn primary hw-btn-full" id="hw-code-submit">Sign In with Code</button>
+        </form>
+
+        <div class="hw-divider"><span>or</span></div>
+
+        <div class="hw-google-box" id="hw-google-box">
+          <button type="button" class="hw-btn hw-btn-google hw-btn-full" id="hw-google-btn">Sign in with Google</button>
+          <div class="small muted" style="text-align:center">If this is your first time joining this class, enter the <strong>Class Code</strong> above first.</div>
+          <div class="hw-google-classes" id="hw-google-classes" hidden></div>
         </div>
-        <div class="hw-controls">
-          <button class="hw-btn" id="hw-clear-takes">Clear Local Takes</button>
-        </div>
+
+        <div class="hw-demo-bar" id="hw-demo-creds" hidden></div>
       </div>
-      <div class="hw-takes-list" id="hw-takes-list"></div>
+    </section>
+
+    <!-- 2. My Assignments List -->
+    <section id="hw-list-view" hidden>
+      <div class="hw-list-head" id="hw-list-head"></div>
+      <div class="hw-asgn-grid" id="hw-asgn-grid"></div>
+    </section>
+
+    <!-- 3. Active Assignment Workspace -->
+    <section id="hw-runner-wrap" hidden>
+      <!-- Collapsible Teacher Assignment Configurator (Local Preview Mode only) -->
+      <section class="hw-teacher-drawer" id="hw-teacher-drawer" hidden>
+        <div class="hw-teacher-drawer-title">
+          <span>Teacher Assignment Setup (Preview Only — Students Never See This)</span>
+          <button type="button" class="hw-btn primary" id="hw-teacher-close" style="padding:6px 13px;font-size:13px">Preview Assignment as Student →</button>
+        </div>
+        <div class="hw-tabs" aria-label="Assignment type preview">
+          <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading</button>
+          <button class="hw-tab" data-hw-tab="score">2. Score Practice</button>
+          <button class="hw-tab" data-hw-tab="audio">3. Audio-Only</button>
+        </div>
+        <div class="hw-controls" id="hw-teacher-opts"></div>
+      </section>
+
+      <div class="hw-back-bar" id="hw-back-bar">
+        <button type="button" class="hw-btn" id="hw-back-list">← Back to Assignments</button>
+        <span class="hw-back-title" id="hw-back-title"></span>
+        <span class="hw-pill" id="hw-runner-attempts"></span>
+      </div>
+
+      <!-- Student-Facing Assignment Runner -->
+      <section id="hw-runner-body" class="hw-student-view"></section>
+
+      <!-- Offline-Safe Saved Takes Queue (for this assignment) -->
+      <section class="hw-card" id="hw-takes-card">
+        <div class="hw-card-head">
+          <div>
+            <h2>My Recorded Takes <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+          </div>
+          <div class="hw-controls">
+            <button class="hw-btn" id="hw-clear-takes">Clear Local Takes</button>
+          </div>
+        </div>
+        <div class="hw-takes-list" id="hw-takes-list"></div>
+      </section>
     </section>
   </main>
 
@@ -77,14 +143,15 @@
 
   <div id="print-area"></div>
 
-  <!-- Lightweight standalone shim + Rehearsal's real engines loaded verbatim -->
-  <script src="hw-shim.js?v=5"></script>
-  <script src="icons.js?v=5"></script>
+  <!-- Lightweight standalone shim + API client + Rehearsal's real engines loaded verbatim -->
+  <script src="hw-shim.js?v=9"></script>
+  <script src="hw-api.js?v=9"></script>
+  <script src="icons.js?v=9"></script>
   <script src="vendor/vexflow.js"></script>
-  <script src="sight.js?v=5"></script>
-  <script src="music.js?v=5"></script>
-  <script src="grade.js?v=8"></script>
-  <script src="score.js?v=8"></script>
-  <script src="hw-student.js?v=8"></script>
+  <script src="sight.js?v=9"></script>
+  <script src="music.js?v=9"></script>
+  <script src="grade.js?v=9"></script>
+  <script src="score.js?v=9"></script>
+  <script src="hw-student.js?v=9"></script>
 </body>
 </html>
