@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rehearsal — Classroom Display, Sight Reading &amp; Music Rehearsal App</title>
-<meta name="description" content="Free offline-first classroom display and music rehearsal app for Choir, Band, Orchestra, and General Music teachers. Upload custom MusicXML/MuseScore files, loop measures, focus voices, and run your bell schedule.">
+<meta name="description" content="Free offline classroom display and music rehearsal app for Choir, Band, Orchestra, and General Music teachers. Runs on Mac, Windows (no IT password needed), Chromebook, and iPad.">
 <meta property="og:title" content="Rehearsal — Classroom Display &amp; Music Rehearsal App">
-<meta property="og:description" content="Bell schedules, custom MusicXML score practice with measure looping, sight-reading generator, piano warm-ups, Curwen solfege board, tuner, metronome, and optional online homework.">
+<meta property="og:description" content="Bell schedules, score practice with measure looping, sight-reading generator, piano warm-ups, Curwen solfege board, tuner, metronome, and optional online homework.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://rehearsalmusic.com/">
 <meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="img/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="img/icon-180.png">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=5">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -26,7 +26,7 @@
     "price": "0",
     "priceCurrency": "USD"
   },
-  "description": "Free offline-first classroom display, bell schedules, custom MusicXML score practice, sight-reading generator, and music rehearsal toolkit for music educators.",
+  "description": "Free offline classroom display, bell schedules, score practice, sight-reading generator, and music rehearsal toolkit for music teachers.",
   "url": "https://rehearsalmusic.com/"
 }
 </script>
@@ -41,7 +41,7 @@
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
         <a href="#tools">Tools</a>
-        <a href="#accounts">Accounts</a>
+        <a href="#install">Install</a>
         <a href="homework.html">Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
       </nav>
@@ -56,20 +56,20 @@
     <section class="hero">
       <div class="wrap hero-inner">
         <h1>A classroom screen and music rehearsal toolkit.</h1>
-        <p class="hero-sub">Switches classes by bell schedule, works offline, and puts your music tools on one screen. Free for Mac, Windows, Chromebook, and iPad.</p>
+        <p class="hero-sub">Switches classes by bell schedule, works offline, and puts your music tools on one screen. Free with no account required.</p>
         <div class="hero-shot">
           <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge classroom screen screenshot">
-            <img src="img/screens/layout.png" alt="Rehearsal classroom Present screen in Sky theme showing Choir agenda, warm-up question, pinned tabs, movable toolbar, and clock">
+            <img src="img/screens/layout.png" alt="Rehearsal classroom screen showing Choir agenda, warm-up question, pinned tabs, movable toolbar, and clock">
           </button>
         </div>
         <div class="hero-points">
-          <span>Bell schedule &amp; countdown clock</span>
+          <span>Bell schedule &amp; clock</span>
           <span>·</span>
           <span>Auto-advancing agenda</span>
           <span>·</span>
           <span>Movable toolbar</span>
           <span>·</span>
-          <span>Click any screenshot to enlarge</span>
+          <span>Warm-up &amp; class tabs (click screenshot to enlarge)</span>
         </div>
       </div>
     </section>
@@ -87,18 +87,17 @@
           <button type="button" class="tool-tab" role="tab" id="t-piano" aria-controls="p-piano" aria-selected="false" tabindex="-1">Piano &amp; Warm-Ups</button>
           <button type="button" class="tool-tab" role="tab" id="t-solfege" aria-controls="p-solfege" aria-selected="false" tabindex="-1">Solfege Board</button>
           <button type="button" class="tool-tab" role="tab" id="t-tuner" aria-controls="p-tuner" aria-selected="false" tabindex="-1">Tuner &amp; Metronome</button>
-          <button type="button" class="tool-tab" role="tab" id="t-layout" aria-controls="p-layout" aria-selected="false" tabindex="-1">Classroom Layout</button>
         </div>
 
         <div class="tool-panel" id="p-score" role="tabpanel" aria-labelledby="t-score" data-tool-panel>
           <div class="tool-layout">
             <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Score Practice screenshot">
-              <img src="img/screens/score-practice.png" alt="Rehearsal Score Practice showing an uploaded 4-part MusicXML chorale with Loop m. 2-3, Soprano focus, and movable-do solfege">
+              <img src="img/screens/score-practice.png" alt="Rehearsal Score Practice showing an uploaded 4-part score with Loop m. 2-3, Soprano focus, and movable-do solfege">
             </button>
             <div class="tool-copy">
               <h3>Upload Your Own Scores</h3>
-              <p>Upload custom <code>.mxl</code> or <code>.musicxml</code> files (and MuseScore <code>.mscz</code> on Mac &amp; Windows) with bundled grand piano playback.</p>
-              <p style="margin-top:10px">Loop any measure range, focus one voice part while others play softly, sound starting pitches, show movable-do solfege or counts, save Rehearsal Spots, or mic-grade a section.</p>
+              <p>Open your own sheet music (MusicXML or MuseScore files) with grand piano playback.</p>
+              <p style="margin-top:10px">Loop any measures with count-ins and automatic speed-up, focus one voice while others stay soft, sound starting pitches, show movable-do solfege or counts, save rehearsal spots, or grade a section with your mic.</p>
             </div>
           </div>
         </div>
@@ -106,12 +105,12 @@
         <div class="tool-panel" id="p-sight" role="tabpanel" aria-labelledby="t-sight" data-tool-panel hidden>
           <div class="tool-layout">
             <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Sight Reading screenshot">
-              <img src="img/screens/sight-reading.png" alt="Rehearsal Sight Reading generator with VexFlow staff, Rhythm/Solfege toggle, Play, Grade, and Worksheet controls">
+              <img src="img/screens/sight-reading.png" alt="Rehearsal Sight Reading generator with staff notation, Play, Grade, and Worksheet controls">
             </button>
             <div class="tool-copy">
               <h3>Sight Reading &amp; Grading</h3>
-              <p>Generate rhythm (Numbers, Kodály, Takadimi) and 1–3 part solfege examples with count-ins, custom builder, and printable 1–6 exercise worksheets with a Page 2 answer key.</p>
-              <p style="margin-top:10px">Grade singing or clapping with the mic—or tap rhythms on Spacebar or touchscreen—with color-coded notes and time-aligned playback.</p>
+              <p>Generate rhythm (Numbers, Kodály, Takadimi) and 1–3 part solfege examples with custom building and printable 1–6 exercise worksheets with a Page 2 answer key.</p>
+              <p style="margin-top:10px">Grade singing or clapping with the mic—or tap rhythms on a keyboard or iPad—and listen back lined up with the beat.</p>
             </div>
           </div>
         </div>
@@ -123,7 +122,7 @@
             </button>
             <div class="tool-copy">
               <h3>Classroom Piano &amp; Warm-Ups</h3>
-              <p>A 2.5-octave playable grand piano (mouse, touch, or computer keys) with movable-do labels, quick chords, and 12 hands-free modulating choir vocalizes with live notation.</p>
+              <p>Play a 2.5-octave grand piano by mouse, touch, or computer keys with movable-do labels, quick chords, and 12 hands-free modulating choir vocalizes with live notation.</p>
             </div>
           </div>
         </div>
@@ -135,7 +134,7 @@
             </button>
             <div class="tool-copy">
               <h3>Solfege Board</h3>
-              <p>Project a pitch ladder or grid with Major, Minor, Pentatonic, and Chromatic scales, all 17 Curwen hand signs, pitch colors, Echo Trail replay, and Mystery Echo mode.</p>
+              <p>Project a pitch ladder or grid with Major, Minor, Pentatonic, and Chromatic scales, all 17 Curwen hand signs, pitch colors, Echo Trail replay, and Mystery Echo.</p>
             </div>
           </div>
         </div>
@@ -147,147 +146,37 @@
             </button>
             <div class="tool-copy">
               <h3>Tuner, Drone &amp; Metronome</h3>
-              <p>Transposing mic tuner (Concert, B♭, E♭, F) with a chord drone and just intervals, plus a big-count metronome with beat accents, subdivisions, speed trainer, and gap-click.</p>
+              <p>Transposing mic tuner (Concert, B♭, E♭, F) with a chord drone and pure intervals, plus a big-count metronome with accents, subdivisions, speed trainer, and gap-click.</p>
             </div>
           </div>
         </div>
 
-        <div class="tool-panel" id="p-layout" role="tabpanel" aria-labelledby="t-layout" data-tool-panel hidden>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Classroom Layout screenshot">
-              <img src="img/screens/layout.png" alt="Rehearsal Present screen layout with agenda, clock, warm-up, and toolbar">
-            </button>
-            <div class="tool-copy">
-              <h3>Automatic Classroom Screen</h3>
-              <p>Edit directly on the screen with Quick Edit, run timers and chimes on your bell schedule, annotate over any tab or staff whiteboard, and tile floating tool windows side by side.</p>
-            </div>
-          </div>
-        </div>
+        <p class="small muted" style="margin-top:20px"><strong>Also built in:</strong> Audio Track Player (A–B loops &amp; slow-down), Classroom Recorder, PDF viewer with foot-pedal page turns, Staff Whiteboard, Annotate, Calendar, Progress Tracker, and 1-click Sub Plans.</p>
       </div>
     </section>
 
-    <section class="section alt" id="score-rehearsal">
+    <section class="section alt" id="install">
       <div class="wrap">
         <div class="section-head">
-          <h2>Upload your own scores &amp; loop tough spots in rehearsal</h2>
-          <p>Drop in your choir or ensemble MusicXML (<code>.mxl</code> / <code>.musicxml</code>) or MuseScore (<code>.mscz</code>) files and rehearse right from the board.</p>
+          <h2>Install in under a minute</h2>
+          <p>Free forever. Pick what fits your classroom computer.</p>
         </div>
-
-        <div class="tool-layout">
-          <div class="score-demo-card" id="score-loop-demo">
-            <div class="score-demo-bar">
-              <button type="button" class="sd-btn on" data-sd-play>⏸ Pause</button>
-              <span class="sd-pill">🔁 Loop m. 2–3</span>
-              <button type="button" class="sd-btn on" data-sd-speed>Speed-up +5%</button>
-              <button type="button" class="sd-btn on" data-sd-solfege>Solfege</button>
-              <span class="sd-pill" data-sd-tempo>77 BPM (80%)</span>
-              <span class="sd-pill countin" data-sd-countin hidden>Count-in…</span>
-            </div>
-            <div class="score-demo-voices">
-              <span class="lbl">Focus Voice:</span>
-              <button type="button" class="sd-btn" data-sd-voice="all">All</button>
-              <button type="button" class="sd-btn on" data-sd-voice="soprano">Soprano</button>
-              <button type="button" class="sd-btn" data-sd-voice="alto">Alto</button>
-              <button type="button" class="sd-btn" data-sd-voice="tenor">Tenor</button>
-              <button type="button" class="sd-btn" data-sd-voice="bass">Bass</button>
-            </div>
-            <div class="score-demo-stage">
-              <svg class="score-demo-svg" viewBox="0 0 650 230" aria-label="Animated 4-part score loop showing Soprano focus, split playhead, and measures 2 to 3 highlighted">
-                <!-- Loop highlight band for measures 2-3 -->
-                <rect x="184" y="16" width="314" height="196" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="4 3"/>
-                <!-- Measure numbers -->
-                <g font-size="11" font-weight="700" fill="#4a5e75">
-                  <text x="48" y="26">1</text>
-                  <text x="192" y="26" fill="#1565c0">2 (Loop start)</text>
-                  <text x="346" y="26">3</text>
-                  <text x="506" y="26">4</text>
-                </g>
-                <!-- Soprano/Alto treble staff -->
-                <g stroke="#94a3b8" stroke-width="1">
-                  <line x1="40" y1="42" x2="625" y2="42"/><line x1="40" y1="50" x2="625" y2="50"/><line x1="40" y1="58" x2="625" y2="58"/><line x1="40" y1="66" x2="625" y2="66"/><line x1="40" y1="74" x2="625" y2="74"/>
-                  <!-- Tenor/Bass bass staff -->
-                  <line x1="40" y1="138" x2="625" y2="138"/><line x1="40" y1="146" x2="625" y2="146"/><line x1="40" y1="154" x2="625" y2="154"/><line x1="40" y1="162" x2="625" y2="162"/><line x1="40" y1="170" x2="625" y2="170"/>
-                  <!-- Bar lines -->
-                  <line x1="40" y1="42" x2="40" y2="170" stroke="#475569" stroke-width="1.4"/>
-                  <line x1="184" y1="42" x2="184" y2="170" stroke="#475569"/>
-                  <line x1="340" y1="42" x2="340" y2="170" stroke="#475569"/>
-                  <line x1="498" y1="42" x2="498" y2="170" stroke="#475569"/>
-                  <line x1="625" y1="42" x2="625" y2="170" stroke="#475569" stroke-width="1.8"/>
-                </g>
-                <text x="46" y="70" font-size="28" font-family="serif" fill="#0d1b2a">𝄞</text>
-                <text x="46" y="164" font-size="24" font-family="serif" fill="#0d1b2a">𝄢</text>
-
-                <!-- Soprano line -->
-                <g class="sd-voice" data-voice-part="soprano" fill="#1565c0" stroke="#1565c0">
-                  <ellipse cx="94" cy="58" rx="5" ry="3.8" stroke="none"/><line x1="99" y1="58" x2="99" y2="34" stroke-width="1.5"/>
-                  <ellipse cx="136" cy="54" rx="5" ry="3.8" stroke="none"/><line x1="141" y1="54" x2="141" y2="30" stroke-width="1.5"/>
-                  <ellipse cx="204" cy="50" rx="5" ry="3.8" stroke="none"/><line x1="209" y1="50" x2="209" y2="26" stroke-width="1.5"/>
-                  <ellipse cx="240" cy="46" rx="5" ry="3.8" stroke="none"/><line x1="245" y1="46" x2="245" y2="22" stroke-width="1.5"/>
-                  <ellipse cx="276" cy="50" rx="5" ry="3.8" stroke="none"/><line x1="281" y1="50" x2="281" y2="26" stroke-width="1.5"/>
-                  <ellipse cx="312" cy="54" rx="5" ry="3.8" stroke="none"/><line x1="317" y1="54" x2="317" y2="30" stroke-width="1.5"/>
-                  <ellipse cx="362" cy="58" rx="5" ry="3.8" stroke="none"/><line x1="367" y1="58" x2="367" y2="34" stroke-width="1.5"/>
-                  <ellipse cx="398" cy="62" rx="5" ry="3.8" stroke="none"/><line x1="403" y1="62" x2="403" y2="38" stroke-width="1.5"/>
-                  <ellipse cx="434" cy="58" rx="5" ry="3.8" stroke="none"/><line x1="439" y1="58" x2="439" y2="34" stroke-width="1.5"/>
-                  <ellipse cx="470" cy="54" rx="5" ry="3.8" stroke="none"/><line x1="475" y1="54" x2="475" y2="30" stroke-width="1.5"/>
-                  <ellipse cx="540" cy="50" rx="5.5" ry="4" fill="none" stroke-width="1.8"/><line x1="545" y1="50" x2="545" y2="26" stroke-width="1.5"/>
-                  <g class="sd-solfege" stroke="none" font-size="10.5" font-weight="700" text-anchor="middle">
-                    <text x="204" y="92">re</text><text x="240" y="92">do</text><text x="276" y="92">ti</text><text x="312" y="92">la</text>
-                    <text x="362" y="92">sol</text><text x="398" y="92">mi</text><text x="434" y="92">fa</text><text x="470" y="92">sol</text>
-                  </g>
-                </g>
-
-                <!-- Alto line -->
-                <g class="sd-voice" data-voice-part="alto" fill="#0f766e" stroke="#0f766e">
-                  <ellipse cx="94" cy="70" rx="5" ry="3.8" stroke="none"/><line x1="89" y1="70" x2="89" y2="90" stroke-width="1.4"/>
-                  <ellipse cx="136" cy="66" rx="5" ry="3.8" stroke="none"/><line x1="131" y1="66" x2="131" y2="86" stroke-width="1.4"/>
-                  <ellipse cx="204" cy="66" rx="5" ry="3.8" stroke="none"/><line x1="199" y1="66" x2="199" y2="86" stroke-width="1.4"/>
-                  <ellipse cx="240" cy="62" rx="5" ry="3.8" stroke="none"/><line x1="235" y1="62" x2="235" y2="82" stroke-width="1.4"/>
-                  <ellipse cx="276" cy="66" rx="5" ry="3.8" stroke="none"/><line x1="271" y1="66" x2="271" y2="86" stroke-width="1.4"/>
-                  <ellipse cx="312" cy="70" rx="5" ry="3.8" stroke="none"/><line x1="307" y1="70" x2="307" y2="90" stroke-width="1.4"/>
-                  <ellipse cx="362" cy="70" rx="5" ry="3.8" stroke="none"/><line x1="357" y1="70" x2="357" y2="90" stroke-width="1.4"/>
-                  <ellipse cx="434" cy="70" rx="5" ry="3.8" stroke="none"/><line x1="429" y1="70" x2="429" y2="90" stroke-width="1.4"/>
-                  <ellipse cx="540" cy="66" rx="5.5" ry="4" fill="none" stroke-width="1.8"/>
-                </g>
-
-                <!-- Tenor line -->
-                <g class="sd-voice" data-voice-part="tenor" fill="#7c3aed" stroke="#7c3aed">
-                  <ellipse cx="94" cy="146" rx="5" ry="3.8" stroke="none"/><line x1="99" y1="146" x2="99" y2="124" stroke-width="1.4"/>
-                  <ellipse cx="204" cy="146" rx="5" ry="3.8" stroke="none"/><line x1="209" y1="146" x2="209" y2="124" stroke-width="1.4"/>
-                  <ellipse cx="276" cy="150" rx="5" ry="3.8" stroke="none"/><line x1="281" y1="150" x2="281" y2="128" stroke-width="1.4"/>
-                  <ellipse cx="362" cy="146" rx="5" ry="3.8" stroke="none"/><line x1="367" y1="146" x2="367" y2="124" stroke-width="1.4"/>
-                  <ellipse cx="434" cy="150" rx="5" ry="3.8" stroke="none"/><line x1="439" y1="150" x2="439" y2="128" stroke-width="1.4"/>
-                  <ellipse cx="540" cy="146" rx="5.5" ry="4" fill="none" stroke-width="1.8"/>
-                </g>
-
-                <!-- Bass line -->
-                <g class="sd-voice" data-voice-part="bass" fill="#b45309" stroke="#b45309">
-                  <ellipse cx="94" cy="162" rx="5" ry="3.8" stroke="none"/><line x1="89" y1="162" x2="89" y2="182" stroke-width="1.4"/>
-                  <ellipse cx="204" cy="158" rx="5" ry="3.8" stroke="none"/><line x1="199" y1="158" x2="199" y2="178" stroke-width="1.4"/>
-                  <ellipse cx="276" cy="166" rx="5" ry="3.8" stroke="none"/><line x1="271" y1="166" x2="271" y2="186" stroke-width="1.4"/>
-                  <ellipse cx="362" cy="162" rx="5" ry="3.8" stroke="none"/><line x1="357" y1="162" x2="357" y2="182" stroke-width="1.4"/>
-                  <ellipse cx="434" cy="158" rx="5" ry="3.8" stroke="none"/><line x1="429" y1="158" x2="429" y2="178" stroke-width="1.4"/>
-                  <ellipse cx="540" cy="162" rx="5.5" ry="4" fill="none" stroke-width="1.8"/>
-                </g>
-
-                <!-- Split playhead (above & below staves, never covering notes) -->
-                <line data-sd-head-top x1="188" y1="18" x2="188" y2="36" stroke="#d97706" stroke-width="3" stroke-linecap="round"/>
-                <line data-sd-head-bot x1="188" y1="184" x2="188" y2="206" stroke="#d97706" stroke-width="3" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <div class="score-demo-caption">
-              <span>Split playhead marks above &amp; below the staff · Click controls above to test</span>
-              <span>📋 Spots save loops, focus &amp; tempo</span>
-            </div>
+        <div class="grid-3">
+          <div class="card">
+            <span class="tag ok">No IT password needed</span>
+            <h3>Windows (School PCs)</h3>
+            <p class="small muted" style="margin-bottom:12px">Installs for your user account without an administrator password. Opens MuseScore files and Google Drive, with automatic backups.</p>
+            <a href="download.html#win">Download for Windows →</a>
           </div>
-
-          <div>
-            <ul class="check-list" style="gap:12px">
-              <li><strong>Upload your own scores:</strong> Import <code>.mxl</code> or <code>.musicxml</code> files anywhere, or <code>.mscz</code> MuseScore files directly on Mac &amp; Windows.</li>
-              <li><strong>Loop tough spots:</strong> Click or drag measures to loop them, add an automatic count-in before each repeat, and ramp tempo up by +5% each pass.</li>
-              <li><strong>Focus any section:</strong> Bring Soprano, Alto, Tenor, or Bass forward while other parts stay soft, sound starting pitches, or show movable-do solfege and counts.</li>
-              <li><strong>Rehearsal Spots &amp; grading:</strong> Save trouble measures as checkable Spots, record a sung guide voice, or mic-grade a section right on the score.</li>
-            </ul>
-            <p class="small muted" style="margin-top:16px">Also included: Waveform Audio Track Player (A–B loops &amp; <code>0.5×–1.25×</code> speed), A/B Take Recorder, PDF Viewer with foot-pedal page turns, Staff Whiteboard, Annotate, Calendar, Progress Tracker, and 1-click Sub Plans.</p>
+          <div class="card">
+            <h3>Mac</h3>
+            <p class="small muted" style="margin-bottom:12px">Drag Rehearsal into Applications and open. Opens MuseScore files, Google Drive, and can show another app's window right inside Rehearsal.</p>
+            <a href="download.html#mac">Download for Mac →</a>
+          </div>
+          <div class="card">
+            <h3>Chromebook &amp; iPad</h3>
+            <p class="small muted" style="margin-bottom:12px">Nothing to install. Open Rehearsal in Chrome or Safari and it keeps working offline after your first visit.</p>
+            <a href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser →</a>
           </div>
         </div>
       </div>
@@ -296,14 +185,14 @@
     <section class="section sky">
       <div class="wrap">
         <div class="tool-layout">
-          <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Student Homework Portal screenshot">
-            <img src="img/screens/homework.png" alt="Rehearsal Online Homework Student Portal showing rhythm notation, Hear Tempo, Hear Example, and Tap Practice Take">
+          <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Student Homework screenshot">
+            <img src="img/screens/homework.png" alt="Rehearsal Online Homework student screen showing rhythm notation, Hear Tempo, Hear Example, and Tap Practice Take">
           </button>
           <div class="tool-copy">
             <span class="tag ok">Optional Add-On</span>
             <h3>Online Homework</h3>
-            <p>Assign Sight Reading, locked True Sight-Read, Score Practice, or Audio-Only recordings to student Chromebooks and iPads.</p>
-            <p style="margin-top:10px">Students sign in with a 6-character code, offline Wi-Fi drops queue locally, and audio auto-deletes after 90 days. 30-day free trial, then $5/mo or $49/yr per teacher.</p>
+            <p>Assign Sight Reading, locked True Sight-Read, Score Practice, or voice/instrument recordings to student Chromebooks, iPads, and phones.</p>
+            <p style="margin-top:10px">Recordings save on the student's device if school Wi-Fi drops and auto-delete after 90 days. Free 30-day trial, then $5/mo or $49/yr per teacher (or a School Purchase Order).</p>
             <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px">
               <a class="btn primary" href="homework.html">Online Homework details</a>
               <a class="btn" href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
@@ -321,19 +210,19 @@
         </div>
         <div class="grid-3">
           <div class="card">
-            <span class="tag ok">Classroom App</span>
-            <h3>No account needed</h3>
-            <p class="small muted">Download for Mac or Windows—or open in your browser—and start teaching. Your schedules, scores, and files stay on your device with 30-day automatic backups on desktop.</p>
+            <span class="tag ok">No account needed</span>
+            <h3>Teaching in class</h3>
+            <p class="small muted">Open Rehearsal and start teaching. No sign-up or login—your classes, schedules, and files stay on your device.</p>
           </div>
           <div class="card">
-            <span class="tag">Online Homework (Teacher)</span>
-            <h3>6-digit email code</h3>
-            <p class="small muted">Only sign in inside <strong>Setup → Homework</strong> if you want to assign homework. Enter your school email and type the 6-digit code—no password to remember. Starts a 30-day free trial ($5/mo or $49/yr after, or School PO).</p>
+            <span class="tag">Teacher email code</span>
+            <h3>Assigning homework</h3>
+            <p class="small muted">Only sign in inside <strong>Setup → Homework</strong> if you want Online Homework. Type your school email and enter the 6-digit code—no password to remember.</p>
           </div>
           <div class="card">
-            <span class="tag ok">Online Homework (Students)</span>
-            <h3>No student emails or sign-ups</h3>
-            <p class="small muted">Print cut-out 6-character personal codes for your class. Students go to <code>app.rehearsalmusic.com/hw</code>, type the Class Code and their personal code, and submit takes without an email address.</p>
+            <span class="tag ok">No accounts or emails</span>
+            <h3>Students</h3>
+            <p class="small muted">Print cut-out 6-character personal codes for your class. Students go to <code>app.rehearsalmusic.com/hw</code>, enter their code, and record without an email address.</p>
           </div>
         </div>
       </div>
@@ -356,6 +245,6 @@
     </div>
   </footer>
 
-  <script src="site.js?v=3"></script>
+  <script src="site.js?v=5"></script>
 </body>
 </html>

@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Download Rehearsal — Mac, Windows &amp; Browser</title>
-<meta name="description" content="Download Rehearsal free for macOS, Windows 10/11 (no administrator password required), or open the Web App on Chromebook and iPad.">
+<meta name="description" content="Download Rehearsal free for Mac, Windows (no IT password needed), or open in your browser on Chromebook and iPad.">
 <meta property="og:title" content="Download Rehearsal — Mac, Windows &amp; Browser">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://rehearsalmusic.com/download">
 <meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
 <link rel="icon" href="img/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="img/icon-180.png">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <header class="site-header">
@@ -23,7 +23,7 @@
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
         <a href="index.html#tools">Tools</a>
-        <a href="index.html#accounts">Accounts</a>
+        <a href="index.html#install">Install</a>
         <a href="homework.html">Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
       </nav>
@@ -39,7 +39,7 @@
       <div class="wrap">
         <span class="tag">Latest: <span data-release-version>v1.3.1</span> <span data-release-date></span></span>
         <h1>Download Rehearsal</h1>
-        <p>Installers download directly from <code>rehearsalmusic.com</code> so school networks that block GitHub still work.</p>
+        <p>Free for Mac, Windows, or right in your browser. Takes under a minute—no IT password needed on Windows.</p>
       </div>
     </section>
 
@@ -54,10 +54,10 @@
         <div class="os-panel card" data-os-panel="mac" role="tabpanel">
           <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--line)">
             <div>
-              <h2>Rehearsal for Mac (<span data-release-version>v1.3.1</span>)</h2>
-              <p class="small muted">Universal app for Apple Silicon and Intel Macs. Includes MuseScore <code>.mscz</code> conversion, Google Drive browser, and live window mirroring.</p>
+              <h2>Rehearsal for Mac</h2>
+              <p class="small muted">Works on any Mac. Opens MuseScore files, browses Google Drive, and can show other apps inside Rehearsal.</p>
             </div>
-            <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip" data-dl-file="Rehearsal.zip">Download Rehearsal.zip</a>
+            <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip" data-dl-file="Rehearsal.zip">Download for Mac</a>
           </div>
           <ol class="step-list">
             <li>Unzip <strong>Rehearsal.zip</strong> and drag <strong>Rehearsal</strong> into <strong>Applications</strong>. (Opening it from Downloads can block the mic and auto-updates.)</li>
@@ -69,20 +69,18 @@
         <div class="os-panel card" data-os-panel="win" role="tabpanel" hidden>
           <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--line)">
             <div>
-              <span class="tag ok">No admin password required</span>
-              <h2>Rehearsal for Windows 10 / 11 (<span data-release-version>v1.3.1</span>)</h2>
-              <p class="small muted">Installs for your user account (<code>%LOCALAPPDATA%\Programs\Rehearsal</code>). Includes MuseScore <code>.mscz</code> conversion and Google Drive browser.</p>
+              <span class="tag ok">No IT password needed</span>
+              <h2>Rehearsal for Windows</h2>
+              <p class="small muted">Installs on school PCs without an administrator password. Opens MuseScore files and browses Google Drive.</p>
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:10px">
-              <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Setup.exe" data-dl-file="Rehearsal-Setup.exe">Download Installer (.exe)</a>
-              <a class="btn lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Windows.zip" data-dl-file="Rehearsal-Windows.zip">Portable .zip</a>
-            </div>
+            <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Setup.exe" data-dl-file="Rehearsal-Setup.exe">Download for Windows</a>
           </div>
           <ol class="step-list">
             <li>Run <strong>Rehearsal-Setup.exe</strong> (no school IT password needed).</li>
             <li>If Windows SmartScreen shows <em>"Windows protected your PC"</em>, click <strong>More info → Run anyway</strong>. Needed only once.</li>
-            <li>Automatic signed updates and 30-day local backups run on their own.</li>
+            <li>Updates itself automatically and keeps 30 days of automatic backups.</li>
           </ol>
+          <p class="small muted" style="margin-top:14px">Need a portable folder instead? <a href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Windows.zip" data-dl-file="Rehearsal-Windows.zip">Download the Windows zip</a>.</p>
         </div>
 
         <div class="os-panel card" data-os-panel="web" role="tabpanel" hidden>
@@ -116,6 +114,6 @@
     </div>
   </footer>
 
-  <script src="site.js?v=3"></script>
+  <script src="site.js?v=5"></script>
 </body>
 </html>
