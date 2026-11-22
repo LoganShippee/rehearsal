@@ -340,23 +340,23 @@ function spInjectVoiceGradeCSS() {
     .sp-ph .seg.top { top: 0; background: linear-gradient(to bottom, rgba(231,111,81,0), #e76f51 45%); }
     .sp-ph .seg.bot { background: linear-gradient(to bottom, #e76f51 55%, rgba(231,111,81,0)); }
     .sp-ph.pulse { animation: srpulse .5s ease-in-out infinite alternate; }
-    /* Option A: soft borderless wash + vertical rehearsal brackets (never intersects noteheads) */
-    .sp-sel i { background: rgba(231,111,81,.09) !important; border: 0 !important; box-shadow: none !important; border-radius: 4px !important; }
-    .sp-sel i.start { border-left: 3px solid #e76f51 !important; border-top-left-radius: 3px !important; border-bottom-left-radius: 3px !important; }
-    .sp-sel i.end { border-right: 3px solid #e76f51 !important; border-top-right-radius: 3px !important; border-bottom-right-radius: 3px !important; }
+    /* Option A: soft borderless wash + seamless 90-degree vertical rehearsal brackets */
+    .sp-sel i { background: rgba(231,111,81,.09) !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+    .sp-sel i.start { border-left: 3px solid #e76f51 !important; }
+    .sp-sel i.end { border-right: 3px solid #e76f51 !important; }
     .sp-sel i.start::before, .sp-sel i.start::after, .sp-sel i.end::before, .sp-sel i.end::after {
-      content: ""; position: absolute; width: 9px; height: 2.5px; background: #e76f51; border-radius: 2px; pointer-events: none;
+      content: ""; position: absolute; width: 11px; height: 3px; background: #e76f51; border-radius: 0; pointer-events: none;
     }
-    .sp-sel i.start::before { top: 0; left: 0; }
-    .sp-sel i.start::after { bottom: 0; left: 0; }
-    .sp-sel i.end::before { top: 0; right: 0; }
-    .sp-sel i.end::after { bottom: 0; right: 0; }
+    .sp-sel i.start::before { top: 0; left: -3px; }
+    .sp-sel i.start::after { bottom: 0; left: -3px; }
+    .sp-sel i.end::before { top: 0; right: -3px; }
+    .sp-sel i.end::after { bottom: 0; right: -3px; }
     .sp-sel.off i { background: rgba(31,111,209,.10) !important; }
     .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
     .sp-sel.off i.end { border-right-color: #1f6fd1 !important; }
     .sp-sel.off i.start::before, .sp-sel.off i.start::after, .sp-sel.off i.end::before, .sp-sel.off i.end::after { background: #1f6fd1; }
     .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
-    .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: 0 !important;
+    .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: -3px !important;
       font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
 
     /* Score Practice Looper Grading: note-by-note OSMD SVG color feedback (overrides part colors) */
@@ -2141,6 +2141,8 @@ function mountScore(host, st, onChange0, key) {
   let BOX = [];
   ctl.drawSel = () => {
     const sel = $q('.sp-sel'); sel.innerHTML = '';
+    const osmdEl = $q('.sp-osmd');
+    osmdEl?.querySelectorAll('text[data-sp-hidemnum]').forEach(t => { t.style.opacity = ''; t.removeAttribute('data-sp-hidemnum'); });
     if (!BOX.length) return;
     sel.classList.toggle('off', !st.loop.on);
     const a = Math.min(st.loop.a, st.loop.b), b = Math.max(st.loop.a, st.loop.b);
@@ -2171,6 +2173,20 @@ function mountScore(host, st, onChange0, key) {
       }
       sel.appendChild(d);
     });
+    // Hide the score's printed measure number right where the selection starts (already shown by the pill)
+    const g0 = groups[0], scoreEl = $q('.sp-score');
+    if (g0 && osmdEl && scoreEl) {
+      const startNum = String(mNum(a)), sr = scoreEl.getBoundingClientRect();
+      for (const tx of osmdEl.querySelectorAll('text')) {
+        if (tx.textContent.trim() !== startNum) continue;
+        const br = tx.getBoundingClientRect();
+        const cx = br.left + br.width / 2 - sr.left + scoreEl.scrollLeft;
+        const cy = br.top + br.height / 2 - sr.top + scoreEl.scrollTop;
+        if (Math.abs(cx - g0.left) < 28 && cy >= g0.top - 48 && cy <= g0.top + 14) {
+          tx.style.opacity = '0'; tx.setAttribute('data-sp-hidemnum', '1');
+        }
+      }
+    }
   };
   ctl.hidePlayhead = () => { const ph = $q('.sp-ph'); if (ph) { ph.hidden = true; ph.classList.remove('pulse'); } };
   ctl.drawPlayhead = (now, inCount = false) => {

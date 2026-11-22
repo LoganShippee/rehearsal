@@ -1923,18 +1923,40 @@ function mountSight(host, st, onChange) {
     const k = st.build.sel; if (k == null) return;
     const ev = timeline[k]; ev?.el?.classList?.add('sr-sel');
   };
-  // the measure playback starts from: a small flag on it; click the music to choose
+  // the measure playback starts from: blue borderless wash + rehearsal bracket (matches Score Practice)
   const drawFrom = () => {
     const staff = host.querySelector('.sr-staff'), svg = staff?.querySelector('svg'), geo = timeline.geo;
-    staff?.querySelector('.sr-from')?.remove();
+    staff?.querySelectorAll('.sr-from').forEach(el => el.remove());
+    svg?.querySelectorAll('text[data-sr-hidemnum]').forEach(t => { t.style.opacity = ''; t.removeAttribute('data-sr-hidemnum'); });
     if (!staff || !svg || !geo) return;
     const i = Math.min(Number(st.startM) || 0, geo.measures.length - 1); if (i <= 0) return;
-    const m = geo.measures[i], sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect(), k = sr.width / geo.W;
+    const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect(), k = sr.width / geo.W;
     const ox = sr.left - fr.left, oy = sr.top - fr.top + staff.scrollTop;
-    const f = document.createElement('div'); f.className = 'sr-from';
-    f.innerHTML = `<b>${IC('ico:play')} m. ${i + 1}</b>`;
-    Object.assign(f.style, { left: ox + m.x0 * k + 'px', top: oy + m.y0 * k + 'px', width: (m.x1 - m.x0) * k + 'px', height: (m.y1 - m.y0) * k + 'px' });
-    staff.appendChild(f);
+    // Group measures from startM to the end of the piece by staff row (just like Score Practice)
+    const groups = [];
+    for (let mi = i; mi < geo.measures.length; mi++) {
+      const m = geo.measures[mi], g = groups[groups.length - 1];
+      if (g && Math.abs(g.y0 - m.y0) < 4) { g.x1 = m.x1; g.last = mi; }
+      else groups.push({ x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, first: mi, last: mi });
+    }
+    const lastIdx = geo.measures.length - 1;
+    groups.forEach((g, idx) => {
+      const f = document.createElement('div');
+      f.className = 'sr-from' + (g.first === i ? ' start' : '') + (g.last === lastIdx ? ' end' : '');
+      if (idx === 0) f.innerHTML = `<b>m. ${i + 1}${i < lastIdx ? '–' + (lastIdx + 1) : ''}</b>`;
+      const topY = oy + (g.y0 + 6) * k, h = Math.max(24, (g.y1 - g.y0 - 12) * k);
+      Object.assign(f.style, { left: ox + g.x0 * k - 2 + 'px', top: topY + 'px', width: (g.x1 - g.x0) * k + 4 + 'px', height: h + 'px' });
+      staff.appendChild(f);
+    });
+    // Hide the printed measure number right where the selection starts
+    const m0 = geo.measures[i], startNum = String(i + 1);
+    for (const tx of svg.querySelectorAll('text')) {
+      if (tx.textContent.trim() !== startNum) continue;
+      let bb; try { bb = tx.getBBox(); } catch { continue; }
+      if (Math.abs((bb.x + bb.width / 2) - m0.x0) < 28 && bb.y >= m0.y0 - 20 && bb.y <= m0.y0 + 30) {
+        tx.style.opacity = '0'; tx.setAttribute('data-sr-hidemnum', '1');
+      }
+    }
   };
   const measureAtClick = e => {
     const staff = host.querySelector('.sr-staff'), svg = staff?.querySelector('svg'), geo = timeline.geo; if (!svg || !geo) return -1;

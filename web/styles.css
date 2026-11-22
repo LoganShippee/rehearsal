@@ -908,8 +908,17 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 /* sight reading: the measure playback starts from */
 .sr-staff { position: relative; }
 .sr-staff svg { cursor: pointer; }
-.sr-from { position: absolute; pointer-events: none; border-left: 3px solid #1a9a5a; background: linear-gradient(90deg, rgba(26,154,90,.12), rgba(26,154,90,0) 70%); border-radius: 6px 0 0 6px; }
-.sr-from b { position: absolute; left: -2px; top: -12px; font: 700 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: #1a9a5a; padding: 3px 7px; border-radius: 999px; white-space: nowrap; }
+.sr-from { position: absolute; pointer-events: none; background: rgba(31,111,209,.10); border: 0; border-radius: 0; }
+.sr-from.start { border-left: 3px solid #1f6fd1; }
+.sr-from.end { border-right: 3px solid #1f6fd1; }
+.sr-from.start::before, .sr-from.start::after, .sr-from.end::before, .sr-from.end::after {
+  content: ""; position: absolute; width: 11px; height: 3px; background: #1f6fd1; border-radius: 0; pointer-events: none;
+}
+.sr-from.start::before { top: 0; left: -3px; }
+.sr-from.start::after { bottom: 0; left: -3px; }
+.sr-from.end::before { top: 0; right: -3px; }
+.sr-from.end::after { bottom: 0; right: -3px; }
+.sr-from b { position: absolute; left: -3px; bottom: calc(100% + 4px); font: 700 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: #1f6fd1; padding: 3px 7px; border-radius: 999px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
 
 /* sight reading: ✏️ Build */
 .sr-build { flex: 0 0 auto; margin: 6px 14px 0; padding: 8px 10px; background: #ffffff; border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 12px; display: flex; flex-direction: column; gap: 6px; color: #1d2330; }
