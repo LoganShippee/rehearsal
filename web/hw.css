@@ -123,6 +123,28 @@ body.hw-page {
   color: #475569;
 }
 
+.hw-teacher-drawer .gr-strict-wrap {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+
+.gr-strict-wrap input[type="range"] {
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.gr-strict-wrap .gr-strict-lbl {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.gr-strict-wrap .gr-strict-info {
+  color: #475569;
+  font-size: 12px;
+}
+
 .hw-tabs {
   display: flex;
   gap: 8px;
