@@ -199,17 +199,16 @@ function grStrictnessSpec(level = null, tempo = 80) {
   }
   const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
   const q = 60 / bpm;
-  // Piecewise-linear through exact Standard (50) defaults: rhythmMul=1.0, minTolSec=0.06, pitchSemitones=0.75
-  // Above 50, scales down tightly to concert-strict tolerances: rhythm ±2% beat (min 10ms, ~15ms at 80 BPM) and pitch ±5¢.
-  const rhythmMul = rLv <= 50 ? 1.45 - (rLv / 50) * 0.45 : 1.0 - ((rLv - 50) / 50) * 0.92;
-  const minTolSec = rLv <= 50 ? 0.09 - (rLv / 50) * 0.03 : 0.06 - ((rLv - 50) / 50) * 0.050;
-  const pitchSemitones = pLv <= 50 ? 0.95 - (pLv / 50) * 0.20 : 0.75 - ((pLv - 50) / 50) * 0.70;
+  // Default Standard (50) = ±100 ms rushing/dragging and ±40¢ pitch variance.
+  // Scales smoothly from Very Forgiving (0: ±250 ms / ±95¢) to Very Strict (100: ±15 ms / ±5¢).
+  const rhythmMs = Math.round(rLv <= 50 ? 250 - (rLv / 50) * 150 : 100 - ((rLv - 50) / 50) * 85);
+  const rhythmSec = rhythmMs / 1000;
+  const pitchCents = Math.round(pLv <= 50 ? 95 - (pLv / 50) * 55 : 40 - ((pLv - 50) / 50) * 35);
+  const pitchSemitones = pitchCents / 100;
   const rhythmLabel = grStrictLabel(rLv);
   const pitchLabel = grStrictLabel(pLv);
   const label = rhythmLabel === pitchLabel ? rhythmLabel : `R: ${rhythmLabel} · P: ${pitchLabel}`;
-  const beatPct = Math.round(25 * rhythmMul);
-  const rhythmMs = Math.round(Math.max(minTolSec, 0.25 * rhythmMul * q) * 1000);
-  const pitchCents = Math.round(pitchSemitones * 100);
+  const beatPct = Math.round((rhythmSec / q) * 100);
   return {
     level: Math.round((rLv + pLv) / 2),
     rhythmLevel: Math.round(rLv),
@@ -217,8 +216,7 @@ function grStrictnessSpec(level = null, tempo = 80) {
     label,
     rhythmLabel,
     pitchLabel,
-    rhythmMul,
-    minTolSec,
+    rhythmSec,
     pitchSemitones,
     beatPct,
     rhythmMs,
@@ -331,7 +329,7 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null,
   const offset = heardOffset, latUsed = false;
   // 4. match each written note to one heard onset, closest first, within a window
   const used = new Set(); const notes = [];
-  const noteTol = e => Math.max(spec.minTolSec, Math.min(0.25 * spec.rhythmMul * q, 0.4 * spec.rhythmMul * e.len * q));
+  const noteTol = e => Math.max(0.01, Math.min(spec.rhythmSec, Math.max(0.035, 0.45 * e.len * q)));
   for (let i = 0; i < exp.length; i++) {
     const e = exp[i], target = T0 + e.t * q + offset, tol = noteTol(e);
     const win = Math.max(tol, 0.5 * e.len * q, 0.25 * q);

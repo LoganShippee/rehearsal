@@ -1183,9 +1183,11 @@ async function hwRefreshTakes() {
 }
 
 function hwRenderTakes() {
-  const host = $('#hw-takes-list'), countEl = $('#hw-takes-count');
+  const host = $('#hw-takes-list'), countEl = $('#hw-takes-count'), clearBtn = $('#hw-clear-takes');
   if (!host) return;
-  if (countEl) countEl.textContent = `${HW_STATE.takes.length} saved locally`;
+  const isTeacher = !!HW_STATE.teacherOpen;
+  if (clearBtn) clearBtn.hidden = !isTeacher;
+  if (countEl) countEl.textContent = `${HW_STATE.takes.length} saved on this ${DEVICE}`;
   if (!HW_STATE.takes.length) {
     host.innerHTML = `<div class="hw-empty">No takes recorded yet. Completed takes stay saved on this device even if Wi-Fi drops.</div>`;
     return;
@@ -1198,7 +1200,7 @@ function hwRenderTakes() {
       HW_STATE.takeUrls.set(t.id, audioUrl);
     }
     const when = new Date(t.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
-    const showJson = HW_STATE.expandedJson.has(t.id);
+    const showJson = isTeacher && HW_STATE.expandedJson.has(t.id);
     const isSubmitted = t.status === 'submitted';
     const packetPreview = {
       id: t.id, status: t.status, auto_submitted: !!t.autoSubmitted, submitted_at: t.submittedAt,
@@ -1211,24 +1213,24 @@ function hwRenderTakes() {
       <div class="hw-take-top">
         <div><strong>${esc(t.label)}</strong> <span class="muted small">· ${esc(when)}</span></div>
         <div class="hw-take-meta">
-          ${t.overallPct != null ? `<span class="hw-pill score">Overall ${t.overallPct}% (R ${t.rhythmPct}%${t.pitchPct != null ? ` · P ${t.pitchPct}%` : ''})</span>` : ''}
-          ${t.integrityFlags?.length ? `<span class="hw-pill flag">Flags: ${esc(t.integrityFlags.join(', '))}</span>` : ''}
+          ${t.overallPct != null ? `<span class="hw-pill score">Score ${t.overallPct}% (Rhythm ${t.rhythmPct}%${t.pitchPct != null ? ` · Pitch ${t.pitchPct}%` : ''})</span>` : ''}
+          ${isTeacher && t.integrityFlags?.length ? `<span class="hw-pill flag">Flags: ${esc(t.integrityFlags.join(', '))}</span>` : ''}
           ${isSubmitted
             ? `<span class="hw-pill submitted">✓ ${t.autoSubmitted ? 'Auto-Submitted' : 'Submitted'}</span>`
-            : `<span class="hw-pill draft">Practice Take (Not Submitted)</span>`}
+            : `<span class="hw-pill draft">Practice Take</span>`}
         </div>
       </div>
-      <div class="hw-take-meta">
+      ${isTeacher ? `<div class="hw-take-meta">
         <span>Audio: ${t.audioBytes ? `${esc(t.audioMime || 'audio')} · ${hwFmtBytes(t.audioBytes)} · ${t.durationSec}s` : 'None (Spacebar / Tap rhythm)'}</span>
         ${t.resultsJson?.strictness ? `<span>· ${esc(t.resultsJson.strictness.label)} (±${t.resultsJson.strictness.rhythmMs}ms / ±${t.resultsJson.strictness.pitchCents}¢)</span>` : ''}
         ${t.resultsJson?.offsetMs != null ? `<span>· Offset ${t.resultsJson.offsetMs}ms</span>` : ''}
-      </div>
+      </div>` : ''}
       ${audioUrl ? `<audio class="hw-take-audio" controls preload="metadata" src="${audioUrl}"></audio>` : ''}
       <div class="row">
         ${!isSubmitted ? `<button class="hw-btn good" data-hw-submit="${esc(t.id)}">Submit This Take</button>` : ''}
-        <button class="hw-btn" data-hw-json="${esc(t.id)}">${showJson ? 'Hide' : 'Inspect'} Submission JSON</button>
-        ${audioUrl ? `<a class="hw-btn" href="${audioUrl}" download="${esc(t.id)}.${(t.audioMime || '').includes('mp4') ? 'm4a' : (t.audioMime || '').includes('wav') ? 'wav' : 'webm'}">Download Audio</a>` : ''}
-        <button class="hw-btn" data-hw-del="${esc(t.id)}">Delete</button>
+        ${!isSubmitted || isTeacher ? `<button class="hw-btn" data-hw-del="${esc(t.id)}">Delete</button>` : ''}
+        ${isTeacher ? `<button class="hw-btn" data-hw-json="${esc(t.id)}">${showJson ? 'Hide' : 'Inspect'} Submission JSON</button>` : ''}
+        ${isTeacher && audioUrl ? `<a class="hw-btn" href="${audioUrl}" download="${esc(t.id)}.${(t.audioMime || '').includes('mp4') ? 'm4a' : (t.audioMime || '').includes('wav') ? 'wav' : 'webm'}">Download Audio</a>` : ''}
       </div>
       ${showJson ? `<pre class="hw-json-pre">${esc(JSON.stringify(packetPreview, null, 2))}</pre>` : ''}
     </div>`;
@@ -1288,6 +1290,7 @@ function hwBoot() {
     $('#hw-teacher-drawer').hidden = !HW_STATE.teacherOpen;
     hwRenderHeaderChips();
     hwRenderTeacherOptions();
+    hwRenderTakes();
     if (HW_STATE.tab === 'sight') hwMountSightRunner();
     else if (HW_STATE.tab === 'score') hwMountScoreRunner();
     else hwMountAudioRunner();
