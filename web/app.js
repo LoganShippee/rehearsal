@@ -6184,9 +6184,9 @@ function mountFilesBrowser(host) {
   render();
 }
 
-// ---------- Subnautica-style 100% In-App Bug Report Modal (auto-screenshot + explanation -> RehearsalApp@pm.me)
+// ---------- 100% In-App Bug Report Modal (auto-screenshot + explanation -> private GitHub Inbox via Cloudflare Worker)
 const BUG_REPORT_EMAIL = 'RehearsalApp@pm.me';
-const BUG_REPORT_ENDPOINT = 'https://formsubmit.co/' + BUG_REPORT_EMAIL;
+const BUG_REPORT_ENDPOINT = 'https://rehearsal-bugs.logan-shippee.workers.dev';
 let BUG_STATE = null;
 function triggerBugReport() {
   if (IS_NATIVE) {
@@ -6206,7 +6206,7 @@ window.__bugReportResult = res => {
   if (res?.ok) {
     if (stEl) {
       stEl.className = 'bug-status ok';
-      stEl.innerHTML = `${IC('ico:check')} <span><b>Sent!</b> Your feedback${res.includedScreenshot ? ' and screenshot' : ''} has been sent to ${esc(BUG_REPORT_EMAIL)}. Thank you!</span>`;
+      stEl.innerHTML = `${IC('ico:check')} <span><b>Sent!</b> Your feedback${res.includedScreenshot ? ' and screenshot' : ''} has been sent. Thank you!</span>`;
       stEl.hidden = false;
     }
     if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sent ✓'; }
@@ -6259,7 +6259,7 @@ window.__bugReportOpen = data => {
     <label class="bug-fld"><span>Your email (optional — only if you’d like a reply)</span>
       <input type="email" id="bug-reply" placeholder="name@school.edu">
     </label>
-    <div class="bug-meta">Sent directly inside Rehearsal to ${esc(BUG_REPORT_EMAIL)} · Rehearsal ${esc(BUG_STATE.version)} · ${esc(BUG_STATE.os)}</div>
+    <div class="bug-meta">Sent directly inside Rehearsal (no sign-in required) · Rehearsal ${esc(BUG_STATE.version)} · ${esc(BUG_STATE.os)}</div>
     <div id="bug-status" class="bug-status" hidden></div>
     <div class="bug-foot">
       <button type="button" class="bug-btn" data-bug="save">Save File…</button>

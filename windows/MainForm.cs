@@ -1295,7 +1295,7 @@ internal sealed class MainForm : Form
                 }
                 case "submitBugReport":
                 {
-                    var endpoint = Str(root, "endpoint") ?? "https://formsubmit.co/RehearsalApp@pm.me";
+                    var endpoint = Str(root, "endpoint") ?? "https://rehearsal-bugs.logan-shippee.workers.dev";
                     var category = Str(root, "category") ?? "Bug";
                     var desc = Str(root, "description") ?? "";
                     var replyEmail = Str(root, "replyEmail") ?? "";

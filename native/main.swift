@@ -586,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
         case "submitBugReport":
             guard let wv else { return }
-            let endpointStr = (body["endpoint"] as? String) ?? "https://formsubmit.co/RehearsalApp@pm.me"
+            let endpointStr = (body["endpoint"] as? String) ?? "https://rehearsal-bugs.logan-shippee.workers.dev"
             let category = (body["category"] as? String) ?? "Bug"
             let desc = (body["description"] as? String) ?? ""
             let replyEmail = (body["replyEmail"] as? String) ?? ""
@@ -672,7 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             let delegate = NoRedirect()
             let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-            session.dataTask(with: req) { _, resp, err in
+            session.dataTask(with: req) { respData, resp, err in
                 defer { session.finishTasksAndInvalidate() }
                 if let err {
                     replyJS(["ok": false, "error": err.localizedDescription, "savedPath": savedPath])
@@ -680,12 +680,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 }
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 let ok = (200...399).contains(code)
+                var errMsg = ok ? "" : "HTTP \(code)"
+                if !ok, let respData,
+                   let obj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
+                   let e = obj["error"] as? String, !e.isEmpty {
+                    errMsg = e
+                }
                 replyJS([
                     "ok": ok,
                     "status": code,
                     "includedScreenshot": shotData != nil,
                     "savedPath": savedPath,
-                    "error": ok ? "" : "HTTP \(code)",
+                    "error": errMsg,
                 ])
             }.resume()
         case "saveText":
