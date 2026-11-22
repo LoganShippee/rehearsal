@@ -2009,6 +2009,7 @@ function mountSight(host, st, onChange) {
     const b = e.target.closest('[data-sr]');
     if (!b) {                                                     // clicked the music: start from that measure
       if (!e.target.closest('.sr-staff')) return;
+      if (typeof GR !== 'undefined' && (GR.on || GR.starting || performance.now() < (GR.quietUntil || 0))) return;
       if (isBuild()) {
         const k = timeline.findIndex(ev => ev.el && ev.el.contains && ev.el.contains(e.target));
         e.stopPropagation();
@@ -2029,6 +2030,7 @@ function mountSight(host, st, onChange) {
     }
     e.stopPropagation();
     const k = b.dataset.sr;
+    if (k !== 'grade' && k !== 'gradego' && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
     const B = st.build;
     if (k === 'mode') { srStop(); st.mode = b.dataset.v; st.startM = null; }
     else if (k === 'bkind') { srStop(); B.kind = b.dataset.v; }
@@ -2159,6 +2161,7 @@ function mountSight(host, st, onChange) {
     onChange && onChange(st); render();
   };
   host.onchange = e => {
+    if (typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
     const el = e.target, o = st[st.mode];
     if (el.dataset.cell) {
       const set = new Set(o.cells); el.checked ? set.add(el.dataset.cell) : set.delete(el.dataset.cell); o.cells = [...set];

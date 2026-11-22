@@ -485,7 +485,7 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
     ${grCardHTML(res, gradePitch)}${legend}
     ${G?.take && res.diag.heard > 0 && host.__listen ? `<div class="gr-listen-row"><button class="gr-listen" title="Hear your ${res.input === 'tap' ? 'taps' : 'recording'} lined up with the music, with the playhead and these marks">${IC('ico:play')} Listen back</button>
       <select class="gr-mix" title="What to hear"><option value="both" ${savedMix === 'both' ? 'selected' : ''}>with the example</option><option value="rec" ${savedMix === 'rec' ? 'selected' : ''}>${res.input === 'tap' ? 'taps' : 'recording'} only</option></select></div>` : ''}
-    <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${G ? `<button type="button" class="gr-exit" title="Clear grading marks and exit grade mode">${IC('ico:close')} Exit Grade</button>` : ''}${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
+    <div class="gr-again-row">${!fromRecent && G?.retry ? `<button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>` : ''}${G && !fromRecent ? `<button type="button" class="gr-exit" title="Clear grading marks and exit grade mode">${IC('ico:close')} Exit Grade</button>` : ''}${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
   card.querySelector('.gr-x').onclick = () => card.remove();
   card.querySelector('.gr-back')?.addEventListener('click', () => grShowRecent(host));
   card.querySelector('.gr-rec-open')?.addEventListener('click', () => grShowRecent(host));
@@ -502,7 +502,8 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
     if (host) { host.__grResult = null; host.__grRedraw?.(); }
     card.remove();
   };
-  card.querySelector('.gr-again').onclick = () => {
+  const againBtn = card.querySelector('.gr-again');
+  if (againBtn) againBtn.onclick = () => {
     if (typeof grStopListen === 'function') grStopListen();
     if (host?.__listenStop) host.__listenStop();
     if (typeof srStop === 'function') srStop();
@@ -723,6 +724,7 @@ function grBtnHTML(input) {
 window.grBtnHTML = grBtnHTML;
 
 function grStop(show = true) {
+  if (GR.starting) GR.cancelStart = true;
   if (!GR.on) return;
   clearInterval(GR.timer);
   grRemoveTapPad();
@@ -926,7 +928,7 @@ function grRecordTap(e) {
   GR.taps.push(t);
   grTapFlash();
 }
-let grTapEl = null, grTapHandler = null;
+let grTapEl = null, grTapHandler = null, grTapClickBlocker = null;
 function grMountTapPad(host) {
   grRemoveTapPad();
   const wrap = host?.querySelector('.sr-staff, .sp-score'); if (!wrap) return;
@@ -936,11 +938,17 @@ function grMountTapPad(host) {
     e.preventDefault(); e.stopPropagation();
     grRecordTap(e);
   };
+  grTapClickBlocker = e => {
+    if (e.target.closest?.('button, a, input, select, textarea')) return;
+    e.preventDefault(); e.stopPropagation();
+  };
   wrap.addEventListener('pointerdown', grTapHandler, { capture: true });
+  wrap.addEventListener('click', grTapClickBlocker, { capture: true });
 }
 function grRemoveTapPad() {
   if (grTapEl && grTapHandler) grTapEl.removeEventListener('pointerdown', grTapHandler, { capture: true });
-  grTapEl = null; grTapHandler = null;
+  if (grTapEl && grTapClickBlocker) grTapEl.removeEventListener('click', grTapClickBlocker, { capture: true });
+  grTapEl = null; grTapHandler = null; grTapClickBlocker = null;
 }
 window.grMountTapPad = grMountTapPad;
 window.grRemoveTapPad = grRemoveTapPad;

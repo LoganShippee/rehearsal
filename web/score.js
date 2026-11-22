@@ -334,28 +334,22 @@ function spInjectVoiceGradeCSS() {
   const s = document.createElement('style');
   s.id = 'sp-voice-grade-css';
   s.textContent = `
-    /* Split playhead matching Sight Reading (marks above & below the system, clear of notes) */
+    /* Split playhead matching Sight Reading (blue for playback, orange for loops) */
     .sp-ph { background: none !important; box-shadow: none !important; width: 4px !important; margin-left: -2px !important; z-index: 6; pointer-events: none; }
     .sp-ph .seg { position: absolute; left: 0; width: 100%; border-radius: 4px; box-shadow: 0 0 10px rgba(231,111,81,.55); }
     .sp-ph .seg.top { top: 0; background: linear-gradient(to bottom, rgba(231,111,81,0), #e76f51 45%); }
     .sp-ph .seg.bot { background: linear-gradient(to bottom, #e76f51 55%, rgba(231,111,81,0)); }
+    .sp-ph.is-play .seg { box-shadow: 0 0 10px rgba(31,111,209,.55); }
+    .sp-ph.is-play .seg.top { background: linear-gradient(to bottom, rgba(31,111,209,0), #1f6fd1 45%); }
+    .sp-ph.is-play .seg.bot { background: linear-gradient(to bottom, #1f6fd1 55%, rgba(31,111,209,0)); }
     .sp-ph.pulse { animation: srpulse .5s ease-in-out infinite alternate; }
-    /* Option A: soft borderless wash + seamless 90-degree vertical rehearsal brackets */
+    /* Clean straight vertical lines + borderless wash (orange for loops, blue fading to clear for playback) */
     .sp-sel i { background: rgba(231,111,81,.09) !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
     .sp-sel i.start { border-left: 3px solid #e76f51 !important; }
     .sp-sel i.end { border-right: 3px solid #e76f51 !important; }
-    .sp-sel i.start::before, .sp-sel i.start::after, .sp-sel i.end::before, .sp-sel i.end::after {
-      content: ""; position: absolute; width: 11px; height: 3px; background: #e76f51; border-radius: 0; pointer-events: none;
-    }
-    .sp-sel i.start::before { top: 0; left: -3px; }
-    .sp-sel i.start::after { bottom: 0; left: -3px; }
-    .sp-sel i.end::before { top: 0; right: -3px; }
-    .sp-sel i.end::after { bottom: 0; right: -3px; }
     .sp-sel.off i { background: rgba(31,111,209,.12) !important; }
     .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
     .sp-sel.off i.end { border-right: 0 !important; background: linear-gradient(90deg, rgba(31,111,209,.12) 0%, rgba(31,111,209,.12) 72%, rgba(31,111,209,0) 100%) !important; }
-    .sp-sel.off i.end::before, .sp-sel.off i.end::after { display: none !important; }
-    .sp-sel.off i.start::before, .sp-sel.off i.start::after { background: #1f6fd1; }
     .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
     .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: -3px !important;
       font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
@@ -2245,6 +2239,7 @@ function mountScore(host, st, onChange0, key) {
     const botStart = (clearBot + gap) - y0;
     const totalH = botStart + segLen;
     ph.hidden = false;
+    ph.classList.toggle('is-play', !st.loop.on);
     ph.classList.toggle('pulse', !!inCount);
     Object.assign(ph.style, { transform: `translate(${x}px, ${y0}px)`, height: totalH + 'px' });
     ph.children[0].style.height = topSegH + 'px';
@@ -2413,6 +2408,7 @@ function mountScore(host, st, onChange0, key) {
     if (b) {
       e.stopPropagation(); SP_ACTIVE = ctl;
       const k = b.dataset.sp;
+      if (k !== 'grade' && k !== 'grade-menu' && k !== 'gradego' && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
       if (k === 'play') { if (ctl.playing) spStop(); else if (ctl.sc) spPlay(ctl); }
       if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); ctl.drawVoices(); onChange(); }
       if (k === 'tempo-reset') { if (st.tempo !== 100) { st.tempo = 100; ctl.updateBar(); ctl.drawVoices(); onChange(); } }
@@ -2579,6 +2575,7 @@ function mountScore(host, st, onChange0, key) {
   let drag = null;
   $q('.sp-score').addEventListener('pointerdown', e => {
     if (e.button !== 0 || ctl.holdMode || !BOX.length) return;
+    if (typeof GR !== 'undefined' && (GR.on || GR.starting || performance.now() < (GR.quietUntil || 0))) return;
     const i = measureAt(e); if (i < 0) return;
     drag = { from: e.shiftKey && ctl.anchor != null ? ctl.anchor : i, last: i, x: e.clientX, y: e.clientY };
   });
@@ -2601,6 +2598,7 @@ function mountScore(host, st, onChange0, key) {
     }
   });
   root.addEventListener('change', e => {
+    if (typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
     const el = e.target, k = el.dataset.spk;
     if (k === 'from' || k === 'to') { const i = mIdx(el.value); if (k === 'from') st.loop.a = i; else st.loop.b = i; if (st.loop.a > st.loop.b) [st.loop.a, st.loop.b] = [st.loop.b, st.loop.a]; st.loop.on = true; ctl.pick = null; }
     else if (k === 'file') {
