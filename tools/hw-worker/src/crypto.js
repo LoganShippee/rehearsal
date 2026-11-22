@@ -95,6 +95,22 @@ export function getPepper(env) {
   return String(env?.SESSION_PEPPER || 'rehearsal-hw-dev-pepper');
 }
 
+export function getPreviousPeppers(env) {
+  const primary = getPepper(env);
+  const raw = String(env?.PREVIOUS_SESSION_PEPPERS || '');
+  if (!raw) return [];
+  const seen = new Set([primary]);
+  const out = [];
+  for (const part of raw.split(',')) {
+    const p = part.trim();
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 export async function hashSessionToken(token, env) {
   return hmacSha256Hex(getPepper(env), `sess:${token}`);
 }
@@ -108,6 +124,12 @@ export async function hashEmailCode(code, saltHex) {
 export async function studentCodeLookupKey(classId, rawCode, env) {
   const norm = normalizeCode(rawCode);
   return hmacSha256Hex(getPepper(env), `stucode:${classId}:${norm}`);
+}
+
+export async function studentCodeLookupKeys(classId, rawCode, env) {
+  const norm = normalizeCode(rawCode);
+  const peppers = [getPepper(env), ...getPreviousPeppers(env)];
+  return Promise.all(peppers.map(p => hmacSha256Hex(p, `stucode:${classId}:${norm}`)));
 }
 
 export async function hashStudentCode(rawCode, saltHex = null, iterations = PBKDF2_ITERATIONS) {
@@ -274,4 +296,50 @@ export async function verifyGoogleIdToken(idToken, env) {
     name: String(payload.name || payload.given_name || payload.email.split('@')[0] || '').trim(),
     emailVerified: true,
   };
+}
+
+// ---------- Stateless Teacher Preview Sandbox Tokens (2-hour TTL)
+export const PREVIEW_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+
+export function bytesToBase64Url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function signPreviewToken({ assignmentId, teacherId, expiresAt }, env) {
+  const payload = {
+    aid: String(assignmentId || ''),
+    tid: String(teacherId || ''),
+    exp: Number(expiresAt || 0),
+  };
+  const body = bytesToBase64Url(enc.encode(JSON.stringify(payload)));
+  const sig = await hmacSha256Hex(getPepper(env), `hw-preview:${body}`);
+  return `${body}.${sig}`;
+}
+
+export async function verifyPreviewToken(token, env, now = nowMs(env)) {
+  const raw = String(token || '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return { ok: false, code: 'PREVIEW_INVALID', error: 'Invalid preview link.' };
+  }
+  const [body, sig] = parts;
+  const expected = await hmacSha256Hex(getPepper(env), `hw-preview:${body}`);
+  if (!timingSafeEqual(sig, expected)) {
+    return { ok: false, code: 'PREVIEW_INVALID', error: 'Invalid preview link.' };
+  }
+  let data;
+  try {
+    data = base64UrlToJson(body);
+  } catch {
+    return { ok: false, code: 'PREVIEW_INVALID', error: 'Invalid preview link.' };
+  }
+  if (!data || typeof data.aid !== 'string' || !data.aid || typeof data.tid !== 'string' || !data.tid || !Number.isFinite(data.exp)) {
+    return { ok: false, code: 'PREVIEW_INVALID', error: 'Invalid preview link.' };
+  }
+  if (data.exp <= now) {
+    return { ok: false, code: 'PREVIEW_EXPIRED', error: 'This preview link has expired. Open a fresh preview from Rehearsal.' };
+  }
+  return { ok: true, assignmentId: data.aid, teacherId: data.tid, expiresAt: data.exp };
 }

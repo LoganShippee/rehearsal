@@ -8,8 +8,8 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="theme-color" content="#142238">
 <title>Rehearsal Online Homework — Student Portal</title>
-<link rel="stylesheet" href="styles.css?v=9">
-<link rel="stylesheet" href="hw.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="hw.css?v=10">
 </head>
 <body class="hw-page">
   <header class="hw-header">
@@ -85,6 +85,18 @@
 
     <!-- 3. Active Assignment Workspace -->
     <section id="hw-runner-wrap" hidden>
+      <!-- Teacher Preview Sandbox Banner -->
+      <section class="hw-preview-banner" id="hw-preview-banner" hidden>
+        <div class="hw-preview-banner-text">
+          <span class="hw-pill preview">Teacher Preview Sandbox</span>
+          <span id="hw-preview-msg">Testing this assignment as a student — takes stay local and are never saved to your Gradebook.</span>
+        </div>
+        <div class="hw-preview-banner-actions">
+          <button type="button" class="hw-btn primary" id="hw-preview-reset">Reset Preview</button>
+          <button type="button" class="hw-btn" id="hw-preview-close">Close Preview</button>
+        </div>
+      </section>
+
       <!-- Collapsible Teacher Assignment Configurator (Local Preview Mode only) -->
       <section class="hw-teacher-drawer" id="hw-teacher-drawer" hidden>
         <div class="hw-teacher-drawer-title">
@@ -153,14 +165,14 @@
   <div id="print-area"></div>
 
   <!-- Lightweight standalone shim + API client + Rehearsal's real engines loaded verbatim -->
-  <script src="hw-shim.js?v=9"></script>
-  <script src="hw-api.js?v=9"></script>
-  <script src="icons.js?v=9"></script>
+  <script src="hw-shim.js?v=10"></script>
+  <script src="hw-api.js?v=10"></script>
+  <script src="icons.js?v=10"></script>
   <script src="vendor/vexflow.js"></script>
-  <script src="sight.js?v=9"></script>
-  <script src="music.js?v=9"></script>
-  <script src="grade.js?v=9"></script>
-  <script src="score.js?v=9"></script>
-  <script src="hw-student.js?v=9"></script>
+  <script src="sight.js?v=10"></script>
+  <script src="music.js?v=10"></script>
+  <script src="grade.js?v=10"></script>
+  <script src="score.js?v=10"></script>
+  <script src="hw-student.js?v=10"></script>
 </body>
 </html>

@@ -191,6 +191,43 @@
           "wholeFile": true
         }
       ]
+    },
+    {
+      "id": "homework-data-integrity",
+      "label": "Cloudflare D1 database binding, table schema & student code hashing",
+      "reason": "Changing production D1/R2 IDs, dropping tables, or altering student code hashing breaks saved class rosters and printed student login slips.",
+      "alwaysAsk": true,
+      "rules": [
+        {
+          "file": "tools/hw-worker/wrangler.toml",
+          "matchLines": [
+            "database_id",
+            "database_name",
+            "bucket_name"
+          ]
+        },
+        {
+          "file": "tools/hw-worker/schema.sql",
+          "matchLines": [
+            "^CREATE TABLE"
+          ]
+        },
+        {
+          "file": "tools/hw-worker/migrations/0001_initial.sql",
+          "matchLines": [
+            "^CREATE TABLE"
+          ]
+        },
+        {
+          "file": "tools/hw-worker/src/crypto.js",
+          "matchLines": [
+            "studentCodeLookupKey",
+            "hashStudentCode",
+            "verifyStudentCode",
+            "PBKDF2_ITERATIONS"
+          ]
+        }
+      ]
     }
   ]
 }

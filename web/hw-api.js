@@ -17,6 +17,7 @@
   const DEMO_SENTINEL = 'demo';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-demo-offline';
   const DEMO_DB_KEY = 'rehearsal-hw-demo-db-v1';
+  const PREVIEW_DRAFT_KEY = 'rehearsal-hw-preview-draft-v1';
   const DAY_MS = 24 * 60 * 60 * 1000;
   const capsByBase = new Map();
 
@@ -937,6 +938,70 @@
       });
       if (!res.ok) return res;
       return { ok: true, url: URL.createObjectURL(res.blob) };
+    },
+
+    async getPreviewAssignment(previewToken) {
+      const tok = String(previewToken || '').trim();
+      if (!tok) {
+        return demoErr(400, 'PREVIEW_INVALID', 'Missing preview link token.');
+      }
+      if (tok.startsWith('demo:')) {
+        const id = tok.slice(5);
+        let entry = null;
+        try {
+          const map = JSON.parse(localStorage.getItem(PREVIEW_DRAFT_KEY) || '{}') || {};
+          entry = map[id] || null;
+        } catch { entry = null; }
+        if (!entry || !entry.assignment) {
+          return demoErr(404, 'PREVIEW_EXPIRED', 'This preview link expired. Click Preview as Student again from Rehearsal.');
+        }
+        return {
+          ok: true,
+          preview: true,
+          class: clone(entry.class || { id: entry.assignment.classId, name: 'Preview Class', joinCode: '', teacherName: 'Teacher', acceptingSubmissions: true }),
+          assignment: {
+            ...clone(entry.assignment),
+            excerptLocked: false,
+            attemptsUsed: 0,
+            attemptsRemaining: entry.assignment.maxAttempts ?? null,
+            expiredStartsCount: 0,
+            activeStart: null,
+            latestSubmission: null,
+            bestSubmission: null,
+          },
+        };
+      }
+      return liveFetch(`/api/preview/assignment?token=${encodeURIComponent(tok)}`, {
+        method: 'GET',
+        auth: false,
+      });
+    },
+
+    async downloadPreviewScoreBlob(previewToken) {
+      const tok = String(previewToken || '').trim();
+      if (tok.startsWith('demo:')) {
+        const id = tok.slice(5);
+        let entry = null;
+        try {
+          const map = JSON.parse(localStorage.getItem(PREVIEW_DRAFT_KEY) || '{}') || {};
+          entry = map[id] || null;
+        } catch { entry = null; }
+        if (!entry || !entry.assignment) {
+          return demoErr(404, 'PREVIEW_EXPIRED', 'This preview link expired. Click Preview as Student again from Rehearsal.');
+        }
+        const xml = entry.assignment?.config?.demoXml || (typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '');
+        const blob = new Blob([xml], { type: 'application/xml' });
+        return {
+          ok: true,
+          blob,
+          filename: entry.assignment?.scoreFilename || 'Sample Vocal Check-In.musicxml',
+        };
+      }
+      return liveFetch(`/api/preview/score?token=${encodeURIComponent(tok)}`, {
+        method: 'GET',
+        auth: false,
+        responseType: 'blob',
+      });
     },
   };
 

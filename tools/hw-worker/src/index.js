@@ -43,9 +43,12 @@ import {
 } from './classes.js';
 import {
   handleCreateAssignment,
+  handleCreateAssignmentPreview,
   handleDeleteAssignment,
   handleDownloadAssignmentScore,
+  handleDownloadPreviewScore,
   handleGetAssignment,
+  handleGetPreviewAssignment,
   handleListClassAssignments,
   handleStudentGetAssignment,
   handleStudentListAssignments,
@@ -275,6 +278,19 @@ async function route(request, env) {
   if (method === 'GET' && (m = path.match(/^\/api\/assignments\/([^/]+)\/submissions$/))) {
     const assignmentId = decodeSeg(m[1]);
     return withTeacher(request, env, auth => handleListAssignmentSubmissions(request, env, auth, assignmentId));
+  }
+
+  if (method === 'POST' && (m = path.match(/^\/api\/assignments\/([^/]+)\/preview$/))) {
+    const assignmentId = decodeSeg(m[1]);
+    return withTeacher(request, env, auth => handleCreateAssignmentPreview(request, env, auth, assignmentId));
+  }
+
+  // ---------- Stateless Teacher Preview Sandbox
+  if (method === 'GET' && path === '/api/preview/assignment') {
+    return handleGetPreviewAssignment(request, env);
+  }
+  if (method === 'GET' && path === '/api/preview/score') {
+    return handleDownloadPreviewScore(request, env);
   }
 
   // ---------- Student Portal, Attempt Starts & Submissions

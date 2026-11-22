@@ -924,6 +924,11 @@
       return;
     }
 
+    if (act === 'preview-assignment' && D.editId) {
+      window.HW_TEACHER?.openAssignmentPreview?.(D.editId);
+      return;
+    }
+
     if (act === 'submit') {
       await submitDrawer();
     }
@@ -1934,6 +1939,8 @@
 
     const showSubmit = signedIn && !D.pickerMode;
     const footHTML = `
+      ${showSubmit && D.editId ? `<button type="button" class="btn" data-hwt="preview-assignment" ${offline || D.submitting ? 'disabled' : ''} title="Open this saved assignment in a Student Sandbox tab">Preview as Student ↗</button>` : ''}
+      <span class="grow"></span>
       <button type="button" class="btn" data-hwt="close">${showSubmit ? 'Cancel' : 'Close'}</button>
       ${showSubmit ? `<button type="button" class="btn primary" data-hwt="submit" ${blocked || D.submitting ? 'disabled' : ''}>${D.submitting ? 'Saving…' : D.editId ? 'Save Changes' : 'Create Assignment'}</button>` : ''}
     `;

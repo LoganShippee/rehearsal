@@ -13,6 +13,7 @@
   const DEMO_DB_KEY = 'rehearsal-hw-teacher-demo-v1';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-teacher-demo-offline';
   const DEMO_HANDOFFS_KEY = 'rehearsal-hw-demo-handoffs-v1';
+  const PREVIEW_DRAFT_KEY = 'rehearsal-hw-preview-draft-v1';
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const capsByBase = new Map();
@@ -245,6 +246,26 @@
       }
     }
     return base;
+  }
+
+  function buildPreviewPortalUrl(previewToken, { demo = false } = {}) {
+    const base = getStudentPortalUrl('');
+    try {
+      const u = new URL(base, (typeof location !== 'undefined' && location.href) ? location.href : PUBLIC_SITE_BASE);
+      u.searchParams.set('preview', String(previewToken || ''));
+      if (demo) {
+        u.searchParams.set('demo', '1');
+      } else {
+        const apiBase = getApiBase();
+        if (apiBase && apiBase !== DEFAULT_API_BASE) {
+          u.searchParams.set('api', apiBase);
+        }
+      }
+      return u.href;
+    } catch {
+      const sep = base.includes('?') ? '&' : '?';
+      return `${base}${sep}preview=${encodeURIComponent(String(previewToken || ''))}${demo ? '&demo=1' : ''}`;
+    }
   }
 
   function triggerDownload(content, filename, mimeType) {
@@ -2837,6 +2858,118 @@
         contentType: mime,
         updatedAt: now,
       };
+    },
+
+    async createAssignmentPreview(assignmentId) {
+      if (!isDemoMode()) {
+        if (isOffline()) {
+          return offlineErr('Preview requires an internet connection.');
+        }
+        const res = await liveFetch(`/api/assignments/${encodeURIComponent(assignmentId)}/preview`, {
+          method: 'POST',
+          json: {},
+        });
+        if (!res.ok) return res;
+        return {
+          ...res,
+          previewUrl: buildPreviewPortalUrl(res.previewToken, { demo: false }),
+        };
+      }
+
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const row = db.assignments.find(a => a.id === assignmentId);
+      if (!row) return demoErr(404, 'ASSIGNMENT_NOT_FOUND', 'Assignment not found.');
+      const cls = db.classes.find(c => c.id === row.classId) || { id: row.classId, name: 'Demo Class', joinCode: '' };
+      const key = makeId('prv');
+      const now = Date.now();
+      let map = {};
+      try {
+        map = JSON.parse(localStorage.getItem(PREVIEW_DRAFT_KEY) || '{}') || {};
+      } catch { map = {}; }
+      // Prune entries older than 24 hours and keep at most 10 cached local previews
+      const cutoff = now - DAY_MS;
+      const freshEntries = Object.entries(map)
+        .filter(([, v]) => v && Number(v.savedAt || 0) > cutoff)
+        .sort((a, b) => Number(b[1].savedAt || 0) - Number(a[1].savedAt || 0))
+        .slice(0, 9);
+      const nextMap = Object.fromEntries(freshEntries);
+      nextMap[key] = {
+        savedAt: now,
+        class: {
+          id: cls.id,
+          name: cls.name,
+          joinCode: cls.joinCode,
+          teacherName: db.teacher?.name || 'Teacher',
+          acceptingSubmissions: true,
+        },
+        assignment: clone(row),
+      };
+      try {
+        localStorage.setItem(PREVIEW_DRAFT_KEY, JSON.stringify(nextMap));
+      } catch {
+        return demoErr(500, 'PREVIEW_STORE_FAILED', 'Could not prepare local preview.');
+      }
+      const token = `demo:${key}`;
+      return {
+        ok: true,
+        previewToken: token,
+        expiresAt: now + 2 * 60 * 60 * 1000,
+        assignmentId: row.id,
+        previewUrl: buildPreviewPortalUrl(token, { demo: true }),
+      };
+    },
+
+    exportRosterCsv(cls, students) {
+      const list = Array.isArray(students) ? students : [];
+      if (!cls || !list.length) return { ok: false, error: 'No students to export.' };
+      const lines = [
+        ['Class Name', 'Class Code', 'Student Name', 'Part', 'Email', 'Sign-In Method', 'Status']
+          .map(csvCell).join(','),
+      ];
+      const joinFmt = formatCode(cls.joinCode);
+      for (const st of list) {
+        const methods = [];
+        if (st.hasCode) methods.push('Student Code');
+        if (st.hasGoogle) methods.push('Google');
+        lines.push([
+          cls.name || '',
+          joinFmt,
+          st.displayName || '',
+          st.part || '',
+          st.email || '',
+          methods.join(' + ') || 'Not set',
+          st.archivedAt ? 'Archived' : 'Active',
+        ].map(csvCell).join(','));
+      }
+      const filename = `roster-${safeSlug(cls.name, 'class')}.csv`;
+      triggerDownload(lines.join('\r\n'), filename, 'text/csv;charset=utf-8');
+      return { ok: true, filename, count: list.length };
+    },
+
+    exportCodesCsv(codeAlert) {
+      const items = Array.isArray(codeAlert?.items) ? codeAlert.items : [];
+      if (!items.length) return { ok: false, error: 'No student codes to download.' };
+      const portalUrl = getStudentPortalUrl(codeAlert.joinCode);
+      const joinFmt = formatCode(codeAlert.joinCode);
+      const lines = [
+        ['Class Name', 'Class Code', 'Student Name', 'Part', 'Student Code', 'Student Portal Link']
+          .map(csvCell).join(','),
+      ];
+      for (const it of items) {
+        lines.push([
+          codeAlert.className || '',
+          joinFmt,
+          it.displayName || '',
+          it.part || '',
+          formatCode(it.code),
+          portalUrl,
+        ].map(csvCell).join(','));
+      }
+      const filename = `student-codes-${safeSlug(codeAlert.className, 'class')}.csv`;
+      triggerDownload(lines.join('\r\n'), filename, 'text/csv;charset=utf-8');
+      return { ok: true, filename, count: items.length };
     },
 
     // Gradebook & Submissions

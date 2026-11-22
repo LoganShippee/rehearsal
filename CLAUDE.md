@@ -11,6 +11,13 @@ Rehearsal is a classroom-display and music-rehearsal app for teachers. It ships 
 
 Everything uses the Rehearsal name: bundle ID `local.rehearsal.app`, data folder `~/Library/Application Support/Rehearsal/` (with one-time startup migration from the legacy data folder in `native/updater.swift`), the executable, the Info.plist update keys (`RehearsalUpdateRepo`/`RehearsalUpdateKey`), window frame names (`RehearsalMain`, `RehearsalPresent`, `RehearsalDrive`), and the browser's localStorage key `rehearsal`.
 
+### Online Homework Data Safety (Cloudflare D1 & Student Codes)
+Production Online Homework data lives in Cloudflare D1 (`rehearsal-hw`, `database_id = 795b1819-c643-4e3a-9cd5-682fc874a37e`) and R2 (`rehearsal-hw-media`). Keep teacher rosters and student sign-in codes safe across every update:
+- **Never overwrite `SESSION_PEPPER` blindly.** Student code lookups (`code_lookup` in D1) are HMAC-keyed with `SESSION_PEPPER`. Before rotating `SESSION_PEPPER`, set `PREVIOUS_SESSION_PEPPERS` (comma-separated old peppers) so existing student codes keep working and auto-reindex to the new pepper on login.
+- **Append-only schema changes only.** Never drop/truncate tables or edit `tools/hw-worker/migrations/0001_initial.sql`. Add new additive migrations (`0002_*.sql`, etc.) in `tools/hw-worker/migrations/` and apply with `wrangler d1 migrations apply`.
+- **Snapshot D1 before any migration.** Run `tools/hw-worker/backup-d1.sh` first to export the remote database to `~/Rehearsal-Backups/d1/` (strictly outside git). Cloudflare D1 also provides 30-day Time Travel (`wrangler d1 time-travel info rehearsal-hw`).
+- **Never alter `database_id` or `bucket_name`** in `tools/hw-worker/wrangler.toml` (guarded by `homework-data-integrity` in `tests/protected-zones.json`).
+
 ## Commands
 
 There is no package manager, bundler or Node: the web code is plain browser JavaScript, and macOS's built-in JavaScriptCore runs the tests.

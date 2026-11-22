@@ -989,6 +989,289 @@ async function main() {
     assertEq(utilMod.csvCell('=1,2'), `"'=1,2"`, 'csvCell neutralizes formula and quotes comma');
   }
 
+  // --- Teacher Assignment Preview Tokens (crypto + endpoints + isolation) & PREVIOUS_SESSION_PEPPERS fallback
+  {
+    const baseNow = Date.now();
+    const prevEnvCrypto = { SESSION_PEPPER: 'new-pepper-v2', PREVIOUS_SESSION_PEPPERS: 'old-pepper-v1, older-v0' };
+
+    // 1. Token sign / verify round-trip, tamper & expiry
+    const tok = await cryptoMod.signPreviewToken(
+      { assignmentId: 'asgn_1', teacherId: 'tch_a', expiresAt: baseNow + 60_000 },
+      prevEnvCrypto
+    );
+    const okTok = await cryptoMod.verifyPreviewToken(tok, prevEnvCrypto, baseNow);
+    assertEq(okTok.ok, true, 'verifyPreviewToken accepts fresh signed token');
+    assertEq(okTok.assignmentId, 'asgn_1', 'verifyPreviewToken returns assignmentId');
+    assertEq(okTok.teacherId, 'tch_a', 'verifyPreviewToken returns teacherId');
+
+    const parts = tok.split('.');
+    const badSig = parts[0] + '.' + (parts[1][0] === 'a' ? 'b' : 'a') + parts[1].slice(1);
+    const badRes = await cryptoMod.verifyPreviewToken(badSig, prevEnvCrypto, baseNow);
+    assertEq(badRes.ok, false, 'verifyPreviewToken rejects tampered token');
+    assertEq(badRes.code, 'PREVIEW_INVALID', 'verifyPreviewToken tamper code is PREVIEW_INVALID');
+
+    const expRes = await cryptoMod.verifyPreviewToken(tok, prevEnvCrypto, baseNow + 60_001);
+    assertEq(expRes.ok, false, 'verifyPreviewToken rejects expired token');
+    assertEq(expRes.code, 'PREVIEW_EXPIRED', 'verifyPreviewToken expired code is PREVIEW_EXPIRED');
+
+    // 2. Mock D1 & R2 for full HTTP router tests of preview + pepper fallback
+    const { hash: stuHash, salt: stuSalt } = await cryptoMod.hashStudentCode('H7P-9KM');
+    const oldEnv = { SESSION_PEPPER: 'old-pepper-v1' };
+    const oldLookup = await cryptoMod.studentCodeLookupKey('cls_a', 'H7P-9KM', oldEnv);
+    const newLookup = await cryptoMod.studentCodeLookupKey('cls_a', 'H7P-9KM', { SESSION_PEPPER: 'new-pepper-v2' });
+
+    const tokA = 'rt_teacher_a_tok';
+    const tokB = 'rt_teacher_b_tok';
+    const tokAHash = await cryptoMod.hashSessionToken(tokA, prevEnvCrypto);
+    const tokBHash = await cryptoMod.hashSessionToken(tokB, prevEnvCrypto);
+
+    const mockState = {
+      teachers: [
+        { id: 'tch_a', email: 'a@school.edu', name: 'Ms. Rivera', plan_status: 'trialing', trial_ends_at: baseNow + 10 * utilMod.DAY_MS },
+        { id: 'tch_b', email: 'b@school.edu', name: 'Mr. Kim', plan_status: 'trialing', trial_ends_at: baseNow + 10 * utilMod.DAY_MS },
+      ],
+      teacher_sessions: [
+        { id: 'ts_a', teacher_id: 'tch_a', token_hash: tokAHash, ephemeral: 0, expires_at: baseNow + 100_000, revoked_at: null, last_seen_at: baseNow },
+        { id: 'ts_b', teacher_id: 'tch_b', token_hash: tokBHash, ephemeral: 0, expires_at: baseNow + 100_000, revoked_at: null, last_seen_at: baseNow },
+      ],
+      classes: [
+        { id: 'cls_a', teacher_id: 'tch_a', name: 'Concert Choir', join_code: 'K7M-4P2', locked: 0, archived_at: null },
+      ],
+      students: [
+        {
+          id: 'stu_1',
+          class_id: 'cls_a',
+          display_name: 'Maya Lin',
+          part: 'Soprano',
+          code_lookup: oldLookup,
+          code_hash: stuHash,
+          code_salt: stuSalt,
+          failed_code_attempts: 0,
+          code_cooldown_until: null,
+          code_hard_locked: 0,
+          archived_at: null,
+          updated_at: baseNow - 1000,
+        },
+      ],
+      assignments: [
+        {
+          id: 'asgn_draft_tsr',
+          class_id: 'cls_a',
+          teacher_id: 'tch_a',
+          title: 'Draft True Sight-Read',
+          instructions: 'Study carefully.',
+          type: 'sight',
+          mode: 'true_sight_read',
+          config_json: JSON.stringify({ studySeconds: 30, srState: { mode: 'solfege', ex: { solfege: { secret: true } } } }),
+          score_r2_key: null,
+          score_filename: null,
+          score_bytes: 0,
+          due_at: null,
+          max_attempts: 1,
+          grade_policy: 'best',
+          published: 0,
+          archived_at: null,
+          created_at: baseNow - 5000,
+          updated_at: baseNow - 5000,
+        },
+        {
+          id: 'asgn_pub_score',
+          class_id: 'cls_a',
+          teacher_id: 'tch_a',
+          title: 'Published Vocal Score',
+          instructions: 'Sing soprano line.',
+          type: 'score',
+          mode: 'practice',
+          config_json: JSON.stringify({ gradeMode: 'mic', spState: { tempo: 100 } }),
+          score_r2_key: 'scores/tch_a/asgn_pub_score/piece.musicxml',
+          score_filename: 'piece.musicxml',
+          score_bytes: 41,
+          due_at: null,
+          max_attempts: null,
+          grade_policy: 'best',
+          published: 1,
+          archived_at: null,
+          created_at: baseNow - 4000,
+          updated_at: baseNow - 4000,
+        },
+      ],
+      attempt_starts: [],
+      submissions: [],
+      rate_limits: [],
+      student_sessions: [],
+    };
+
+    const xmlBytes = new TextEncoder().encode('<score-partwise><work/></score-partwise>');
+    const mockBucket = {
+      async get(key) {
+        if (key === 'scores/tch_a/asgn_pub_score/piece.musicxml') {
+          return { body: xmlBytes, size: xmlBytes.byteLength };
+        }
+        return null;
+      },
+    };
+
+    const mockDb = {
+      prepare(sql) {
+        const q = sql.replace(/\s+/g, ' ').trim();
+        let params = [];
+        const stmt = {
+          bind(...args) { params = args; return stmt; },
+          async first() {
+            if (q.includes('FROM teacher_sessions s JOIN teachers t')) {
+              const s = mockState.teacher_sessions.find(x => x.token_hash === params[0] && !x.revoked_at && x.expires_at > params[1]);
+              if (!s) return null;
+              const t = mockState.teachers.find(x => x.id === s.teacher_id);
+              return t ? { ...t, session_id: s.id, ephemeral: s.ephemeral, expires_at: s.expires_at } : null;
+            }
+            if (q.startsWith('SELECT id, class_id, teacher_id FROM assignments WHERE id = ? AND teacher_id = ?')) {
+              return mockState.assignments.find(a => a.id === params[0] && a.teacher_id === params[1]) || null;
+            }
+            if (q.includes('FROM assignments a JOIN classes c ON c.id = a.class_id JOIN teachers t ON t.id = a.teacher_id')) {
+              const a = mockState.assignments.find(x => x.id === params[0] && x.teacher_id === params[1]);
+              if (!a) return null;
+              const c = mockState.classes.find(x => x.id === a.class_id);
+              const t = mockState.teachers.find(x => x.id === a.teacher_id);
+              return c && t ? { ...a, class_name: c.name, class_join_code: c.join_code, teacher_name: t.name } : null;
+            }
+            if (q.startsWith('SELECT * FROM assignments WHERE id = ? AND teacher_id = ?')) {
+              return mockState.assignments.find(a => a.id === params[0] && a.teacher_id === params[1]) || null;
+            }
+            if (q.startsWith('SELECT * FROM classes WHERE join_code = ?')) {
+              return mockState.classes.find(c => c.join_code === params[0] && !c.archived_at) || null;
+            }
+            if (q.startsWith('SELECT * FROM students WHERE class_id = ? AND code_lookup = ?')) {
+              return mockState.students.find(s => s.class_id === params[0] && s.code_lookup === params[1] && !s.archived_at) || null;
+            }
+            if (q.includes('FROM rate_limits WHERE key = ?')) {
+              return mockState.rate_limits.find(r => r.key === params[0]) || null;
+            }
+            return null;
+          },
+          async all() { return { results: [] }; },
+          async run() {
+            if (q.startsWith('UPDATE students SET code_lookup = ?, updated_at = ? WHERE id = ?')) {
+              const s = mockState.students.find(x => x.id === params[2]);
+              if (s) { s.code_lookup = params[0]; s.updated_at = params[1]; }
+            } else if (q.startsWith('INSERT INTO student_sessions')) {
+              mockState.student_sessions.push({ id: params[0], student_id: params[1] });
+            } else if (q.startsWith('DELETE FROM rate_limits WHERE key = ?')) {
+              mockState.rate_limits = mockState.rate_limits.filter(r => r.key !== params[0]);
+            }
+            return { meta: { changes: 1 } };
+          },
+        };
+        return stmt;
+      },
+    };
+
+    const handlerEnv = { ...prevEnvCrypto, DB: mockDb, BUCKET: mockBucket, APP_ORIGINS: '*' };
+
+    // 2a. Owning teacher can create preview for Draft TSR & Published Score
+    const prevDraftRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/assignments/asgn_draft_tsr/preview', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokA}` },
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(prevDraftRes.status, 200, 'POST /api/assignments/:id/preview succeeds on Draft assignment');
+    const prevDraftBody = await prevDraftRes.json();
+    assert(typeof prevDraftBody.previewToken === 'string' && prevDraftBody.previewToken.includes('.'), 'previewToken returned');
+
+    // 2b. Cross-teacher isolation
+    const prevCrossRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/assignments/asgn_draft_tsr/preview', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokB}` },
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(prevCrossRes.status, 404, 'Other teacher cannot generate preview for Teacher A assignment');
+
+    // 2c. GET /api/preview/assignment returns full config (including secret ex) without student auth
+    const getPrevRes = await indexMod.default.fetch(
+      new Request(`https://hw.example.com/api/preview/assignment?token=${encodeURIComponent(prevDraftBody.previewToken)}`, {
+        method: 'GET',
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(getPrevRes.status, 200, 'GET /api/preview/assignment returns 200 without student auth');
+    const getPrevBody = await getPrevRes.json();
+    assertEq(getPrevBody.preview, true, 'GET /api/preview/assignment sets preview=true');
+    assertEq(getPrevBody.class.name, 'Concert Choir', 'GET /api/preview/assignment includes class name');
+    assertEq(getPrevBody.assignment.config.srState.ex.solfege.secret, true, 'Preview keeps full TSR excerpt');
+    assertEq(getPrevBody.assignment.excerptLocked, false, 'Preview excerptLocked=false');
+    assertEq(mockState.attempt_starts.length, 0, 'Preview adds zero attempt_starts rows');
+    assertEq(mockState.submissions.length, 0, 'Preview adds zero submissions rows');
+
+    const badPrevRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/preview/assignment?token=tampered.token', { method: 'GET' }),
+      handlerEnv,
+      {}
+    );
+    assertEq(badPrevRes.status, 401, 'GET /api/preview/assignment rejects invalid token with 401');
+
+    // 2d. Score preview generation + download + invalid rejection
+    const prevScoreRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/assignments/asgn_pub_score/preview', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokA}` },
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(prevScoreRes.status, 200, 'POST preview for Score assignment returns 200');
+    const prevScoreBody = await prevScoreRes.json();
+
+    const dlScoreRes = await indexMod.default.fetch(
+      new Request(`https://hw.example.com/api/preview/score?token=${encodeURIComponent(prevScoreBody.previewToken)}`, {
+        method: 'GET',
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(dlScoreRes.status, 200, 'GET /api/preview/score returns 200');
+    const dlXmlText = await dlScoreRes.text();
+    assertEq(dlXmlText, '<score-partwise><work/></score-partwise>', 'GET /api/preview/score streams score XML');
+
+    const badScoreRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/preview/score?token=bad.tok', { method: 'GET' }),
+      handlerEnv,
+      {}
+    );
+    assertEq(badScoreRes.status, 401, 'GET /api/preview/score rejects invalid token with 401');
+
+    // 3. PREVIOUS_SESSION_PEPPERS fallback & transparent reindex on student code login
+    const stuLogin1 = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/auth/student/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.5' },
+        body: JSON.stringify({ joinCode: 'K7M-4P2', studentCode: 'H7P-9KM' }),
+      }),
+      handlerEnv,
+      {}
+    );
+    assertEq(stuLogin1.status, 200, 'Student code indexed under old pepper logs in via PREVIOUS_SESSION_PEPPERS');
+    assertEq(mockState.students[0].code_lookup, newLookup, 'Student code_lookup auto-reindexes to new SESSION_PEPPER on login');
+
+    // Second login with PREVIOUS_SESSION_PEPPERS cleared still works immediately
+    const noFallbackEnv = { ...handlerEnv, PREVIOUS_SESSION_PEPPERS: '' };
+    const stuLogin2 = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/auth/student/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.5' },
+        body: JSON.stringify({ joinCode: 'K7M-4P2', studentCode: 'H7P-9KM' }),
+      }),
+      noFallbackEnv,
+      {}
+    );
+    assertEq(stuLogin2.status, 200, 'Reindexed student code still logs in after PREVIOUS_SESSION_PEPPERS is removed');
+  }
+
   console.log(`hw-worker-unit: ALL ${passed} assertions passed (${failed} failed)`);
 }
 

@@ -999,6 +999,7 @@
             <div class="card-head">
               <h3>Roster (${S_STATE.students.length})</h3>
               <span class="grow"></span>
+              <button type="button" class="btn small" data-hwt="export-roster-csv" ${S_STATE.students.length ? '' : 'disabled'}>Export Roster CSV</button>
               <label class="chk">
                 <input type="checkbox" data-hwt-change="toggle-archived-students" ${S_STATE.showArchivedStudents ? 'checked' : ''}>
                 Show archived students
@@ -1051,6 +1052,7 @@
           </div>
           <span class="grow"></span>
           <button type="button" class="btn small primary" data-hwt="print-codes">Print Student Code Sheet</button>
+          <button type="button" class="btn small" data-hwt="download-codes-csv">Download Codes CSV</button>
           <button type="button" class="btn small" data-hwt="copy-all-codes">Copy All</button>
           <button type="button" class="btn small" data-hwt="dismiss-codes">Dismiss</button>
         </div>
@@ -1160,6 +1162,7 @@
         </div>
         <div class="hwt-asgn-actions">
           <button type="button" class="btn small primary" data-hwt="review-asgn" data-id="${escHtml(a.id)}">Review Submissions</button>
+          <button type="button" class="btn small" data-hwt="preview-asgn" data-id="${escHtml(a.id)}" ${online ? '' : 'disabled'}>Preview as Student ↗</button>
           <button type="button" class="btn small" data-hwt="toggle-publish" data-id="${escHtml(a.id)}" ${writable ? '' : 'disabled'}>${a.published ? 'Unpublish' : 'Publish'}</button>
           <button type="button" class="btn small" data-hwt="edit-asgn" data-id="${escHtml(a.id)}" ${writable ? '' : 'disabled'}>Edit</button>
           ${a.archivedAt
@@ -2453,6 +2456,20 @@
       case 'print-codes':
         printCodeSheet();
         break;
+      case 'download-codes-csv': {
+        const ca = S_STATE.generatedCodes;
+        if (!ca) break;
+        const r = api.exportCodesCsv(ca);
+        showToast(r?.ok ? `Downloaded ${r.filename}.` : (r?.error || 'Could not download student codes CSV.'));
+        break;
+      }
+      case 'export-roster-csv': {
+        const cls = getSelectedClass();
+        if (!cls) break;
+        const r = api.exportRosterCsv(cls, S_STATE.students);
+        showToast(r?.ok ? `Exported ${r.count} student${r.count === 1 ? '' : 's'} to ${r.filename}.` : (r?.error || 'Could not export roster CSV.'));
+        break;
+      }
       case 'copy-all-codes': {
         const ca = S_STATE.generatedCodes;
         if (!ca) break;
@@ -2572,6 +2589,9 @@
         S_STATE.gbFilter.assignmentId = btn.dataset.id || '';
         S_STATE.subTab = 'gradebook';
         renderMain();
+        break;
+      case 'preview-asgn':
+        await openAssignmentPreview(btn.dataset.id);
         break;
       case 'toggle-publish': {
         const id = btn.dataset.id;
@@ -3340,6 +3360,44 @@
     renderAll();
   }
 
+  async function openAssignmentPreview(assignmentId) {
+    const api = API();
+    if (!api || !assignmentId) return;
+    let placeholderWin = null;
+    if (!isNativeApp()) {
+      try {
+        placeholderWin = window.open('about:blank', '_blank');
+        if (placeholderWin && !placeholderWin.closed && placeholderWin.document) {
+          placeholderWin.document.title = 'Opening Student Preview Sandbox…';
+          placeholderWin.document.body.innerHTML = '<p style="font:15px system-ui,sans-serif;padding:24px;color:#334155">Opening Student Preview Sandbox…</p>';
+        }
+      } catch { placeholderWin = null; }
+    }
+
+    const res = await api.createAssignmentPreview(assignmentId);
+    if (!res?.ok || !res.previewUrl) {
+      if (placeholderWin && !placeholderWin.closed) {
+        try { placeholderWin.close(); } catch { }
+      }
+      showToast(res?.error || 'Could not open assignment preview.');
+      return;
+    }
+
+    if (isNativeApp()) {
+      openExternalUrl(res.previewUrl);
+      return;
+    }
+    if (placeholderWin && !placeholderWin.closed) {
+      try {
+        placeholderWin.opener = null;
+        placeholderWin.location.replace(res.previewUrl);
+        return;
+      } catch { }
+    }
+    openExternalUrl(res.previewUrl);
+    showToast('Preview ready — allow pop-ups if the tab did not open.');
+  }
+
   window.HW_TEACHER = {
     renderTab,
     mount,
@@ -3349,6 +3407,7 @@
     openAssignFromSight,
     openAssignFromScore,
     openAssignAudio,
+    openAssignmentPreview,
     onAssignmentSaved,
   };
 })();

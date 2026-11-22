@@ -12,8 +12,8 @@ import {
 } from './util.js';
 import {
   formatCode, generateEmailDigits, hashEmailCode, hashSessionToken, normalizeCode,
-  randomHex, sha256Hex, studentCodeLookupKey, timingSafeEqual, verifyGoogleIdToken,
-  verifyStudentCode,
+  randomHex, sha256Hex, studentCodeLookupKey, studentCodeLookupKeys, timingSafeEqual,
+  verifyGoogleIdToken, verifyStudentCode,
 } from './crypto.js';
 import { checkRateLimit, clearRateLimit, recordRateFailure } from './rate-limit.js';
 import { computePlanState, DEFAULT_STUDENT_SOFT_CAP, getServerCapabilities, TRIAL_DAYS } from './billing.js';
@@ -493,14 +493,28 @@ export async function handleStudentCodeLogin(request, env) {
     );
   }
 
-  const lookup = await studentCodeLookupKey(cls.id, studentCode, env);
+  const lookupKeys = await studentCodeLookupKeys(cls.id, studentCode, env);
+  const primaryLookup = lookupKeys[0];
   let student = null;
   let matchedByNameOnly = false;
+  let matchedViaFallbackPepper = false;
 
-  // 1. O(1) lookup by keyed code index first
+  // 1. O(1) lookup by keyed code index first (trying PREVIOUS_SESSION_PEPPERS on rotation)
   student = await env.DB.prepare(
     'SELECT * FROM students WHERE class_id = ? AND code_lookup = ? AND archived_at IS NULL'
-  ).bind(cls.id, lookup).first();
+  ).bind(cls.id, primaryLookup).first();
+
+  if (!student && lookupKeys.length > 1) {
+    for (let i = 1; i < lookupKeys.length; i++) {
+      student = await env.DB.prepare(
+        'SELECT * FROM students WHERE class_id = ? AND code_lookup = ? AND archived_at IS NULL'
+      ).bind(cls.id, lookupKeys[i]).first();
+      if (student) {
+        matchedViaFallbackPepper = true;
+        break;
+      }
+    }
+  }
 
   // 2. If student provided their name (free-text, no dropdown) and code didn't match,
   //    resolve the student row so per-student 5-fail cooldown & 10-fail hard lock apply directly.
@@ -584,10 +598,17 @@ export async function handleStudentCodeLogin(request, env) {
     return errResponse('Class code or student code did not match. Check for typos or ask your teacher.', 401, 'INVALID_CODE', request, env);
   }
 
-  // Success: reset failure counters & issue session
+  // Success: reset failure counters, reindex fallback pepper if used, & issue session
   await env.DB.prepare(
     'UPDATE students SET failed_code_attempts = 0, code_cooldown_until = NULL, updated_at = ? WHERE id = ?'
   ).bind(now, student.id).run();
+  if (matchedViaFallbackPepper) {
+    try {
+      await env.DB.prepare(
+        'UPDATE students SET code_lookup = ?, updated_at = ? WHERE id = ?'
+      ).bind(primaryLookup, now, student.id).run();
+    } catch { }
+  }
   await clearRateLimit(env, clsIpKey);
 
   const session = await createStudentSession(env, student.id, cls.id, 'code');

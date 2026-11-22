@@ -15,6 +15,7 @@ import {
 } from './util.js';
 import { assertTeacherWritable } from './billing.js';
 import { requireStudent, requireTeacher } from './auth.js';
+import { PREVIEW_TOKEN_TTL_MS, signPreviewToken, verifyPreviewToken } from './crypto.js';
 
 const MAX_CONFIG_BYTES = 128 * 1024; // 128 KB max assignment config JSON
 const VALID_TYPES = new Set(['sight', 'score', 'audio']);
@@ -628,6 +629,38 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
   }, 200, request, env);
 }
 
+async function streamAssignmentScoreResponse(request, env, assignment, cacheControl = 'private, max-age=300') {
+  if (!assignment.score_r2_key) {
+    return errResponse('No score file has been uploaded for this assignment.', 404, 'SCORE_NOT_FOUND', request, env);
+  }
+  if (!env.BUCKET) {
+    return errResponse('Score file storage is not configured.', 503, 'STORAGE_UNAVAILABLE', request, env);
+  }
+
+  const obj = await env.BUCKET.get(assignment.score_r2_key);
+  if (!obj) {
+    return errResponse('Score file not found.', 404, 'SCORE_NOT_FOUND', request, env);
+  }
+
+  const filename = (assignment.score_filename || 'score.musicxml').replace(/["\\\r\n]/g, '_');
+  const isMxl = filename.toLowerCase().endsWith('.mxl');
+  const contentType = isMxl
+    ? 'application/vnd.recordare.musicxml'
+    : 'application/xml; charset=utf-8';
+
+  const headers = {
+    ...corsHeaders(request, env),
+    'Content-Type': contentType,
+    'Content-Disposition': `inline; filename="${filename}"`,
+    'Cache-Control': cacheControl,
+  };
+  if (typeof obj.size === 'number') {
+    headers['Content-Length'] = String(obj.size);
+  }
+
+  return new Response(obj.body, { status: 200, headers });
+}
+
 export async function handleDownloadAssignmentScore(request, env, assignmentId) {
   let assignment = null;
 
@@ -653,35 +686,100 @@ export async function handleDownloadAssignmentScore(request, env, assignmentId) 
     }
   }
 
-  if (!assignment.score_r2_key) {
-    return errResponse('No score file has been uploaded for this assignment.', 404, 'SCORE_NOT_FOUND', request, env);
+  return streamAssignmentScoreResponse(request, env, assignment, 'private, max-age=300');
+}
+
+// ---------- Teacher Preview Sandbox (stateless signed token, read-only)
+
+function readPreviewTokenFromRequest(request) {
+  try {
+    const url = new URL(request.url);
+    const param = url.searchParams.get('token');
+    if (param) return param.trim();
+  } catch { }
+  return String(request.headers.get('x-preview-token') || '').trim();
+}
+
+export async function handleCreateAssignmentPreview(request, env, auth, assignmentId) {
+  const row = await env.DB.prepare(
+    'SELECT id, class_id, teacher_id FROM assignments WHERE id = ? AND teacher_id = ?'
+  ).bind(assignmentId, auth.teacher.id).first();
+  if (!row) {
+    return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
   }
-  if (!env.BUCKET) {
-    return errResponse('Score file storage is not configured.', 503, 'STORAGE_UNAVAILABLE', request, env);
+  const expiresAt = nowMs(env) + PREVIEW_TOKEN_TTL_MS;
+  const previewToken = await signPreviewToken(
+    { assignmentId: row.id, teacherId: auth.teacher.id, expiresAt },
+    env
+  );
+  return jsonResponse({
+    ok: true,
+    previewToken,
+    expiresAt,
+    assignmentId: row.id,
+  }, 200, request, env);
+}
+
+export async function handleGetPreviewAssignment(request, env) {
+  const token = readPreviewTokenFromRequest(request);
+  const verified = await verifyPreviewToken(token, env);
+  if (!verified.ok) {
+    return errResponse(verified.error, 401, verified.code, request, env);
   }
 
-  const obj = await env.BUCKET.get(assignment.score_r2_key);
-  if (!obj) {
-    return errResponse('Score file not found.', 404, 'SCORE_NOT_FOUND', request, env);
+  const row = await env.DB.prepare(
+    `SELECT a.*, c.name AS class_name, c.join_code AS class_join_code, t.name AS teacher_name
+     FROM assignments a
+     JOIN classes c ON c.id = a.class_id
+     JOIN teachers t ON t.id = a.teacher_id
+     WHERE a.id = ? AND a.teacher_id = ?`
+  ).bind(verified.assignmentId, verified.teacherId).first();
+  if (!row) {
+    return errResponse('This assignment is no longer available.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
   }
 
-  const filename = (assignment.score_filename || 'score.musicxml').replace(/["\\\r\n]/g, '_');
-  const isMxl = filename.toLowerCase().endsWith('.mxl');
-  const contentType = isMxl
-    ? 'application/vnd.recordare.musicxml'
-    : 'application/xml; charset=utf-8';
+  const config = safeJsonParse(row.config_json, {});
+  const res = jsonResponse({
+    ok: true,
+    preview: true,
+    expiresAt: verified.expiresAt,
+    class: {
+      id: row.class_id,
+      name: row.class_name,
+      joinCode: row.class_join_code,
+      teacherName: row.teacher_name || '',
+      acceptingSubmissions: true,
+    },
+    assignment: {
+      ...formatAssignment(row, config),
+      excerptLocked: false,
+      attemptsUsed: 0,
+      attemptsRemaining: row.max_attempts != null ? Number(row.max_attempts) : null,
+      expiredStartsCount: 0,
+      activeStart: null,
+      latestSubmission: null,
+      bestSubmission: null,
+    },
+  }, 200, request, env);
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
 
-  const headers = {
-    ...corsHeaders(request, env),
-    'Content-Type': contentType,
-    'Content-Disposition': `inline; filename="${filename}"`,
-    'Cache-Control': 'private, max-age=300',
-  };
-  if (typeof obj.size === 'number') {
-    headers['Content-Length'] = String(obj.size);
+export async function handleDownloadPreviewScore(request, env) {
+  const token = readPreviewTokenFromRequest(request);
+  const verified = await verifyPreviewToken(token, env);
+  if (!verified.ok) {
+    return errResponse(verified.error, 401, verified.code, request, env);
   }
 
-  return new Response(obj.body, { status: 200, headers });
+  const assignment = await env.DB.prepare(
+    'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?'
+  ).bind(verified.assignmentId, verified.teacherId).first();
+  if (!assignment) {
+    return errResponse('This assignment is no longer available.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
+  }
+
+  return streamAssignmentScoreResponse(request, env, assignment, 'private, no-store');
 }
 
 // ---------- Student Assignment Portal

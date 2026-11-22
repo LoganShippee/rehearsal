@@ -367,7 +367,7 @@ function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationS
     id: 'take_' + uid(),
     assignmentId: HW_STATE.activeAssignment?.id || `preview_${type}`,
     assignmentTitle: HW_STATE.activeAssignment?.title || label,
-    studentId: HW_STATE.session?.student?.id || 'local',
+    studentId: HW_STATE.previewMode ? 'teacher_preview' : (HW_STATE.session?.student?.id || 'local'),
     attemptStartId: meta.attemptStartId || null,
     createdAt: Date.now(),
     status: 'draft',
@@ -507,9 +507,13 @@ function hwInstallEngineHooks(onTakeSaved) {
           const timerEl = $('#hw-study-timer');
           if (timerEl) timerEl.textContent = 'DONE';
           const msgEl = $('#hw-study-msg');
-          if (msgEl) msgEl.innerHTML = '<strong>Completed!</strong> Saving &amp; submitting your True Sight-Read take…';
+          if (msgEl) {
+            msgEl.innerHTML = HW_STATE.previewMode
+              ? '<strong>Completed!</strong> Grading your preview take locally…'
+              : '<strong>Completed!</strong> Saving &amp; submitting your True Sight-Read take…';
+          }
           const pWrap = $('#hw-study-pitches');
-          if (pWrap) pWrap.innerHTML = `<span class="hw-pill draft">Uploading…</span>`;
+          if (pWrap) pWrap.innerHTML = `<span class="hw-pill draft">${HW_STATE.previewMode ? 'Grading…' : 'Uploading…'}</span>`;
         }
         const grObj = host.__grResult;
         hwFinishParallelRecorder(grObj.take?.rec).then(async ({ blob, durationSec }) => {
@@ -519,7 +523,16 @@ function hwInstallEngineHooks(onTakeSaved) {
           await hwIdbPut(take);
           HW_STATE.latestTakeId = take.id;
           await onTakeSaved(take);
-          if (ctx.autoSubmit && HW_STATE.session && !HW_STATE.teacherOpen) {
+          if (HW_STATE.previewMode) {
+            if (ctx.autoSubmit) {
+              const msgEl = $('#hw-study-msg'), pWrap = $('#hw-study-pitches');
+              if (msgEl) {
+                msgEl.innerHTML = `<strong>Preview complete!</strong>${take.overallPct != null ? ` Score: ${take.overallPct}% —` : ''} Nothing was saved to your Gradebook. Click <strong>Reset Preview</strong> above to try again.`;
+              }
+              if (pWrap) pWrap.innerHTML = `<span class="hw-pill submitted">✓ Preview Complete</span>`;
+            }
+            toast(`Preview take graded (${take.overallPct != null ? take.overallPct + '%' : 'audio'}) — sandbox only, not saved to Gradebook`);
+          } else if (ctx.autoSubmit && HW_STATE.session && !HW_STATE.teacherOpen) {
             await hwUploadTake(take.id);
           } else {
             toast(`Practice take saved (${take.overallPct != null ? take.overallPct + '%' : 'audio'}) — click Submit when ready`);
@@ -535,6 +548,10 @@ function hwInstallEngineHooks(onTakeSaved) {
 const HW_STATE = {
   view: 'auth',         // 'auth' | 'list' | 'runner'
   session: null,        // { student, class }
+  previewMode: false,
+  previewToken: '',
+  previewClass: null,
+  previewRevealed: false,
   assignments: [],
   activeAssignment: null,
   activeAttemptStart: null,
@@ -596,6 +613,7 @@ function hwFormatCodeInputValue(raw) {
 }
 
 function hwCanSubmitActive() {
+  if (HW_STATE.previewMode) return true;
   if (HW_STATE.teacherOpen) return true;
   if (!HW_STATE.session) return true;
   if (HW_STATE.session.class?.acceptingSubmissions === false) return false;
@@ -608,8 +626,12 @@ function hwCanSubmitActive() {
 
 function hwCurrentTakesForAssignment() {
   const aid = HW_STATE.activeAssignment?.id;
+  if (HW_STATE.previewMode) {
+    return HW_STATE.takes.filter(t => t.studentId === 'teacher_preview' && (!aid || t.assignmentId === aid));
+  }
   const sid = HW_STATE.session?.student?.id;
   return HW_STATE.takes.filter(t => {
+    if (t.studentId === 'teacher_preview') return false;
     if (aid && t.assignmentId && t.assignmentId !== aid) return false;
     if (sid && t.studentId && t.studentId !== 'local' && t.studentId !== sid) return false;
     return true;
@@ -619,12 +641,18 @@ function hwCurrentTakesForAssignment() {
 function hwQueuedOfflineTakes() {
   const sid = HW_STATE.session?.student?.id;
   return HW_STATE.takes.filter(t =>
-    t.uploadState === 'queued_offline' && (!sid || !t.studentId || t.studentId === 'local' || t.studentId === sid)
+    t.studentId !== 'teacher_preview' &&
+    t.uploadState === 'queued_offline' &&
+    (!sid || !t.studentId || t.studentId === 'local' || t.studentId === sid)
   );
 }
 
 // ---------- Upload Pipeline & IndexedDB Offline Queue
 async function hwUploadTake(id) {
+  if (HW_STATE.previewMode) {
+    toast('Teacher Preview Sandbox — takes stay local and are never saved to your Gradebook.');
+    return { ok: false, previewBlocked: true };
+  }
   const take = HW_STATE.takes.find(t => t.id === id);
   if (!take || !HW_STATE.session) return;
   const targetAssignmentId = take.assignmentId || HW_STATE.activeAssignment?.id;
@@ -751,6 +779,14 @@ function hwRenderLatestBanner() {
   const t = takeList.find(x => x.id === HW_STATE.latestTakeId && x.type === HW_STATE.tab) || null;
   if (!t) { host.innerHTML = ''; return; }
 
+  if (HW_STATE.previewMode) {
+    host.innerHTML = `<div class="hw-submit-banner draft">
+      <span><strong>Preview Take Graded:</strong> ${esc(t.label)}${t.overallPct != null ? ` — ${t.overallPct}% (Rhythm ${t.rhythmPct}%${t.pitchPct != null ? ` · Pitch ${t.pitchPct}%` : ''})` : ''}</span>
+      <span class="hw-pill preview">Sandbox Only · Not Sent to Gradebook</span>
+    </div>`;
+    return;
+  }
+
   if (t.uploadState === 'uploading') {
     host.innerHTML = `<div class="hw-submit-banner draft">
       <span><strong>Uploading…</strong> ${esc(t.label)} is being sent to your teacher.</span>
@@ -782,12 +818,19 @@ function hwRenderLatestBanner() {
 function hwRenderHeaderChips() {
   const demo = HW_API.isDemoMode();
   const loggedIn = !!HW_STATE.session;
+  const preview = !!HW_STATE.previewMode;
   const badge = $('#hw-mode-badge');
-  if (badge) badge.textContent = demo ? 'Preview Mode' : 'Student Portal';
+  if (badge) {
+    badge.textContent = preview ? 'Teacher Preview' : (demo ? 'Preview Mode' : 'Student Portal');
+    badge.classList.toggle('preview', preview);
+  }
 
   const stuChip = $('#hw-student-chip');
   if (stuChip) {
-    if (loggedIn) {
+    if (preview) {
+      stuChip.hidden = false;
+      stuChip.textContent = `Teacher Sandbox${HW_STATE.previewClass?.name ? ` · ${HW_STATE.previewClass.name}` : ''}`;
+    } else if (loggedIn) {
       const s = HW_STATE.session.student, c = HW_STATE.session.class;
       stuChip.hidden = false;
       stuChip.textContent = `${s.displayName}${s.part ? ` (${s.part})` : ''} · ${c.name}`;
@@ -798,16 +841,16 @@ function hwRenderHeaderChips() {
 
   const syncBtn = $('#hw-sync-btn');
   if (syncBtn) {
-    syncBtn.hidden = !loggedIn;
+    syncBtn.hidden = !(loggedIn || preview);
     const done = hwSyncIsDone();
-    syncBtn.textContent = done ? `Sync: ${avDelayMs()} ms ✓` : 'Audio Sync Needed';
+    syncBtn.textContent = done ? `Sync: ${avDelayMs()} ms ✓` : (preview ? 'Audio Sync (Optional)' : 'Audio Sync Needed');
     syncBtn.classList.toggle('ok', done);
-    syncBtn.classList.toggle('warn', !done);
+    syncBtn.classList.toggle('warn', !done && !preview);
   }
 
   const offBtn = $('#hw-offline-btn');
   if (offBtn) {
-    offBtn.hidden = !(demo && loggedIn);
+    offBtn.hidden = preview || !(demo && loggedIn);
     const isOff = HW_API.isDemoOffline();
     offBtn.textContent = isOff ? 'Offline Test: ON' : 'Offline Test: Off';
     offBtn.classList.toggle('offline-on', isOff);
@@ -815,18 +858,18 @@ function hwRenderHeaderChips() {
 
   const tBtn = $('#hw-teacher-toggle');
   if (tBtn) {
-    tBtn.hidden = !(demo && loggedIn && HW_STATE.view === 'runner');
+    tBtn.hidden = preview || !(demo && loggedIn && HW_STATE.view === 'runner');
     tBtn.classList.toggle('on', HW_STATE.teacherOpen);
     tBtn.textContent = HW_STATE.teacherOpen ? 'Preview Student View' : 'Teacher Setup ▾';
   }
 
   const outBtn = $('#hw-signout-btn');
-  if (outBtn) outBtn.hidden = !loggedIn;
+  if (outBtn) outBtn.hidden = preview || !loggedIn;
 
   const devChip = $('#hw-dev-chip');
   if (devChip) {
-    devChip.hidden = !demo;
-    if (demo) {
+    devChip.hidden = !(demo || preview);
+    if (demo || preview) {
       const mime = hwPickAudioMime();
       devChip.textContent = `${DEVICE} · ${mime ? mime.split(';')[0] : 'WAV fallback'}`;
     }
@@ -894,8 +937,12 @@ function hwRenderAuthScreen() {
   const jcInput = $('#hw-in-joincode'), scInput = $('#hw-in-stucode'), clsPicker = $('#hw-google-classes');
   if (clsPicker) { clsPicker.hidden = true; clsPicker.innerHTML = ''; }
   const urlCode = QS.get('code');
+  const urlStudent = QS.get('student');
   if (jcInput && urlCode && !jcInput.value) {
     jcInput.value = hwFormatCodeInputValue(urlCode);
+  }
+  if (scInput && urlStudent && !scInput.value) {
+    scInput.value = hwFormatCodeInputValue(urlStudent);
   }
 
   const gEnabled = HW_API.isDemoMode() || !!HW_STATE.capabilities?.googleSignInEnabled || !!(QS.get('googleClientId') || window.HW_GOOGLE_CLIENT_ID);
@@ -915,9 +962,15 @@ function hwRenderAuthScreen() {
       demoBox.innerHTML = '';
     } else {
       const creds = HW_API.getDemoCredentials();
+      if (jcInput && !jcInput.value && creds.joinCode) {
+        jcInput.value = hwFormatCodeInputValue(creds.joinCode);
+      }
+      if (scInput && !scInput.value && creds.students[0]?.code) {
+        scInput.value = hwFormatCodeInputValue(creds.students[0].code);
+      }
       demoBox.hidden = false;
       demoBox.innerHTML = `
-        <div><strong>Local Preview Mode</strong> — Class Code <strong>${esc(creds.joinCode)}</strong> (${esc(creds.className)}). Click a student below to try it out:</div>
+        <div><strong>Student Sandbox</strong> — Sample codes are already filled in above (<strong>${esc(creds.joinCode)}</strong> · ${esc(creds.students[0]?.displayName || 'Maya Lin')}). Click <strong>Sign In with Code</strong>, or jump in as another sample student:</div>
         <div class="hw-demo-btns">
           ${creds.students.map((s, idx) => `<button type="button" class="hw-btn" data-demo-stu="${idx}">${esc(s.displayName)} (${esc(s.code)})</button>`).join('')}
           <button type="button" class="hw-btn" id="hw-demo-google">Try Google Student</button>
@@ -1174,11 +1227,38 @@ function hwRenderAssignmentList() {
   });
 }
 
+function hwClosePreviewWindow() {
+  try { window.close(); } catch { }
+  setTimeout(() => {
+    if (!window.closed) location.href = './';
+  }, 120);
+}
+
 function hwRenderRunnerHeaderBar() {
   const a = HW_STATE.activeAssignment;
-  const titleEl = $('#hw-back-title'), attEl = $('#hw-runner-attempts');
+  const titleEl = $('#hw-back-title'), attEl = $('#hw-runner-attempts'),
+    backBtn = $('#hw-back-list'), backBar = $('#hw-back-bar'),
+    previewBanner = $('#hw-preview-banner'), previewMsg = $('#hw-preview-msg');
+
+  if (backBar) backBar.hidden = false;
+  if (backBtn) backBtn.hidden = !!HW_STATE.previewMode;
   if (titleEl) titleEl.textContent = a ? a.title : 'Homework';
+
+  if (previewBanner) {
+    previewBanner.hidden = !HW_STATE.previewMode;
+    if (HW_STATE.previewMode && previewMsg) {
+      const clsName = HW_STATE.previewClass?.name ? ` (${HW_STATE.previewClass.name})` : '';
+      const draftNote = a?.published === false ? ' · <strong>Draft</strong> (not published to students yet)' : '';
+      previewMsg.innerHTML = `Testing <strong>${esc(a?.title || 'this assignment')}</strong>${esc(clsName)} as a student${draftNote} — takes stay local and are never saved to your Gradebook.`;
+    }
+  }
+
   if (attEl && a) {
+    if (HW_STATE.previewMode) {
+      attEl.className = 'hw-pill preview';
+      attEl.textContent = 'Sandbox · Unlimited Test Tries';
+      return;
+    }
     const localSubs = hwCurrentTakesForAssignment().filter(t => t.status === 'submitted').length;
     const serverSubs = Array.isArray(HW_STATE.activeSubmissions) ? HW_STATE.activeSubmissions.length : 0;
     const used = Math.max(Number(a.attemptsUsed || 0), localSubs, serverSubs);
@@ -1193,16 +1273,10 @@ function hwRenderRunnerHeaderBar() {
   }
 }
 
-async function hwOpenAssignment(assignmentId) {
-  const res = await HW_API.getAssignment(assignmentId);
-  if (!res.ok || !res.assignment) {
-    toast(res.error || 'Could not load assignment.');
-    return;
-  }
-  const a = res.assignment;
+async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) {
   HW_STATE.activeAssignment = a;
-  HW_STATE.activeSubmissions = Array.isArray(res.submissions) ? res.submissions : [];
-  HW_STATE.activeAttemptStart = a.activeStart || null;
+  HW_STATE.activeSubmissions = Array.isArray(submissions) ? submissions : [];
+  HW_STATE.activeAttemptStart = HW_STATE.previewMode ? null : (a.activeStart || null);
   HW_STATE.srTrueSubmitted = null;
   HW_STATE.scoreLoadError = '';
   HW_STATE.tab = a.type === 'score' ? 'score' : (a.type === 'audio' ? 'audio' : 'sight');
@@ -1226,22 +1300,23 @@ async function hwOpenAssignment(assignmentId) {
       solfege: { ...baseSr.solfege, ...(incomingSr.solfege || {}) },
       ex: incomingSr.ex ? JSON.parse(JSON.stringify(incomingSr.ex)) : {},
     };
-    if (a.excerptLocked) {
+    if (a.excerptLocked && !HW_STATE.previewMode) {
       HW_STATE.srState.ex = {};
     }
     HW_STATE.srTrueMode = a.mode === 'true_sight_read';
     HW_STATE.srStudySec = Number(cfg.studySeconds || 30);
   } else if (HW_STATE.tab === 'score') {
-    let fid = HW_STATE.scoreFileIds.get(a.id);
+    const cacheKey = HW_STATE.previewMode ? `preview:${a.id}:${HW_STATE.previewToken}` : a.id;
+    let fid = HW_STATE.scoreFileIds.get(cacheKey);
     if (!fid) {
-      const dl = await HW_API.downloadScoreBlob(a.id);
+      const dl = await scoreLoader();
       if (dl.ok && dl.blob) {
         fid = hwRegisterFile(dl.blob, dl.filename || a.scoreFilename || 'Score.musicxml');
-        HW_STATE.scoreFileIds.set(a.id, fid);
-      } else if (HW_API.isDemoMode()) {
+        HW_STATE.scoreFileIds.set(cacheKey, fid);
+      } else if (HW_API.isDemoMode() || String(HW_STATE.previewToken || '').startsWith('demo:')) {
         const sampleBlob = new Blob([HW_SAMPLE_MUSICXML], { type: 'application/xml' });
         fid = hwRegisterFile(sampleBlob, 'Sample Vocal Check-In.musicxml');
-        HW_STATE.scoreFileIds.set(a.id, fid);
+        HW_STATE.scoreFileIds.set(cacheKey, fid);
       } else {
         HW_STATE.scoreLoadError = dl.error || 'Could not download the score file for this assignment. Check your connection and try again.';
       }
@@ -1260,6 +1335,8 @@ async function hwOpenAssignment(assignmentId) {
     HW_STATE.aud.prompt = cfg.prompt || a.instructions || HW_STATE.aud.prompt;
   }
 
+  const takesCard = $('#hw-takes-card');
+  if (takesCard) takesCard.hidden = false;
   hwSetView('runner');
   hwRenderRunnerHeaderBar();
   document.querySelectorAll('.hw-tab').forEach(b => b.classList.toggle('on', b.dataset.hwTab === HW_STATE.tab));
@@ -1268,6 +1345,68 @@ async function hwOpenAssignment(assignmentId) {
   if (HW_STATE.tab === 'sight') hwMountSightRunner();
   else if (HW_STATE.tab === 'score') hwMountScoreRunner();
   else hwMountAudioRunner();
+}
+
+async function hwOpenAssignment(assignmentId) {
+  const res = await HW_API.getAssignment(assignmentId);
+  if (!res.ok || !res.assignment) {
+    toast(res.error || 'Could not load assignment.');
+    return;
+  }
+  await hwPopulateRunnerFromAssignment(
+    res.assignment,
+    () => HW_API.downloadScoreBlob(res.assignment.id),
+    res.submissions
+  );
+}
+
+async function hwOpenPreview(previewToken) {
+  HW_STATE.previewMode = true;
+  HW_STATE.previewToken = String(previewToken || '').trim();
+  HW_STATE.previewRevealed = false;
+  HW_STATE.latestTakeId = null;
+
+  const res = await HW_API.getPreviewAssignment(HW_STATE.previewToken);
+  if (!res.ok || !res.assignment) {
+    HW_STATE.activeAssignment = null;
+    HW_STATE.previewClass = null;
+    hwSetView('runner');
+    const previewBanner = $('#hw-preview-banner');
+    const backBar = $('#hw-back-bar');
+    const takesCard = $('#hw-takes-card');
+    const body = $('#hw-runner-body');
+    if (previewBanner) previewBanner.hidden = true;
+    if (backBar) backBar.hidden = true;
+    if (takesCard) takesCard.hidden = true;
+    if (body) {
+      body.innerHTML = `
+        <div class="hw-card">
+          <div class="hw-card-head">
+            <div>
+              <h2>Preview Link Unavailable</h2>
+              <div class="hw-submeta">Teacher Preview Sandbox</div>
+            </div>
+          </div>
+          <div class="hw-audio-body">
+            <div class="hw-auth-err" role="alert">${esc(res.error || 'This preview link has expired or is no longer available. Open a fresh preview from Rehearsal.')}</div>
+            <div class="row">
+              <button type="button" class="hw-btn primary" id="hw-preview-err-close">Close Preview</button>
+            </div>
+          </div>
+        </div>`;
+      const cbtn = $('#hw-preview-err-close');
+      if (cbtn) cbtn.onclick = hwClosePreviewWindow;
+    }
+    return;
+  }
+
+  HW_STATE.previewClass = res.class || null;
+  await hwRefreshTakes();
+  await hwPopulateRunnerFromAssignment(
+    res.assignment,
+    () => HW_API.downloadPreviewScoreBlob(HW_STATE.previewToken),
+    []
+  );
 }
 
 // ---------- Teacher Setup drawer (Local Preview Mode only)
@@ -1493,8 +1632,10 @@ function hwMountSightRunner() {
 
   const asgn = HW_STATE.activeAssignment;
   const canSub = hwCanSubmitActive();
-  const lockedByLimit = !canSub && !HW_STATE.teacherOpen;
-  const excerptLocked = !!asgn?.excerptLocked && !HW_STATE.activeAttemptStart && trueMode;
+  const lockedByLimit = !canSub && !HW_STATE.teacherOpen && !HW_STATE.previewMode;
+  const excerptLocked = HW_STATE.previewMode
+    ? (trueMode && !HW_STATE.previewRevealed)
+    : (!!asgn?.excerptLocked && !HW_STATE.activeAttemptStart && trueMode);
   const exhaustedMsg = HW_STATE.session?.class?.acceptingSubmissions === false
     ? 'This class is not accepting new submissions right now.'
     : 'You have already submitted all allowed attempts for this assignment.';
@@ -1564,6 +1705,7 @@ function hwMountSightRunner() {
               ${isPitch
                 ? 'During study time you can hear your <strong>Starting Pitch, Tonic Chord, and Scale</strong>. At 0:00, your <strong>microphone will count in, record, and automatically submit</strong> your take.'
                 : 'During study time you can hear the <strong>tempo pulse</strong>. At 0:00, <strong>Spacebar / Tap rhythm grading will start and automatically submit</strong> your take.'}
+              ${HW_STATE.previewMode ? '<br><span class="small muted">Preview Sandbox: nothing is submitted to your Gradebook and you can click Reset Preview anytime.</span>' : ''}
             </p>
             <button type="button" class="hw-btn primary" id="hw-study-begin" style="padding:11px 20px;font-size:15px">
               Reveal Excerpt &amp; Start ${HW_STATE.srStudySec}s Study Timer
@@ -1632,7 +1774,9 @@ function hwMountSightRunner() {
       }
 
       let studyLeft = HW_STATE.srStudySec;
-      if (asgn && HW_STATE.session) {
+      if (HW_STATE.previewMode) {
+        HW_STATE.previewRevealed = true;
+      } else if (asgn && HW_STATE.session) {
         const startRes = await HW_API.startAttempt(asgn.id);
         if (!startRes.ok) {
           beginBtn.disabled = false;
@@ -1729,7 +1873,11 @@ function hwMountScoreRunner() {
         </div>
       </div>`;
     const rbtn = $('#hw-sp-retry-dl');
-    if (rbtn) rbtn.onclick = () => hwOpenAssignment(HW_STATE.activeAssignment.id);
+    if (rbtn) {
+      rbtn.onclick = () => HW_STATE.previewMode
+        ? hwOpenPreview(HW_STATE.previewToken)
+        : hwOpenAssignment(HW_STATE.activeAssignment.id);
+    }
     hwRenderLatestBanner();
     return;
   }
@@ -1996,9 +2144,13 @@ function hwRenderTakes() {
   const host = $('#hw-takes-list'), countEl = $('#hw-takes-count'), clearBtn = $('#hw-clear-takes');
   if (!host) return;
   const isTeacher = !!HW_STATE.teacherOpen;
-  if (clearBtn) clearBtn.hidden = !isTeacher;
-
+  const isPreview = !!HW_STATE.previewMode;
   const list = hwCurrentTakesForAssignment();
+  if (clearBtn) {
+    clearBtn.hidden = !(isTeacher || (isPreview && list.length > 0));
+    clearBtn.textContent = isPreview ? 'Clear Preview Takes' : 'Clear Local Takes';
+  }
+
   const serverSubs = Array.isArray(HW_STATE.activeSubmissions) ? HW_STATE.activeSubmissions : [];
   const serverSubById = new Map(serverSubs.map(s => [s.id, s]));
   const localServerIds = new Set(list.map(t => t.serverSubmissionId).filter(Boolean));
@@ -2006,12 +2158,16 @@ function hwRenderTakes() {
 
   if (countEl) {
     const totalShown = list.length + remoteOnlySubs.length;
-    countEl.textContent = remoteOnlySubs.length
-      ? `${list.length} saved on this ${DEVICE} · ${serverSubs.length} submitted`
-      : `${totalShown} saved on this ${DEVICE}`;
+    countEl.textContent = isPreview
+      ? `${list.length} preview take${list.length === 1 ? '' : 's'} (sandbox only)`
+      : (remoteOnlySubs.length
+        ? `${list.length} saved on this ${DEVICE} · ${serverSubs.length} submitted`
+        : `${totalShown} saved on this ${DEVICE}`);
   }
   if (!list.length && !remoteOnlySubs.length) {
-    host.innerHTML = `<div class="hw-empty">No takes recorded yet for this assignment. Completed takes stay saved on this device even if Wi-Fi drops.</div>`;
+    host.innerHTML = `<div class="hw-empty">${isPreview
+      ? 'No preview takes recorded yet. Record or tap above to test grading and audio playback — takes stay local and are never saved to your Gradebook.'
+      : 'No takes recorded yet for this assignment. Completed takes stay saved on this device even if Wi-Fi drops.'}</div>`;
     return;
   }
 
@@ -2078,14 +2234,16 @@ function hwRenderTakes() {
       </div>` : ''}
       ${audioUrl ? `<audio class="hw-take-audio" controls preload="metadata" src="${audioUrl}"></audio>` : ''}
       <div class="row">
-        ${isQueued
-          ? `<button class="hw-btn primary" data-hw-submit="${esc(t.id)}">Retry Upload</button>`
-          : (!isSubmitted && !isUploading
-            ? `<button class="hw-btn good" data-hw-submit="${esc(t.id)}" ${canSub ? '' : 'disabled'}>Submit This Take</button>`
-            : '')}
-        ${(!isSubmitted || isTeacher) && !isUploading ? `<button class="hw-btn" data-hw-del="${esc(t.id)}">Delete</button>` : ''}
+        ${isPreview
+          ? `<span class="hw-pill preview">Sandbox Only · Not Sent to Gradebook</span>`
+          : (isQueued
+            ? `<button class="hw-btn primary" data-hw-submit="${esc(t.id)}">Retry Upload</button>`
+            : (!isSubmitted && !isUploading
+              ? `<button class="hw-btn good" data-hw-submit="${esc(t.id)}" ${canSub ? '' : 'disabled'}>Submit This Take</button>`
+              : ''))}
+        ${(!isSubmitted || isTeacher || isPreview) && !isUploading ? `<button class="hw-btn" data-hw-del="${esc(t.id)}">Delete</button>` : ''}
         ${isTeacher ? `<button class="hw-btn" data-hw-json="${esc(t.id)}">${showJson ? 'Hide' : 'Inspect'} Submission JSON</button>` : ''}
-        ${isTeacher && audioUrl ? `<a class="hw-btn" href="${audioUrl}" download="${esc(t.id)}.${(t.audioMime || '').includes('mp4') ? 'm4a' : (t.audioMime || '').includes('wav') ? 'wav' : 'webm'}">Download Audio</a>` : ''}
+        ${(isTeacher || isPreview) && audioUrl ? `<a class="hw-btn" href="${audioUrl}" download="${esc(t.id)}.${(t.audioMime || '').includes('mp4') ? 'm4a' : (t.audioMime || '').includes('wav') ? 'wav' : 'webm'}">Download Audio</a>` : ''}
       </div>
       ${showJson ? `<pre class="hw-json-pre">${esc(JSON.stringify(packetPreview, null, 2))}</pre>` : ''}
     </div>`;
@@ -2204,6 +2362,17 @@ async function hwBoot() {
   });
 
   $('#hw-clear-takes').onclick = async () => {
+    if (HW_STATE.previewMode) {
+      const previewTakes = HW_STATE.takes.filter(t => t.studentId === 'teacher_preview');
+      for (const t of previewTakes) {
+        const url = HW_STATE.takeUrls.get(t.id);
+        if (url) { URL.revokeObjectURL(url); HW_STATE.takeUrls.delete(t.id); }
+        await hwIdbDelete(t.id);
+      }
+      await hwRefreshTakes();
+      toast('Cleared preview takes.');
+      return;
+    }
     for (const url of HW_STATE.takeUrls.values()) URL.revokeObjectURL(url);
     HW_STATE.takeUrls.clear();
     await hwIdbClear();
@@ -2211,7 +2380,35 @@ async function hwBoot() {
     toast('Cleared local takes.');
   };
 
-  window.addEventListener('online', () => hwRetryQueuedUploads(true));
+  const resetPreviewBtn = $('#hw-preview-reset');
+  if (resetPreviewBtn) {
+    resetPreviewBtn.onclick = () => {
+      if (!HW_STATE.previewMode || !HW_STATE.activeAssignment) return;
+      hwCleanupMediaAndMic();
+      HW_STATE.previewRevealed = false;
+      HW_STATE.latestTakeId = null;
+      hwRenderTakes();
+      if (HW_STATE.tab === 'sight') hwMountSightRunner();
+      else if (HW_STATE.tab === 'score') hwMountScoreRunner();
+      else hwMountAudioRunner();
+      toast('Preview reset — ready to test again.');
+    };
+  }
+  const closePreviewBtn = $('#hw-preview-close');
+  if (closePreviewBtn) {
+    closePreviewBtn.onclick = hwClosePreviewWindow;
+  }
+
+  window.addEventListener('online', () => {
+    if (!HW_STATE.previewMode) hwRetryQueuedUploads(true);
+  });
+
+  // Teacher Preview Sandbox (?preview=<token>) skips student sign-in & sync lock
+  const previewTok = QS.get('preview');
+  if (previewTok) {
+    await hwOpenPreview(previewTok);
+    return;
+  }
 
   // Restore existing session if token exists in sessionStorage
   if (HW_API.getToken()) {

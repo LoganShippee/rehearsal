@@ -1082,6 +1082,52 @@ body.hw-page {
     border-color: #7f1d1d;
     color: #fecaca;
   }
+  body.hw-page .hw-preview-banner {
+    background: #1e1b4b;
+    border-color: #4338ca;
+    color: #e0e7ff;
+  }
+}
+
+/* Teacher Preview Sandbox Banner & Pills */
+.hw-badge.preview {
+  background: rgba(251, 191, 36, .22);
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, .45);
+}
+
+.hw-pill.preview {
+  background: #ede9fe;
+  color: #5b21b6;
+  border: 1px solid #c4b5fd;
+}
+
+.hw-preview-banner {
+  background: #eef2ff;
+  border: 1.5px solid #a5b4fc;
+  color: #1e1b4b;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hw-preview-banner[hidden] { display: none; }
+.hw-preview-banner-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  flex: 1;
+  min-width: 220px;
+}
+.hw-preview-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* Runner workspace back bar */

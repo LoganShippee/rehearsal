@@ -35,6 +35,7 @@ PRIVACY_URL = "https://app.rehearsalmusic.com/privacy.html"
 binding = "DB"
 database_name = "rehearsal-hw"
 database_id = "795b1819-c643-4e3a-9cd5-682fc874a37e"
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "BUCKET"
