@@ -11,6 +11,8 @@
   const SESSION_TOKEN_KEY = 'rehearsal-hw-student-token';
   const SESSION_API_KEY = 'rehearsal-hw-api-session';
   const LOCAL_API_KEY = 'rehearsal-hw-api';
+  const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const DEMO_SENTINEL = 'demo';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-demo-offline';
   const DEMO_DB_KEY = 'rehearsal-hw-demo-db-v1';
   const DAY_MS = 24 * 60 * 60 * 1000;
@@ -28,27 +30,39 @@
     return obj == null ? obj : JSON.parse(JSON.stringify(obj));
   }
 
-  // ---------- API Base Resolution (URL ?api= -> sessionStorage -> window -> localStorage)
+  // ---------- API Base Resolution (URL ?demo=1 / ?api= -> sessionStorage -> window -> localStorage -> prod default)
   function getApiBase() {
     try {
       const qs = new URLSearchParams(location.search);
+      if (qs.get('demo') === '1') return '';
       const paramApi = qs.get('api');
       if (paramApi !== null) {
         const clean = paramApi.trim().replace(/\/+$/, '');
-        if (clean) sessionStorage.setItem(SESSION_API_KEY, clean);
-        else sessionStorage.removeItem(SESSION_API_KEY);
+        if (!clean || clean.toLowerCase() === DEMO_SENTINEL) {
+          sessionStorage.setItem(SESSION_API_KEY, DEMO_SENTINEL);
+          return '';
+        }
+        sessionStorage.setItem(SESSION_API_KEY, clean);
+        return clean;
       }
       const sessApi = sessionStorage.getItem(SESSION_API_KEY);
+      if (sessApi === DEMO_SENTINEL) return '';
       if (sessApi) return sessApi;
     } catch { }
-    if (typeof window.HW_API_BASE === 'string' && window.HW_API_BASE.trim()) {
-      return window.HW_API_BASE.trim().replace(/\/+$/, '');
+    if (typeof window.HW_API_BASE === 'string') {
+      const clean = window.HW_API_BASE.trim().replace(/\/+$/, '');
+      if (!clean || clean.toLowerCase() === DEMO_SENTINEL) return '';
+      return clean;
     }
     try {
       const stored = localStorage.getItem(LOCAL_API_KEY);
-      if (stored && stored.trim()) return stored.trim().replace(/\/+$/, '');
+      if (stored !== null) {
+        const clean = stored.trim().replace(/\/+$/, '');
+        if (clean.toLowerCase() === DEMO_SENTINEL) return '';
+        if (clean) return clean;
+      }
     } catch { }
-    return '';
+    return DEFAULT_API_BASE;
   }
 
   function isDemoMode() {

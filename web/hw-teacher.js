@@ -697,7 +697,7 @@
           <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
             <label class="fld">
               <span>Cloudflare Worker URL (leave blank for Local Preview Mode)</span>
-              <input type="url" placeholder="https://rehearsal-hw.yourname.workers.dev" value="${escHtml(a.serverUrl)}" data-hwt-input="auth-server-url">
+              <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(a.serverUrl)}" data-hwt-input="auth-server-url">
             </label>
             <div class="row">
               <button type="button" class="btn small primary" data-hwt="auth-save-server">Save Server URL</button>
@@ -1360,7 +1360,7 @@
         <h3>Worker Server &amp; Sessions</h3>
         <label class="fld" style="margin-bottom:10px">
           <span>Online Homework Worker URL (blank = Local Preview Mode)</span>
-          <input type="url" placeholder="https://rehearsal-hw.yourname.workers.dev" value="${escHtml(S_STATE.accountServerUrl)}" data-hwt-input="account-server-url">
+          <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(S_STATE.accountServerUrl)}" data-hwt-input="account-server-url">
         </label>
         <div class="row">
           <button type="button" class="btn small primary" data-hwt="account-save-server">Save Server URL</button>

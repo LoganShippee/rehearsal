@@ -5,6 +5,8 @@
 
 (function () {
   const LOCAL_API_KEY = 'rehearsal-hw-api';
+  const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const DEMO_SENTINEL = 'demo';
   const TOKEN_KEY = 'rehearsal-hw-teacher-token';
   const CACHE_KEY = 'rehearsal-hw-teacher-cache-v1';
   const DEMO_DB_KEY = 'rehearsal-hw-teacher-demo-v1';
@@ -118,31 +120,41 @@
     try {
       if (typeof location !== 'undefined' && location.search) {
         const qs = new URLSearchParams(location.search);
+        if (qs.get('demo') === '1') return '';
         if (qs.has('hwApi')) {
           const v = (qs.get('hwApi') || '').trim().replace(/\/+$/, '');
+          if (!v || v.toLowerCase() === DEMO_SENTINEL) return '';
           return v;
         }
         if (qs.has('api')) {
           const v = (qs.get('api') || '').trim().replace(/\/+$/, '');
+          if (!v || v.toLowerCase() === DEMO_SENTINEL) return '';
           return v;
         }
       }
     } catch { }
-    if (typeof window !== 'undefined' && typeof window.HW_API_BASE === 'string' && window.HW_API_BASE.trim()) {
-      return window.HW_API_BASE.trim().replace(/\/+$/, '');
+    if (typeof window !== 'undefined' && typeof window.HW_API_BASE === 'string') {
+      const v = window.HW_API_BASE.trim().replace(/\/+$/, '');
+      if (!v || v.toLowerCase() === DEMO_SENTINEL) return '';
+      return v;
     }
     try {
       const stored = localStorage.getItem(LOCAL_API_KEY);
-      if (stored && stored.trim()) return stored.trim().replace(/\/+$/, '');
+      if (stored !== null) {
+        const v = stored.trim().replace(/\/+$/, '');
+        if (v.toLowerCase() === DEMO_SENTINEL) return '';
+        if (v) return v;
+      }
     } catch { }
-    return '';
+    return DEFAULT_API_BASE;
   }
 
   function setApiBase(url) {
     const clean = String(url == null ? '' : url).trim().replace(/\/+$/, '');
     try {
-      if (clean) localStorage.setItem(LOCAL_API_KEY, clean);
-      else localStorage.removeItem(LOCAL_API_KEY);
+      if (!clean || clean.toLowerCase() === DEMO_SENTINEL) localStorage.setItem(LOCAL_API_KEY, DEMO_SENTINEL);
+      else if (clean === DEFAULT_API_BASE) localStorage.removeItem(LOCAL_API_KEY);
+      else localStorage.setItem(LOCAL_API_KEY, clean);
     } catch { }
     return getApiBase();
   }
@@ -177,8 +189,13 @@
   function getStudentPortalUrl(joinCode) {
     let base = 'hw.html';
     try {
-      if (typeof location !== 'undefined' && location.href) {
-        base = new URL('hw.html', location.href).href;
+      const apiBase = getApiBase();
+      const locHref = (typeof location !== 'undefined' && location.href) ? location.href : '';
+      const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(locHref);
+      if (!isDemoMode() && isLoopback && apiBase && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(apiBase)) {
+        base = (typeof window !== 'undefined' && window.HW_STUDENT_PORTAL_URL) || 'https://loganshippee.github.io/rehearsal/hw.html';
+      } else if (locHref) {
+        base = new URL('hw.html', locHref).href;
       }
     } catch { }
     if (joinCode) {

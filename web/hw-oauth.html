@@ -112,12 +112,14 @@
 <script>
 (function () {
   'use strict';
+  const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
   const DEMO_HANDOFFS_KEY = 'rehearsal-hw-demo-handoffs-v1';
   const qs = new URLSearchParams(location.search || '');
   const state = (qs.get('state') || '').trim();
-  const apiBase = (qs.get('api') || '').trim().replace(/\/+$/, '');
+  const rawApi = qs.has('api') ? (qs.get('api') || '').trim().replace(/\/+$/, '') : null;
   const googleClientId = (qs.get('googleClientId') || '').trim();
-  const isDemo = qs.get('demo') === '1' || !apiBase;
+  const isDemo = qs.get('demo') === '1' || rawApi === '' || (!!rawApi && rawApi.toLowerCase() === 'demo');
+  const apiBase = isDemo ? '' : (rawApi || DEFAULT_API_BASE);
   const isDev = qs.get('dev') === '1';
 
   const titleEl = document.getElementById('oauth-title');
