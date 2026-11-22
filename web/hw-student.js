@@ -392,7 +392,7 @@ function hwInstallEngineHooks(onTakeSaved) {
           meta: {
             mode: st.mode, input, ts: st[st.mode]?.ts, tempo: st[st.mode]?.tempo, key: st[st.mode]?.key,
             trueSightRead: !!HW_STATE.srTrueMode, studySeconds: HW_STATE.srTrueMode ? HW_STATE.srStudySec : 0,
-            syncMs: avDelayMs(), strictness: typeof grStrictnessValue === 'function' ? grStrictnessValue() : 50,
+            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
           },
         };
         if (input !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
@@ -417,7 +417,7 @@ function hwInstallEngineHooks(onTakeSaved) {
           expectedSec: Math.max(0, (GR.end || 0) - (GR.T0 || 0) - 0.8),
           meta: {
             scoreName: ctl?.st?.name || 'Sample Score', gradeMode: mode, tempo: ctl?.st?.tempo || null,
-            syncMs: avDelayMs(), strictness: typeof grStrictnessValue === 'function' ? grStrictnessValue() : 50,
+            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
           },
         };
         if (mode !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
@@ -730,13 +730,13 @@ function hwMountSightRunner() {
   const trueMode = HW_STATE.srTrueMode && !HW_STATE.teacherOpen;
   const o = st.mode === 'build' ? (st.build || st.solfege) : (st[st.mode] || st.solfege);
   const tempoNow = o.tempo || 80;
-  const strictSpec = typeof grStrictnessSpec === 'function' ? grStrictnessSpec(grStrictnessValue(), tempoNow) : null;
+  const strictSpec = typeof grStrictnessSpec === 'function' ? grStrictnessSpec(null, tempoNow) : null;
   const pitchInfo = isPitch ? hwSightPitchInfo(st) : null;
   const metaDesc = isPitch
     ? `${(o.key || 'C').replace('b', '♭')} ${o.scale || 'major'} · ${o.clef === 'bass' ? 'Bass' : 'Treble'} clef · ${o.ts || '4/4'} · ${tempoNow} BPM · Microphone (Pitch + Rhythm)`
     : `Rhythm only · ${o.ts || '4/4'} · ${tempoNow} BPM · Spacebar / Touch Tap`;
   const strictDesc = strictSpec
-    ? `Grading: ${strictSpec.label} (±${strictSpec.rhythmMs} ms${isPitch ? ` · ±${strictSpec.pitchCents}¢` : ''})`
+    ? `Rhythm: ${strictSpec.rhythmLabel} (±${strictSpec.rhythmMs} ms)${isPitch ? ` · Pitch: ${strictSpec.pitchLabel} (±${strictSpec.pitchCents}¢)` : ''}`
     : '';
 
   body.innerHTML = `
@@ -927,14 +927,14 @@ function hwMountScoreRunner() {
   }
   HW_STATE.spState.gradeMode = HW_STATE.spGradeMode;
   const tempoNow = HW_STATE.spState.tempo || 84;
-  const strictSpec = typeof grStrictnessSpec === 'function' ? grStrictnessSpec(grStrictnessValue(), tempoNow) : null;
+  const strictSpec = typeof grStrictnessSpec === 'function' ? grStrictnessSpec(null, tempoNow) : null;
   const modeLabel = HW_STATE.spGradeMode === 'tap'
     ? 'Spacebar / Tap (Rhythm Only)'
     : HW_STATE.spGradeMode === 'rhythm'
       ? 'Microphone (Rhythm Only)'
       : 'Microphone (Pitch + Rhythm)';
   const strictDesc = strictSpec
-    ? ` · Grading: ${strictSpec.label} (±${strictSpec.rhythmMs} ms${HW_STATE.spGradeMode === 'mic' ? ` · ±${strictSpec.pitchCents}¢` : ''})`
+    ? ` · Rhythm: ${strictSpec.rhythmLabel} (±${strictSpec.rhythmMs} ms)${HW_STATE.spGradeMode === 'mic' ? ` · Pitch: ${strictSpec.pitchLabel} (±${strictSpec.pitchCents}¢)` : ''}`
     : '';
 
   body.innerHTML = `
@@ -1252,6 +1252,19 @@ function hwSwitchTab(tab) {
 function hwBoot() {
   hwRenderHeaderChips();
   hwInstallEngineHooks(() => hwRefreshTakes());
+  window.__onGrStrictnessChange = () => {
+    const sub = $('#hw-runner-body .hw-submeta');
+    if (!sub || typeof grStrictnessSpec !== 'function') return;
+    const isPitch = HW_STATE.tab === 'sight'
+      ? hwSightEffectiveKind(HW_STATE.srState || srDefaults()) === 'solfege'
+      : HW_STATE.tab === 'score' && HW_STATE.spGradeMode === 'mic';
+    const tempo = HW_STATE.tab === 'sight'
+      ? ((HW_STATE.srState?.[HW_STATE.srState?.mode]?.tempo) || 80)
+      : (HW_STATE.spState?.tempo || 84);
+    const sp = grStrictnessSpec(null, tempo);
+    const tag = `Rhythm: ${sp.rhythmLabel} (±${sp.rhythmMs} ms)${isPitch ? ` · Pitch: ${sp.pitchLabel} (±${sp.pitchCents}¢)` : ''}`;
+    sub.textContent = sub.textContent.replace(/Rhythm:.*$/, tag);
+  };
 
   $('#hw-sync-btn').onclick = () => hwOpenSyncModal(false);
   const toggleTeacher = () => {

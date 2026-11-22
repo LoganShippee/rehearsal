@@ -44,6 +44,8 @@ function hwLoadCarriedSettings() {
     lastScore: null,
     rhythmSystem: 'numbers',
     gradeStrictness: 50,
+    gradeStrictRhythm: 50,
+    gradeStrictPitch: 50,
     solMinor: 'do',
   };
   try {
@@ -52,6 +54,10 @@ function hwLoadCarriedSettings() {
     if (Array.isArray(ms.srPresets)) out.srPresets = ms.srPresets.slice();
     if (ms.rhythmSystem) out.rhythmSystem = ms.rhythmSystem;
     if (ms.gradeStrictness != null && isFinite(+ms.gradeStrictness)) out.gradeStrictness = +ms.gradeStrictness;
+    if (ms.gradeStrictRhythm != null && isFinite(+ms.gradeStrictRhythm)) out.gradeStrictRhythm = +ms.gradeStrictRhythm;
+    else out.gradeStrictRhythm = out.gradeStrictness;
+    if (ms.gradeStrictPitch != null && isFinite(+ms.gradeStrictPitch)) out.gradeStrictPitch = +ms.gradeStrictPitch;
+    else out.gradeStrictPitch = out.gradeStrictness;
     if (ms.solMinor) out.solMinor = ms.solMinor;
   } catch { }
   try {
@@ -66,6 +72,8 @@ function hwLoadCarriedSettings() {
       }
       if (hw.rhythmSystem) out.rhythmSystem = hw.rhythmSystem;
       if (hw.gradeStrictness != null && isFinite(+hw.gradeStrictness)) out.gradeStrictness = +hw.gradeStrictness;
+      if (hw.gradeStrictRhythm != null && isFinite(+hw.gradeStrictRhythm)) out.gradeStrictRhythm = +hw.gradeStrictRhythm;
+      if (hw.gradeStrictPitch != null && isFinite(+hw.gradeStrictPitch)) out.gradeStrictPitch = +hw.gradeStrictPitch;
       if (hw.solMinor) out.solMinor = hw.solMinor;
     }
   } catch { }
@@ -86,6 +94,8 @@ function save() {
       srPresets: S.settings.srPresets || [],
       rhythmSystem: S.settings.rhythmSystem || 'numbers',
       gradeStrictness: S.settings.gradeStrictness ?? 50,
+      gradeStrictRhythm: S.settings.gradeStrictRhythm ?? 50,
+      gradeStrictPitch: S.settings.gradeStrictPitch ?? 50,
       solMinor: S.settings.solMinor || 'do',
     }));
   } catch { }
