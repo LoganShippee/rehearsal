@@ -869,7 +869,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   // Positions are in quarter-note units from bar 1; the count-in sits at negative positions.
   const gClock = {
     anchorT: t0, anchorPos: -countBeats * beatQ, q, beatQ, beats, countBeats, countLen: countBeats * beatQ,
-    cue, start: 0, fromM: 0, alive: () => GR.on,
+    cue, start: 0, fromM: 0, noNoteLight: true, alive: () => GR.on,
     pos(now) { return this.anchorPos + (now - this.anchorT) / this.q; },
     timeAt(pos) { return this.anchorT + (pos - this.anchorPos) * this.q; },
     // the playhead follows grading's own sound engine
@@ -922,39 +922,25 @@ function grTapFlash() {
 function grRecordTap(e) {
   if (!GR.on || GR.input !== 'tap' || !GR.taps || !GR.c) return;
   const t = grTapTime(GR.c, e);
-  const pad = document.getElementById('gr-tappad');
-  if (GR.T0 && t < GR.T0 - Math.min(0.25, (GR.q || 0.5) * 0.4)) {
-    // Ignore early taps during count-in without flashing them as counted hits
-    if (pad) {
-      const sub = pad.querySelector('.gr-tp-sub');
-      if (sub) sub.textContent = 'Wait for beat 1…';
-      pad.classList.add('wait'); setTimeout(() => pad.classList.remove('wait'), 220);
-    }
-    return;
-  }
+  if (GR.T0 && t < GR.T0 - Math.min(0.25, (GR.q || 0.5) * 0.4)) return;   // ignore early taps during count-in
   GR.taps.push(t);
   grTapFlash();
-  if (pad) {
-    pad.classList.add('hit'); setTimeout(() => pad.classList.remove('hit'), 140);
-    const sub = pad.querySelector('.gr-tp-sub');
-    if (sub) sub.textContent = `${GR.taps.length} tap${GR.taps.length === 1 ? '' : 's'} recorded`;
-  }
 }
+let grTapEl = null, grTapHandler = null;
 function grMountTapPad(host) {
   grRemoveTapPad();
-  const wrap = host?.querySelector('.sr-staff, .sp-score') || document.body;
-  const pad = document.createElement('button');
-  pad.type = 'button'; pad.id = 'gr-tappad'; pad.className = 'gr-tappad';
-  pad.innerHTML = `<span class="gr-tp-main">TAP RHYTHM HERE</span><span class="gr-tp-sub">Tap with finger or press Space after count-in</span>`;
-  pad.addEventListener('pointerdown', e => {
+  const wrap = host?.querySelector('.sr-staff, .sp-score'); if (!wrap) return;
+  grTapEl = wrap;
+  grTapHandler = e => {
+    if (e.target.closest?.('button, a, input, select, textarea')) return;
     e.preventDefault(); e.stopPropagation();
     grRecordTap(e);
-  });
-  pad.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
-  wrap.appendChild(pad);
+  };
+  wrap.addEventListener('pointerdown', grTapHandler, { capture: true });
 }
 function grRemoveTapPad() {
-  document.getElementById('gr-tappad')?.remove();
+  if (grTapEl && grTapHandler) grTapEl.removeEventListener('pointerdown', grTapHandler, { capture: true });
+  grTapEl = null; grTapHandler = null;
 }
 window.grMountTapPad = grMountTapPad;
 window.grRemoveTapPad = grRemoveTapPad;

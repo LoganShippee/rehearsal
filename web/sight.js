@@ -1031,7 +1031,7 @@ function srAnimate(host, st, getTimeline, clock) {
         cnt.dataset.n = txt;
         const c = clock.cue;
         const cueLine = c?.tap
-          ? `<div class="sr-count-cue">Wait for count-in, then <b>tap on each note</b></div>`
+          ? `<div class="sr-count-cue">Wait for count-in, then <b>press Space or tap screen</b></div>`
           : c ? `<div class="sr-count-cue">${c.heard ? `hear <b>${c.heard}</b> · ` : ''}start on <b>${c.start}</b></div>` : '';
         cnt.innerHTML = `<div class="sr-count-n">${txt}</div>${cueLine}`;
         cnt.classList.toggle('one', txt === '1'); cnt.classList.remove('hit'); void cnt.offsetWidth; cnt.classList.add('hit');
@@ -1104,6 +1104,7 @@ function srAnimate(host, st, getTimeline, clock) {
       if (beat !== lastBeat) { lastBeat = beat; bar.classList.remove('beat'); void bar.offsetWidth; bar.classList.add('beat'); }
     }
     place(m, x, top, bot);
+    if (clock.noNoteLight) { requestAnimationFrame(frame); return; }
     // each note lights up as it sounds, with a soft ring on the notehead
     if (prevTq == null || tq < prevTq - 0.05) prevTq = Math.min(tq, clock.start || 0) - 0.05;   // first frame (include first note!), or a jump back
     for (const ev of tl) {

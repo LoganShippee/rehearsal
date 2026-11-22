@@ -784,7 +784,7 @@ function stopMusicHosts() {
 function go(view) {
   if (VIEW === 'present' && view !== 'present') { saveInk(); undockStageApp(false); fbStopAudio(); }
   VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.webModeMenu = null; $('#web-mode-menu')?.remove(); P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
-  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else stopMusicHosts();
+  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else { stopMusicHosts(); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#ffffff'); }
   render();
 }
 
