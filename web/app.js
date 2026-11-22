@@ -847,14 +847,14 @@ const DOCK_ITEMS = {
 // Tools that ＋ Open always lists: on the bar or off, never repeated in ⋯ (unless they don't fit on the bar)
 const DOCK_LAUNCHERS = ['sight', 'score', 'tuner', 'metro', 'cal', 'prog', 'rec', 'yt', 'piano', 'solboard'];
 const DOCK_GROUP = { tile: 'screen', fullscreen: 'screen', classpick: 'screen', editmode: 'cls', clip: 'cls', edit: 'setup' };
-const DOCK_DEFAULT = ['timer', 'points', 'noise', 'random', 'signal', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'window', 'tile', 'sep2', 'classpick', 'sep3', 'fullscreen', 'editmode', 'edit'];
+const DOCK_DEFAULT = ['timer', 'annotate', 'board', 'sep1', 'tuner', 'metro', 'rec', 'piano', 'window', 'sep2', 'classpick', 'sep3', 'edit', 'editmode'];
 function dockCfg() {
   const d = (S.settings.dock ||= {});
   d.order ||= [...DOCK_DEFAULT];
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id) && ['cal', 'prog', 'rec', 'yt', 'piano', 'solboard'].includes(id) && d.menu && !d.menu.includes(id)) d.menu.push(id);   // new tools start in ＋ Open
   for (const id of Object.keys(DOCK_ITEMS)) if (!d.order.includes(id)) { const at = id === 'editmode' && d.order.includes('edit') ? d.order.indexOf('edit') : d.order.length; d.order.splice(at, 0, id); }   // new tools appear at the end
   d.hidden ||= ['sight'];
-  d.menu ||= ['score', 'clip', 'tile', 'cal', 'prog', 'rec', 'yt'];                // shown in the ⋯ menu instead of on the bar
+  d.menu ||= ['points', 'noise', 'random', 'signal', 'score', 'clip', 'tile', 'fullscreen', 'cal', 'prog', 'yt', 'solboard']; // shown in the ⋯ / ＋ Open menu instead of on the bar
   d.inOpen ||= [];                                                                 // extra toolbar buttons placed in ＋ Open
   if (d.labels == null) d.labels = true;
   d.pos ||= { mode: 'header' };
@@ -5819,19 +5819,16 @@ document.addEventListener('mouseleave', () => {
 });
 
 const TOUR_STEPS = [
-  { sel: '#p-cls', fallback: '[data-dock-id="classpick"], #p-title', title: '1. Class Picker & Bell Schedule', body: 'Rehearsal switches classes automatically on your bell schedule, or you can pick any class here. It reopens on whichever class you used last.' },
-  { sel: '#p-side .p-card', fallback: '#p-side', title: '2. Agenda', body: 'Your agenda stays on the left with a timer bar for timed items. Move forward or back with ‹ › or the Left and Right arrow keys.' },
-  { sel: '#stage-tabs', fallback: '#p-stage', title: '3. Class Tabs & Folders', body: 'Pin slides, scores, PDFs, Files, websites, or tools as class tabs. Drag one tab onto the middle of another to group them into a drop-down folder.' },
-  { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '4. Floating Windows', body: 'Floating windows have a Pin button to save them as a class tab, a Tile button to snap them to a half or corner, and a Maximize button.' },
-  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open', body: 'Open web pages, the Files browser, Sight Reading, Score Practice, Piano, Tuner, Metronome, or switch to External Apps from ＋ Open.' },
-  { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '6. Quick Edit', body: 'Click Quick edit to edit the class name, warm-up, and agenda right on the Present screen, or change colors in Look.' },
-  { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup', body: 'Open Setup to manage classes, bell schedules, daily routines, events, your file library, Tutorials, and Settings.' },
-  { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. More Menu (⋯)', body: 'Open ⋯ to customize toolbar buttons, open Tutorials, or report a bug. You can replay this tour anytime in Setup → Tutorials.' },
+  { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '1. Edit the Page (Quick Edit)', body: 'Click Quick edit to change the class name, warm-up, agenda, or class colors right on the Present screen.' },
+  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '2. Open Windows (＋ Open)', body: 'Click ＋ Open to launch Sight Reading, Score Practice, the Files browser, web pages, Piano, Tuner, Metronome, or switch to External Apps.' },
+  { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '3. Pin & Arrange Windows', body: 'Every floating window has a Pin button to save it as a tab for this class, plus Tile and Maximize buttons to arrange your screen.' },
+  { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '4. Customize the Toolbar (⋯)', body: 'Click ⋯ → Customize toolbar to add, hide, or drag toolbar buttons into your own order, change the toolbar color, or open Report a Bug.' },
+  { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '5. Setup, Settings & Tutorials', body: 'Click Setup to edit your classes, bell schedules, files, and settings. If you want to learn more, check out Setup → Tutorials anytime, or just close this and explore!' },
 ];
 function activeTourSteps() { return P.tourSteps || TOUR_STEPS; }
-function startTour(customSteps = null) {
+function startTour(customSteps = null, force = false) {
   if (VIEW !== 'present') return;
-  if (!customSteps && S.settings.tourDone) return;
+  if (!customSteps && !force && S.settings.tourDone) return;
   if (P.tour != null) endTour(true);
   P.tourSteps = Array.isArray(customSteps) && customSteps.length ? customSteps : null;
   P.tourPrevPinned = P.pinned;
@@ -6350,69 +6347,79 @@ window.__bugReportOpen = data => {
   });
 };
 
-// ---------- What's New & Bug Report Welcome Pop-up (shown once per major update)
-const WHATS_NEW_ID = '2026-11-update';
+// ---------- What's New & Bug Report Welcome Pop-up (shown once on the first opening after each update)
+// For each future release, bump `id` to the new version and update `featured` / `items` with what's new.
+const WHATS_NEW = {
+  id: '1.1.7',
+  title: 'Welcome to Rehearsal',
+  intro: 'Thanks for updating Rehearsal! Here is what is new in this release.',
+  featured: [
+    { icon: 'ico:sight', title: 'Sight Reading with Live Grading', body: 'Generate custom rhythm or solfege exercises at any difficulty and grade students live using a microphone or the space bar.' },
+    { icon: 'ico:score', title: 'Score Playback, Vocal Recording & Grading', body: 'Play back MusicXML or MuseScore files with per-part mixing, record sung vocal tracks with custom headphone backing, and grade any voice part live.' },
+  ],
+  items: [
+    { icon: 'ico:folder', title: 'Files Tab & Built-In Viewer', body: 'Pin your Files library as a class tab, open PDFs, images, audio, and scores right inside it, or delete old files anytime.' },
+    { icon: 'ico:timer', title: 'Moveable & Resizable Timers', body: 'Drag timers anywhere on screen, resize from the corner, or expand a timer to fill the workspace.' },
+    { icon: 'ico:sliders', title: 'Classroom Tools & Custom Toolbar', body: 'Includes Tuner, Metronome, Piano, Recorder, Annotate, Whiteboard, Bell Schedules, and a toolbar you can arrange however you like.' },
+  ],
+};
 function openWhatsNewModal(force = false) {
-  if (!force && S.settings.seenWhatsNew === WHATS_NEW_ID) return;
+  if (!force && S.settings.seenWhatsNew === WHATS_NEW.id) return;
   $('#wn-modal')?.remove();
   const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
   const bugKey = isMac ? '⌘⇧B' : 'Ctrl+Shift+B';
+  const rowHTML = it => `<li><span class="wn-ic">${IC(it.icon)}</span><div><b>${esc(it.title)}</b><span>${esc(it.body)}</span></div></li>`;
   const markSeen = () => {
-    if (S.settings.seenWhatsNew !== WHATS_NEW_ID) { S.settings.seenWhatsNew = WHATS_NEW_ID; save(); }
+    if (S.settings.seenWhatsNew !== WHATS_NEW.id) { S.settings.seenWhatsNew = WHATS_NEW.id; save(); }
   };
   const m = document.createElement('div');
   m.id = 'wn-modal';
   m.className = 'bug-backdrop';
-  m.innerHTML = `<div class="bug-card wn-card" role="dialog" aria-label="Welcome to the new Rehearsal">
+  m.innerHTML = `<div class="bug-card wn-card" role="dialog" aria-label="${esc(WHATS_NEW.title)}">
     <div class="bug-head">
-      <h3>${IC('ico:book')} Welcome to the new Rehearsal</h3>
+      <h3>${IC('ico:book')} ${esc(WHATS_NEW.title)}</h3>
       <button class="bug-x" data-wn="close" title="Close">${IC('ico:close')}</button>
     </div>
-    <p class="wn-intro">Thanks for using Rehearsal! Here is a quick overview of what is new in this update, along with a direct way to send bug reports or suggestions.</p>
-    <ul class="wn-list">
-      <li>
-        <span class="wn-ic">${IC('ico:mic')}</span>
-        <div><b>Score Practice &amp; Vocal Recording</b><span>Record your own voice tracks over a score, pick which parts and click track play in your headphones, and grade any part with a mic or space bar.</span></div>
-      </li>
-      <li>
-        <span class="wn-ic">${IC('ico:folder')}</span>
-        <div><b>Files Tab &amp; Built-In Viewer</b><span>Pin your Files library as a class tab, open PDFs, images, audio, and scores right inside it, or delete old files with confirmation.</span></div>
-      </li>
-      <li>
-        <span class="wn-ic">${IC('ico:timer')}</span>
-        <div><b>Moveable &amp; Resizable Timers</b><span>Drag any active timer around the screen, resize it from the bottom-right corner, or expand it to fill the workspace.</span></div>
-      </li>
-      <li>
-        <span class="wn-ic">${IC('ico:play')}</span>
-        <div><b>Step-by-Step Tutorials Tab</b><span>Interactive walkthroughs for every tool now live in their own Tutorials tab under Setup.</span></div>
-      </li>
-    </ul>
+    <p class="wn-intro">${esc(WHATS_NEW.intro)}</p>
+    ${WHATS_NEW.featured?.length ? `<div class="wn-sec">Featured Highlights</div><ul class="wn-list wn-featured">${WHATS_NEW.featured.map(rowHTML).join('')}</ul>` : ''}
+    ${WHATS_NEW.items?.length ? `<div class="wn-sec">More Features</div><ul class="wn-list">${WHATS_NEW.items.map(rowHTML).join('')}</ul>` : ''}
+    <p class="wn-more">Want to learn more? You can explore on your own, or check out the step-by-step walkthroughs anytime in <b>Setup → Tutorials</b>.</p>
     <div class="wn-bug">
       <span class="wn-ic">${IC('ico:warn')}</span>
       <div>
         <b>Spotted a bug or have an idea?</b>
-        <p>Press <kbd>${bugKey}</kbd> or open <b>⋯ → Report a Bug</b> anytime. Rehearsal grabs a screenshot automatically (you can uncheck it if student names are visible) and sends your note straight from the app, with no account or sign-in needed.</p>
+        <p>Press <kbd>${bugKey}</kbd> or open <b>⋯ → Report a Bug</b> anytime. Rehearsal grabs a screenshot automatically (uncheck it if student names are visible) and sends your note straight from the app, with no sign-in needed.</p>
       </div>
     </div>
     <div class="bug-foot wn-foot">
-      <button type="button" class="bug-btn" data-wn="tutorials">${IC('ico:book')} Open Tutorials</button>
+      <button type="button" class="bug-btn" data-wn="tutorials">${IC('ico:book')} Tutorials</button>
       <button type="button" class="bug-btn" data-wn="bug">${IC('ico:warn')} Report a Bug</button>
       <span class="grow"></span>
-      <button type="button" class="bug-btn primary" data-wn="close">Got it</button>
+      <button type="button" class="bug-btn primary" data-wn="close">Continue</button>
     </div>
   </div>`;
   document.body.appendChild(m);
-  const close = () => { markSeen(); m.remove(); };
+  const close = (allowTour = false) => {
+    markSeen();
+    m.remove();
+    if (allowTour && VIEW === 'present' && !S.settings.seenBasicTour) {
+      S.settings.seenBasicTour = true; save();
+      setTimeout(() => startTour(null, true), 160);
+    }
+  };
   m.addEventListener('click', e => {
-    if (e.target === m) { close(); return; }
+    if (e.target === m) { close(!force); return; }
     const b = e.target.closest('[data-wn]'); if (!b) return;
     const act = b.dataset.wn;
-    close();
     if (act === 'tutorials') {
+      close(false);
       TAB = 'tutorials'; go('edit');
       setTimeout(() => { $('.help-search')?.focus(); }, 80);
     } else if (act === 'bug') {
+      close(false);
       triggerBugReport();
+    } else {
+      close(!force);
     }
   });
 }
@@ -6491,7 +6498,7 @@ document.addEventListener('pointerup', () => { TM_DRAG = null; });
   if (S.settings.sim.on && !S.settings.sim.setAt) S.settings.sim.setAt = Date.now();
   render();
   if (VIEW === 'present') {
-    if (S.settings.seenWhatsNew !== WHATS_NEW_ID) setTimeout(() => openWhatsNewModal(), 550);
+    if (S.settings.seenWhatsNew !== WHATS_NEW.id) setTimeout(() => openWhatsNewModal(), 550);
     else if (!S.settings.tourDone) setTimeout(startTour, 600);
   }
   // tick 4× a second, and right after each of the clock's whole seconds, so the clock and timers change together

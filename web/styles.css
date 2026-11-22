@@ -2729,34 +2729,46 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .sp-rec-metro { border-top: 1px dashed #e2e8f0; margin-top: 3px; padding-top: 6px; }
 
 /* ---------- What's New & Welcome Pop-up ---------- */
-.wn-card { width: min(560px, 100%); }
-.wn-intro { margin: 0; font-size: 13.5px; line-height: 1.5; color: #475569; }
-.wn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.wn-card { width: min(580px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+.wn-intro { margin: 0; font-size: 13.5px; line-height: 1.45; color: #475569; }
+.wn-sec {
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+  color: #64748b; margin-top: 2px;
+}
+.wn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .wn-list li {
-  display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px;
+  display: flex; align-items: center; gap: 12px; padding: 9px 12px;
   background: #f6f8fc; border: 1px solid #e3e8f2; border-radius: 10px;
 }
-.wn-ic {
-  width: 28px; height: 28px; border-radius: 8px; flex: none;
-  display: grid; place-items: center; background: #e8efff; color: #3b6cf6; margin-top: 1px;
+.wn-list.wn-featured li {
+  background: #eef4ff; border-color: #bfdbfe;
 }
-.wn-ic .ico { width: 16px; height: 16px; }
+.wn-list.wn-featured .wn-ic {
+  background: #3b6cf6; color: #fff;
+}
+.wn-ic {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: #e8efff; color: #3b6cf6;
+}
+.wn-ic .ico { width: 18px; height: 18px; display: block; }
 .wn-list b { display: block; font-size: 13.5px; color: #1d2330; margin-bottom: 2px; }
-.wn-list span { display: block; font-size: 12.5px; line-height: 1.45; color: #4b5563; }
+.wn-list span { display: block; font-size: 12.5px; line-height: 1.42; color: #4b5563; }
+.wn-more { margin: 0; font-size: 12.5px; line-height: 1.45; color: #475569; }
 .wn-bug {
-  display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
   background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; color: #78350f;
 }
 .wn-bug .wn-ic { background: #fef3c7; color: #b45309; }
 .wn-bug b { display: block; font-size: 13px; color: #78350f; margin-bottom: 2px; }
-.wn-bug p { margin: 0; font-size: 12.5px; line-height: 1.45; color: #78350f; }
+.wn-bug p { margin: 0; font-size: 12.5px; line-height: 1.42; color: #78350f; }
 .wn-bug kbd {
   display: inline-block; padding: 1px 5px; border-radius: 5px;
   background: #fff; border: 1px solid #f59e0b; font: 700 11.5px/1.3 -apple-system, system-ui, sans-serif; color: #78350f;
 }
 .wn-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.wn-foot .bug-btn { display: inline-flex; align-items: center; gap: 6px; }
-.wn-foot .bug-btn .ico { width: 15px; height: 15px; }
+.wn-foot .bug-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.wn-foot .bug-btn .ico { width: 15px; height: 15px; display: block; }
 
 
 
