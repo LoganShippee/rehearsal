@@ -757,8 +757,18 @@ function spHeardTime(c) {
   return spHeardRaw(c) - spAvDelay();
 }
 function spHeardRaw(c) {
-  try { const ts = c.getOutputTimestamp && c.getOutputTimestamp(); if (ts && ts.contextTime > 0 && ts.performanceTime > 0) return ts.contextTime + (performance.now() - ts.performanceTime) / 1000; } catch { }
-  return c.currentTime - (c.outputLatency || c.baseLatency || 0);
+  const cur = c.currentTime;
+  const lat = Math.max(0, Math.min(0.6, Number(c.outputLatency || c.baseLatency) || 0));
+  try {
+    const ts = c.getOutputTimestamp && c.getOutputTimestamp();
+    if (ts && isFinite(ts.contextTime) && isFinite(ts.performanceTime) && ts.contextTime > 0 && ts.performanceTime > 0) {
+      const dt = (performance.now() - ts.performanceTime) / 1000;
+      const est = ts.contextTime + dt;
+      // Reject stale or mismatched-clock timestamps (e.g. after sleep/background on iPadOS WebKit).
+      if (Math.abs(dt) < 1 && isFinite(est) && est <= cur + 0.05 && est >= cur - 0.8) return est;
+    }
+  } catch { }
+  return cur - lat;
 }
 let SP_ACTIVE = null;          // the score Space bar plays/stops
 function spStop() {
@@ -768,11 +778,12 @@ function spStop() {
     if (typeof grStopListen === 'function') grStopListen();
     return;
   }
-  clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf);
+  clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf); SP_PLAY.raf = 0;
   try { SP_PLAY.master && SP_PLAY.master.disconnect(); } catch { }
   const ctl = SP_PLAY.ctl; SP_PLAY.master = null; SP_PLAY.ctl = null;
   if (ctl) {
     spStopVocalNodes(ctl);
+    ctl._paintPlayhead = null;
     ctl.playing = false; ctl.hideCountOverlay?.(); ctl.updateBar(); ctl.hidePlayhead();
   }
   spHoldStop();
@@ -1068,32 +1079,44 @@ function spPlay(ctl, playOpts = null) {
     }
     if (ctl.marks.length > 400) ctl.marks = ctl.marks.filter(m => m.t > now - 2).concat([]);
     if (ending && now > ending + 0.3) spStop();
+    // Keep playhead moving if Windows WebView2 throttles or drops rAF during window resize / fullscreen.
+    if (SP_PLAY.ctl === ctl && performance.now() - lastFrameAt > 55) paintFrame(true);
   };
-  step(); SP_PLAY.timer = setInterval(step, 25);
-  const frame = () => {
-    if (SP_PLAY.ctl !== ctl) return;
-    const heard = spHeardTime(c);
-    const inCount = !!(countMeta && heard < countMeta.endT);
-    ctl.drawPlayhead(heard, inCount);
-    if (countMeta) {
-      if (inCount) {
-        const bi = Math.max(0, Math.floor((heard - countMeta.t0) / countMeta.beatSec + 1e-6));
-        const bNum = (bi % countMeta.nb) + 1;
-        const cue = playOpts?.recordingLine != null
-          ? `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`
-          : countMeta.firstNote ? `start on <b>${countMeta.firstNote}</b>` : '';
-        ctl.showCountOverlay?.(String(bNum), cue, bNum === 1);
-      } else if (playOpts?.recordingLine != null) {
-        const bi = Math.max(0, Math.floor((heard - countMeta.endT) / countMeta.beatSec + 1e-6));
-        const bNum = (bi % countMeta.nb) + 1;
-        ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b> · ${st.recHeadphones ? 'Headphones' : 'Silent (pure voice)'}`, bNum, bNum === 1);
-      } else {
-        ctl.hideCountOverlay?.();
+  let lastFrameAt = 0;
+  const paintFrame = (rearmRaf = false) => {
+    if (SP_PLAY.ctl !== ctl) return false;
+    lastFrameAt = performance.now();
+    try {
+      const heard = spHeardTime(c);
+      const inCount = !!(countMeta && heard < countMeta.endT);
+      ctl.drawPlayhead(heard, inCount);
+      if (countMeta) {
+        if (inCount) {
+          const bi = Math.max(0, Math.floor((heard - countMeta.t0) / countMeta.beatSec + 1e-6));
+          const bNum = (bi % countMeta.nb) + 1;
+          const cue = playOpts?.recordingLine != null
+            ? `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`
+            : countMeta.firstNote ? `start on <b>${countMeta.firstNote}</b>` : '';
+          ctl.showCountOverlay?.(String(bNum), cue, bNum === 1);
+        } else if (playOpts?.recordingLine != null) {
+          const bi = Math.max(0, Math.floor((heard - countMeta.endT) / countMeta.beatSec + 1e-6));
+          const bNum = (bi % countMeta.nb) + 1;
+          ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b> · ${st.recHeadphones ? 'Headphones' : 'Silent (pure voice)'}`, bNum, bNum === 1);
+        } else {
+          ctl.hideCountOverlay?.();
+        }
       }
-    }
-    SP_PLAY.raf = requestAnimationFrame(frame);
+    } catch { }
+    if (rearmRaf && !SP_PLAY.raf && SP_PLAY.ctl === ctl) SP_PLAY.raf = requestAnimationFrame(frame);
+    return true;
   };
-  SP_PLAY.raf = requestAnimationFrame(frame);
+  const frame = () => {
+    SP_PLAY.raf = 0;
+    if (paintFrame(false)) SP_PLAY.raf = requestAnimationFrame(frame);
+  };
+  ctl._paintPlayhead = () => paintFrame(true);
+  step(); SP_PLAY.timer = setInterval(step, 25);
+  if (!SP_PLAY.raf) SP_PLAY.raf = requestAnimationFrame(frame);
   const q0 = 60 / spBpmAt(sc, R.a) / factorAt(0);
   return {
     when0: pass0StartT,
@@ -1304,7 +1327,8 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   const idleHTML = btn ? btn.innerHTML : null;
   let gradeRaf = 0;
   const onFinish = () => {
-    cancelAnimationFrame(gradeRaf);
+    cancelAnimationFrame(gradeRaf); gradeRaf = 0;
+    ctl._paintPlayhead = null;
     ctl.hideCountOverlay?.();
     ctl.hidePlayhead?.();
     ctl.updateBar?.();
@@ -1342,24 +1366,35 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
 
   const startNoteLbl = firstMidi != null ? grName(firstMidi) : null;
-  const animFrame = () => {
-    if (!GR.on || GR.host !== host) return;
-    const heard = spHeardTime(c);
-    const inCount = heard < T0;
-    ctl.drawPlayhead(heard, inCount);
-    if (inCount) {
-      const bi = Math.max(0, Math.floor((heard - t0) / beatSec + 1e-6));
-      const bNum = (bi % nb) + 1;
-      ctl.showCountOverlay?.(String(bNum), `Grade <b>${esc(line?.name || 'Part')}</b> (${rangeLabel})${!tap && startNoteLbl ? ` · start on <b>${startNoteLbl}</b>` : tap ? ' · tap on each note' : ''}`, bNum === 1);
-    } else {
-      ctl.hideCountOverlay?.();
-    }
-    gradeRaf = requestAnimationFrame(animFrame);
+  let lastAnimAt = 0;
+  const paintGrade = (rearmRaf = false) => {
+    if (!GR.on || GR.host !== host) return false;
+    lastAnimAt = performance.now();
+    try {
+      const heard = spHeardTime(c);
+      const inCount = heard < T0;
+      ctl.drawPlayhead(heard, inCount);
+      if (inCount) {
+        const bi = Math.max(0, Math.floor((heard - t0) / beatSec + 1e-6));
+        const bNum = (bi % nb) + 1;
+        ctl.showCountOverlay?.(String(bNum), `Grade <b>${esc(line?.name || 'Part')}</b> (${rangeLabel})${!tap && startNoteLbl ? ` · start on <b>${startNoteLbl}</b>` : tap ? ' · tap on each note' : ''}`, bNum === 1);
+      } else {
+        ctl.hideCountOverlay?.();
+      }
+    } catch { }
+    if (rearmRaf && !gradeRaf && GR.on && GR.host === host) gradeRaf = requestAnimationFrame(animFrame);
+    return true;
   };
+  const animFrame = () => {
+    gradeRaf = 0;
+    if (paintGrade(false)) gradeRaf = requestAnimationFrame(animFrame);
+  };
+  ctl._paintPlayhead = () => paintGrade(true);
   gradeRaf = requestAnimationFrame(animFrame);
 
   GR.timer = setInterval(() => {
     const now = c.currentTime;
+    if (GR.on && GR.host === host && performance.now() - lastAnimAt > 55) paintGrade(true);
     if (tap) { if (now > GR.end) grStop(true); return; }
     const { an, buf } = GR; if (!an) return;
     if (now > GR.end) { grStop(true); return; }
@@ -2396,11 +2431,13 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.relayout = () => {
     if (!ctl.osmd) return;
-    const w = $q('.sp-score').clientWidth;
-    if (!w || w === ctl.lastW) { BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); ctl.drawGradeMarks(); return; }
+    const scEl = $q('.sp-score'); if (!scEl) return;
+    const w = scEl.clientWidth;
+    if (!w || w === ctl.lastW) { BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); ctl.drawGradeMarks(); ctl._paintPlayhead?.(); return; }
     ctl.lastW = w;
     try { ctl.osmd.render(); } catch { }
-    BOX = boxes(); ctl.drawSel(); ctl.tagNotes(); ctl.drawLabels(); ctl.drawGradeMarks();
+    ctl.lastW = scEl.clientWidth || w;   // capture post-render width (e.g. if a Windows scrollbar appeared/disappeared)
+    BOX = boxes(); ctl.drawSel(); ctl.tagNotes(); ctl.drawLabels(); ctl.drawGradeMarks(); ctl._paintPlayhead?.();
   };
   // ----- events
   root.addEventListener('pointerdown', () => { SP_ACTIVE = ctl; window.__spaceTarget = 'sp'; });
@@ -2659,7 +2696,29 @@ function mountScore(host, st, onChange0, key) {
     onChange(); ctl.updateBar(); ctl.drawSel();
   });
   let rt = null;
-  new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => ctl.relayout(), 200); }).observe($q('.sp-score'));
+  const runRelayout = () => {
+    if (!root.isConnected) {
+      if (SP_CACHE[ck] !== ctl) {
+        clearTimeout(rt);
+        ctl._ro?.disconnect();
+        window.removeEventListener('resize', onSpWinResize);
+        window.removeEventListener('rehearsal-resize', onSpNativeResize);
+      }
+      return;
+    }
+    ctl.relayout();
+  };
+  const scheduleRelayout = (delay = 200) => {
+    clearTimeout(rt);
+    if (!delay) { runRelayout(); return; }
+    rt = setTimeout(runRelayout, delay);
+  };
+  const onSpWinResize = () => scheduleRelayout(200);
+  const onSpNativeResize = () => scheduleRelayout(0);
+  ctl._ro = new ResizeObserver(() => scheduleRelayout(200));
+  ctl._ro.observe($q('.sp-score'));
+  window.addEventListener('resize', onSpWinResize);
+  window.addEventListener('rehearsal-resize', onSpNativeResize);
   // ----- empty state & drag-and-drop score loader
   const showEmptyState = (errMsg = '') => {
     status('');

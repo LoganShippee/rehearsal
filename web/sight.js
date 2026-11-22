@@ -1044,8 +1044,20 @@ function srHeard() {
   return srHeard0(c) - dl;
 }
 function srHeard0(c) {
-  try { const ts = c.getOutputTimestamp && c.getOutputTimestamp(); if (ts && ts.contextTime > 0 && ts.performanceTime > 0) return ts.contextTime + (performance.now() - ts.performanceTime) / 1000; } catch { }
-  return c.currentTime - (c.outputLatency || c.baseLatency || 0);
+  const cur = c.currentTime;
+  const lat = Math.max(0, Math.min(0.6, Number(c.outputLatency || c.baseLatency) || 0));
+  try {
+    const ts = c.getOutputTimestamp && c.getOutputTimestamp();
+    if (ts && isFinite(ts.contextTime) && isFinite(ts.performanceTime) && ts.contextTime > 0 && ts.performanceTime > 0) {
+      const dt = (performance.now() - ts.performanceTime) / 1000;
+      const est = ts.contextTime + dt;
+      // Only trust getOutputTimestamp() when performanceTime is live in performance.now() ms and
+      // the estimate is physically plausible (iPadOS WebKit can return stale/mismatched timestamps
+      // that jump far ahead of currentTime, skipping count-in and pinning the playhead to the end).
+      if (Math.abs(dt) < 1 && isFinite(est) && est <= cur + 0.05 && est >= cur - 0.8) return est;
+    }
+  } catch { }
+  return cur - lat;
 }
 function srHidePlayhead(host) {
   host.querySelector('.sr-ph')?.remove();
@@ -1055,119 +1067,141 @@ function srHidePlayhead(host) {
 function srAnimate(host, st, getTimeline, clock) {
   // Runs for the whole playback and looks things up fresh every frame, so redrawing the music
   // (toggling counts, measure numbers or the playhead itself) never interrupts it.
-  let lastEl = null, lastBeat = -1, prevTq = null;
+  let lastEl = null, lastBeat = -1, prevTq = null, lastTickAt = 0, rafId = 0, fallback = 0;
   const myRun = SR_PLAY.run = (SR_PLAY.run || 0) + 1;        // a restarted playback replaces this loop
-  const frame = () => {
-    if (SR_PLAY.run !== myRun) return;
-    if (!(clock.alive ? clock.alive() : SR_PLAY.master)) { srHidePlayhead(host); return; }
-    const staff = host.querySelector('.sr-staff'), svg = staff?.querySelector('svg');
-    const tl = getTimeline(), geo = tl && tl.geo;
-    if (!staff || !svg || !geo) { requestAnimationFrame(frame); return; }
-    let bar = staff.querySelector('.sr-ph');
-    if (!bar) { bar = document.createElement('div'); bar.className = 'sr-ph'; staff.appendChild(bar); lastEl = null; }
-    const nowT = clock.heard ? clock.heard() : srHeard();
-    let cnt = staff.querySelector('.sr-count');
-    if (clock.countBeats && clock.pos(nowT) < (clock.start || 0)) {
-      if (!cnt) { cnt = document.createElement('div'); cnt.className = 'sr-count'; staff.appendChild(cnt); }
-      const bi = Math.max(0, Math.floor((clock.pos(nowT) - (clock.start || 0) + clock.countLen) / clock.beatQ + 1e-6));
-      const txt = String((bi % clock.beats) + 1);
-      if (cnt.dataset.n !== txt) {
-        cnt.dataset.n = txt;
-        const c = clock.cue;
-        const cueLine = c?.tap
-          ? `<div class="sr-count-cue">Wait for count-in, then <b>press Space or tap screen</b></div>`
-          : c ? `<div class="sr-count-cue">${c.heard ? `hear <b>${c.heard}</b> · ` : ''}start on <b>${c.start}</b></div>` : '';
-        cnt.innerHTML = `<div class="sr-count-n">${txt}</div>${cueLine}`;
-        cnt.classList.toggle('one', txt === '1'); cnt.classList.remove('hit'); void cnt.offsetWidth; cnt.classList.add('hit');
-      }
-    } else if (cnt) cnt.remove();
-    const mode = st.playhead ?? 'beat';
-    if (mode === 'off') { bar.style.display = 'none'; staff.querySelectorAll('.sr-cur').forEach(e => e.classList.remove('sr-cur')); lastEl = null; requestAnimationFrame(frame); return; }
-    bar.classList.toggle('glide', mode === 'notes');
-    const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect();
-    const k = sr.width / geo.W, ox = sr.left - fr.left + staff.scrollLeft, oy = sr.top - fr.top + staff.scrollTop;
-    const tq = clock.pos(nowT);                     // quarter-notes since bar 1
-    if (!bar.firstChild) bar.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
-    // Steady playhead: one short mark above and one below, outside the staff and clear of every
-    // note in the example, so it never moves up and down (it only travels left to right).
-    if (!geo.gap) {
-      let up = 0, dn = 0;                                  // how far notes reach past the staff lines
-      for (const mm of geo.measures) {
-        const lt = mm.y0 + 18, lb = mm.y1 - 18;
-        for (const kk of mm.knots) { if (kk[2] != null) up = Math.max(up, lt - kk[2]); if (kk[3] != null) dn = Math.max(dn, kk[3] - lb); }
-      }
-      dn = Math.min(dn, 40);
-      // solfege syllables / counts printed under the staff: the lower mark goes beneath them
-      const lines = [...new Set(geo.measures.map(mm => mm.y1 - 18))];
-      for (const tx of svg.querySelectorAll('text')) {
-        let bb; try { bb = tx.getBBox(); } catch { continue; }
-        const cy = bb.y + bb.height / 2;
-        // only text that belongs under THIS line — not the next line's measure numbers
-        const tops = [...new Set(geo.measures.map(mm => mm.y0 + 18))];
-        for (const lb of lines) {
-          const nextTop = Math.min(...tops.filter(t => t > lb + 1), Infinity);
-          if (cy > lb && cy < Math.min(lb + 70, nextTop - 14)) dn = Math.max(dn, bb.y + bb.height - lb + 2);
-        }
-      }
-      geo.gap = { up: Math.min(up, 40), dn };
-    }
-    const place = (m, x) => {
-      const pad = 6, len = 22;
-      const a = m.y0 + 18 - geo.gap.up - pad, b = m.y1 - 18 + geo.gap.dn + pad;   // the clear band
-      const y0 = a - len, y1 = b + len;
-      bar.style.display = 'block';
-      bar.style.left = ox + x * k + 'px';
-      bar.style.top = oy + y0 * k + 'px';
-      bar.style.height = (y1 - y0) * k + 'px';
-      const t = bar.children[0], bt = bar.children[1];
-      t.style.height = len * k + 'px';
-      bt.style.top = (b - y0) * k + 'px';
-      bt.style.height = len * k + 'px';
-    };
-    if (tq < (clock.start || 0)) {                                                 // count-in: wait at the first note, breathing
-      const m0 = geo.measures[clock.fromM || 0] || geo.measures[0], k0 = m0.knots[0]; bar.classList.add('pulse'); place(m0, k0[1], k0[2], k0[3]);
-      requestAnimationFrame(frame); return;
-    }
-    bar.classList.remove('pulse');
-    const m = geo.measures.find(mm => tq >= mm.t0 && tq < mm.t1) || geo.measures[geo.measures.length - 1];
-    let x, top, bot;
-    if (mode === 'notes') {
-      let j = 0; while (j < m.knots.length - 2 && tq >= m.knots[j + 1][0] - 1e-6) j++;
-      const kn0 = m.knots[j];                                         // the newest note start in any part
-      x = kn0[1]; top = kn0[2]; bot = kn0[3];                         // glides (CSS) onto each note
-    } else {
-      let i = 0; while (i < m.knots.length - 2 && tq >= m.knots[i + 1][0]) i++;
-      const [ta, xa] = m.knots[i], [tb, xb] = m.knots[i + 1] || m.knots[i];
-      const dt = tb - ta;
-      if (dt > 1e-6) {
-        const f = Math.max(0, Math.min(1, (tq - ta) / dt)), f2 = f * f, f3 = f2 * f;
-        const ma = m.slopes ? m.slopes[i] : (xb - xa) / dt, mb = m.slopes ? m.slopes[i + 1] : (xb - xa) / dt;
-        x = (2 * f3 - 3 * f2 + 1) * xa + (f3 - 2 * f2 + f) * dt * ma + (-2 * f3 + 3 * f2) * xb + (f3 - f2) * dt * mb;
-      } else x = xa;
-      const beat = Math.floor(tq / clock.beatQ + 1e-6);
-      if (beat !== lastBeat) { lastBeat = beat; bar.classList.remove('beat'); void bar.offsetWidth; bar.classList.add('beat'); }
-    }
-    place(m, x, top, bot);
-    if (clock.noNoteLight) { requestAnimationFrame(frame); return; }
-    // each note lights up as it sounds, with a soft ring on the notehead
-    if (prevTq == null || tq < prevTq - 0.05) prevTq = Math.min(tq, clock.start || 0) - 0.05;   // first frame (include first note!), or a jump back
-    for (const ev of tl) {
-      if (ev.rest || ev.tiedFrom || ev.t > tq + 1e-6 || ev.t <= prevTq + 1e-6) continue;
-      const mm = geo.measures.find(q => ev.t >= q.t0 - 1e-6 && ev.t < q.t1 - 1e-6), kn = mm?.knots.find(kk => Math.abs(kk[0] - ev.t) < 1e-6);
-      if (!kn) continue;
-      const ring = document.createElement('div'); ring.className = 'sr-ring';
-      ring.style.left = ox + kn[1] * k + 'px'; ring.style.top = oy + (ev.y ?? (mm.y0 + mm.y1) / 2) * k + 'px';
-      staff.appendChild(ring); setTimeout(() => ring.remove(), 600);
-    }
-    prevTq = tq;
-    // light every note sounding now (all parts)
-    const actI = [], act = [];
-    tl.forEach((ev, i) => { if (!ev.rest && tq >= ev.t - 1e-6 && tq < ev.t + ev.len - 1e-6) { actI.push(i); act.push(ev.el); } });
-    const akey = actI.join();
-    if (akey !== lastEl) { staff.querySelectorAll('.sr-cur').forEach(x => srLight(x, false)); act.forEach(x => srLight(x, true)); lastEl = akey; }
-    requestAnimationFrame(frame);
+  const stopLoop = () => {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (fallback) { clearInterval(fallback); fallback = 0; }
+    if (host.__srRepaint === repaintNow) host.__srRepaint = null;
   };
-  requestAnimationFrame(frame);
+  const stepFrame = () => {
+    if (SR_PLAY.run !== myRun) { stopLoop(); return false; }
+    if (!(clock.alive ? clock.alive() : SR_PLAY.master)) { stopLoop(); srHidePlayhead(host); return false; }
+    lastTickAt = performance.now();
+    try {
+      const staff = host.querySelector('.sr-staff'), svg = staff?.querySelector('svg');
+      const tl = getTimeline(), geo = tl && tl.geo;
+      if (!staff || !svg || !geo) return true;
+      let bar = staff.querySelector('.sr-ph');
+      if (!bar) { bar = document.createElement('div'); bar.className = 'sr-ph'; staff.appendChild(bar); lastEl = null; }
+      const nowT = clock.heard ? clock.heard() : srHeard();
+      let cnt = staff.querySelector('.sr-count');
+      if (clock.countBeats && clock.pos(nowT) < (clock.start || 0)) {
+        if (!cnt) { cnt = document.createElement('div'); cnt.className = 'sr-count'; staff.appendChild(cnt); }
+        const bi = Math.max(0, Math.floor((clock.pos(nowT) - (clock.start || 0) + clock.countLen) / clock.beatQ + 1e-6));
+        const txt = String((bi % clock.beats) + 1);
+        if (cnt.dataset.n !== txt) {
+          cnt.dataset.n = txt;
+          const c = clock.cue;
+          const cueLine = c?.tap
+            ? `<div class="sr-count-cue">Wait for count-in, then <b>press Space or tap screen</b></div>`
+            : c ? `<div class="sr-count-cue">${c.heard ? `hear <b>${c.heard}</b> · ` : ''}start on <b>${c.start}</b></div>` : '';
+          cnt.innerHTML = `<div class="sr-count-n">${txt}</div>${cueLine}`;
+          cnt.classList.toggle('one', txt === '1'); cnt.classList.remove('hit'); void cnt.offsetWidth; cnt.classList.add('hit');
+        }
+      } else if (cnt) cnt.remove();
+      const mode = st.playhead ?? 'beat';
+      if (mode === 'off') { bar.style.display = 'none'; staff.querySelectorAll('.sr-cur').forEach(e => e.classList.remove('sr-cur')); lastEl = null; return true; }
+      bar.classList.toggle('glide', mode === 'notes');
+      const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect();
+      if (!sr.width || !geo.W) return true;
+      const k = sr.width / geo.W, ox = sr.left - fr.left + staff.scrollLeft, oy = sr.top - fr.top + staff.scrollTop;
+      const tq = clock.pos(nowT);                     // quarter-notes since bar 1
+      if (!bar.firstChild) bar.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
+      // Steady playhead: one short mark above and one below, outside the staff and clear of every
+      // note in the example, so it never moves up and down (it only travels left to right).
+      if (!geo.gap) {
+        let up = 0, dn = 0;                                  // how far notes reach past the staff lines
+        for (const mm of geo.measures) {
+          const lt = mm.y0 + 18, lb = mm.y1 - 18;
+          for (const kk of mm.knots) { if (kk[2] != null) up = Math.max(up, lt - kk[2]); if (kk[3] != null) dn = Math.max(dn, kk[3] - lb); }
+        }
+        dn = Math.min(dn, 40);
+        // solfege syllables / counts printed under the staff: the lower mark goes beneath them
+        const lines = [...new Set(geo.measures.map(mm => mm.y1 - 18))];
+        for (const tx of svg.querySelectorAll('text')) {
+          let bb; try { bb = tx.getBBox(); } catch { continue; }
+          const cy = bb.y + bb.height / 2;
+          // only text that belongs under THIS line — not the next line's measure numbers
+          const tops = [...new Set(geo.measures.map(mm => mm.y0 + 18))];
+          for (const lb of lines) {
+            const nextTop = Math.min(...tops.filter(t => t > lb + 1), Infinity);
+            if (cy > lb && cy < Math.min(lb + 70, nextTop - 14)) dn = Math.max(dn, bb.y + bb.height - lb + 2);
+          }
+        }
+        geo.gap = { up: Math.min(up, 40), dn };
+      }
+      const place = (m, x) => {
+        const pad = 6, len = 22;
+        const a = m.y0 + 18 - geo.gap.up - pad, b = m.y1 - 18 + geo.gap.dn + pad;   // the clear band
+        const y0 = a - len, y1 = b + len;
+        bar.style.display = 'block';
+        bar.style.left = ox + x * k + 'px';
+        bar.style.top = oy + y0 * k + 'px';
+        bar.style.height = (y1 - y0) * k + 'px';
+        const t = bar.children[0], bt = bar.children[1];
+        t.style.height = len * k + 'px';
+        bt.style.top = (b - y0) * k + 'px';
+        bt.style.height = len * k + 'px';
+      };
+      if (tq < (clock.start || 0)) {                                                 // count-in: wait at the first note, breathing
+        const m0 = geo.measures[clock.fromM || 0] || geo.measures[0], k0 = m0.knots[0]; bar.classList.add('pulse'); place(m0, k0[1], k0[2], k0[3]);
+        return true;
+      }
+      bar.classList.remove('pulse');
+      const m = geo.measures.find(mm => tq >= mm.t0 && tq < mm.t1) || geo.measures[geo.measures.length - 1];
+      let x, top, bot;
+      if (mode === 'notes') {
+        let j = 0; while (j < m.knots.length - 2 && tq >= m.knots[j + 1][0] - 1e-6) j++;
+        const kn0 = m.knots[j];                                         // the newest note start in any part
+        x = kn0[1]; top = kn0[2]; bot = kn0[3];                         // glides (CSS) onto each note
+      } else {
+        let i = 0; while (i < m.knots.length - 2 && tq >= m.knots[i + 1][0]) i++;
+        const [ta, xa] = m.knots[i], [tb, xb] = m.knots[i + 1] || m.knots[i];
+        const dt = tb - ta;
+        if (dt > 1e-6) {
+          const f = Math.max(0, Math.min(1, (tq - ta) / dt)), f2 = f * f, f3 = f2 * f;
+          const ma = m.slopes ? m.slopes[i] : (xb - xa) / dt, mb = m.slopes ? m.slopes[i + 1] : (xb - xa) / dt;
+          x = (2 * f3 - 3 * f2 + 1) * xa + (f3 - 2 * f2 + f) * dt * ma + (-2 * f3 + 3 * f2) * xb + (f3 - f2) * dt * mb;
+        } else x = xa;
+        const beat = Math.floor(tq / clock.beatQ + 1e-6);
+        if (beat !== lastBeat) { lastBeat = beat; bar.classList.remove('beat'); void bar.offsetWidth; bar.classList.add('beat'); }
+      }
+      place(m, x, top, bot);
+      if (clock.noNoteLight) return true;
+      // each note lights up as it sounds, with a soft ring on the notehead
+      if (prevTq == null || tq < prevTq - 0.05) prevTq = Math.min(tq, clock.start || 0) - 0.05;   // first frame (include first note!), or a jump back
+      for (const ev of tl) {
+        if (ev.rest || ev.tiedFrom || ev.t > tq + 1e-6 || ev.t <= prevTq + 1e-6) continue;
+        const mm = geo.measures.find(q => ev.t >= q.t0 - 1e-6 && ev.t < q.t1 - 1e-6), kn = mm?.knots.find(kk => Math.abs(kk[0] - ev.t) < 1e-6);
+        if (!kn) continue;
+        const ring = document.createElement('div'); ring.className = 'sr-ring';
+        ring.style.left = ox + kn[1] * k + 'px'; ring.style.top = oy + (ev.y ?? (mm.y0 + mm.y1) / 2) * k + 'px';
+        staff.appendChild(ring); setTimeout(() => ring.remove(), 600);
+      }
+      prevTq = tq;
+      // light every note sounding now (all parts)
+      const actI = [], act = [];
+      tl.forEach((ev, i) => { if (!ev.rest && tq >= ev.t - 1e-6 && tq < ev.t + ev.len - 1e-6) { actI.push(i); act.push(ev.el); } });
+      const akey = actI.join();
+      if (akey !== lastEl) { staff.querySelectorAll('.sr-cur').forEach(x => srLight(x, false)); act.forEach(x => srLight(x, true)); lastEl = akey; }
+    } catch { }
+    return true;
+  };
+  const frame = () => {
+    rafId = 0;
+    if (stepFrame()) rafId = requestAnimationFrame(frame);
+  };
+  const repaintNow = () => {
+    if (stepFrame() && !rafId) rafId = requestAnimationFrame(frame);
+  };
+  host.__srRepaint = repaintNow;
+  rafId = requestAnimationFrame(frame);
+  // Keep playhead alive if Windows WebView2 throttles or drops rAF during window resize / fullscreen.
+  fallback = setInterval(() => {
+    if (SR_PLAY.run !== myRun || !(clock.alive ? clock.alive() : SR_PLAY.master)) { stopLoop(); return; }
+    if (performance.now() - lastTickAt > 55) repaintNow();
+  }, 40);
 }
 
 // ---------- UI
@@ -1982,7 +2016,7 @@ function mountSight(host, st, onChange) {
     const i = Math.max(0, Math.min(Number(st.startM) || 0, geo.measures.length - 1));
     const m0 = geo.measures[i]; if (!m0) return;
     const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect(), k = sr.width / geo.W;
-    const ox = sr.left - fr.left, oy = sr.top - fr.top + staff.scrollTop;
+    const ox = sr.left - fr.left + staff.scrollLeft, oy = sr.top - fr.top + staff.scrollTop;
     const f = document.createElement('div');
     f.className = 'sr-from';
     f.innerHTML = `<b>m. ${i + 1}</b>`;
@@ -2233,8 +2267,33 @@ function mountSight(host, st, onChange) {
   };
   // redraw notation when the window is resized
   let rt = null;
-  const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => { const sv = host.querySelector('.sr-staff'); if (sv && (!isBuild() || st.build?.items.length)) { timeline = srDraw(sv, V()); drawFrom(); markSel(); host.__grRedraw(); } }, 120); });
+  const doResizeRedraw = () => {
+    if (!host.isConnected) { cleanupResize(); return; }
+    const sv = host.querySelector('.sr-staff');
+    if (sv && (!isBuild() || st.build?.items.length)) {
+      timeline = srDraw(sv, V());
+      host.__timeline = timeline;
+      drawFrom(); markSel(); host.__grRedraw();
+      host.__srRepaint?.();
+    }
+  };
+  const scheduleResizeRedraw = (delay = 120) => {
+    clearTimeout(rt);
+    if (!delay) { doResizeRedraw(); return; }
+    rt = setTimeout(doResizeRedraw, delay);
+  };
+  const onWinResize = () => scheduleResizeRedraw(120);
+  const onNativeResize = () => scheduleResizeRedraw(0);
+  const ro = new ResizeObserver(() => scheduleResizeRedraw(120));
+  const cleanupResize = () => {
+    clearTimeout(rt);
+    ro.disconnect();
+    window.removeEventListener('resize', onWinResize);
+    window.removeEventListener('rehearsal-resize', onNativeResize);
+  };
   ro.observe(host);
+  window.addEventListener('resize', onWinResize);
+  window.addEventListener('rehearsal-resize', onNativeResize);
   render();
   return st;
 }

@@ -228,8 +228,11 @@ internal sealed class WebWindows
         if (_lastHoles.Count == 0 || _ownerWeb.Width <= 0 || _ownerWeb.Height <= 0)
         {
             var old = _ownerWeb.Region;
-            _ownerWeb.Region = null;
-            old?.Dispose();
+            if (old != null)
+            {
+                _ownerWeb.Region = null;
+                old.Dispose();
+            }
             return;
         }
 

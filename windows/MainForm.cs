@@ -34,6 +34,7 @@ internal sealed class MainForm : Form
     private Size _compSavedMaxSize;
 
     private readonly System.Windows.Forms.Timer _dragTimer = new() { Interval = 12 };
+    private readonly System.Windows.Forms.Timer _resizeNotifyTimer = new() { Interval = 80 };
     private Point _dragCursorStart;
     private Rectangle _dragBoundsStart;
     private int _dragHitMode = HTCAPTION;
@@ -224,6 +225,11 @@ internal sealed class MainForm : Form
         _webWindows = new WebWindows(this, _webView);
 
         _dragTimer.Tick += OnDragTimerTick;
+        _resizeNotifyTimer.Tick += (_, _) =>
+        {
+            _resizeNotifyTimer.Stop();
+            NotifyWebViewResized();
+        };
 
         Shown += async (_, _) => await InitWebViewAsync();
         Resize += (_, _) =>
@@ -236,6 +242,19 @@ internal sealed class MainForm : Form
             else if (!_isCompanion)
             {
                 RealignDockedApp(false);
+                if (WindowState != FormWindowState.Minimized)
+                {
+                    _resizeNotifyTimer.Stop();
+                    _resizeNotifyTimer.Start();
+                }
+            }
+        };
+        ResizeEnd += (_, _) =>
+        {
+            if (!_isCompanion && WindowState != FormWindowState.Minimized)
+            {
+                _resizeNotifyTimer.Stop();
+                NotifyWebViewResized();
             }
         };
         Move += (_, _) =>
@@ -309,6 +328,8 @@ internal sealed class MainForm : Form
     {
         _dragTimer.Stop();
         _dragTimer.Dispose();
+        _resizeNotifyTimer.Stop();
+        _resizeNotifyTimer.Dispose();
         _webWindows.RemoveAll();
         foreach (var p in _popups.ToList())
         {
@@ -374,32 +395,47 @@ internal sealed class MainForm : Form
         _webView.CoreWebView2.Reload();
     }
 
+    private void NotifyWebViewResized()
+    {
+        if (IsDisposed || _webView.IsDisposed || _webView.CoreWebView2 == null) return;
+        EvalScript("window.dispatchEvent(new Event('resize'));window.dispatchEvent(new Event('rehearsal-resize'));");
+    }
+
     public void ToggleCover()
     {
         if (_isCompanion)
         {
             ExitCompanion();
         }
-        if (_isCovering)
+        SuspendLayout();
+        try
         {
-            FormBorderStyle = _savedBorder;
-            Bounds = _savedBounds;
-            WindowState = _savedState;
-            _isCovering = false;
-        }
-        else
-        {
-            var screen = Screen.FromControl(this);
-            _savedBorder = FormBorderStyle;
-            _savedState = WindowState;
-            _savedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            if (_isCovering)
+            {
+                FormBorderStyle = _savedBorder;
+                Bounds = _savedBounds;
+                WindowState = _savedState;
+                _isCovering = false;
+            }
+            else
+            {
+                var screen = Screen.FromControl(this);
+                _savedBorder = FormBorderStyle;
+                _savedState = WindowState;
+                _savedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
 
-            WindowState = FormWindowState.Normal;
-            FormBorderStyle = FormBorderStyle.None;
-            Bounds = screen.Bounds;
-            _isCovering = true;
-            Activate();
+                WindowState = FormWindowState.Normal;
+                FormBorderStyle = FormBorderStyle.None;
+                Bounds = screen.Bounds;
+                _isCovering = true;
+            }
         }
+        finally
+        {
+            ResumeLayout(true);
+        }
+        if (_isCovering) Activate();
+        try { BeginInvoke(NotifyWebViewResized); } catch { }
     }
 
     private static string CompanionConfigPath =>
