@@ -586,10 +586,12 @@ function renderTimers() {
     const muted = tm.muted || tm.sound === 'none';
     return `<div class="p-timer ${paused ? 'paused' : ''} ${isFloat ? 'floating' : ''} ${isFull ? 'full' : ''}" data-tid="${tm.id}" data-tdrag="${tm.id}" style="${sty}">
       <div class="tm-bar">
-        <div class="tl"><span class="tl-txt">${esc(tm.label)}</span><span class="tl-paused" ${paused ? '' : 'hidden'}>Paused</span></div>
+        <div class="tm-title-col">
+          <div class="tl"><span class="tl-txt">${esc(tm.label)}</span><span class="tl-paused" ${paused ? '' : 'hidden'}>Paused</span></div>
+          <button class="tm-end" data-action="timer-x" data-id="${tm.id}" title="End timer" aria-label="End timer">End</button>
+        </div>
         <div class="tm-win-acts">
           <button data-action="timer-full" data-id="${tm.id}" class="${isFull ? 'on' : ''}" title="${isFull ? 'Restore timer size' : 'Maximize timer'}" aria-label="${isFull ? 'Restore timer size' : 'Maximize timer'}">${IC(isFull ? 'ico:restore' : 'ico:maximize')}</button>
-          <button class="tm-end" data-action="timer-x" data-id="${tm.id}" title="End timer" aria-label="End timer">End</button>
         </div>
       </div>
       <div class="tm-body">
@@ -3473,7 +3475,7 @@ function renderWinMenu() {
       ${tile('wm-web', 'ico:web', 'Web page')}
       ${tile('wm-files', 'ico:folder', 'Files', 'title="Search and open any audio, PDF, score, image, or video — pin individual files anytime"')}
       ${tile('wm-file', 'ico:file', 'Import…', `title="Pick a new PDF, audio, score, picture or video from this ${DEVICE}"`)}
-      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'External Apps', 'title="Dock another app inside Rehearsal or float Mini-HUD (MuseScore, PowerPoint…)"') : ''}
+      ${IS_NATIVE ? tile('wm-apps', 'ico:app', 'External Apps', 'title="Switch to another app with Rehearsal floating on top"') : ''}
     </div>
     ${IS_NATIVE ? appPickerHTML() : ''}
     ${many ? `<input class="wm-search" placeholder="Search tabs and files…" data-wm-search>` : ''}
@@ -4038,7 +4040,7 @@ function tickNoise() {
 }
 
 // ============================================================ EDITOR
-const TABS = [['classes', 'Classes'], ['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events'], ['library', 'Library'], ['settings', 'Settings']];
+const TABS = [['classes', 'Classes'], ['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events'], ['library', 'Library'], ['tutorials', 'Tutorials'], ['settings', 'Settings']];
 function renderEditor() {
   setTimeout(loadBackups, 0);                         // fills the backup list if Settings is showing
   const scroll = $('#e-main')?.scrollTop || 0;
@@ -4057,6 +4059,7 @@ function tabHTML() {
     case 'notes': return notesTab();
     case 'events': return eventsTab();
     case 'library': return libraryTab();
+    case 'tutorials': return helpTutorialsCard();
     case 'settings': return settingsTab();
   }
   return '';
@@ -4592,53 +4595,53 @@ const FEATURE_GUIDES = [
     cat: 'Music',
     icon: 'ico:score',
     title: 'Score Practice, Voice Mixer & Vocal Recording',
-    summary: 'Load MusicXML or MuseScore files, loop measures, ring starting pitches inside each voice pill, record silent or headphone sung voices, and grade parts note-by-note.',
+    summary: 'Open MusicXML or MuseScore files, loop measures, play starting pitches for each part, record sung tracks, and grade parts note by note.',
     tips: [
-      'Click any measure (or drag across measures) to set a start point or loop range.',
-      'Click the bell icon inside any voice pill for its starting pitch, or Low → high / Chord.',
-      'Click Record vocals ▾ to choose Silent Recording (zero piano bleed) or Headphones Recording with per-part checkboxes.',
+      'Click a measure to start there, or drag across measures to set a loop.',
+      'Click the bell icon next to any part for its starting pitch, or use Low → high and Chord.',
+      'Click Record vocals to record a part either silently (no headphones) or with selected parts in headphones.',
     ],
     steps: [
       {
         setup: () => { tourClosePopovers(); tourFindOrOpenScore(); },
         delay: 140,
         sel: '.sp-top', fallback: '.score-host',
-        title: 'Score Practice Controls',
-        body: 'Here is Score Practice live. Pick a piece, press Play, loop any measure range, adjust tempo/transposition, or open Voices & Grade right from this bar.',
+        title: 'Score Practice Bar',
+        body: 'Pick a score, press Play, change tempo, or click a measure (or drag across measures) to set a start point or loop. Voices and Grade open from this bar too.',
       },
       {
         setup: () => {
           tourClosePopovers(); tourFindOrOpenScore();
           const voicesBtn = $('[data-sp="voices"]');
-          if (voicesBtn && !$('.sp-voices')) voicesBtn.click();
+          if (voicesBtn && $('.sp-voices')?.hidden) voicesBtn.click();
         },
         delay: 120,
-        sel: '.sp-voices', fallback: '.sp-top',
-        title: 'Single-Row Voice Pills & Pitch Bells',
-        body: 'Each voice part has its own compact pill with a built-in starting Pitch Bell, volume slider, Focus, Solo, and Sung/MIDI toggle — plus Low → high and Chord pitches at the top.',
+        sel: '.sp-voices:not([hidden])', fallback: '.sp-top',
+        title: 'Voice Parts & Starting Pitches',
+        body: 'Each part has a starting-pitch bell, volume slider, Focus, Solo, and a Sung/MIDI switch once recorded. Use All, Low → high, or Chord at the top to give pitches.',
       },
       {
         setup: () => {
           tourClosePopovers(); tourFindOrOpenScore();
           const voicesBtn = $('[data-sp="voices"]');
-          if (voicesBtn && !$('.sp-voices')) voicesBtn.click();
+          if (voicesBtn && $('.sp-voices')?.hidden) voicesBtn.click();
           setTimeout(() => { const rb = $('[data-sp="rec-menu"]'); if (rb && !$('.sp-recmenu')) rb.click(); }, 60);
         },
-        delay: 160,
+        delay: 170,
         sel: '.sp-recmenu', fallback: '[data-sp="rec-menu"]',
-        title: 'Record Vocals: Silent or Headphones',
-        body: 'Pick which part to record, check any combination of parts (including the part you are recording!) + click track for Headphones mode, or choose Silent Recording for zero bleed.',
+        title: 'Record Vocals',
+        body: 'Pick the part to record. Choose Silent Recording to mute playback after the count-in, or Headphones Recording and check whichever parts (including the part you are recording) and Click track you want to hear.',
       },
       {
         setup: () => {
           tourClosePopovers(); tourFindOrOpenScore();
-          const gb = $('[data-sp="gr-more"]') || $('[data-sp="grade"]');
-          if (gb) gb.click();
+          const gb = $('[data-sp="grade-menu"]');
+          if (gb && !$('.sp-grmenu')) gb.click();
         },
-        delay: 120,
+        delay: 130,
         sel: '.sp-grmenu', fallback: '[data-sp="grade"]',
-        title: 'Note-by-Note Live Grading',
-        body: 'Choose the part, octave shift, and Microphone (Pitch & Rhythm), Rhythm only, or Spacebar tap mode. Rehearsal marks every note right on the score.',
+        title: 'Grading a Part',
+        body: 'Choose which part to grade and your octave shift, then pick Microphone (Pitch & Rhythm), Microphone (Rhythm only), or Space bar (Tap rhythm). Results appear on the notes.',
       },
     ],
   },
@@ -4646,11 +4649,11 @@ const FEATURE_GUIDES = [
     id: 'sight',
     cat: 'Music',
     icon: 'ico:sight',
-    title: 'Sight Reading & Live Grading',
-    summary: 'Generate instant rhythm, solfege, or custom sight-reading examples with live microphone pitch/rhythm grading and Spacebar rhythm tapping.',
+    title: 'Sight Reading & Grading',
+    summary: 'Generate rhythm or solfege examples and grade them with the microphone or space bar.',
     tips: [
-      'Press Grade for a count-in + starting pitch cue, then sing or clap.',
-      'Use Listen back to hear your recorded voice aligned with the example (without extra metronome overlap).',
+      'Click New to generate another example, or open Settings to change keys, rhythms, and range.',
+      'After grading, click Listen back to hear your recording lined up with the example.',
     ],
     steps: [
       {
@@ -4663,8 +4666,8 @@ const FEATURE_GUIDES = [
         },
         delay: 140,
         sel: '.sr-top', fallback: '.sr-host',
-        title: 'Sight Reading Generator',
-        body: 'Switch between Solfege and Rhythm, pick a difficulty level, click New for a fresh example, or press Play to hear it modeled.',
+        title: 'Sight Reading Controls',
+        body: 'Switch between Rhythm and Solfege, adjust the tempo, click New for a fresh example, or press Play to hear it.',
       },
       {
         setup: () => {
@@ -4673,8 +4676,8 @@ const FEATURE_GUIDES = [
         },
         delay: 90,
         sel: '[data-sr="grade"]', fallback: '.sr-host',
-        title: 'Live Microphone & Spacebar Grading',
-        body: 'Click Grade to sing, clap, or tap the Spacebar along with the score — then press Listen back to review your recorded performance.',
+        title: 'Grade & Listen Back',
+        body: 'Click Grade to sing, clap, or tap the space bar along with the example. When finished, use Listen back to review your take.',
       },
     ],
   },
@@ -4682,12 +4685,12 @@ const FEATURE_GUIDES = [
     id: 'extapps',
     cat: 'Workspace',
     icon: 'ico:app',
-    title: 'External Apps & Floating Agenda Mini-HUD',
-    summary: 'Switch to MuseScore, PowerPoint, or any desktop app at full size while Rehearsal floats cleanly as a resizable Agenda Mini-HUD — and pin favorite apps directly to your workspace tabs.',
+    title: 'External Apps & Floating Agenda Bar',
+    summary: 'Switch to another app on your computer while Rehearsal stays on top as a small agenda bar, or pin apps as workspace tabs.',
     tips: [
-      'Open ＋ Open → External Apps and click any open app to float Rehearsal as an Agenda Mini-HUD over it.',
-      'Click Pin on any app to keep a one-click launcher tab right in your main workspace bar.',
-      'Drag the Mini-HUD edges to resize it and reveal more upcoming agenda steps, then click ↩ Rehearsal to return.',
+      'Open ＋ Open and click External Apps to see other open apps on your computer.',
+      'Click Pin on an app to keep a tab for it in your main tab bar.',
+      'Drag the edges of the floating agenda bar to resize it, and click Rehearsal when you want to come back.',
     ],
     steps: [
       {
@@ -4700,15 +4703,15 @@ const FEATURE_GUIDES = [
         },
         delay: 140,
         sel: '.win-menu', fallback: '[data-dock-id="window"]',
-        title: 'External Apps in ＋ Open',
-        body: 'Here in ＋ Open, every open desktop app appears in compact rows. Click any app to switch to it with Rehearsal’s floating Agenda Mini-HUD, or click Pin to keep it in your workspace tabs.',
+        title: 'Opening External Apps',
+        body: 'Open ＋ Open and click External Apps to list other open apps. Click an app to switch to it with Rehearsal floating on top, or click Pin to add it to your tabs.',
       },
       {
         setup: () => { tourClosePopovers(); },
         delay: 80,
         sel: '.tab-ext-app', fallback: '#stage-tabs',
-        title: 'One-Click Pinned App Tabs',
-        body: 'Pinned external apps sit right alongside Warm-up and class tabs. Clicking a pinned app tab immediately launches that app with the floating Agenda Mini-HUD.',
+        title: 'Pinned App Tabs',
+        body: 'Pinned apps show up in this tab bar alongside your class tabs. Click a pinned app tab anytime to switch straight to it.',
       },
     ],
   },
@@ -4716,12 +4719,12 @@ const FEATURE_GUIDES = [
     id: 'web',
     cat: 'Workspace',
     icon: 'ico:web',
-    title: 'Web Pages, Google Slides & Draw on Page',
-    summary: 'Rehearsal automatically picks the best browser engine for Google Docs/Sheets/Search and gives you a one-click Draw on page toggle plus live Google Slides Slideshow.',
+    title: 'Web Pages, Google Slides & Drawing',
+    summary: 'Open websites and Google files in class tabs, run Google Slides in slideshow mode, and draw on top of pages.',
     tips: [
-      'Google Docs, Sheets, Drive, and Search automatically run crisp & full-featured with in-app Google Sign-In.',
-      'Click Draw on page in the URL bar whenever you want to annotate over a web page.',
-      'On Google Slides, click Slideshow to play clean minimal slides inside Rehearsal.',
+      'Google Docs, Sheets, Drive, and Search open in full browser mode so signing in works normally.',
+      'Click Draw on page in the URL bar when you want to write over a webpage.',
+      'On Google Slides tabs, click Slideshow to present slides inside Rehearsal.',
     ],
     steps: [
       {
@@ -4734,8 +4737,8 @@ const FEATURE_GUIDES = [
         },
         delay: 120,
         sel: '#stage-webbar:not([hidden])', fallback: '.win[data-win="__tour_web"] .win-bar',
-        title: 'Smart URL Bar & Draw on Page',
-        body: 'Type any address or Google search here. Google Docs/Sheets automatically use crisp Full browser mode, and the Draw button lets you annotate on top anytime.',
+        title: 'Address Bar & Draw on Page',
+        body: 'Type a web address or Google search here. Slides tabs include a Slideshow button, and Draw on page lets you write over a webpage.',
       },
       {
         setup: () => {
@@ -4745,8 +4748,8 @@ const FEATURE_GUIDES = [
         },
         delay: 90,
         sel: '.ink-bar', fallback: '[data-dock-id="ink"]',
-        title: 'Live Annotation Toolbar',
-        body: 'Choose Pen, Highlighter, Arrows, Shapes, or Eraser to mark up slides, PDFs, scores, or web pages — then click Close (×) to return to normal interaction.',
+        title: 'Drawing Tools',
+        body: 'Use Annotate in the toolbar to pick pen, highlighter, arrows, shapes, or eraser over anything on screen. Click the close button on this bar to stop drawing.',
       },
     ],
   },
@@ -4754,12 +4757,12 @@ const FEATURE_GUIDES = [
     id: 'timers',
     cat: 'Classroom',
     icon: 'ico:timer',
-    title: 'Moveable, Resizable & Fullscreen Timers',
-    summary: 'Start quick countdown timers, drag them anywhere on screen, resize them from the corner, or expand any active timer to fill the workspace while keeping your header & toolbar visible.',
+    title: 'Timers',
+    summary: 'Start preset or custom timers, move and resize them on screen, or expand a timer to fill the workspace.',
     tips: [
-      'Drag any active timer card to move it anywhere on screen.',
-      'Drag the bottom-right corner handle to scale the ring and numbers without overlapping buttons.',
-      'Click Maximize (⤢) in the top-right corner of a timer to fill the workspace — and click End to stop it.',
+      'Drag a running timer anywhere on screen, and drag the bottom-right corner to resize it.',
+      'Click End under the timer name to stop and remove a timer.',
+      'Click the maximize button in the top-right corner of a timer to fill the workspace while keeping the header and toolbar visible.',
     ],
     steps: [
       {
@@ -4771,8 +4774,8 @@ const FEATURE_GUIDES = [
         },
         delay: 100,
         sel: '.tool[data-toolwin="timer"]', fallback: '[data-dock-id="timer"]',
-        title: '1. Launch a Quick or Custom Timer',
-        body: 'Click Timer in the toolbar to pick 30s, 1m, 2m, 5m, or type a custom label and length — then press Start.',
+        title: 'Starting a Timer',
+        body: 'Click Timer in the toolbar to start a preset (30 sec, 1, 2, 3, 5, 10, or 15 min), or set a custom length, name, and sound and press Start.',
       },
       {
         setup: () => {
@@ -4787,8 +4790,8 @@ const FEATURE_GUIDES = [
         },
         delay: 100,
         sel: '.p-timer[data-tid="__tour_tm"]', fallback: '#p-timers',
-        title: '2. Drag, Resize, or Maximize Any Running Timer',
-        body: 'Drag the timer anywhere on screen, resize its bottom-right corner handle, or use Maximize (⤢) and End in the top-right corner.',
+        title: 'Moving & Resizing a Timer',
+        body: 'Drag a running timer anywhere on screen, or drag its bottom-right corner to resize it. Use End under the timer name to stop it, or maximize in the top-right corner.',
       },
       {
         setup: () => {
@@ -4802,8 +4805,8 @@ const FEATURE_GUIDES = [
         },
         delay: 100,
         sel: '.p-timer[data-tid="__tour_tm"] .tm-bar', fallback: '.p-timer[data-tid="__tour_tm"]',
-        title: '3. Workspace Fullscreen Timer',
-        body: 'Maximized timers fill only the workspace zone below the header so your class title, clock, and toolbar stay visible — with Restore (⤡) and End right in the top-right.',
+        title: 'Full Workspace Timer',
+        body: 'Maximizing fills the workspace area below the header so your class title, toolbar, and clock stay visible. Click the top-right restore button to shrink it back, or End to finish.',
       },
     ],
   },
@@ -4811,12 +4814,12 @@ const FEATURE_GUIDES = [
     id: 'files',
     cat: 'Workspace',
     icon: 'ico:folder',
-    title: 'Files Browser, Inline Viewing & Pinning Files',
-    summary: 'Search your library by name or filter by Audio, PDF, Scores, Images, or Video — open files right inside the Files browser, pin the Files browser as a tab, or pin any individual file outside as its own tab.',
+    title: 'Files Browser & Pinning Files',
+    summary: 'Search and filter your audio, PDFs, scores, images, and videos. Open files inside Files, pin the Files browser as a tab, or pin individual files as their own tabs.',
     tips: [
-      'Open ＋ Open → Files to search and switch between audio tracks, PDFs, scores, images, and videos.',
-      'Click any file to open it right inside the Files browser — with ← Back to Files, Pin as own tab, and Pop out.',
-      'Click the Pin (📌) icon on the Files window bar to pin the entire Files browser as a permanent tab in your class.',
+      'Click any file to open it inside the Files browser, then use ← Files to go back.',
+      'Click Pin on a file (or Pin as own tab while viewing it) to give that file its own tab in the current class.',
+      'Click the trash icon on any file to delete it from your library.',
     ],
     steps: [
       {
@@ -4826,8 +4829,8 @@ const FEATURE_GUIDES = [
         },
         delay: 120,
         sel: '.win[data-win="__tour_files"] .fb-top', fallback: '.win[data-win="__tour_files"]',
-        title: 'Search & Filter All Your Files',
-        body: 'Search by filename or tap Audio, PDF, Scores, Images, or Video to filter instantly. Click + Add files (or drag & drop files here) to import.',
+        title: 'Search & Filter Files',
+        body: 'Type to search by file name, filter by Audio, PDF, Scores, Images, or Video, or click + Add files (or drag files in) to import new ones.',
       },
       {
         setup: () => {
@@ -4836,8 +4839,8 @@ const FEATURE_GUIDES = [
         },
         delay: 90,
         sel: '.win[data-win="__tour_files"] .fb-list', fallback: '.win[data-win="__tour_files"]',
-        title: 'Open Files Inside — or Pin Single Files Outside',
-        body: 'Click any file to view/play it right inside this Files browser (with ← Back to Files). Click Pin on any file to pin that single file outside as its own class tab.',
+        title: 'Open, Pin, or Delete Files',
+        body: 'Click a file to view or play it right inside Files. Use Pin to add a single file as its own class tab, or click the trash button to delete a file from your library.',
       },
       {
         setup: () => {
@@ -4846,8 +4849,8 @@ const FEATURE_GUIDES = [
         },
         delay: 90,
         sel: '.win[data-win="__tour_files"] [data-action="win-pin"]', fallback: '.win[data-win="__tour_files"] .win-bar',
-        title: 'Pin the Entire Files Browser as a Tab',
-        body: 'Click Pin (📌) here to pin the Files browser itself into your class tabs so you can browse and open any file right in your main stage.',
+        title: 'Pin the Files Browser',
+        body: 'Click the pin icon in the title bar (or Pin tab inside Files) to pin the Files browser itself as a tab in the current class.',
       },
     ],
   },
@@ -4855,11 +4858,11 @@ const FEATURE_GUIDES = [
     id: 'edit',
     cat: 'Classroom',
     icon: 'ico:edit',
-    title: 'Quick Edit, Live Agenda & Automations',
-    summary: 'Edit titles, warm-ups, and agenda items live on the Present screen, drag agenda steps to reorder, and schedule timed bells or music automations.',
+    title: 'Quick Edit & Agenda',
+    summary: 'Edit the class title, warm-up, and agenda right on the Present screen, and drag agenda items to reorder them.',
     tips: [
-      'Click Quick edit on Present to edit directly on screen without leaving your class.',
-      'Use ‹ › (or Left/Right arrows) to advance your agenda steps.',
+      'Click Quick edit in the toolbar to edit directly on screen without opening Setup.',
+      'Use ‹ › on the Agenda card (or the Left/Right arrow keys) to move through steps.',
     ],
     steps: [
       {
@@ -4870,8 +4873,8 @@ const FEATURE_GUIDES = [
         },
         delay: 120,
         sel: '#p-side', fallback: '[data-dock-id="editmode"]',
-        title: 'Quick Edit Is Live on Your Agenda',
-        body: 'With Quick edit active, click any agenda item to rename it, change minutes, add/remove steps, or drag steps up and down to reorder.',
+        title: 'Editing the Agenda on Screen',
+        body: 'With Quick edit on, click agenda items to change the text or minutes, add or remove items, or drag them into a new order.',
       },
       {
         setup: () => {
@@ -4881,8 +4884,8 @@ const FEATURE_GUIDES = [
         },
         delay: 80,
         sel: '#p-title', fallback: '.p-head',
-        title: 'Edit Class Title & Look Directly',
-        body: 'You can also edit the class title and warm-up right on screen, or open Look to tweak colors and theme — click Quick edit again when done.',
+        title: 'Editing the Class Header',
+        body: 'You can also edit the class name, subtitle, and warm-up right here. Click Quick edit again in the toolbar when you are done.',
       },
     ],
   },
@@ -4890,11 +4893,11 @@ const FEATURE_GUIDES = [
     id: 'bug',
     cat: 'Support',
     icon: 'ico:warn',
-    title: 'In-App Bug Reports with Automatic Screenshots',
-    summary: 'Spot something glitchy? Press ⌘⇧B (or ⋯ → Report a bug) to snap an instant screenshot, write what went wrong, and send it straight to RehearsalApp@pm.me without leaving the app.',
+    title: 'Reporting a Bug',
+    summary: 'Press ⌘⇧B (or open ⋯ → Report a bug) to capture a screenshot and explain what went wrong.',
     tips: [
-      'Uncheck "Include screenshot" anytime if student names are visible on screen.',
-      'Click Send Report to submit directly inside Rehearsal — zero sign-in or browser tabs required.',
+      'Uncheck "Include screenshot" if student names are visible on screen.',
+      'You can also save the report as an HTML file with Save File… if you are offline.',
     ],
     steps: [
       {
@@ -4904,8 +4907,8 @@ const FEATURE_GUIDES = [
         },
         delay: 110,
         sel: '.bug-card', fallback: '#p-dock .dock-more',
-        title: '100% In-App Bug Report (⌘⇧B)',
-        body: 'Press ⌘⇧B (Ctrl+Shift+B) or open ⋯ → Report a bug anytime. Rehearsal snaps a screenshot automatically, attaches system info, and emails your report directly to RehearsalApp@pm.me without leaving the app.',
+        title: 'Report a Bug (⌘⇧B)',
+        body: 'Open ⋯ → Report a bug or press ⌘⇧B (Ctrl+Shift+B) from any screen. Rehearsal takes a screenshot automatically, lets you write what happened, and attaches your app version and OS.',
       },
     ],
   },
@@ -4915,13 +4918,13 @@ function helpTutorialsCard() {
   const list = FEATURE_GUIDES.filter(g => !q || (g.title + ' ' + g.summary + ' ' + g.cat + ' ' + g.tips.join(' ')).toLowerCase().includes(q));
   return `<div class="card help-card" id="settings-help">
     <div class="card-head">
-      <h2>Help &amp; Tutorials</h2>
+      <h2>Tutorials</h2>
       <span class="grow"></span>
-      <button class="btn small primary" data-action="tour-replay">${IC('ico:play')} Start Full Guided Tour</button>
+      <button class="btn small primary" data-action="tour-replay">${IC('ico:play')} Full Tour</button>
       <button class="btn small" data-action="bug-report">${IC('ico:warn')} Report a Bug</button>
     </div>
-    <p class="desc">Click any feature below for quick tips, or press <b>Show me on screen</b> to launch a focused interactive spotlight walkthrough right on your Present screen.</p>
-    <input class="help-search" data-help-search placeholder="Search features (e.g. timer, grading, audio, dock, pdf, sign in)…" value="${esc(P.helpSearch || '')}">
+    <p class="desc">Pick a feature below for quick notes, or click <b>Show me</b> to open it on the Present screen and walk through the controls.</p>
+    <input class="help-search" data-help-search placeholder="Search tutorials (timer, grading, files, vocals, slides)…" value="${esc(P.helpSearch || '')}">
     <div class="help-grid">
       ${list.length ? list.map(g => `<details class="help-item" ${q ? 'open' : ''}>
         <summary>
@@ -4932,10 +4935,10 @@ function helpTutorialsCard() {
         <div class="help-body">
           <ul>${g.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
           <div class="help-acts">
-            <button class="btn small primary" data-action="feature-tour" data-fid="${g.id}">Show me on screen →</button>
+            <button class="btn small primary" data-action="feature-tour" data-fid="${g.id}">Show me →</button>
           </div>
         </div>
-      </details>`).join('') : '<div class="empty">No matching features found.</div>'}
+      </details>`).join('') : '<div class="empty">No matching tutorials found.</div>'}
     </div>
   </div>`;
 }
@@ -4945,7 +4948,6 @@ function settingsTab() {
   const sim = S.settings.sim;
   return `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
     <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}
-  ${helpTutorialsCard()}
   ${updatesCard()}<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
@@ -5605,8 +5607,8 @@ const A = {
     setTimeout(() => startTour(g.steps), 140);
   },
   'help-open': () => {
-    TAB = 'settings'; go('edit');
-    setTimeout(() => { $('#settings-help')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); $('.help-search')?.focus(); }, 80);
+    TAB = 'tutorials'; go('edit');
+    setTimeout(() => { $('.help-search')?.focus(); }, 80);
   },
   'bug-report': () => triggerBugReport(),
   'tour-prev': () => stepTour(-1),
@@ -5815,14 +5817,14 @@ document.addEventListener('mouseleave', () => {
 });
 
 const TOUR_STEPS = [
-  { sel: '#p-cls', fallback: '[data-dock-id="classpick"], #p-title', title: '1. Class & Bell Schedule', body: 'Rehearsal automatically switches classes on your bell schedule — or pick any class here to show it now. It reopens on whichever class (or Follow schedule) you used last.' },
-  { sel: '#p-side .p-card', fallback: '#p-side', title: '2. Live Agenda', body: 'Your class agenda stays visible on the left with a live countdown bar for timed steps. Step forward or back anytime with ‹ › or the arrow keys.' },
-  { sel: '#stage-tabs', fallback: '#p-stage', title: '3. Pin Tabs & Nest Folders', body: 'Pin slides, scores, PDFs, websites, or music tools as class tabs. Drag any tab onto the middle of another tab to nest them into a drop-down folder.' },
-  { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '4. Floating Window: Pin (📌) & Tiling (▦)', body: 'Every floating window has Pin (📌) to save it as a permanent tab in this class, and Tile (▦) to snap it to a half, corner, or third of the screen.' },
-  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open Tools & External Apps', body: 'Use ＋ Open (and toolbar tools) for timers, signals, web windows, Sight Reading, Score Practice, Piano, Solfege Board, Tuner, Metronome, or dock/float External Apps.' },
-  { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '6. Quick Edit', body: 'Click Quick edit to type directly into the class name, warm-up, or agenda steps right on the Present screen, drag steps to reorder, and customize colors in Look.' },
-  { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup: Backend & Automations', body: 'Open Setup to configure classes, bell schedules, automatic class switching, Google Drive, saved resources, Daily Routines, and timed per-class Automations.' },
-  { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. Customize Toolbar (⋯)', body: 'Open ⋯ to show, hide, or reorder toolbar buttons, move tools into ＋ Open, and adjust toolbar size or idle shrinking. Replay this tour anytime in Setup → Settings.' },
+  { sel: '#p-cls', fallback: '[data-dock-id="classpick"], #p-title', title: '1. Class Picker & Bell Schedule', body: 'Rehearsal switches classes automatically on your bell schedule, or you can pick any class here. It reopens on whichever class you used last.' },
+  { sel: '#p-side .p-card', fallback: '#p-side', title: '2. Agenda', body: 'Your agenda stays on the left with a timer bar for timed items. Move forward or back with ‹ › or the Left and Right arrow keys.' },
+  { sel: '#stage-tabs', fallback: '#p-stage', title: '3. Class Tabs & Folders', body: 'Pin slides, scores, PDFs, Files, websites, or tools as class tabs. Drag one tab onto the middle of another to group them into a drop-down folder.' },
+  { sel: '.win[data-win="__tour_win"] .win-bar', fallback: '.win[data-win="__tour_win"]', sampleWin: true, title: '4. Floating Windows', body: 'Floating windows have a Pin button to save them as a class tab, a Tile button to snap them to a half or corner, and a Maximize button.' },
+  { sel: '[data-dock-id="window"]', fallback: '#p-dock', title: '5. ＋ Open', body: 'Open web pages, the Files browser, Sight Reading, Score Practice, Piano, Tuner, Metronome, or switch to External Apps from ＋ Open.' },
+  { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '6. Quick Edit', body: 'Click Quick edit to edit the class name, warm-up, and agenda right on the Present screen, or change colors in Look.' },
+  { sel: '[data-dock-id="edit"]', fallback: '#p-dock', title: '7. Setup', body: 'Open Setup to manage classes, bell schedules, daily routines, events, your file library, Tutorials, and Settings.' },
+  { sel: '#p-dock .dock-more', fallback: '#p-dock', title: '8. More Menu (⋯)', body: 'Open ⋯ to customize toolbar buttons, open Tutorials, or report a bug. You can replay this tour anytime in Setup → Tutorials.' },
 ];
 function activeTourSteps() { return P.tourSteps || TOUR_STEPS; }
 function startTour(customSteps = null) {
@@ -5998,6 +6000,26 @@ function fbOpenFileFloating(id) {
     addWindow({ kind: 'file', fileId: id }, sz);
   }
 }
+function fbDeleteFile(id) {
+  const f = S.files[id]; if (!f) return false;
+  const used = S.classes.filter(c => c.resources.some(r => r.fileId === id || r.score?.fileId === id)).map(c => c.name);
+  const msg = used.length
+    ? `Delete “${f.name}” from your library?\n\nIt is currently pinned in: ${used.join(', ')}. Removing it will also remove those tabs.`
+    : `Delete “${f.name}” from your library? This cannot be undone.`;
+  if (!confirm(msg)) return false;
+  if (FB_AUDIO_ID === id) fbStopAudio();
+  for (const c of S.classes) {
+    c.resources = c.resources.filter(r => r.fileId !== id && r.score?.fileId !== id);
+  }
+  for (const k of Object.keys(S.windows || {})) {
+    S.windows[k] = S.windows[k].filter(w => w.fileId !== id && w.score?.fileId !== id);
+  }
+  deleteFile(id);
+  P.stageKey = ''; WIN.sig = '';
+  toast(`Deleted “${f.name}”`);
+  tick();
+  return true;
+}
 function fbPinBrowserToClass() {
   const cls = currentClass();
   if (!cls) return toast('Switch to a class first to pin Files as a tab.');
@@ -6041,6 +6063,7 @@ function mountFilesBrowser(host) {
           <span class="fb-vtitle"><span class="fb-vic">${IC(icoOf(c))}</span><b>${esc(f.name)}</b></span>
           <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin-out" data-id="${id}" title="${pin ? 'Pinned as its own tab — click to jump to it' : 'Pin this single file outside as its own class tab'}">${IC('ico:pin')} <span>${pin ? 'Pinned tab' : 'Pin as own tab'}</span></button>
           <button class="fb-btn" data-fb="popout" data-id="${id}" title="Open this file in a separate floating window">${IC('ico:external')} <span>Pop out</span></button>
+          <button class="fb-btn fb-del" data-fb="del" data-id="${id}" title="Delete this file from your library">${IC('ico:trash')}</button>
         </div>
         <div class="fb-vbody">${bodyHTML}</div>
       </div>`;
@@ -6099,6 +6122,7 @@ function mountFilesBrowser(host) {
             </button>
             ${c === 'audio' ? `<button class="fb-btn ${playing ? 'on' : ''}" data-fb="play" data-id="${id}" title="${playing ? 'Stop audio preview' : 'Play audio preview'}">${IC(playing ? 'ico:stop' : 'ico:play')}</button>` : ''}
             <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin" data-id="${id}" title="${pin ? 'Pinned as its own tab — click to view tab' : 'Pin this single file outside as its own tab'}">${IC('ico:pin')} <span>${pin ? 'Pinned' : 'Pin'}</span></button>
+            <button class="fb-btn fb-del" data-fb="del" data-id="${id}" title="Delete ${esc(f.name)} from your library">${IC('ico:trash')}</button>
           </div>`;
         }).join('') : `<div class="fb-empty">${all.length ? 'No files match your search.' : 'No files in your library yet — click <b>+ Add files</b> or drag &amp; drop files here.'}</div>`}
       </div>
@@ -6123,6 +6147,13 @@ function mountFilesBrowser(host) {
         render();
       }
       else if (act === 'popout') fbOpenFileFloating(id);
+      else if (act === 'del') {
+        if (st.openId === id && host.querySelector('.score-host')) stopMusicHosts();
+        if (fbDeleteFile(id)) {
+          if (st.openId === id) st.openId = null;
+          render();
+        }
+      }
       else if (act === 'pin' || act === 'pin-out') { fbPinFileToClass(id); render(); }
       else if (act === 'pin-browser') { fbPinBrowserToClass(); render(); }
       else if (act === 'play') {
@@ -6371,7 +6402,7 @@ document.addEventListener('pointermove', e => {
     el.style.top = Math.round(tm.y) + 'px';
   } else {
     tm.w = clamp(ow + dx, 230, Math.min(820, innerWidth - tm.x - 12));
-    tm.h = clamp(oh + dy, 128, Math.min(540, innerHeight - tm.y - 12));
+    tm.h = clamp(oh + dy, 142, Math.min(540, innerHeight - tm.y - 12));
     el.style.width = Math.round(tm.w) + 'px';
     el.style.height = Math.round(tm.h) + 'px';
   }
