@@ -584,6 +584,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                     pb.writeObjects([img])
                 }
             }
+        case "submitBugReport":
+            guard let wv else { return }
+            let endpointStr = (body["endpoint"] as? String) ?? "https://formsubmit.co/RehearsalApp@pm.me"
+            let category = (body["category"] as? String) ?? "Bug"
+            let desc = (body["description"] as? String) ?? ""
+            let replyEmail = (body["replyEmail"] as? String) ?? ""
+            let version = (body["version"] as? String) ?? ""
+            let osStr = (body["os"] as? String) ?? "macOS"
+            let viewStr = (body["view"] as? String) ?? ""
+            let logTail = (body["logTail"] as? String) ?? ""
+            let shotUrl = (body["screenshot"] as? String) ?? ""
+
+            var shotData: Data? = nil
+            if let comma = shotUrl.firstIndex(of: ",") {
+                let b64 = String(shotUrl[shotUrl.index(after: comma)...])
+                shotData = Data(base64Encoded: b64)
+            }
+
+            // Always save a local backup copy in Application Support/Rehearsal/bug-reports/
+            var savedPath = ""
+            if let appSup = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let dir = appSup.appendingPathComponent("Rehearsal/bug-reports", isDirectory: true)
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                let file = dir.appendingPathComponent("report-\(stamp).txt")
+                let summary = "Category: \(category)\nVersion: \(version)\nOS: \(osStr)\nView: \(viewStr)\nReply: \(replyEmail)\n\n\(desc)\n\n\(logTail)\n"
+                if (try? summary.write(to: file, atomically: true, encoding: .utf8)) != nil {
+                    savedPath = file.path
+                }
+            }
+
+            let replyJS: ([String: Any]) -> Void = { res in
+                DispatchQueue.main.async {
+                    if let d = try? JSONSerialization.data(withJSONObject: res), let json = String(data: d, encoding: .utf8) {
+                        wv.evaluateJavaScript("window.__bugReportResult && window.__bugReportResult(\(json))")
+                    }
+                }
+            }
+            guard let url = URL(string: endpointStr), url.scheme == "https" else {
+                replyJS(["ok": false, "error": "Invalid endpoint", "savedPath": savedPath])
+                return
+            }
+
+            let boundary = "----RehearsalBug\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.timeoutInterval = 20
+            req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            req.setValue("https://rehearsal.app", forHTTPHeaderField: "Origin")
+            req.setValue("https://rehearsal.app/", forHTTPHeaderField: "Referer")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.setValue("Rehearsal-Desktop/\(version)", forHTTPHeaderField: "User-Agent")
+
+            var data = Data()
+            let appendField: (String, String) -> Void = { name, value in
+                data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                data.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+                data.append("\(value)\r\n".data(using: .utf8)!)
+            }
+            let firstLine = desc.split(separator: "\n").first.map { String($0.prefix(72)) } ?? "Feedback"
+            appendField("_subject", "[Rehearsal \(category)] \(firstLine)")
+            appendField("_captcha", "false")
+            appendField("_template", "table")
+            if !replyEmail.isEmpty { appendField("_replyto", replyEmail) }
+            appendField("category", category)
+            appendField("message", desc)
+            appendField("version", version)
+            appendField("os", osStr)
+            appendField("view", viewStr)
+            if !logTail.isEmpty { appendField("log", logTail) }
+            if let jpg = shotData, !jpg.isEmpty {
+                data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                data.append("Content-Disposition: form-data; name=\"attachment\"; filename=\"screenshot.jpg\"\r\n".data(using: .utf8)!)
+                data.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+                data.append(jpg)
+                data.append("\r\n".data(using: .utf8)!)
+            }
+            data.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            req.httpBody = data
+
+            URLSession.shared.dataTask(with: req) { _, resp, err in
+                if let err {
+                    replyJS(["ok": false, "error": err.localizedDescription, "savedPath": savedPath])
+                    return
+                }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                let ok = (200...399).contains(code)
+                replyJS([
+                    "ok": ok,
+                    "status": code,
+                    "includedScreenshot": shotData != nil,
+                    "savedPath": savedPath,
+                    "error": ok ? "" : "HTTP \(code)",
+                ])
+            }.resume()
         case "saveText":
             let name = (body["name"] as? String) ?? "export.json"
             let text = (body["text"] as? String) ?? ""

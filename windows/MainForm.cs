@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -1291,6 +1293,20 @@ internal sealed class MainForm : Form
                     }
                     break;
                 }
+                case "submitBugReport":
+                {
+                    var endpoint = Str(root, "endpoint") ?? "https://formsubmit.co/RehearsalApp@pm.me";
+                    var category = Str(root, "category") ?? "Bug";
+                    var desc = Str(root, "description") ?? "";
+                    var replyEmail = Str(root, "replyEmail") ?? "";
+                    var version = Str(root, "version") ?? "";
+                    var osStr = Str(root, "os") ?? "Windows";
+                    var viewStr = Str(root, "view") ?? "";
+                    var logTail = Str(root, "logTail") ?? "";
+                    var shotUrl = Str(root, "screenshot") ?? "";
+                    _ = SubmitBugReportAsync(endpoint, category, desc, replyEmail, version, osStr, viewStr, logTail, shotUrl);
+                    break;
+                }
                 case "saveText":
                 {
                     var name = Str(root, "name") ?? "export.json";
@@ -1405,6 +1421,89 @@ internal sealed class MainForm : Form
         if (u.Scheme is "http" or "https" or "mailto")
         {
             try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch { }
+        }
+    }
+
+    private async Task SubmitBugReportAsync(string endpoint, string category, string desc, string replyEmail, string version, string osStr, string viewStr, string logTail, string shotUrl)
+    {
+        string savedPath = "";
+        byte[]? shotBytes = null;
+        try
+        {
+            int comma = shotUrl.IndexOf(',');
+            if (comma > 0) shotBytes = Convert.FromBase64String(shotUrl[(comma + 1)..]);
+        }
+        catch { shotBytes = null; }
+
+        try
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Rehearsal", "bug-reports");
+            Directory.CreateDirectory(dir);
+            var file = Path.Combine(dir, $"report-{DateTime.UtcNow:yyyy-MM-ddTHH-mm-ss}.txt");
+            var summary = $"Category: {category}\nVersion: {version}\nOS: {osStr}\nView: {viewStr}\nReply: {replyEmail}\n\n{desc}\n\n{logTail}\n";
+            await File.WriteAllTextAsync(file, summary);
+            savedPath = file;
+        }
+        catch { }
+
+        bool ok = false;
+        int status = 0;
+        string error = "";
+        try
+        {
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != "https")
+                throw new InvalidOperationException("Invalid endpoint");
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            using var form = new MultipartFormDataContent();
+            var firstLine = (desc.Split('\n')[0]).Trim();
+            if (firstLine.Length > 72) firstLine = firstLine[..72];
+            if (string.IsNullOrEmpty(firstLine)) firstLine = "Feedback";
+
+            form.Add(new StringContent($"[Rehearsal {category}] {firstLine}"), "_subject");
+            form.Add(new StringContent("false"), "_captcha");
+            form.Add(new StringContent("table"), "_template");
+            if (!string.IsNullOrWhiteSpace(replyEmail)) form.Add(new StringContent(replyEmail), "_replyto");
+            form.Add(new StringContent(category), "category");
+            form.Add(new StringContent(desc), "message");
+            form.Add(new StringContent(version), "version");
+            form.Add(new StringContent(osStr), "os");
+            form.Add(new StringContent(viewStr), "view");
+            if (!string.IsNullOrWhiteSpace(logTail)) form.Add(new StringContent(logTail), "log");
+            if (shotBytes != null && shotBytes.Length > 0)
+            {
+                var fc = new ByteArrayContent(shotBytes);
+                fc.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                form.Add(fc, "attachment", "screenshot.jpg");
+            }
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, uri) { Content = form };
+            req.Headers.TryAddWithoutValidation("Origin", "https://rehearsal.app");
+            req.Headers.TryAddWithoutValidation("Referer", "https://rehearsal.app/");
+            req.Headers.TryAddWithoutValidation("Accept", "application/json");
+            req.Headers.TryAddWithoutValidation("User-Agent", $"Rehearsal-Desktop/{version}");
+
+            using var resp = await http.SendAsync(req);
+            status = (int)resp.StatusCode;
+            ok = status >= 200 && status <= 399;
+            if (!ok) error = $"HTTP {status}";
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+
+        var json = JsonSerializer.Serialize(new
+        {
+            ok,
+            status,
+            includedScreenshot = shotBytes != null && shotBytes.Length > 0,
+            savedPath,
+            error,
+        });
+        if (!IsDisposed)
+        {
+            try { BeginInvoke(() => EvalScript($"window.__bugReportResult && window.__bugReportResult({json})")); } catch { }
         }
     }
 

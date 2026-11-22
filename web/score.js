@@ -757,8 +757,13 @@ function spDefaults(st) {
   st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none';
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
   st.voicesOpen ??= true; st.recMode ??= false; st.recHeadphones ??= false;
-  st.recGuide ??= false; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
+  st.recGuide ??= true; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
   return st;
+}
+function spRecHear(st, sc, recLi, i) {
+  if (st.recHear && Object.prototype.hasOwnProperty.call(st.recHear, i)) return !!st.recHear[i];
+  if (i === recLi) return !!st.recSelfGuide;
+  return st.recGuide !== false && st.parts[i]?.on !== false;
 }
 function spRange(ctl) {
   const { sc, st } = ctl, M = sc.measures, P = sc.perf;
@@ -837,7 +842,10 @@ function spPlay(ctl, playOpts = null) {
   if (typeof srKeepAwake === 'function') srKeepAwake(c);
   SP_ACTIVE = ctl;
   const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut(c));
-  const gains = sc.lines.map((_, i) => { const g = c.createGain(); g.gain.value = spLineVol(ctl, i); g.connect(master); return g; });
+  const recVolFor = i => (playOpts?.recordingLine != null)
+    ? (st.recHeadphones && spRecHear(st, sc, playOpts.recordingLine, i) ? (st.parts[i]?.vol ?? 1) : 0)
+    : spLineVol(ctl, i);
+  const gains = sc.lines.map((_, i) => { const g = c.createGain(); g.gain.value = recVolFor(i); g.connect(master); return g; });
   Object.assign(SP_PLAY, { ctl, master });
   ctl.gains = gains; ctl.vocalNodes = []; ctl.playing = true; ctl.iter = 0; ctl.updateBar();
   let R = playOpts?.range ? { ...playOpts.range } : spRange(ctl), iter = 0;
@@ -904,7 +912,7 @@ function spPlay(ctl, playOpts = null) {
     const curFac = factorAt(passIter);
     sc.lines.forEach((_, li) => {
       if (playOpts?.recordingLine === li) return;
-      if (playOpts?.recordingLine != null && !(st.recHeadphones && st.recGuide)) return;
+      if (playOpts?.recordingLine != null && !(st.recHeadphones && spRecHear(st, sc, playOpts.recordingLine, li))) return;
       if (!spIsLineSung(ctl, li)) return;
       const rec = ctl.vocalRecs?.[li];
       if (!rec || !rec.audioBuffer) return;
@@ -986,7 +994,7 @@ function spPlay(ctl, playOpts = null) {
         scheduleVocalPass(curQ, R.b, now, iter);
       }
     }
-    ctl.gains.forEach((g, i) => { const v = spLineVol(ctl, i); if (Math.abs(g.gain.value - v) > 1e-3) g.gain.setTargetAtTime(v, now, 0.03); });
+    ctl.gains.forEach((g, i) => { const v = recVolFor(i); if (Math.abs(g.gain.value - v) > 1e-3) g.gain.setTargetAtTime(v, now, 0.03); });
     let guard = 0;
     while (walker.t < horizon && !ending && guard++ < 500) {
       const s = stops[si];
@@ -994,18 +1002,18 @@ function spPlay(ctl, playOpts = null) {
         walker.t += (s.q - walker.q) * secPerQ(walker.q); walker.q = s.q; ctl.marks.push({ t: walker.t, q: s.q });
         const sp = secPerQ(s.q);
         for (const e of s.evs) {
-          if (st.parts[e.line]?.on === false) continue;
-          const soloSet = spSolo(st).filter(x => sc.lines[x]);
-          if (soloSet.length && !soloSet.includes(e.line)) continue;
           if (playOpts?.recordingLine != null) {
             if (!st.recHeadphones) continue;
+            if (!spRecHear(st, sc, playOpts.recordingLine, e.line)) continue;
             if (e.line === playOpts.recordingLine) {
-              if (!st.recSelfGuide) continue;
               const len = Math.min(e.q + e.dur, R.b) - e.q;
-              spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.22);
+              spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.72);
               continue;
             }
-            if (!st.recGuide) continue;
+          } else {
+            if (st.parts[e.line]?.on === false) continue;
+            const soloSet = spSolo(st).filter(x => sc.lines[x]);
+            if (soloSet.length && !soloSet.includes(e.line)) continue;
           }
           // Skip MIDI notes when this part is in Sung mode with a valid recording
           if (!playOpts?.ignoreVocalRecs && spIsLineSung(ctl, e.line)) continue;
@@ -1605,21 +1613,31 @@ function mountScore(host, st, onChange0, key) {
     const sc = ctl.sc; if (!sc) return;
     const defaultLi = st.recLine != null && sc.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
     st.recLine = defaultLi;
+    st.recHear ||= {};
     const curName = sc.lines[defaultLi]?.name || 'Voice';
+    const partChecks = sc.lines.map((L, i) => {
+      const checked = spRecHear(st, sc, defaultLi, i);
+      const isSelf = i === defaultLi;
+      return `<label class="sp-grm-chk sp-rec-part ${isSelf ? 'is-self' : ''}"><input type="checkbox" data-spk="recHear" data-i="${i}" ${checked ? 'checked' : ''}><span>${esc(L.name)}${L.acc ? ' <small>(Accomp.)</small>' : ''}${isSelf ? ' <em class="sp-rec-tag">recording</em>' : ''}</span></label>`;
+    }).join('');
     const r = btn.getBoundingClientRect(), m = document.createElement('div');
     m.className = 'sp-grmenu sp-recmenu';
     m.innerHTML = `
       <div class="sp-grm-sec">Voice / Part to record</div>
       <select data-spk="recLine">${sc.lines.map((L, i) => `<option value="${i}" ${i === defaultLi ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}${ctl.vocalRecs?.[i]?.audioBuffer ? ' · Sung saved' : ''}</option>`).join('')}</select>
-      <div class="sp-grm-sec">Headphones Options</div>
-      <label class="sp-grm-chk" title="Play other active parts into your headphones when using Headphones mode"><input type="checkbox" data-spk="recGuide" ${st.recGuide !== false ? 'checked' : ''}> Guide parts (piano / other voices)</label>
-      <label class="sp-grm-chk" title="Play metronome click into your headphones when using Headphones mode"><input type="checkbox" data-spk="recMetro" ${st.recMetro ? 'checked' : ''}> Click track (metronome)</label>
+      <div class="sp-grm-sec sp-grm-sec-row"><span>Headphones — What you hear</span><span class="sp-rec-quick"><button type="button" data-sp="rec-hear-all">All</button><button type="button" data-sp="rec-hear-others">Others</button><button type="button" data-sp="rec-hear-none">None</button></span></div>
+      <div class="sp-rec-parts">
+        ${partChecks}
+        <label class="sp-grm-chk sp-rec-part sp-rec-metro"><input type="checkbox" data-spk="recMetro" ${st.recMetro ? 'checked' : ''}><span>Click track (metronome)</span></label>
+      </div>
       <div class="sp-grm-sec">Start Recording</div>
       <button type="button" class="sp-grm-btn ${!st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="0">${spSvg('mic')}<span><b>Silent Recording (No headphones)</b><small>Pure voice — starting pitch &amp; count-in play first, then all score audio mutes for ${esc(curName)}</small></span></button>
-      <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear backing)</b><small>Hear selected guide parts &amp; click in headphones while recording ${esc(curName)}</small></span></button>`;
-    const left = Math.max(8, Math.min(r.right - 310, innerWidth - 322));
+      <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear selected)</b><small>Hear every checked part &amp; click above in headphones while recording ${esc(curName)}</small></span></button>`;
+    const left = Math.max(8, Math.min(r.right - 320, innerWidth - 332));
     Object.assign(m.style, { left: left + 'px', top: r.bottom + 6 + 'px' });
     root.appendChild(m);
+    const mr = m.getBoundingClientRect();
+    if (mr.bottom > innerHeight - 10) m.style.top = Math.max(8, innerHeight - mr.height - 10) + 'px';
     ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
     document.addEventListener('pointerdown', ctl.__grMenuAway, true);
   };
@@ -2255,14 +2273,29 @@ function mountScore(host, st, onChange0, key) {
         root.querySelector('.sp-recmenu') ? ctl.closeGradeMenu() : ctl.openRecMenu(b);
         return;
       }
+      if (k === 'rec-hear-all' || k === 'rec-hear-others' || k === 'rec-hear-none') {
+        const sc = ctl.sc; if (!sc) return;
+        const recLi = st.recLine != null && sc.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
+        st.recHear ||= {};
+        sc.lines.forEach((_, i) => {
+          st.recHear[i] = k === 'rec-hear-all' ? true : k === 'rec-hear-others' ? i !== recLi : false;
+        });
+        st.recSelfGuide = !!st.recHear[recLi];
+        st.recGuide = sc.lines.some((_, i) => i !== recLi && st.recHear[i]);
+        root.querySelectorAll('.sp-recmenu [data-spk="recHear"]').forEach(chk => { chk.checked = !!st.recHear[+chk.dataset.i]; });
+        onChange();
+        return;
+      }
       if (k === 'recgo') {
         const hp = b.dataset.hp === '1';
         st.recHeadphones = hp;
-        const gChk = root.querySelector('.sp-recmenu [data-spk="recGuide"]');
+        st.recHear ||= {};
+        root.querySelectorAll('.sp-recmenu [data-spk="recHear"]').forEach(chk => { st.recHear[+chk.dataset.i] = chk.checked; });
         const mChk = root.querySelector('.sp-recmenu [data-spk="recMetro"]');
-        if (gChk) st.recGuide = gChk.checked;
         if (mChk) st.recMetro = mChk.checked;
         const li = st.recLine != null && ctl.sc?.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
+        st.recSelfGuide = !!st.recHear[li];
+        st.recGuide = !!(ctl.sc?.lines || []).some((_, i) => i !== li && st.recHear[i]);
         onChange();
         ctl.closeGradeMenu();
         spStartVocalRec(ctl, li);
@@ -2413,6 +2446,14 @@ function mountScore(host, st, onChange0, key) {
       return;
     }
     else if (k === 'recHeadphones') { st.recHeadphones = el.checked; onChange(); ctl.drawVoices(); return; }
+    else if (k === 'recHear') {
+      const i = +el.dataset.i;
+      (st.recHear ||= {})[i] = el.checked;
+      const li = st.recLine != null && ctl.sc?.lines[st.recLine] ? st.recLine : spGradeLine(ctl);
+      st.recSelfGuide = !!st.recHear[li];
+      st.recGuide = !!(ctl.sc?.lines || []).some((_, idx) => idx !== li && st.recHear[idx]);
+      onChange(); return;
+    }
     else if (k === 'recGuide') { st.recGuide = el.checked; onChange(); return; }
     else if (k === 'recMetro') { st.recMetro = el.checked; onChange(); return; }
     else if (k === 'recSelfGuide') { st.recSelfGuide = el.checked; onChange(); return; }
