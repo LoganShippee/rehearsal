@@ -452,13 +452,13 @@ function spInjectVoiceGradeCSS() {
       cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1; }
     .sp-pitch-grp:hover { background: color-mix(in srgb, var(--text, #1d2330) 14%, transparent); }
     .sp-pitch-grp .ico { width: 12px; height: 12px; flex: none; }
-    .sp-vrec-btn, .sp-vdel-btn, .sp-vfoc-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
+    .sp-vrec-btn, .sp-vdel-btn, .sp-vfoc-btn, .sp-metro-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
       color: var(--text, #1d2330); border-radius: 6px; padding: 2px 6px !important; height: 22px !important; font-size: 11px !important; font-weight: 600;
       cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; line-height: 1; }
-    .sp-vrec-btn .ico, .sp-vdel-btn .ico { width: 12px; height: 12px; flex: none; }
-    .sp-vrec-btn:hover, .sp-vdel-btn:hover, .sp-vfoc-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
+    .sp-vrec-btn .ico, .sp-vdel-btn .ico, .sp-metro-btn .ico { width: 12px; height: 12px; flex: none; }
+    .sp-vrec-btn:hover, .sp-vdel-btn:hover, .sp-vfoc-btn:hover, .sp-metro-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
     .sp-vrec-btn.rec-on { background: #e5484d !important; color: #fff !important; border-color: #e5484d !important; animation: sprecpulse 1s infinite; }
-    .sp-vfoc-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
+    .sp-vfoc-btn.on, .sp-metro-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
     .sp-vfoc-btn.solo.on { background: #1f6fd1 !important; color: #fff !important; border-color: transparent !important; }
     .sp-vdel-btn { padding: 2px 4px !important; opacity: .8; }
     .sp-vdel-btn:hover { opacity: 1; background: rgba(229, 72, 77, 0.2); border-color: #e5484d; }
@@ -1436,9 +1436,9 @@ function mountScore(host, st, onChange0, key) {
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
   const spBarHTML = () => `<div class="sp-top">
-      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.tempo()}${BAR.metronome()}${BAR.loop()}${BAR.range()}${BAR.spots()}${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${BAR.voices()}
+      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.loop()}${BAR.range()}${BAR.tempo()}${BAR.spots()}
       <span class="sr-sp"></span>
-      ${BAR.settings()}
+      ${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${BAR.voices()}${BAR.settings()}
     </div>
     <div class="sp-sub">
       <span class="tb-lbl" data-subgrp="show">Show</span>${BAR.nums()}${BAR.solfege()}${BAR.counts()}
@@ -1627,6 +1627,7 @@ function mountScore(host, st, onChange0, key) {
     if (box.hidden) return;
     const isAll = !spFoc(st).length && !spSolo(st).length;
     const isRecNow = SP_VREC.on && SP_VREC.ctl === ctl;
+    const anySungMetro = !!(sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro));
     const opt = (v, l) => `<option value="${v}" ${(st.view || 'all') === v ? 'selected' : ''}>${l}</option>`;
     box.innerHTML = `<button type="button" class="sp-vfoc-btn ${isAll ? 'on' : ''}" data-sp="focus-all" title="Clear Focus and Solo so all active parts play at normal volume">All</button>
       <button type="button" class="sp-pitch-grp" data-sp="pitch" data-w="order" title="Play each section's starting pitch from lowest to highest">${IC('ico:bell')} Low → high</button>
@@ -1634,6 +1635,7 @@ function mountScore(host, st, onChange0, key) {
       <span class="sp-vbar-sep" aria-hidden="true"></span>
       <div class="sp-parts">${ctl.partMixerHTML(true)}</div>
       <span class="sp-vbar-end">
+        <button type="button" class="sp-metro-btn ${st.metronome || anySungMetro ? 'on' : ''}" data-sp="metro" data-ctl="metronome" title="${anySungMetro ? 'Click track is coming from your recorded sung voice' : 'Metronome clicks while playing'}">${IC('ico:metro')} ${anySungMetro ? 'Metronome (rec)' : 'Metronome'}</button>
         <button type="button" class="sp-vrec-btn ${isRecNow ? 'rec-on' : ''}" data-sp="rec-menu" title="${isRecNow ? 'Stop recording vocals' : 'Record your sung voice for any part (choose Silent or Headphones mode)'}">${isRecNow ? spSvg('stop') + ' Stop rec' : spSvg('mic') + ' Record vocals ▾'}</button>
         <label data-ctl="colour" title="Color each voice part on the sheet music"><input type="checkbox" data-spk="colorParts" ${st.colorParts !== false ? 'checked' : ''}> Colour</label>
         <select data-spk="view" data-ctl="show" title="Choose which staves are visible">${opt('all', 'All staves')}${opt('voices', 'Voices only')}${opt('focus', 'Focus only')}</select>
