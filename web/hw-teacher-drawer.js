@@ -19,17 +19,77 @@
         ['takadimi', 'Takadimi (ta ta-di)'],
       ];
 
-  const SIGHT_RANGES = {
-    'do-mi': 'do – mi',
-    'do-sol': 'do – sol',
-    'do-la': 'do – la',
-    octave: 'do – high do',
-    'lowsol-sol': 'low sol – sol',
-    'lowsol-do': 'low sol – high do',
-    'lowla-mi2': 'low la – high mi',
-  };
+  const SIGHT_KEYS = typeof SR_KEYS !== 'undefined'
+    ? SR_KEYS
+    : ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab'];
+
+  const SIGHT_METERS = typeof SR_METERS !== 'undefined'
+    ? SR_METERS
+    : { '2/4': [2, 'simple'], '3/4': [3, 'simple'], '4/4': [4, 'simple'], '6/8': [2, 'compound'], '9/8': [3, 'compound'], '12/8': [4, 'compound'] };
+
+  const SIGHT_RANGES = typeof SR_RANGES !== 'undefined'
+    ? Object.fromEntries(Object.entries(SR_RANGES).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]))
+    : {
+        'do-mi': 'do – mi',
+        'do-sol': 'do – sol',
+        'do-la': 'do – la',
+        octave: 'do – high do',
+        'lowsol-sol': 'low sol – sol',
+        'lowsol-do': 'low sol – high do',
+        'lowla-mi2': 'low la – high mi',
+      };
+
+  const SIGHT_LEAPS = typeof SR_LEAPS !== 'undefined'
+    ? SR_LEAPS
+    : {
+        step: 'Steps only',
+        third: 'Steps & 3rds',
+        triad: 'Steps & do–mi–sol leaps',
+        fifth: 'Up to a 5th',
+        octave: 'Up to an octave',
+      };
+
+  const SIGHT_SIMPLE = typeof SR_SIMPLE !== 'undefined'
+    ? SR_SIMPLE
+    : {
+        w: { label: 'Whole note' },
+        hd: { label: 'Dotted half' },
+        h: { label: 'Half note' },
+        q: { label: 'Quarter' },
+        ee: { label: 'Two eighths' },
+        qr: { label: 'Quarter rest' },
+        hr: { label: 'Half rest' },
+        qde: { label: 'Dotted quarter + eighth' },
+        ssss: { label: 'Four sixteenths' },
+        er: { label: 'Eighth rest + eighth' },
+        syn: { label: 'Syncopation (8–q–8)' },
+        ess: { label: 'Eighth + two 16ths' },
+        sse: { label: 'Two 16ths + eighth' },
+        des: { label: 'Dotted eighth + 16th' },
+        trip: { label: 'Eighth-note triplet' },
+      };
+
+  const SIGHT_COMPOUND = typeof SR_COMPOUND !== 'undefined'
+    ? SR_COMPOUND
+    : {
+        dq: { label: 'Dotted quarter' },
+        eee: { label: 'Three eighths' },
+        qe: { label: 'Quarter + eighth' },
+        eq: { label: 'Eighth + quarter' },
+        dh: { label: 'Dotted half' },
+        dqr: { label: 'Dotted quarter rest' },
+        desse: { label: 'Dotted 8th–16th–8th' },
+        ssse: { label: 'Four 16ths + eighth' },
+        six: { label: 'Six sixteenths' },
+      };
+
+  const SIGHT_MEL_KEYS = typeof SR_MEL_CELLS !== 'undefined'
+    ? SR_MEL_CELLS
+    : ['w', 'hd', 'h', 'q', 'ee', 'qde', 'qr', 'hr', 'ssss', 'syn'];
 
   let D = null; // Active drawer state; null when closed
+  let previewPlaying = false;
+  let previewTimeline = [];
 
   const esc = s => String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -220,6 +280,7 @@
       // Sight Reading state
       srState: getSrDefaults(),
       selectedPresetId: '',
+      showPreview: false,
       assignMode: 'practice', // 'practice' | 'true_sight_read'
       studySeconds: 30,
       showSolfege: false,
@@ -497,7 +558,97 @@
     return el;
   }
 
+  function stopPreviewAudio() {
+    if (previewPlaying && typeof srStop === 'function') {
+      try { srStop(); } catch { }
+    }
+    previewPlaying = false;
+  }
+
+  function ensureSightExcerpt(sr) {
+    if (!sr || sr.mode === 'build') return;
+    if (sr.mode !== 'rhythm') sr.mode = 'solfege';
+    sr.ex ||= {};
+    if (sr.mode === 'rhythm') {
+      if (!sr.ex.rhythm && typeof srGenRhythm === 'function') {
+        const o = sr.rhythm || {};
+        sr.ex.rhythm = srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties);
+      }
+    } else if (!sr.ex.solfege && typeof srGenParts === 'function') {
+      sr.ex.solfege = srGenParts(sr.solfege || {});
+    }
+  }
+
+  function regenSightExcerpt(sr) {
+    if (!sr) return;
+    if (sr.mode === 'build') sr.mode = 'solfege';
+    sr.ex ||= {};
+    if (sr.mode === 'rhythm') {
+      if (typeof srGenRhythm === 'function') {
+        const o = sr.rhythm || {};
+        sr.ex.rhythm = srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties);
+      } else {
+        delete sr.ex.rhythm;
+      }
+    } else if (typeof srGenParts === 'function') {
+      sr.ex.solfege = srGenParts(sr.solfege || {});
+    } else {
+      delete sr.ex.solfege;
+    }
+  }
+
+  function buildDrawerSightView() {
+    if (!D || !D.srState) return null;
+    const sr = clone(D.srState);
+    if (sr.mode === 'build') {
+      if (typeof srBuildToView === 'function' && sr.build?.items?.length) {
+        try { return srBuildToView(sr); } catch { }
+      }
+      return null;
+    }
+    ensureSightExcerpt(sr);
+    if (sr.mode === 'solfege' && D.srState.ex?.solfege == null && sr.ex?.solfege) {
+      D.srState.ex = { ...(D.srState.ex || {}), solfege: clone(sr.ex.solfege) };
+    }
+    if (sr.mode === 'rhythm' && D.srState.ex?.rhythm == null && sr.ex?.rhythm) {
+      D.srState.ex = { ...(D.srState.ex || {}), rhythm: clone(sr.ex.rhythm) };
+    }
+    sr.show = D.assignMode === 'true_sight_read' ? false : !!D.showSolfege;
+    sr.showCounts = !!D.showCounts;
+    if (sr[sr.mode]) sr[sr.mode].showCounts = !!D.showCounts;
+    return sr;
+  }
+
+  function renderSightPreviewStaff() {
+    const staffEl = document.getElementById('hwt-drawer-sr-staff');
+    if (!staffEl || !D || D.type !== 'sight' || D.pickerMode) return;
+    if (typeof srDraw !== 'function') {
+      staffEl.innerHTML = `<div class="small muted">${buildSightSummary(D.srState).map(esc).join(' · ')}</div>`;
+      return;
+    }
+    const view = buildDrawerSightView();
+    if (!view) {
+      staffEl.innerHTML = `<div class="small muted">${buildSightSummary(D.srState).map(esc).join(' · ')}</div>`;
+      return;
+    }
+    const prevRhySys = typeof S !== 'undefined' && S?.settings ? S.settings.rhythmSystem : undefined;
+    try {
+      if (typeof S !== 'undefined' && S?.settings && D.countingSystem) {
+        S.settings.rhythmSystem = D.countingSystem;
+      }
+      staffEl.__zoom = 1;
+      previewTimeline = srDraw(staffEl, view) || [];
+    } catch {
+      staffEl.innerHTML = `<div class="small muted">${buildSightSummary(D.srState).map(esc).join(' · ')}</div>`;
+    } finally {
+      if (typeof S !== 'undefined' && S?.settings && prevRhySys !== undefined) {
+        S.settings.rhythmSystem = prevRhySys;
+      }
+    }
+  }
+
   function close() {
+    stopPreviewAudio();
     document.removeEventListener('keydown', onDocKeyDownCapture, true);
     document.getElementById(DRAWER_ID)?.remove();
     D = null;
@@ -674,6 +825,79 @@
       return;
     }
 
+    if (act === 'sr-mode') {
+      const next = btn.dataset.srMode === 'rhythm' ? 'rhythm' : 'solfege';
+      if (!D.srState) D.srState = getSrDefaults();
+      if (D.srState.mode !== next) {
+        stopPreviewAudio();
+        D.selectedPresetId = '';
+        D.srState.mode = next;
+        D.srState.solRhythm = false;
+        regenSightExcerpt(D.srState);
+        if (!D.titleTouched && !D.editId) D.title = defaultSightTitle(D.srState);
+        render();
+      }
+      return;
+    }
+
+    if (act === 'sr-regen') {
+      if (!D.srState) D.srState = getSrDefaults();
+      stopPreviewAudio();
+      regenSightExcerpt(D.srState);
+      render();
+      return;
+    }
+
+    if (act === 'sr-preview-play') {
+      if (previewPlaying) {
+        stopPreviewAudio();
+        render();
+        return;
+      }
+      if (typeof srPlay !== 'function') return;
+      const view = buildDrawerSightView();
+      const staffEl = document.getElementById('hwt-drawer-sr-staff');
+      if (!view || !staffEl) return;
+      if (!previewTimeline || !previewTimeline.length) {
+        renderSightPreviewStaff();
+      }
+      if (!previewTimeline || !previewTimeline.length) return;
+      previewPlaying = true;
+      render();
+      const onEnd = () => {
+        previewPlaying = false;
+        const b = document.getElementById(DRAWER_ID)?.querySelector('[data-hwt="sr-preview-play"]');
+        if (b) b.textContent = '▶ Listen';
+        if (typeof srHidePlayhead === 'function' && staffEl) srHidePlayhead(staffEl);
+      };
+      try {
+        const liveView = { ...view };
+        const clock = srPlay(liveView, previewTimeline, onEnd);
+        if (typeof srAnimate === 'function') srAnimate(staffEl, liveView, () => previewTimeline, clock);
+      } catch {
+        onEnd();
+      }
+      return;
+    }
+
+    if (act === 'sr-measures-step') {
+      const sr = D.srState || (D.srState = getSrDefaults());
+      const m = sr.mode === 'rhythm' ? 'rhythm' : 'solfege';
+      const o = sr[m] || (sr[m] = {});
+      const cur = Number(o.measures) || 4;
+      const delta = Number(btn.dataset.delta) || 0;
+      const next = Math.max(1, Math.min(16, cur + delta));
+      if (next !== cur) {
+        stopPreviewAudio();
+        o.measures = next;
+        D.selectedPresetId = '';
+        regenSightExcerpt(sr);
+        if (!D.titleTouched && !D.editId) D.title = defaultSightTitle(sr);
+        render();
+      }
+      return;
+    }
+
     if (act === 'submit') {
       await submitDrawer();
     }
@@ -731,12 +955,72 @@
       return;
     }
     if (key === 'sr-preset') {
+      stopPreviewAudio();
       applyPresetById(el.value);
+      return;
+    }
+    if (key === 'sr-toggle-preview') {
+      D.showPreview = !!el.checked;
+      if (!D.showPreview) stopPreviewAudio();
+      render();
+      return;
+    }
+    if (key === 'sr-key' || key === 'sr-scale' || key === 'sr-clef' || key === 'sr-range' ||
+        key === 'sr-leap' || key === 'sr-melodyStyle' || key === 'sr-ts' || key === 'sr-countIn' ||
+        key === 'sr-startDo' || key === 'sr-ties' || key === 'sr-metronome' || key === 'sr-cell') {
+      const sr = D.srState || (D.srState = getSrDefaults());
+      const m = sr.mode === 'rhythm' ? 'rhythm' : 'solfege';
+      const o = sr[m] || (sr[m] = {});
+      stopPreviewAudio();
+      let needRegen = false;
+
+      if (key === 'sr-key') o.key = el.value;
+      else if (key === 'sr-scale') o.scale = el.value === 'minor' ? 'minor' : 'major';
+      else if (key === 'sr-clef') o.clef = el.value === 'bass' ? 'bass' : 'treble';
+      else if (key === 'sr-range') { o.range = el.value; needRegen = true; }
+      else if (key === 'sr-leap') { o.leap = el.value; needRegen = true; }
+      else if (key === 'sr-melodyStyle') { o.melodyStyle = el.value; needRegen = true; }
+      else if (key === 'sr-startDo') { o.startDo = !!el.checked; needRegen = true; }
+      else if (key === 'sr-ties') { o.ties = !!el.checked; needRegen = true; }
+      else if (key === 'sr-metronome') { o.metronome = !!el.checked; }
+      else if (key === 'sr-countIn') { o.countIn = Math.max(0, Math.min(2, Number(el.value) || 0)); }
+      else if (key === 'sr-ts') {
+        o.ts = el.value;
+        if (m === 'rhythm') {
+          const isComp = SIGHT_METERS[o.ts]?.[1] === 'compound';
+          const tbl = isComp ? SIGHT_COMPOUND : SIGHT_SIMPLE;
+          const curCells = Array.isArray(o.cells) ? o.cells : [];
+          if (!curCells.some(c => tbl[c])) {
+            o.cells = isComp ? ['dq', 'eee', 'qe', 'dh'] : ['q', 'h', 'ee', 'qr'];
+          }
+        }
+        needRegen = true;
+      } else if (key === 'sr-cell') {
+        const cellId = el.dataset.cell;
+        const set = new Set(Array.isArray(o.cells) ? o.cells : ['q', 'h']);
+        if (el.checked) {
+          set.add(cellId);
+        } else if (set.size > 1) {
+          set.delete(cellId);
+        } else {
+          el.checked = true;
+          notify('Keep at least one rhythm value checked.');
+          return;
+        }
+        o.cells = [...set];
+        needRegen = true;
+      }
+
+      D.selectedPresetId = '';
+      if (needRegen) regenSightExcerpt(sr);
+      if (!D.titleTouched && !D.editId) D.title = defaultSightTitle(sr);
+      render();
       return;
     }
     if (key === 'showSolfege') {
       D.showSolfege = !!el.checked;
       if (D.srState) D.srState.show = D.showSolfege;
+      renderSightPreviewStaff();
       return;
     }
     if (key === 'showCounts') {
@@ -745,10 +1029,12 @@
         D.srState.showCounts = D.showCounts;
         if (D.srState[D.srState.mode]) D.srState[D.srState.mode].showCounts = D.showCounts;
       }
+      renderSightPreviewStaff();
       return;
     }
     if (key === 'countingSystem') {
       D.countingSystem = el.value || 'numbers';
+      renderSightPreviewStaff();
       return;
     }
     if (key === 'score-lib-pick') {
@@ -820,6 +1106,29 @@
       updateStrictnessReadout();
       return;
     }
+    if (key === 'sr-tempo') {
+      const sr = D.srState || (D.srState = getSrDefaults());
+      const m = sr.mode === 'rhythm' ? 'rhythm' : 'solfege';
+      const o = sr[m] || (sr[m] = {});
+      o.tempo = Math.max(30, Math.min(200, Math.round(Number(el.value) || 80)));
+      updateStrictnessReadout();
+      return;
+    }
+    if (key === 'sr-measures') {
+      const sr = D.srState || (D.srState = getSrDefaults());
+      const m = sr.mode === 'rhythm' ? 'rhythm' : 'solfege';
+      const o = sr[m] || (sr[m] = {});
+      const val = Math.max(1, Math.min(16, Math.round(Number(el.value) || 4)));
+      if (val !== o.measures) {
+        stopPreviewAudio();
+        o.measures = val;
+        D.selectedPresetId = '';
+        regenSightExcerpt(sr);
+        if (!D.titleTouched && !D.editId) D.title = defaultSightTitle(sr);
+        renderSightPreviewStaff();
+      }
+      return;
+    }
     if (key === 'score-from') { D.scoreFromMeasure = el.value; return; }
     if (key === 'score-to') { D.scoreToMeasure = el.value; return; }
     if (key === 'score-tempo-pct') {
@@ -876,6 +1185,7 @@
         sr.build.sel = null;
       }
       const mode = D.assignMode === 'true_sight_read' ? 'true_sight_read' : 'practice';
+      ensureSightExcerpt(sr);
       sr.show = mode === 'true_sight_read' ? false : !!D.showSolfege;
       sr.showCounts = !!D.showCounts;
       if (sr[sr.mode]) sr[sr.mode].showCounts = !!D.showCounts;
@@ -1118,17 +1428,17 @@
     return `
       <p class="small muted">Choose the type of homework assignment to create:</p>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <button type="button" class="btn" style="text-align:left;padding:12px" data-hwt="pick-type" data-type="sight">
+        <button type="button" class="btn hwt-pick-btn" data-hwt="pick-type" data-type="sight">
           <strong>Sight Reading</strong>
-          <div class="small muted">Use your saved Sight-Reading presets or default Solfege / Rhythm settings (Practice or True Sight-Read timer).</div>
+          <span class="small muted">Use your saved Sight-Reading presets or default Solfege / Rhythm settings (Practice or True Sight-Read timer).</span>
         </button>
-        <button type="button" class="btn" style="text-align:left;padding:12px" data-hwt="pick-type" data-type="score">
+        <button type="button" class="btn hwt-pick-btn" data-hwt="pick-type" data-type="score">
           <strong>Score Practice</strong>
-          <div class="small muted">Upload a MusicXML (.mxl or .musicxml) score or pick one from your Rehearsal library.</div>
+          <span class="small muted">Upload a MusicXML (.mxl or .musicxml) score or pick one from your Rehearsal library.</span>
         </button>
-        <button type="button" class="btn" style="text-align:left;padding:12px" data-hwt="pick-type" data-type="audio">
+        <button type="button" class="btn hwt-pick-btn" data-hwt="pick-type" data-type="audio">
           <strong>Audio-Only Recording</strong>
-          <div class="small muted">Give students a singing or speaking prompt with optional 4-beat count-in and metronome.</div>
+          <span class="small muted">Give students a singing or speaking prompt with optional 4-beat count-in and metronome.</span>
         </button>
       </div>
     `;
@@ -1158,18 +1468,160 @@
   }
 
   function renderSightSection() {
-    const sr = D.srState || getSrDefaults();
+    const sr = D.srState || (D.srState = getSrDefaults());
     const presets = getSavedPresets();
+    const isBuildMode = sr.mode === 'build';
+    const curMode = sr.mode === 'rhythm' ? 'rhythm' : 'solfege';
     const eff = sightEffectiveMode(sr);
+    const o = sr[curMode] || sr.solfege || sr.rhythm || {};
     const isTrue = D.assignMode === 'true_sight_read';
     const isRhythmOnly = eff === 'rhythm';
-    const summary = buildSightSummary(sr);
-    const tempo = Number((sr[sr.mode] || sr.solfege || sr.rhythm || {}).tempo || 80);
+    const tempo = Number(o.tempo || (curMode === 'rhythm' ? 80 : 72));
+    const meters = curMode === 'rhythm' ? Object.keys(SIGHT_METERS) : ['2/4', '3/4', '4/4'];
+    const isComp = SIGHT_METERS[o.ts || '4/4']?.[1] === 'compound';
+    const cellTable = curMode === 'rhythm'
+      ? (isComp ? SIGHT_COMPOUND : SIGHT_SIMPLE)
+      : Object.fromEntries(SIGHT_MEL_KEYS.map(k => [k, SIGHT_SIMPLE[k]]).filter(([, v]) => v));
+    const activeCells = new Set(Array.isArray(o.cells) ? o.cells : ['q', 'h', 'w']);
+    const showPreviewBox = isBuildMode || !!D.showPreview;
 
     return `
-      <div class="hwt-summary-box">
-        <strong>Exercise settings</strong>
-        <div class="small">${summary.map(esc).join(' · ')}</div>
+      ${showPreviewBox ? `
+        <div class="hwt-sr-preview">
+          <div class="hwt-sr-preview-head">
+            <div>
+              <strong>Exercise preview</strong>
+              <span class="small muted">${isTrue ? ' · Hidden until student starts study timer' : ''}</span>
+            </div>
+            <div class="row">
+              ${typeof srPlay === 'function' ? `<button type="button" class="btn small ${previewPlaying ? 'primary' : ''}" data-hwt="sr-preview-play">${previewPlaying ? '■ Stop' : '▶ Listen'}</button>` : ''}
+              ${!isBuildMode ? `<button type="button" class="btn small" data-hwt="sr-regen">↻ New Example</button>` : ''}
+            </div>
+          </div>
+          <div class="sr-staff hwt-sr-preview-staff" id="hwt-drawer-sr-staff"></div>
+        </div>
+      ` : ''}
+
+      <div class="hwt-sr-editor">
+        <div class="row" style="justify-content:space-between">
+          <strong style="font-size:13px">Exercise settings</strong>
+          ${isBuildMode ? `
+            <button type="button" class="btn small" data-hwt="sr-mode" data-sr-mode="solfege">Switch to Generated</button>
+          ` : `
+            <div class="row">
+              <button type="button" class="btn small ${curMode === 'solfege' ? 'primary' : ''}" data-hwt="sr-mode" data-sr-mode="solfege">Solfege</button>
+              <button type="button" class="btn small ${curMode === 'rhythm' ? 'primary' : ''}" data-hwt="sr-mode" data-sr-mode="rhythm">Rhythm</button>
+            </div>
+          `}
+        </div>
+
+        ${isBuildMode ? `
+          <div class="small muted">Custom built excerpt (${buildSightSummary(sr).map(esc).join(' · ')}). Switch to Generated to edit key, range, or random patterns.</div>
+        ` : `
+          <div class="hwt-field-grid">
+            ${curMode === 'solfege' ? `
+              <label class="fld">
+                <span>Key</span>
+                <select data-hwt-change="sr-key">
+                  ${SIGHT_KEYS.map(k => `<option value="${esc(k)}" ${(o.key || 'C') === k ? 'selected' : ''}>${esc(k.replace('b', '♭'))}</option>`).join('')}
+                </select>
+              </label>
+              <label class="fld">
+                <span>Mode / Scale</span>
+                <select data-hwt-change="sr-scale">
+                  <option value="major" ${(o.scale || 'major') === 'major' ? 'selected' : ''}>Major</option>
+                  <option value="minor" ${o.scale === 'minor' ? 'selected' : ''}>Minor (do-based)</option>
+                </select>
+              </label>
+              <label class="fld">
+                <span>Clef</span>
+                <select data-hwt-change="sr-clef">
+                  <option value="treble" ${(o.clef || 'treble') !== 'bass' ? 'selected' : ''}>Treble</option>
+                  <option value="bass" ${o.clef === 'bass' ? 'selected' : ''}>Bass</option>
+                </select>
+              </label>
+              <label class="fld">
+                <span>Range</span>
+                <select data-hwt-change="sr-range">
+                  ${Object.entries(SIGHT_RANGES).map(([k, lbl]) => `<option value="${esc(k)}" ${(o.range || 'do-sol') === k ? 'selected' : ''}>${esc(lbl)}</option>`).join('')}
+                </select>
+              </label>
+              <label class="fld">
+                <span>Motion / Leaps</span>
+                <select data-hwt-change="sr-leap">
+                  ${Object.entries(SIGHT_LEAPS).map(([k, lbl]) => `<option value="${esc(k)}" ${(o.leap || 'step') === k ? 'selected' : ''}>${esc(lbl)}</option>`).join('')}
+                </select>
+              </label>
+              <label class="fld">
+                <span>Melody style</span>
+                <select data-hwt-change="sr-melodyStyle">
+                  <option value="patterns" ${o.melodyStyle === 'patterns' ? 'selected' : ''}>Sequences</option>
+                  <option value="mixed" ${(o.melodyStyle || 'mixed') === 'mixed' ? 'selected' : ''}>Mixed</option>
+                  <option value="free" ${o.melodyStyle === 'free' ? 'selected' : ''}>Free</option>
+                </select>
+              </label>
+            ` : ''}
+
+            <label class="fld">
+              <span>Meter</span>
+              <select data-hwt-change="sr-ts">
+                ${meters.map(ts => `<option value="${esc(ts)}" ${(o.ts || '4/4') === ts ? 'selected' : ''}>${esc(ts)}</option>`).join('')}
+              </select>
+            </label>
+            <div class="fld">
+              <span>Measures</span>
+              <div class="hwt-stepper">
+                <button type="button" class="btn small" data-hwt="sr-measures-step" data-delta="-1">−</button>
+                <input type="number" min="1" max="16" data-hwt-input="sr-measures" value="${esc(o.measures || 4)}">
+                <button type="button" class="btn small" data-hwt="sr-measures-step" data-delta="1">+</button>
+              </div>
+            </div>
+            <label class="fld">
+              <span>Tempo (BPM)</span>
+              <input type="number" min="30" max="200" data-hwt-input="sr-tempo" value="${esc(tempo)}">
+            </label>
+            <label class="fld">
+              <span>Count-in</span>
+              <select data-hwt-change="sr-countIn">
+                <option value="0" ${Number(o.countIn ?? 1) === 0 ? 'selected' : ''}>None</option>
+                <option value="1" ${Number(o.countIn ?? 1) === 1 ? 'selected' : ''}>1 bar</option>
+                <option value="2" ${Number(o.countIn ?? 1) === 2 ? 'selected' : ''}>2 bars</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row" style="gap:14px">
+            ${curMode === 'solfege' ? `
+              <label class="chk">
+                <input type="checkbox" data-hwt-change="sr-startDo" ${o.startDo !== false ? 'checked' : ''}>
+                <span>Start on do</span>
+              </label>
+            ` : ''}
+            <label class="chk">
+              <input type="checkbox" data-hwt-change="sr-ties" ${o.ties ? 'checked' : ''}>
+              <span>Tied notes</span>
+            </label>
+            <label class="chk">
+              <input type="checkbox" data-hwt-change="sr-metronome" ${o.metronome !== false ? 'checked' : ''}>
+              <span>Metronome click</span>
+            </label>
+          </div>
+
+          <div class="fld">
+            <span>Allowed rhythms</span>
+            <div class="hwt-rhy-pills">
+              ${Object.entries(cellTable).map(([k, cell]) => {
+                const on = activeCells.has(k);
+                return `<label class="hwt-rhy-pill ${on ? 'on' : ''}"><input type="checkbox" data-hwt-change="sr-cell" data-cell="${esc(k)}" ${on ? 'checked' : ''}><span>${esc(cell.label || k)}</span></label>`;
+              }).join('')}
+            </div>
+          </div>
+
+          <label class="chk">
+            <input type="checkbox" data-hwt-change="sr-toggle-preview" ${D.showPreview ? 'checked' : ''}>
+            <span>Preview &amp; lock a specific example</span>
+          </label>
+        `}
       </div>
 
       <div class="hwt-field-grid">
@@ -1451,6 +1903,8 @@
       ${showSubmit ? `<button type="button" class="btn primary" data-hwt="submit" ${blocked || D.submitting ? 'disabled' : ''}>${D.submitting ? 'Saving…' : D.editId ? 'Save Changes' : 'Create Assignment'}</button>` : ''}
     `;
 
+    const prevScroll = backdrop.querySelector('.hwt-drawer-body')?.scrollTop || 0;
+
     backdrop.innerHTML = `
       <div class="hwt-drawer">
         <div class="hwt-drawer-head">
@@ -1461,6 +1915,14 @@
         <div class="hwt-drawer-foot">${footHTML}</div>
       </div>
     `;
+
+    if (signedIn && !D.pickerMode && D.type === 'sight' && (D.srState?.mode === 'build' || D.showPreview)) {
+      renderSightPreviewStaff();
+    }
+    const nextBody = backdrop.querySelector('.hwt-drawer-body');
+    if (nextBody && prevScroll > 0) {
+      nextBody.scrollTop = prevScroll;
+    }
   }
 
   // ---------- Public Openers
@@ -1484,6 +1946,7 @@
     };
     D.showSolfege = !!D.srState.show;
     D.showCounts = !!(D.srState[D.srState.mode]?.showCounts ?? D.srState.showCounts);
+    D.showPreview = D.srState.mode === 'build';
     D.title = defaultSightTitle(D.srState);
     render();
     loadTeacherContext();

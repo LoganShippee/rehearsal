@@ -49,6 +49,16 @@
       notice: '',
       serverUrl: '',
       showServerConfig: false,
+      handoff: {
+        active: false,
+        state: '',
+        pollSecret: '',
+        url: '',
+        expiresAt: 0,
+        secondsLeft: 60,
+        timer: null,
+        countdownTimer: null,
+      },
     },
 
     classForm: {
@@ -97,6 +107,8 @@
       audioRate: 1,
       overrideInput: '',
       commentInput: '',
+      showSolfege: null,
+      showCounts: null,
       busy: false,
     },
   };
@@ -131,6 +143,28 @@
       if (typeof S !== 'undefined' && Array.isArray(S?.classes)) return S.classes;
     } catch { }
     return [];
+  }
+
+  function openDocPage(relPath) {
+    if (!relPath) return;
+    let url = relPath;
+    try { url = new URL(relPath, location.href).href; } catch { }
+    openExternalUrl(url);
+  }
+
+  function stopOAuthHandoff(clearUi = true) {
+    const h = S_STATE.auth?.handoff;
+    if (!h) return;
+    if (h.timer) { clearInterval(h.timer); h.timer = null; }
+    if (h.countdownTimer) { clearInterval(h.countdownTimer); h.countdownTimer = null; }
+    if (clearUi) {
+      h.active = false;
+      h.state = '';
+      h.pollSecret = '';
+      h.url = '';
+      h.expiresAt = 0;
+      h.secondsLeft = 60;
+    }
   }
 
   function openExternalUrl(url) {
@@ -421,6 +455,8 @@
       audioRate: 1,
       overrideInput: '',
       commentInput: '',
+      showSolfege: null,
+      showCounts: null,
       busy: false,
     };
     renderSubModal();
@@ -554,12 +590,15 @@
     let googleSection = '';
     if (nativeApp) {
       googleSection = `
-        <button type="button" class="btn" disabled title="Use 6-digit email code in the desktop app">Sign in with Google (Web Only)</button>
-        <div class="small muted">In the Rehearsal desktop app, sign in quickly with the 6-digit email code above (Google Sign-In runs in the web version).</div>
+        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google (Opens Browser)</button>
+        <div class="small muted">Opens your system browser using a secure 60-second sign-in handoff so school Google accounts work smoothly.</div>
       `;
     } else if (isDemo) {
       googleSection = `
-        <button type="button" class="btn" data-hwt="auth-google" ${a.busy ? 'disabled' : ''}>Sign in with Google (Local Preview)</button>
+        <div class="row">
+          <button type="button" class="btn" data-hwt="auth-google" ${a.busy ? 'disabled' : ''}>Sign in with Google (Local Preview)</button>
+          <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Test Desktop Browser Handoff</button>
+        </div>
       `;
     } else if (gClientId) {
       googleSection = `
@@ -571,6 +610,17 @@
         <div class="small muted">Google Sign-In is not configured on this server yet. Use the 6-digit email code above.</div>
       `;
     }
+
+    const handoffBox = a.handoff?.active ? `
+      <div class="hwt-handoff-box">
+        <div><strong>Waiting for Google Sign-In in your browser… ${Math.max(0, Number(a.handoff.secondsLeft || 0))}s left</strong></div>
+        <div class="small">Finish signing in inside the opened browser tab, then return here — your workspace will load automatically.</div>
+        <div class="row">
+          <button type="button" class="btn small primary" data-hwt="auth-handoff-reopen">Re-open Browser Window</button>
+          <button type="button" class="btn small" data-hwt="auth-handoff-cancel">Cancel</button>
+        </div>
+      </div>
+    ` : '';
 
     return `
       <div class="hwt-auth-card">
@@ -631,9 +681,15 @@
         <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
           ${googleSection}
         </div>
+        ${handoffBox}
 
         <div class="hwt-privacy-note">
           <b>Privacy &amp; Data Note:</b> Student codes are salted and cryptographically hashed; student audio recordings automatically expire after 90 days (or whenever you click Delete Audio Now); and Rehearsal's local classroom setup stays private on your device.
+          <div class="row" style="margin-top:6px;gap:12px">
+            <a href="privacy.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</a>
+            <a href="privacy-sdpc.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</a>
+            <a href="it-whitelisting.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Whitelisting</a>
+          </div>
         </div>
 
         <details ${a.showServerConfig ? 'open' : ''}>
@@ -1314,6 +1370,16 @@
           <button type="button" class="btn small danger" data-hwt="logout-all" ${offline ? 'disabled' : ''}>Sign Out All Devices</button>
         </div>
       </div>
+
+      <div class="card">
+        <h3>Privacy &amp; School IT Resources</h3>
+        <p class="desc">Share these plain-language documents with parents, school administrators, or district IT teams.</p>
+        <div class="row">
+          <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</button>
+          <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary (PDF)</button>
+          <button type="button" class="btn small" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Google Whitelisting</button>
+        </div>
+      </div>
     `;
   }
 
@@ -1370,6 +1436,7 @@
     const navIdx = navStudents.findIndex(s => s.id === sm.studentId);
     const hasPrev = navIdx > 0;
     const hasNext = navIdx >= 0 && navIdx < navStudents.length - 1;
+    const prevScroll = el.querySelector('.hwt-modal-body')?.scrollTop || 0;
 
     el.innerHTML = `
       <div class="hwt-modal-backdrop" data-hwt="sub-backdrop">
@@ -1404,6 +1471,13 @@
     const audioEl = el.querySelector('audio');
     if (audioEl) {
       try { audioEl.playbackRate = sm.audioRate || 1; } catch { }
+    }
+    if (!sm.loading && !sm.error) {
+      mountModalVisualStaff();
+    }
+    const nextModalBody = el.querySelector('.hwt-modal-body');
+    if (nextModalBody && prevScroll > 0) {
+      nextModalBody.scrollTop = prevScroll;
     }
   }
 
@@ -1543,10 +1617,279 @@
     `;
   }
 
+  function renderSubVisualFeedbackHTML(sub) {
+    const notes = sub?.resultsJson?.notes;
+    if (!Array.isArray(notes) || !notes.length) return '';
+
+    const sm = S_STATE.subModal;
+    const asgn = S_STATE.assignments.find(a => a.id === sm.assignmentId) || sm.assignment;
+    const expectsPitch = sub.resultsJson?.expectsPitch !== false && sub.pitchPct != null;
+    const rPct = sub.rhythmPct != null ? Math.round(Number(sub.rhythmPct)) : null;
+    const pPct = sub.pitchPct != null ? Math.round(Number(sub.pitchPct)) : null;
+    const extra = Number(sub.resultsJson?.extra || 0);
+
+    const okCnt = notes.filter(n => n.status === 'ok').length;
+    const timCnt = notes.filter(n => n.status === 'timing').length;
+    const pitCnt = notes.filter(n => n.status === 'pitch').length;
+    const misCnt = notes.filter(n => n.status === 'missed' || n.status === 'wrong').length;
+    const summaryBits = [`${okCnt} of ${notes.length} notes on target`];
+    if (timCnt) summaryBits.push(`${timCnt} timing`);
+    if (pitCnt) summaryBits.push(`${pitCnt} wrong pitch`);
+    if (misCnt) summaryBits.push(`${misCnt} missed`);
+    if (extra > 0) summaryBits.push(`${extra} extra sound${extra === 1 ? '' : 's'}`);
+
+    const barCls = pct => (pct == null ? '' : pct >= 85 ? '' : pct >= 65 ? 'mid' : 'lo');
+    const isSightMel = asgn?.type === 'sight' && asgn?.config?.srState?.mode !== 'rhythm';
+    const srShowOn = sm.showSolfege != null ? sm.showSolfege : true;
+    const srCntOn = sm.showCounts != null ? sm.showCounts : !!asgn?.config?.srState?.showCounts;
+
+    return `
+      <div class="hwt-visual-feedback">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <b style="font-size:13.5px">Performance Visual Feedback (Student View)</b>
+            <div class="small muted">${escHtml(summaryBits.join(' · '))}</div>
+          </div>
+          ${asgn?.type === 'sight' ? `
+            <div class="row" style="gap:10px">
+              ${isSightMel ? `<label class="chk small"><input type="checkbox" data-hwt-change="sub-show-solfege" ${srShowOn ? 'checked' : ''}><span>Solfege</span></label>` : ''}
+              <label class="chk small"><input type="checkbox" data-hwt-change="sub-show-counts" ${srCntOn ? 'checked' : ''}><span>Counts</span></label>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="hwt-gr-bars">
+          ${rPct != null ? `
+            <div class="hwt-gr-bar-row">
+              <div class="hwt-gr-bar-head"><span>Rhythm Accuracy</span><span>${rPct}%</span></div>
+              <div class="hwt-gr-bar-track"><div class="hwt-gr-bar-fill ${barCls(rPct)}" style="width:${Math.max(0, Math.min(100, rPct))}%"></div></div>
+            </div>
+          ` : ''}
+          ${expectsPitch && pPct != null ? `
+            <div class="hwt-gr-bar-row">
+              <div class="hwt-gr-bar-head"><span>Pitch Accuracy</span><span>${pPct}%</span></div>
+              <div class="hwt-gr-bar-track"><div class="hwt-gr-bar-fill ${barCls(pPct)}" style="width:${Math.max(0, Math.min(100, pPct))}%"></div></div>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="gr-legend hwt-gr-legend">
+          <span><span class="gr-dot ok"></span>On time</span>
+          <span><span class="gr-dot timing"></span>Early / late</span>
+          <span><span class="gr-dot missed"></span>Missed</span>
+          ${expectsPitch ? `<span><span class="gr-dot pitch"></span>Wrong pitch</span>` : ''}
+          <span><span class="gr-dot extra"></span>Extra</span>
+        </div>
+
+        <div class="sr-staff hwt-gr-staff" id="hwt-sub-visual-staff"></div>
+      </div>
+    `;
+  }
+
+  function applyStudentMarksToSightSvg(staffEl, tl, notes, tempoBpm) {
+    const svg = staffEl?.querySelector('svg');
+    const geo = tl?.geo;
+    if (!svg || !geo?.measures?.length) return false;
+    const atk = tl.filter(e => !e.rest && !e.tiedFrom);
+    if (atk.length !== notes.length) return false;
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const mk = (tag, a, parent) => {
+      const n = document.createElementNS(NS, tag);
+      for (const k in a) n.setAttribute(k, a[k]);
+      parent.appendChild(n);
+      return n;
+    };
+    const M = geo.measures;
+    const last = M[M.length - 1];
+    const mAt = pos => M.find(m => pos >= m.t0 - 1e-6 && pos < m.t1 - 1e-6) || (pos < M[0].t0 ? M[0] : last);
+    const xAt = (m, pos) => {
+      const K = m.knots || [[m.t0, m.x0 + 16]];
+      let i = 0;
+      while (i < K.length - 2 && pos >= K[i + 1][0]) i++;
+      const a = K[i], b = K[i + 1] || a;
+      const f = b[0] > a[0] ? (pos - a[0]) / (b[0] - a[0]) : 0;
+      return Math.max(m.x0 - 10, Math.min(m.x1 + 10, a[1] + f * (b[1] - a[1])));
+    };
+    let up = 0;
+    for (const m of M) {
+      for (const k of (m.knots || [])) {
+        if (k[2] != null) up = Math.max(up, m.y0 + 18 - k[2]);
+      }
+    }
+    const rise = Math.min(Math.max(up, 4), 30) + 10;
+    const laneY = m => m.y0 + 18 - rise;
+    const q = 60 / (Number(tempoBpm) || 80);
+
+    const g = mk('g', { class: 'gr-ov' }, svg);
+    for (const m of M) {
+      mk('line', { x1: m.x0 + 6, x2: m.x1 - 6, y1: laneY(m), y2: laneY(m), class: 'gr-lane' }, g);
+    }
+
+    notes.forEach((n, i) => {
+      const e = atk[i], m = mAt(e.t), x = xAt(m, e.t), y = laneY(m);
+      const st = n.status || 'ok';
+      const cls = st === 'missed' ? 'missed' : (st === 'pitch' || st === 'wrong') ? 'pitch' : st === 'timing' ? 'timing' : 'ok';
+      if (e.el?.classList) {
+        e.el.classList.add('gr-n-' + cls);
+        const bh = e.el.getAttribute?.('data-bh');
+        if (bh) document.getElementById(bh)?.classList.add('gr-n-' + cls);
+      }
+      mk('line', { x1: x, x2: x, y1: y - 6, y2: y + 6, class: 'gr-tick' }, g);
+      if (st === 'missed') {
+        mk('circle', { cx: x, cy: e.y ?? (m.y0 + m.y1) / 2, r: 11, class: 'gr-ring' }, g);
+        return;
+      }
+      const tcls = st === 'timing' ? 'timing' : 'ok';
+      const hp = e.t + (Number(n.errMs) || 0) / 1000 / q;
+      const hm = hp > m.t0 - 0.75 && hp < m.t1 + 0.75 ? m : mAt(hp);
+      const hx = xAt(hm, hp), hy = laneY(hm);
+      if (hm === m && Math.abs(hx - x) > 1.5) {
+        mk('line', { x1: x, x2: hx, y1: y, y2: y, class: 'gr-off ' + tcls }, g);
+      }
+      mk('circle', { cx: hx, cy: hy, r: 5, class: 'gr-dot ' + tcls }, g);
+      let lbl = '';
+      if (st === 'pitch' || st === 'wrong') {
+        if (n.sungAs) lbl = String(n.sungAs).replace(/-?\d+$/, '');
+        else if (n.cents != null) lbl = `${n.cents > 0 ? '+' : ''}${Math.round(Number(n.cents))}¢`;
+      }
+      if (lbl) {
+        const txt = mk('text', { x: hx, y: hy - 9, 'text-anchor': 'middle', class: 'gr-lbl' }, g);
+        txt.textContent = lbl;
+      }
+    });
+    return true;
+  }
+
+  function drawFallbackVisualStaffSvg(staffEl, notes) {
+    staffEl.innerHTML = '';
+    const NS = 'http://www.w3.org/2000/svg';
+    const mk = (tag, a, parent) => {
+      const n = document.createElementNS(NS, tag);
+      for (const k in a) n.setAttribute(k, a[k]);
+      parent.appendChild(n);
+      return n;
+    };
+    const byBar = [];
+    const barMap = new Map();
+    for (const n of notes) {
+      const b = n.bar != null ? n.bar : 1;
+      if (!barMap.has(b)) { const arr = []; barMap.set(b, arr); byBar.push([b, arr]); }
+      barMap.get(b).push(n);
+    }
+    const perRow = Math.min(4, Math.max(1, byBar.length));
+    const rows = Math.ceil(byBar.length / perRow);
+    const barW = 160;
+    const W = 20 + perRow * barW + 10;
+    const rowH = 128;
+    const H = rows * rowH + 12;
+
+    const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', style: 'display:block;min-width:460px' }, staffEl);
+    const colorMap = { ok: '#1b7a2a', timing: '#d9822b', pitch: '#7b3fbf', wrong: '#7b3fbf', missed: '#c62828' };
+    const pitchYOffset = p => {
+      const m = String(p || '').match(/^([A-Ga-g])[#b]?(\d)?/);
+      if (!m) return 2;
+      const letters = { C: 6, D: 5, E: 4, F: 3, G: 2, A: 1, B: 0 };
+      const oct = m[2] ? Number(m[2]) : 4;
+      return (letters[m[1].toUpperCase()] ?? 3) - (oct - 4) * 7;
+    };
+
+    byBar.forEach(([barNum, list], bIdx) => {
+      const col = bIdx % perRow, row = Math.floor(bIdx / perRow);
+      const x0 = 16 + col * barW, yTop = 44 + row * rowH;
+      const laneY = yTop - 16;
+
+      // Measure label
+      const mTxt = mk('text', { x: x0 + 2, y: yTop - 27, fill: '#6b7385', font: '600 10px sans-serif' }, svg);
+      mTxt.textContent = `m.${barNum}`;
+
+      // 5 staff lines
+      for (let l = 0; l < 5; l++) {
+        mk('line', { x1: x0, x2: x0 + barW, y1: yTop + l * 9, y2: yTop + l * 9, stroke: '#cbd5e1', 'stroke-width': 1 }, svg);
+      }
+      mk('line', { x1: x0, x2: x0, y1: yTop, y2: yTop + 36, stroke: '#94a3b8', 'stroke-width': 1.2 }, svg);
+      mk('line', { x1: x0 + barW, x2: x0 + barW, y1: yTop, y2: yTop + 36, stroke: '#94a3b8', 'stroke-width': 1.2 }, svg);
+
+      // Dotted timing lane matching .gr-ov
+      const ov = mk('g', { class: 'gr-ov' }, svg);
+      mk('line', { x1: x0 + 6, x2: x0 + barW - 6, y1: laneY, y2: laneY, class: 'gr-lane' }, ov);
+
+      list.forEach((n, i) => {
+        const st = n.status || 'ok';
+        const nx = x0 + ((i + 0.5) / list.length) * (barW - 12) + 6;
+        const ny = Math.max(yTop - 6, Math.min(yTop + 42, yTop + pitchYOffset(n.pitch) * 4.5));
+        const fill = colorMap[st] || '#1b7a2a';
+
+        mk('ellipse', { cx: nx, cy: ny, rx: 5.5, ry: 4.2, fill, transform: `rotate(-18 ${nx} ${ny})` }, svg);
+        mk('line', { x1: nx + 5, x2: nx + 5, y1: ny, y2: ny - 22, stroke: fill, 'stroke-width': 1.6 }, svg);
+        mk('line', { x1: nx, x2: nx, y1: laneY - 5, y2: laneY + 5, class: 'gr-tick' }, ov);
+
+        if (st === 'missed') {
+          mk('circle', { cx: nx, cy: ny, r: 10, class: 'gr-ring' }, ov);
+          return;
+        }
+        const shiftPx = Math.max(-18, Math.min(18, Math.round((Number(n.errMs) || 0) / 14)));
+        const hx = nx + shiftPx;
+        const tcls = st === 'timing' ? 'timing' : 'ok';
+        if (Math.abs(shiftPx) > 2) mk('line', { x1: nx, x2: hx, y1: laneY, y2: laneY, class: 'gr-off ' + tcls }, ov);
+        mk('circle', { cx: hx, cy: laneY, r: 4.5, class: 'gr-dot ' + tcls }, ov);
+
+        if (st === 'pitch' || st === 'wrong') {
+          const lbl = n.sungAs ? String(n.sungAs).replace(/-?\d+$/, '') : (n.cents != null ? `${n.cents > 0 ? '+' : ''}${Math.round(Number(n.cents))}¢` : '?');
+          mk('text', { x: hx, y: laneY - 8, 'text-anchor': 'middle', class: 'gr-lbl' }, ov).textContent = lbl;
+        }
+      });
+    });
+  }
+
+  function mountModalVisualStaff() {
+    const sm = S_STATE.subModal;
+    const sub = sm?.attempts?.[sm.activeIdx];
+    const staffEl = document.getElementById('hwt-sub-visual-staff');
+    if (!staffEl || !sub?.resultsJson?.notes?.length) return;
+    const notes = sub.resultsJson.notes;
+    const asgn = S_STATE.assignments.find(a => a.id === sm.assignmentId) || sm.assignment;
+
+    if (asgn?.type === 'sight' && asgn?.config?.srState && typeof srDraw === 'function') {
+      const srCopy = JSON.parse(JSON.stringify(asgn.config.srState));
+      let view = srCopy;
+      if (srCopy.mode === 'build' && typeof srBuildToView === 'function' && srCopy.build?.items?.length) {
+        try { view = srBuildToView(srCopy); } catch { }
+      }
+      if ((view.mode === 'solfege' || view.mode === 'rhythm') && view.ex?.[view.mode]) {
+        const isMel = view.mode !== 'rhythm';
+        view.show = isMel ? (sm.showSolfege != null ? sm.showSolfege : true) : false;
+        view.showCounts = sm.showCounts != null ? sm.showCounts : !!(view[view.mode]?.showCounts ?? view.showCounts);
+        if (view[view.mode]) view[view.mode].showCounts = view.showCounts;
+        const prevRhySys = typeof S !== 'undefined' && S?.settings ? S.settings.rhythmSystem : undefined;
+        try {
+          if (typeof S !== 'undefined' && S?.settings && asgn.config?.countingSystem) {
+            S.settings.rhythmSystem = asgn.config.countingSystem;
+          }
+          staffEl.__zoom = 1;
+          const tl = srDraw(staffEl, view);
+          const tempo = Number(view[view.mode]?.tempo || 80);
+          if (applyStudentMarksToSightSvg(staffEl, tl, notes, tempo)) {
+            return;
+          }
+        } catch {
+          // Fall back cleanly to clean mini-staff visual below
+        } finally {
+          if (typeof S !== 'undefined' && S?.settings && prevRhySys !== undefined) {
+            S.settings.rhythmSystem = prevRhySys;
+          }
+        }
+      }
+    }
+
+    drawFallbackVisualStaffSvg(staffEl, notes);
+  }
+
   function renderSubNoteBreakdownHTML(sub) {
     const notes = sub.resultsJson?.notes;
     if (!Array.isArray(notes) || !notes.length) return '';
 
+    const visualSection = renderSubVisualFeedbackHTML(sub);
     const groups = new Map();
     for (const n of notes) {
       const bar = n.bar != null ? n.bar : 1;
@@ -1560,6 +1903,7 @@
         const st = ['ok', 'timing', 'pitch', 'missed', 'wrong'].includes(n.status) ? n.status : 'wrong';
         const parts = [];
         parts.push(n.pitch && n.pitch !== 'ok' && n.pitch !== 'rest' ? n.pitch : `#${(n.idx != null ? n.idx : i) + 1}`);
+        if (n.sungAs) parts.push(`(heard ${n.sungAs})`);
         if (n.errMs != null && st !== 'missed') {
           const sign = Number(n.errMs) > 0 ? '+' : '';
           parts.push(`${sign}${Math.round(Number(n.errMs))}ms`);
@@ -1575,17 +1919,11 @@
     }
 
     return `
-      <div>
-        <div class="row" style="margin-bottom:6px">
-          <b style="font-size:13px">Note-by-Note Breakdown</b>
-          <span class="grow"></span>
-          <span class="hwt-note-pill ok">On Target</span>
-          <span class="hwt-note-pill timing">Timing</span>
-          <span class="hwt-note-pill pitch">Pitch</span>
-          <span class="hwt-note-pill missed">Missed / Wrong</span>
-        </div>
-        <div class="hwt-notes-grid">${htmlGroups.join('')}</div>
-      </div>
+      ${visualSection}
+      <details>
+        <summary class="small muted" style="cursor:pointer;font-weight:600">Measure-by-measure timing &amp; cents details (${notes.length} notes)</summary>
+        <div class="hwt-notes-grid" style="margin-top:8px">${htmlGroups.join('')}</div>
+      </details>
     `;
   }
 
@@ -1809,6 +2147,14 @@
         S_STATE.gbFilter.status = t.value;
         renderMain();
         break;
+      case 'sub-show-solfege':
+        S_STATE.subModal.showSolfege = !!t.checked;
+        renderSubModal();
+        break;
+      case 'sub-show-counts':
+        S_STATE.subModal.showCounts = !!t.checked;
+        renderSubModal();
+        break;
       case 'demo-offline-toggle':
         api.setDemoOffline?.(!!t.checked);
         await loadSessionAndWorkspace(true);
@@ -1869,7 +2215,22 @@
       case 'auth-google':
         await doGoogleAuth();
         break;
+      case 'auth-google-handoff':
+        await doGoogleHandoffStart();
+        break;
+      case 'auth-handoff-reopen':
+        if (S_STATE.auth.handoff?.url) openExternalUrl(S_STATE.auth.handoff.url);
+        break;
+      case 'auth-handoff-cancel':
+        stopOAuthHandoff(true);
+        renderMain();
+        break;
+      case 'open-doc':
+        e?.preventDefault?.();
+        openDocPage(btn.dataset.href || btn.getAttribute('href') || '');
+        break;
       case 'auth-save-server':
+        stopOAuthHandoff(true);
         api.setApiBase(S_STATE.auth.serverUrl.trim());
         S_STATE.auth.error = '';
         S_STATE.auth.notice = api.isDemoMode()
@@ -1878,6 +2239,7 @@
         await loadSessionAndWorkspace(true);
         break;
       case 'auth-use-demo':
+        stopOAuthHandoff(true);
         api.setApiBase('');
         S_STATE.auth.serverUrl = '';
         S_STATE.auth.error = '';
@@ -2338,12 +2700,78 @@
     S_STATE.auth.code = '';
     S_STATE.auth.devCode = '';
     S_STATE.auth.notice = '';
+    stopOAuthHandoff(true);
     await loadSessionAndWorkspace(false);
     showToast('Signed in to Online Homework.');
   }
 
+  async function doGoogleHandoffStart() {
+    const api = API();
+    stopOAuthHandoff(true);
+    S_STATE.auth.error = '';
+    S_STATE.auth.busy = true;
+    renderMain();
+
+    const startRes = await api.oauthHandoffStart({ ephemeral: S_STATE.auth.ephemeral });
+    S_STATE.auth.busy = false;
+    if (!startRes?.ok || !startRes.state || !startRes.pollSecret) {
+      S_STATE.auth.error = startRes?.error || 'Could not start browser Google Sign-In.';
+      renderMain();
+      return;
+    }
+
+    const ttlSec = Number(startRes.expiresInSec || 60);
+    const url = api.getOAuthHandoffUrl({
+      state: startRes.state,
+      googleClientId: window.HW_GOOGLE_CLIENT_ID || '',
+    });
+
+    const h = S_STATE.auth.handoff;
+    h.active = true;
+    h.state = startRes.state;
+    h.pollSecret = startRes.pollSecret;
+    h.url = url;
+    h.expiresAt = Date.now() + ttlSec * 1000;
+    h.secondsLeft = ttlSec;
+
+    openExternalUrl(url);
+    renderMain();
+
+    h.countdownTimer = setInterval(() => {
+      if (!S_STATE.auth.handoff.active) return stopOAuthHandoff(false);
+      const left = Math.max(0, Math.ceil((S_STATE.auth.handoff.expiresAt - Date.now()) / 1000));
+      S_STATE.auth.handoff.secondsLeft = left;
+      if (left <= 0) {
+        stopOAuthHandoff(true);
+        S_STATE.auth.error = 'Browser sign-in link expired after 60 seconds. Click Sign in with Google to try again.';
+      }
+      renderMain();
+    }, 1000);
+
+    h.timer = setInterval(async () => {
+      const cur = S_STATE.auth.handoff;
+      if (!cur.active) return;
+      const res = await api.oauthHandoffPoll({
+        state: cur.state,
+        pollSecret: cur.pollSecret,
+        ephemeral: S_STATE.auth.ephemeral,
+      });
+      if (!S_STATE.auth.handoff.active) return;
+      if (res?.ok && res.status === 'complete' && res.token) {
+        stopOAuthHandoff(true);
+        await loadSessionAndWorkspace(false);
+        showToast('Signed in with Google.');
+      } else if (res && res.status === 410) {
+        stopOAuthHandoff(true);
+        S_STATE.auth.error = 'Browser sign-in link expired. Click Sign in with Google to try again.';
+        renderMain();
+      }
+    }, 1500);
+  }
+
   async function doGoogleAuth() {
     const api = API();
+    stopOAuthHandoff(true);
     S_STATE.auth.error = '';
     let idToken = '';
 
@@ -2386,6 +2814,7 @@
   }
 
   async function doLogout() {
+    stopOAuthHandoff(true);
     const api = API();
     if (!api) return;
     await api.logout();

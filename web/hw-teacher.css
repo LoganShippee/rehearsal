@@ -715,7 +715,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 480px;
+  width: 540px;
   max-width: 96vw;
   height: 100vh;
   max-height: 100vh;
@@ -749,10 +749,26 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.btn.hwt-pick-btn {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  line-height: 1.4;
 }
 
 .hwt-drawer-foot {
@@ -1046,6 +1062,174 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* ---------- editable sight-reading settings & live VexFlow preview ---------- */
+.hwt-sr-preview {
+  background: var(--e-bg);
+  border: 1px solid var(--e-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hwt-sr-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sr-staff.hwt-sr-preview-staff,
+.sr-staff.hwt-gr-staff,
+.hwt-sr-preview-staff,
+.hwt-gr-staff {
+  flex: none;
+  height: auto;
+  max-height: none;
+  background: #ffffff;
+  color: #161d29;
+  border: 1px solid var(--e-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 118px;
+}
+
+.hwt-sr-preview-staff svg,
+.hwt-gr-staff svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.hwt-sr-editor {
+  background: var(--e-bg);
+  border: 1px solid var(--e-line);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hwt-rhy-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hwt-rhy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--e-line);
+  background: var(--e-panel);
+  color: var(--e-text);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hwt-rhy-pill input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.hwt-rhy-pill.on {
+  background: var(--e-soft);
+  border-color: var(--e-accent);
+  font-weight: 600;
+}
+
+.hwt-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hwt-stepper input[type="number"] {
+  width: 66px;
+  text-align: center;
+}
+
+/* ---------- teacher visual grading feedback (matches student view) ---------- */
+.hwt-visual-feedback {
+  background: var(--e-bg);
+  border: 1px solid var(--e-line);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hwt-gr-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.hwt-gr-bar-row {
+  background: var(--e-panel);
+  border: 1px solid var(--e-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hwt-gr-bar-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.hwt-gr-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--e-line);
+  overflow: hidden;
+}
+
+.hwt-gr-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #2f9e44;
+  transition: width 0.2s ease;
+}
+
+.hwt-gr-bar-fill.mid { background: #d9822b; }
+.hwt-gr-bar-fill.lo { background: #c62828; }
+
+.hwt-gr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-size: 12px;
+  color: var(--e-muted);
+  align-items: center;
+}
+
+.hwt-handoff-box {
+  background: var(--hwt-info-bg);
+  border: 1px solid var(--hwt-info-border);
+  color: var(--hwt-info-fg);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* ---------- printable student code sheet (screen fallback + @media print) ---------- */

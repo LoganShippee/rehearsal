@@ -9,6 +9,7 @@
   const CACHE_KEY = 'rehearsal-hw-teacher-cache-v1';
   const DEMO_DB_KEY = 'rehearsal-hw-teacher-demo-v1';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-teacher-demo-offline';
+  const DEMO_HANDOFFS_KEY = 'rehearsal-hw-demo-handoffs-v1';
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const MAX_SCORE_BYTES = 10 * 1024 * 1024;
@@ -642,28 +643,55 @@
     };
   }
 
+  function createDemoSightExcerpts() {
+    const H = { id: 'h', ev: [['h', 2]] };
+    const Q = { id: 'q', ev: [['q', 1]] };
+    const W = { id: 'w', ev: [['w', 4]] };
+    const EE = { id: 'ee', ev: [['8', 0.5], ['8', 0.5]] };
+    const QR = { id: 'qr', ev: [['q', 1, 1]] };
+    const HR = { id: 'hr', ev: [['h', 2, 1]] };
+    return {
+      solfegeEx: {
+        solfege: {
+          rhythm: [[H, H], [Q, Q, H], [H, H], [W]],
+          pitches: [0, 1, 2, 3, 4, 3, 2, 0],
+        },
+      },
+      rhythmEx: {
+        rhythm: [[Q, QR, H], [Q, EE, H], [H, HR], [W]],
+      },
+    };
+  }
+
   function buildDemoNotes(statuses) {
-    const pitches = ['C4', 'D4', 'E4', 'F4', 'G4', 'F4', 'E4', 'D4'];
+    const pitches = ['C4', 'D4', 'E4', 'F4', 'G4', 'F4', 'E4', 'C4'];
+    const bars = [1, 1, 2, 2, 2, 3, 3, 4];
+    const wrongNames = ['D4', 'F#4', 'F4', 'E4', 'A4', 'G4', 'D4', 'D4'];
     return statuses.map((st, i) => {
-      const bar = Math.floor(i / 4) + 1;
+      const bar = bars[i] || (Math.floor(i / 4) + 1);
       const idx = i;
       const pitch = pitches[i % pitches.length];
       let cents = 4;
       let errMs = 18;
+      let sungAs = null;
       if (st === 'timing') {
         cents = 9;
         errMs = i % 2 === 0 ? 128 : -118;
       } else if (st === 'pitch') {
         cents = i % 2 === 0 ? 58 : -54;
         errMs = 22;
+        sungAs = wrongNames[i % wrongNames.length];
       } else if (st === 'wrong') {
         cents = 145;
         errMs = 95;
+        sungAs = wrongNames[i % wrongNames.length];
       } else if (st === 'missed') {
         cents = null;
         errMs = null;
       }
-      return { bar, idx, status: st, pitch, cents, errMs };
+      const out = { bar, idx, status: st, pitch, cents, errMs };
+      if (sungAs) out.sungAs = sungAs;
+      return out;
     });
   }
 
@@ -864,6 +892,7 @@
                 cells: ['q', 'h', 'w'],
                 showCounts: false,
               },
+              ex: createDemoSightExcerpts().solfegeEx,
             },
           },
           hasScoreFile: false,
@@ -900,9 +929,10 @@
                 metronome: true,
                 measureNums: true,
                 sound: 'clap',
-                cells: ['q', 'h', 'ee', 'qr'],
+                cells: ['q', 'h', 'ee', 'qr', 'hr', 'w'],
                 showCounts: true,
               },
+              ex: createDemoSightExcerpts().rhythmEx,
             },
           },
           hasScoreFile: false,
@@ -1276,6 +1306,23 @@
     };
   }
 
+  function backfillDemoExcerpts(db) {
+    if (!db || !Array.isArray(db.assignments)) return false;
+    let changed = false;
+    const { solfegeEx, rhythmEx } = createDemoSightExcerpts();
+    for (const a of db.assignments) {
+      const sr = a?.config?.srState;
+      if (a.id === 'asgn_true_sr' && sr && (!sr.ex || !sr.ex.solfege)) {
+        sr.ex = clone(solfegeEx);
+        changed = true;
+      } else if (a.id === 'asgn_rhythm_drill' && sr && (!sr.ex || !sr.ex.rhythm)) {
+        sr.ex = clone(rhythmEx);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   function loadDemoDb() {
     if (memDemoDb) return memDemoDb;
     try {
@@ -1284,6 +1331,7 @@
         const parsed = JSON.parse(raw);
         if (parsed && parsed.teacher && Array.isArray(parsed.classes) && Array.isArray(parsed.assignments)) {
           memDemoDb = parsed;
+          if (backfillDemoExcerpts(memDemoDb)) saveDemoDb();
           return memDemoDb;
         }
       }
@@ -1589,6 +1637,51 @@
     return { ok: true, reset: true };
   }
 
+  function getOAuthHandoffUrl({ state, googleClientId = '' } = {}) {
+    let base = 'hw-oauth.html';
+    try {
+      const apiBase = getApiBase();
+      const locHref = (typeof location !== 'undefined' && location.href) ? location.href : '';
+      const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(locHref);
+      if (!isDemoMode() && isLoopback && apiBase && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(apiBase)) {
+        base = window.HW_OAUTH_PAGE_URL || 'https://loganshippee.github.io/rehearsal/hw-oauth.html';
+      } else if (locHref) {
+        base = new URL('hw-oauth.html', locHref).href;
+      }
+    } catch { }
+    const sep = base.includes('?') ? '&' : '?';
+    const params = new URLSearchParams();
+    if (state) params.set('state', state);
+    if (isDemoMode()) {
+      params.set('demo', '1');
+    } else {
+      const apiBase = getApiBase();
+      if (apiBase) params.set('api', apiBase);
+      if (googleClientId) params.set('googleClientId', googleClientId);
+    }
+    return `${base}${sep}${params.toString()}`;
+  }
+
+  function randomHandoffHex(bytes = 16) {
+    let out = '';
+    for (let i = 0; i < bytes * 2; i++) {
+      out += Math.floor(Math.random() * 16).toString(16);
+    }
+    return out;
+  }
+
+  function loadDemoHandoffs() {
+    try {
+      return JSON.parse(localStorage.getItem(DEMO_HANDOFFS_KEY) || '{}') || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveDemoHandoffs(map) {
+    try { localStorage.setItem(DEMO_HANDOFFS_KEY, JSON.stringify(map || {})); } catch { }
+  }
+
   // ---------- Public API Object
   const HW_TEACHER_API = {
     INTEGRITY_FLAG_INFO,
@@ -1603,6 +1696,7 @@
     setDemoPlan,
     resetDemoData,
     getStudentPortalUrl,
+    getOAuthHandoffUrl,
     getCacheInfo,
     triggerDownload,
     formatCode,
@@ -1680,6 +1774,80 @@
       };
     },
 
+    async oauthHandoffStart({ ephemeral = false } = {}) {
+      if (!isDemoMode()) {
+        return liveFetch('/api/auth/teacher/oauth/start', {
+          method: 'POST',
+          auth: false,
+          json: { ephemeral: !!ephemeral },
+        });
+      }
+      if (isOffline()) return offlineErr('Connect to the internet to start browser sign-in.');
+      const now = Date.now();
+      const state = 'ho_' + randomHandoffHex(12);
+      const pollSecret = randomHandoffHex(16);
+      const map = loadDemoHandoffs();
+      // Prune expired demo entries
+      for (const k of Object.keys(map)) {
+        if (!map[k] || (map[k].expiresAt && map[k].expiresAt <= now)) delete map[k];
+      }
+      map[state] = {
+        state,
+        pollSecret,
+        ephemeral: !!ephemeral,
+        status: 'pending',
+        expiresAt: now + 60 * 1000,
+        createdAt: now,
+      };
+      saveDemoHandoffs(map);
+      return { ok: true, state, pollSecret, expiresInSec: 60 };
+    },
+
+    async oauthHandoffPoll({ state, pollSecret, ephemeral = false } = {}) {
+      if (!isDemoMode()) {
+        const res = await liveFetch('/api/auth/teacher/oauth/poll', {
+          method: 'POST',
+          auth: false,
+          json: { state, pollSecret },
+        });
+        if (res.ok && res.status === 'complete' && res.token) {
+          setSession(res.token, !!ephemeral);
+        }
+        return res;
+      }
+      if (isOffline()) return offlineErr('You are offline.');
+      const now = Date.now();
+      const map = loadDemoHandoffs();
+      const entry = map[state];
+      if (!entry || entry.expiresAt <= now || entry.status === 'claimed') {
+        return demoErr(410, 'HANDOFF_EXPIRED', 'Sign-in handoff expired.');
+      }
+      if (entry.pollSecret !== pollSecret) {
+        return demoErr(401, 'UNAUTHORIZED', 'Unauthorized poll.');
+      }
+      if (entry.status !== 'complete') {
+        return { ok: true, status: 'pending' };
+      }
+
+      const db = loadDemoDb();
+      db.teacher.hasGoogle = true;
+      const useEphemeral = !!(entry.ephemeral || ephemeral);
+      const ttl = useEphemeral ? 12 * 60 * 60 * 1000 : 30 * DAY_MS;
+      const token = 'demo_hotch_' + Math.random().toString(36).slice(2, 12);
+      db.sessions[token] = { createdAt: now, expiresAt: now + ttl, ephemeral: useEphemeral };
+      saveDemoDb();
+
+      entry.status = 'claimed';
+      saveDemoHandoffs(map);
+      setSession(token, useEphemeral);
+      return {
+        ok: true,
+        status: 'complete',
+        token,
+        teacher: formatDemoTeacherPublic(db),
+      };
+    },
+
     async googleAuth({ idToken, ephemeral = false }) {
       if (!isDemoMode()) {
         const res = await liveFetch('/api/auth/teacher/google', {
@@ -1704,6 +1872,80 @@
         token,
         expiresAt: now + ttl,
         ephemeral: !!ephemeral,
+        teacher: formatDemoTeacherPublic(db),
+      };
+    },
+
+    async oauthHandoffStart({ ephemeral = false } = {}) {
+      if (!isDemoMode()) {
+        return liveFetch('/api/auth/teacher/oauth/start', {
+          method: 'POST',
+          auth: false,
+          json: { ephemeral: !!ephemeral },
+        });
+      }
+      if (isOffline()) return offlineErr('Connect to the internet to start browser sign-in.');
+      const now = Date.now();
+      const state = 'ho_' + randomHandoffHex(12);
+      const pollSecret = randomHandoffHex(16);
+      const map = loadDemoHandoffs();
+      // Prune expired demo entries
+      for (const k of Object.keys(map)) {
+        if (!map[k] || (map[k].expiresAt && map[k].expiresAt <= now)) delete map[k];
+      }
+      map[state] = {
+        state,
+        pollSecret,
+        ephemeral: !!ephemeral,
+        status: 'pending',
+        expiresAt: now + 60 * 1000,
+        createdAt: now,
+      };
+      saveDemoHandoffs(map);
+      return { ok: true, state, pollSecret, expiresInSec: 60 };
+    },
+
+    async oauthHandoffPoll({ state, pollSecret, ephemeral = false } = {}) {
+      if (!isDemoMode()) {
+        const res = await liveFetch('/api/auth/teacher/oauth/poll', {
+          method: 'POST',
+          auth: false,
+          json: { state, pollSecret },
+        });
+        if (res.ok && res.status === 'complete' && res.token) {
+          setSession(res.token, !!ephemeral);
+        }
+        return res;
+      }
+      if (isOffline()) return offlineErr('You are offline.');
+      const now = Date.now();
+      const map = loadDemoHandoffs();
+      const entry = map[state];
+      if (!entry || entry.expiresAt <= now || entry.status === 'claimed') {
+        return demoErr(410, 'HANDOFF_EXPIRED', 'Sign-in handoff expired.');
+      }
+      if (entry.pollSecret !== pollSecret) {
+        return demoErr(401, 'UNAUTHORIZED', 'Unauthorized poll.');
+      }
+      if (entry.status !== 'complete') {
+        return { ok: true, status: 'pending' };
+      }
+
+      const db = loadDemoDb();
+      db.teacher.hasGoogle = true;
+      const useEphemeral = !!(entry.ephemeral || ephemeral);
+      const ttl = useEphemeral ? 12 * 60 * 60 * 1000 : 30 * DAY_MS;
+      const token = 'demo_hotch_' + Math.random().toString(36).slice(2, 12);
+      db.sessions[token] = { createdAt: now, expiresAt: now + ttl, ephemeral: useEphemeral };
+      saveDemoDb();
+
+      entry.status = 'claimed';
+      saveDemoHandoffs(map);
+      setSession(token, useEphemeral);
+      return {
+        ok: true,
+        status: 'complete',
+        token,
         teacher: formatDemoTeacherPublic(db),
       };
     },
