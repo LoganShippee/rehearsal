@@ -4920,6 +4920,7 @@ function helpTutorialsCard() {
     <div class="card-head">
       <h2>Tutorials</h2>
       <span class="grow"></span>
+      <button class="btn small" data-action="whats-new">${IC('ico:book')} What's New</button>
       <button class="btn small primary" data-action="tour-replay">${IC('ico:play')} Full Tour</button>
       <button class="btn small" data-action="bug-report">${IC('ico:warn')} Report a Bug</button>
     </div>
@@ -5610,6 +5611,7 @@ const A = {
     TAB = 'tutorials'; go('edit');
     setTimeout(() => { $('.help-search')?.focus(); }, 80);
   },
+  'whats-new': () => openWhatsNewModal(true),
   'bug-report': () => triggerBugReport(),
   'tour-prev': () => stepTour(-1),
   'tour-next': () => stepTour(1),
@@ -6348,7 +6350,74 @@ window.__bugReportOpen = data => {
   });
 };
 
-// Help search inside Settings → Help & Tutorials
+// ---------- What's New & Bug Report Welcome Pop-up (shown once per major update)
+const WHATS_NEW_ID = '2026-11-update';
+function openWhatsNewModal(force = false) {
+  if (!force && S.settings.seenWhatsNew === WHATS_NEW_ID) return;
+  $('#wn-modal')?.remove();
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+  const bugKey = isMac ? '⌘⇧B' : 'Ctrl+Shift+B';
+  const markSeen = () => {
+    if (S.settings.seenWhatsNew !== WHATS_NEW_ID) { S.settings.seenWhatsNew = WHATS_NEW_ID; save(); }
+  };
+  const m = document.createElement('div');
+  m.id = 'wn-modal';
+  m.className = 'bug-backdrop';
+  m.innerHTML = `<div class="bug-card wn-card" role="dialog" aria-label="Welcome to the new Rehearsal">
+    <div class="bug-head">
+      <h3>${IC('ico:book')} Welcome to the new Rehearsal</h3>
+      <button class="bug-x" data-wn="close" title="Close">${IC('ico:close')}</button>
+    </div>
+    <p class="wn-intro">Thanks for using Rehearsal! Here is a quick overview of what is new in this update, along with a direct way to send bug reports or suggestions.</p>
+    <ul class="wn-list">
+      <li>
+        <span class="wn-ic">${IC('ico:mic')}</span>
+        <div><b>Score Practice &amp; Vocal Recording</b><span>Record your own voice tracks over a score, pick which parts and click track play in your headphones, and grade any part with a mic or space bar.</span></div>
+      </li>
+      <li>
+        <span class="wn-ic">${IC('ico:folder')}</span>
+        <div><b>Files Tab &amp; Built-In Viewer</b><span>Pin your Files library as a class tab, open PDFs, images, audio, and scores right inside it, or delete old files with confirmation.</span></div>
+      </li>
+      <li>
+        <span class="wn-ic">${IC('ico:timer')}</span>
+        <div><b>Moveable &amp; Resizable Timers</b><span>Drag any active timer around the screen, resize it from the bottom-right corner, or expand it to fill the workspace.</span></div>
+      </li>
+      <li>
+        <span class="wn-ic">${IC('ico:play')}</span>
+        <div><b>Step-by-Step Tutorials Tab</b><span>Interactive walkthroughs for every tool now live in their own Tutorials tab under Setup.</span></div>
+      </li>
+    </ul>
+    <div class="wn-bug">
+      <span class="wn-ic">${IC('ico:warn')}</span>
+      <div>
+        <b>Spotted a bug or have an idea?</b>
+        <p>Press <kbd>${bugKey}</kbd> or open <b>⋯ → Report a Bug</b> anytime. Rehearsal grabs a screenshot automatically (you can uncheck it if student names are visible) and sends your note straight from the app, with no account or sign-in needed.</p>
+      </div>
+    </div>
+    <div class="bug-foot wn-foot">
+      <button type="button" class="bug-btn" data-wn="tutorials">${IC('ico:book')} Open Tutorials</button>
+      <button type="button" class="bug-btn" data-wn="bug">${IC('ico:warn')} Report a Bug</button>
+      <span class="grow"></span>
+      <button type="button" class="bug-btn primary" data-wn="close">Got it</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close = () => { markSeen(); m.remove(); };
+  m.addEventListener('click', e => {
+    if (e.target === m) { close(); return; }
+    const b = e.target.closest('[data-wn]'); if (!b) return;
+    const act = b.dataset.wn;
+    close();
+    if (act === 'tutorials') {
+      TAB = 'tutorials'; go('edit');
+      setTimeout(() => { $('.help-search')?.focus(); }, 80);
+    } else if (act === 'bug') {
+      triggerBugReport();
+    }
+  });
+}
+
+// Help search inside Setup → Tutorials
 document.addEventListener('input', e => {
   if (e.target.matches('[data-help-search]')) {
     P.helpSearch = e.target.value;
@@ -6384,7 +6453,7 @@ document.addEventListener('pointerdown', e => {
   const el = $(`.p-timer[data-tid="${tid}"]`); if (!el) return;
   const r = el.getBoundingClientRect();
   if (tm.x == null || tm.y == null) {
-    tm.x = r.left; tm.y = r.top; tm.w = r.width; tm.h = r.height;
+    tm.x = r.left; tm.y = r.top; tm.w = Math.max(240, r.width); tm.h = Math.max(184, r.height);
     el.classList.add('floating');
     Object.assign(el.style, { left: tm.x + 'px', top: tm.y + 'px', width: tm.w + 'px', height: tm.h + 'px' });
   }
@@ -6397,12 +6466,12 @@ document.addEventListener('pointermove', e => {
   const dx = e.clientX - sx, dy = e.clientY - sy;
   if (mode === 'move') {
     tm.x = clamp(ox + dx, 8, Math.max(8, innerWidth - (tm.w || 240) - 8));
-    tm.y = clamp(oy + dy, 8, Math.max(8, innerHeight - (tm.h || 132) - 8));
+    tm.y = clamp(oy + dy, 8, Math.max(8, innerHeight - (tm.h || 184) - 8));
     el.style.left = Math.round(tm.x) + 'px';
     el.style.top = Math.round(tm.y) + 'px';
   } else {
-    tm.w = clamp(ow + dx, 230, Math.min(820, innerWidth - tm.x - 12));
-    tm.h = clamp(oh + dy, 142, Math.min(540, innerHeight - tm.y - 12));
+    tm.w = clamp(ow + dx, 240, Math.min(820, innerWidth - tm.x - 12));
+    tm.h = clamp(oh + dy, 184, Math.min(540, innerHeight - tm.y - 12));
     el.style.width = Math.round(tm.w) + 'px';
     el.style.height = Math.round(tm.h) + 'px';
   }
@@ -6421,7 +6490,10 @@ document.addEventListener('pointerup', () => { TM_DRAG = null; });
   if (HAS_SERVER) fetch(`/api/purge-grlogs?keep=${S.settings.saveGradeRecordings ? 20 : 0}`, { method: 'POST', headers: { 'X-Token': TOKEN } }).catch(() => { });
   if (S.settings.sim.on && !S.settings.sim.setAt) S.settings.sim.setAt = Date.now();
   render();
-  if (!S.settings.tourDone && VIEW === 'present') setTimeout(startTour, 600);
+  if (VIEW === 'present') {
+    if (S.settings.seenWhatsNew !== WHATS_NEW_ID) setTimeout(() => openWhatsNewModal(), 550);
+    else if (!S.settings.tourDone) setTimeout(startTour, 600);
+  }
   // tick 4× a second, and right after each of the clock's whole seconds, so the clock and timers change together
   const loop = () => { tick(); const o = clockOff(), toNext = 1000 - ((Date.now() + o) % 1000 + 1000) % 1000; setTimeout(loop, Math.min(250, toNext + 8)); };
   loop();

@@ -390,7 +390,7 @@ function spInjectVoiceGradeCSS() {
     .sp-grade-ctl { display: inline-flex; align-items: stretch; gap: 0 !important; }
     .sp-top .sp-grade-ctl > button[data-sp="grade"] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
     .sp-top .sp-grade-ctl > button[data-sp="grade-menu"] { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 6px !important; min-width: 22px; }
-    .sp-grmenu { position: fixed; z-index: 9100; width: min(310px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 6px; padding: 10px;
+    .sp-grmenu { position: fixed; z-index: 9100; box-sizing: border-box; width: min(310px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 6px; padding: 10px;
       background: #ffffff; color: #1d2330; border: 1px solid #d3d9e6; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.25); font-size: 13px; }
     .sp-grmenu .sp-grm-sec { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7385; margin-top: 2px; }
     .sp-grmenu select { width: 100%; background: #f7f9fc; color: #1d2330; border: 1px solid #cfd6e3; border-radius: 7px; padding: 5px 8px; font-size: 13px; font-weight: 600; }
@@ -1620,7 +1620,28 @@ function mountScore(host, st, onChange0, key) {
       const isSelf = i === defaultLi;
       return `<label class="sp-grm-chk sp-rec-part ${isSelf ? 'is-self' : ''}"><input type="checkbox" data-spk="recHear" data-i="${i}" ${checked ? 'checked' : ''}><span>${esc(L.name)}${L.acc ? ' <small>(Accomp.)</small>' : ''}${isSelf ? ' <em class="sp-rec-tag">recording</em>' : ''}</span></label>`;
     }).join('');
-    const r = btn.getBoundingClientRect(), m = document.createElement('div');
+    const placePop = (m, anchorEl) => {
+      const rr = root.getBoundingClientRect();
+      const minL = Math.max(8, rr.left + 8), maxR = Math.min(innerWidth - 8, rr.right - 8);
+      const minT = Math.max(8, rr.top + 8), maxB = Math.min(innerHeight - 8, rr.bottom - 8);
+      m.style.maxWidth = Math.max(220, maxR - minL) + 'px';
+      m.style.maxHeight = Math.max(160, maxB - minT) + 'px';
+      m.style.overflowY = 'auto';
+      m.style.left = '0px';
+      m.style.top = '0px';
+      root.appendChild(m);
+      const origin = m.getBoundingClientRect();
+      const anchor = (anchorEl.closest('.sp-grade-ctl') || anchorEl).getBoundingClientRect();
+      const vx = Math.max(minL, Math.min(anchor.left, maxR - origin.width));
+      let vy = anchor.bottom + 6;
+      if (vy + origin.height > maxB) {
+        const above = anchor.top - origin.height - 6;
+        vy = above >= minT ? above : Math.max(minT, maxB - origin.height);
+      }
+      m.style.left = Math.round(vx - origin.left) + 'px';
+      m.style.top = Math.round(vy - origin.top) + 'px';
+    };
+    const m = document.createElement('div');
     m.className = 'sp-grmenu sp-recmenu';
     m.innerHTML = `
       <div class="sp-grm-sec">Voice / Part to record</div>
@@ -1633,11 +1654,7 @@ function mountScore(host, st, onChange0, key) {
       <div class="sp-grm-sec">Start Recording</div>
       <button type="button" class="sp-grm-btn ${!st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="0">${spSvg('mic')}<span><b>Silent Recording (No headphones)</b><small>Pure voice — starting pitch &amp; count-in play first, then all score audio mutes for ${esc(curName)}</small></span></button>
       <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear selected)</b><small>Hear every checked part &amp; click above in headphones while recording ${esc(curName)}</small></span></button>`;
-    const left = Math.max(8, Math.min(r.right - 320, innerWidth - 332));
-    Object.assign(m.style, { left: left + 'px', top: r.bottom + 6 + 'px' });
-    root.appendChild(m);
-    const mr = m.getBoundingClientRect();
-    if (mr.bottom > innerHeight - 10) m.style.top = Math.max(8, innerHeight - mr.height - 10) + 'px';
+    placePop(m, btn);
     ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
     document.addEventListener('pointerdown', ctl.__grMenuAway, true);
   };
@@ -1648,7 +1665,7 @@ function mountScore(host, st, onChange0, key) {
     const curName = sc.lines[curLi]?.name || 'Selected part';
     const curMode = st.gradeMode || 'mic';
     const voices = typeof GR_VOICES !== 'undefined' ? GR_VOICES : [['written', 'Soprano / alto (as written)'], ['tenor', 'Tenor (1 octave lower)'], ['bass', 'Bass (1 octave lower)'], ['lowbass', 'Low bass (2 octaves lower)']];
-    const r = btn.getBoundingClientRect(), m = document.createElement('div');
+    const m = document.createElement('div');
     m.className = 'sp-grmenu';
     m.innerHTML = `
       <div class="sp-grm-sec">Voice / Part to grade</div>
@@ -1660,8 +1677,25 @@ function mountScore(host, st, onChange0, key) {
       <button type="button" class="sp-grm-btn ${curMode === 'mic' ? 'last' : ''}" data-sp="gradego" data-v="mic">${IC('ico:mic')}<span><b>Microphone (Pitch &amp; Rhythm)</b><small>Sing ${esc(curName)} into the mic</small></span></button>
       <button type="button" class="sp-grm-btn ${curMode === 'rhythm' ? 'last' : ''}" data-sp="gradego" data-v="rhythm">${IC('ico:hand')}<span><b>Microphone (Rhythm only)</b><small>Clap or sing rhythm only</small></span></button>
       <button type="button" class="sp-grm-btn ${curMode === 'tap' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Space bar (Tap rhythm)</b><small>Tap each note on the Space bar</small></span></button>`;
-    Object.assign(m.style, { left: Math.max(8, Math.min(r.left, innerWidth - 320)) + 'px', top: r.bottom + 6 + 'px' });
+    const rr = root.getBoundingClientRect();
+    const minL = Math.max(8, rr.left + 8), maxR = Math.min(innerWidth - 8, rr.right - 8);
+    const minT = Math.max(8, rr.top + 8), maxB = Math.min(innerHeight - 8, rr.bottom - 8);
+    m.style.maxWidth = Math.max(220, maxR - minL) + 'px';
+    m.style.maxHeight = Math.max(160, maxB - minT) + 'px';
+    m.style.overflowY = 'auto';
+    m.style.left = '0px';
+    m.style.top = '0px';
     root.appendChild(m);
+    const origin = m.getBoundingClientRect();
+    const anchor = (btn.closest('.sp-grade-ctl') || btn).getBoundingClientRect();
+    const vx = Math.max(minL, Math.min(anchor.left, maxR - origin.width));
+    let vy = anchor.bottom + 6;
+    if (vy + origin.height > maxB) {
+      const above = anchor.top - origin.height - 6;
+      vy = above >= minT ? above : Math.max(minT, maxB - origin.height);
+    }
+    m.style.left = Math.round(vx - origin.left) + 'px';
+    m.style.top = Math.round(vy - origin.top) + 'px';
     ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
     document.addEventListener('pointerdown', ctl.__grMenuAway, true);
   };
