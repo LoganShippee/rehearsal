@@ -783,7 +783,7 @@ function spStop() {
   if (typeof grStopListen === 'function') grStopListen();
 }
 function spDefaults(st) {
-  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none'; st.playhead ??= 'beat';
+  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none'; st.playhead ??= 'beat'; st.nums ??= true;
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
   st.voicesOpen ??= true; st.recMode ??= false; st.recHeadphones ??= false;
   st.recGuide ??= true; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;

@@ -50,8 +50,8 @@ const SR_LEAPS = { step: 'Steps only', third: 'Steps & 3rds', triad: 'Steps & do
 function srDefaults() {
   return {
     mode: 'solfege', show: false, settingsOpen: false, playhead: 'beat',
-    rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'], showCounts: false },
-    solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, startDo: true, cells: ['q', 'h', 'w'], showCounts: false },
+    rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, measureNums: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'], showCounts: false },
+    solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, measureNums: true, startDo: true, cells: ['q', 'h', 'w'], showCounts: false },
     ex: {},
   };
 }
@@ -1235,7 +1235,7 @@ function srCellIcon(id, table) {
 const SR_PATTERNS = [[0, 1, 2], [2, 1, 0], [0, 2, 4], [4, 2, 0], [0, -1, 0], [4, 5, 4], [2, 3, 4], [4, 3, 2], [0, 1, 2, 3, 4], [4, 3, 2, 1, 0], [0, 4, 7], [7, 4, 0], [4, 3, 2, 1], [0, 1, 0, -1, 0]];
 const SR_BUILD_DEG = [-3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 function srBuildDefaults() {
-  return { kind: 'solfege', ts: '4/4', key: 'C', scale: 'major', clef: 'treble', tempo: 80, countIn: 1, countPitch: 'do', metronome: true, measureNums: false, sound: 'clap', items: [], pitches: [], sel: null, hist: [] };
+  return { kind: 'solfege', ts: '4/4', key: 'C', scale: 'major', clef: 'treble', tempo: 80, countIn: 1, countPitch: 'do', metronome: true, measureNums: true, sound: 'clap', items: [], pitches: [], sel: null, hist: [] };
 }
 // single notes and their rests for the builder (lengths in beats of the meter; values in quarters)
 const SR_BUILD_SIMPLE = Object.assign({}, SR_SIMPLE, {
@@ -1769,7 +1769,10 @@ const srBarHTML = items => mbarHTML(SR_BARCFG, items);
 const srTog = (labels, i) => `<span class="sr-tog">${labels.map((l, k) => `<span class="${k === i ? '' : 'h'}">${l}</span>`).join('')}</span>`;
 function mountSight(host, st, onChange) {
   if (!st || !st.rhythm) Object.assign(st, srDefaults());
-  for (const m of ['rhythm', 'solfege']) if (!st.ex[m]) st.ex[m] = m === 'rhythm' ? { rhythm: srGenRhythm(st.rhythm.ts, st.rhythm.measures, st.rhythm.cells, st.rhythm.ties) } : srGenParts(st.solfege);
+  for (const m of ['rhythm', 'solfege']) {
+    if (st[m] && st[m].measureNums === undefined) st[m].measureNums = true;
+    if (!st.ex[m]) st.ex[m] = m === 'rhythm' ? { rhythm: srGenRhythm(st.rhythm.ts, st.rhythm.measures, st.rhythm.cells, st.rhythm.ties) } : srGenParts(st.solfege);
+  }
   if (st.showCounts === undefined) st.showCounts = st.mode === 'rhythm' ? !!st.show : false;   // older saves
   let timeline = [];
   const curShowCounts = () => {
