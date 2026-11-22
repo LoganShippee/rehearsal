@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#142238">
+<title>Rehearsal Online Homework — Student Portal</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="hw.css">
+</head>
+<body class="hw-page">
+  <header class="hw-header">
+    <div class="hw-brand">
+      <img src="icon-192.png" alt="Rehearsal">
+      <h1>Rehearsal Online Homework</h1>
+      <span class="hw-badge">Milestone 1 · Engine Spike</span>
+    </div>
+    <div class="hw-diag" id="hw-diag"></div>
+  </header>
+
+  <main class="hw-main">
+    <div class="hw-banner">
+      <span><strong>Engine-Reuse Verification Mode:</strong> Loads Rehearsal's real Sight Reading, Score Practice, and Grading engines verbatim in a standard browser with zero classroom-app edits. Record takes on Mac, iPad, or Chromebook to verify audio capture, grading accuracy, and IndexedDB persistence.</span>
+      <span class="muted small">Zero analytics · Zero third-party scripts</span>
+    </div>
+
+    <nav class="hw-tabs" aria-label="Assignment types">
+      <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading (Practice &amp; True Sight-Read)</button>
+      <button class="hw-tab" data-hw-tab="score">2. Score Practice (MusicXML)</button>
+      <button class="hw-tab" data-hw-tab="audio">3. Audio-Only Recording</button>
+    </nav>
+
+    <section id="hw-runner-body"></section>
+
+    <section class="hw-card">
+      <div class="hw-card-head">
+        <h2>Saved Takes on This Device <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+        <div class="hw-controls">
+          <button class="hw-btn" id="hw-clear-takes">Clear Local Takes</button>
+        </div>
+      </div>
+      <div class="hw-takes-list" id="hw-takes-list"></div>
+    </section>
+  </main>
+
+  <div id="print-area"></div>
+
+  <!-- Lightweight standalone shim + Rehearsal's real engines loaded verbatim -->
+  <script src="hw-shim.js"></script>
+  <script src="icons.js"></script>
+  <script src="vendor/vexflow.js"></script>
+  <script src="sight.js"></script>
+  <script src="music.js"></script>
+  <script src="grade.js"></script>
+  <script src="score.js"></script>
+  <script src="hw-student.js"></script>
+</body>
+</html>
