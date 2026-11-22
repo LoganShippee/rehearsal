@@ -1264,23 +1264,39 @@ function renderSolBoard(h) {
     </div>
 
     <div class="sb-echo">
-      ${mys ? `
-        <span class="sb-elbl">Mystery echo</span>
-        <div class="sb-elist">${mys.notes.map((n, i) => `<span class="sb-echo-item ${mys.revealed ? 'rev' : 'hid'}" data-ei="${i}" ${mys.revealed ? tileStyle(n) : ''}>${mys.revealed ? esc(n.syl) : '?'}</span>`).join('')}</div>
-        <button data-sb="mys-replay">${IC('ico:play')} Replay</button>
-        <button data-sb="mys-reveal" class="sb-primary">${mys.revealed ? 'Hide' : 'Reveal'}</button>
-        <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
-        <button data-sb="mys-new">New</button>
-        <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
-        <button data-sb="mys-close" title="Back to echo trail">${IC('ico:close')}</button>
-      ` : `
-        <span class="sb-elbl">Echo trail${trail.length ? ` <small class="sb-ecnt">${trail.length}/12</small>` : ''}</span>
-        <div class="sb-elist">${trail.length ? trail.map((n, i) => `<button type="button" class="sb-echo-item rev" data-sb="trail-rm" data-ei="${i}" title="Click to remove" ${tileStyle(n)}>${esc(n.syl)}</button>`).join('') : `<span class="sb-ehint">Tap tiles below (or press ${keyHint}) to build an echo phrase.</span>`}</div>
-        ${trail.length ? `<button data-sb="trail-play">${IC('ico:play')} Replay</button><button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button><button data-sb="trail-undo" title="Remove last note">⌫</button><button data-sb="trail-clear">Clear</button>` : ''}
-        <span class="grow"></span>
-        <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
-        <button data-sb="mys-new" class="sb-primary">${IC('ico:sparkle')} Mystery echo</button>
-      `}
+      <div class="sb-echo-bar">
+        ${mys ? `
+          <span class="sb-elbl">Mystery echo</span>
+          <span class="grow"></span>
+          <div class="sb-echo-acts">
+            <button data-sb="mys-replay">${IC('ico:play')} Replay</button>
+            <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
+            <button data-sb="mys-reveal" class="sb-primary">${mys.revealed ? 'Hide' : 'Reveal'}</button>
+            <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
+            <button data-sb="mys-new">New</button>
+            <button data-sb="mys-close" title="Back to echo trail">${IC('ico:close')}</button>
+          </div>
+        ` : `
+          <span class="sb-elbl">Echo trail <small class="sb-ecnt">${trail.length}/12</small></span>
+          <span class="grow"></span>
+          <div class="sb-echo-acts">
+            <button data-sb="trail-play" ${trail.length ? '' : 'disabled'}>${IC('ico:play')} Replay</button>
+            <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
+            <button data-sb="trail-undo" title="Remove last note" ${trail.length ? '' : 'disabled'}>⌫</button>
+            <button data-sb="trail-clear" ${trail.length ? '' : 'disabled'}>Clear</button>
+            <span class="sb-esep" aria-hidden="true"></span>
+            <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
+            <button data-sb="mys-new" class="sb-primary">${IC('ico:sparkle')} Mystery echo</button>
+          </div>
+        `}
+      </div>
+      <div class="sb-elist">
+        ${mys
+          ? mys.notes.map((n, i) => `<span class="sb-echo-item ${mys.revealed ? 'rev' : 'hid'}" data-ei="${i}" ${mys.revealed ? tileStyle(n) : ''}>${mys.revealed ? esc(n.syl) : '?'}</span>`).join('')
+          : (trail.length
+              ? trail.map((n, i) => `<button type="button" class="sb-echo-item rev" data-sb="trail-rm" data-ei="${i}" title="Click to remove" ${tileStyle(n)}>${esc(n.syl)}</button>`).join('')
+              : `<span class="sb-ehint">Tap tiles below (or press ${keyHint}) to build an echo phrase.</span>`)}
+      </div>
     </div>
 
     <div class="sb-tiles">
@@ -1303,7 +1319,7 @@ function renderSolBoard(h) {
       const list = h.querySelector('.sb-elist');
       if (list) list.innerHTML = trail.map((n, i) => `<button type="button" class="sb-echo-item rev" data-sb="trail-rm" data-ei="${i}" title="Click to remove" ${tileStyle(n)}>${esc(n.syl)}</button>`).join('');
       const cnt = h.querySelector('.sb-ecnt'); if (cnt) cnt.textContent = `${trail.length}/12`;
-      if (trail.length === 1) renderSolBoard(h); // reveal Replay/Clear buttons
+      h.querySelectorAll('[data-sb="trail-play"], [data-sb="trail-undo"], [data-sb="trail-clear"]').forEach(b => { b.disabled = !trail.length; });
     }
   };
 

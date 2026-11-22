@@ -715,6 +715,13 @@ function grTrimEarlyExp(frames, exp, q, T0, end, stopTime, taps = null, lat = nu
   return { exp: trimmedExp, end: Math.max(T0 + 0.25, trimmedEnd), trimmed: trimmedExp.length < exp.length };
 }
 
+function grBtnHTML(input) {
+  return input === 'tap'
+    ? IC('ico:stop') + ' Stop (tapping)'
+    : `<span class="gr-mic-m" aria-hidden="true">${IC('ico:mic')}<span class="gr-lvl"><i></i></span></span> Stop &amp; grade`;
+}
+window.grBtnHTML = grBtnHTML;
+
 function grStop(show = true) {
   if (!GR.on) return;
   clearInterval(GR.timer);
@@ -723,7 +730,7 @@ function grStop(show = true) {
   GR.out = null;
   const stopTime = GR.c ? GR.c.currentTime : GR.end;
   if (GR.mic) { clearTimeout(GR.mic.idle); GR.mic.idle = setTimeout(grMicClose, GR_MIC_IDLE); }
-  const frames = GR.frames, rawExp = GR.exp, btn = GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish, trimEarly = !!GR.trimEarlyStop;
+  const frames = GR.frames, rawExp = GR.exp, btn = GR.host?.querySelector('[data-sr="grade"]') || GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish, trimEarly = !!GR.trimEarlyStop;
   GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null; GR.onFinish = null; GR.trimEarlyStop = false;
   GR.quietUntil = performance.now() + 1500;                   // a last tap just after the end doesn't start playback
   if (btn) { btn.innerHTML = GR.idleHTML || (IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade')); btn.classList.remove('on'); }
@@ -747,7 +754,7 @@ function grStop(show = true) {
     }
   }
   if (!tap) res.logId = grSaveLog(rec, { ...GR.meta, exp, q: GR.q, T0: GR.T0, end: endT, lat: GR.lat, gradePitch: GR.gradePitch }, frames, res);
-  const tl = GR.tl, host = GR.host;
+  const host = GR.host, tl = (host && host.__timeline) || GR.tl;
   if (tl) { tl.grHist = tl.grHist || []; tl.grHist.push({ rhythmPct: res.rhythmPct, pitchPct: res.pitchPct, tap }); }
   // the result is kept on the widget so the marks are drawn again whenever the music is redrawn
   // the take itself (the mic recording, or the taps) is kept for listening back against the example
@@ -854,8 +861,8 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     lat = outLat + avDelayMs() / 1000;
     if (!isFinite(lat)) lat = null;
   } catch { lat = null; }
-  Object.assign(GR, { on: true, input, c, taps: tap ? [] : null, an, rec, meta, buf: new Float32Array(2048), poll: 0, frames: [], host, exp, q, T0, end, btn, lat, gradePitch: !tap && timeline.some(e => e.midi != null), tl: timeline, idleHTML, retry: () => grStart(host, st, timeline, btn, input) });
-  btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade <i class="gr-lvl" aria-hidden="true"></i>'); btn.classList.add('on');
+  Object.assign(GR, { on: true, input, c, taps: tap ? [] : null, an, rec, meta, buf: new Float32Array(2048), poll: 0, frames: [], host, exp, q, T0, end, btn, lat, gradePitch: !tap && timeline.some(e => e.midi != null), tl: timeline, idleHTML, retry: () => grStart(host, st, host.__timeline || timeline, host.querySelector('[data-sr="grade"]') || btn, input) });
+  btn.innerHTML = grBtnHTML(input); btn.classList.add('on');
   if (tap) grMountTapPad(host);
   if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();   // so Space taps, not clicks
   // Show the count-in numbers and the playhead while the student performs (same display as playback).
@@ -868,7 +875,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     // the playhead follows grading's own sound engine
     heard() { return srHeard0(c) - avDelayMs() / 1000; },
   };
-  srAnimate(host, { ...st, playhead: st.playhead && st.playhead !== 'off' ? st.playhead : 'beat' }, () => timeline, gClock);
+  srAnimate(host, { ...st, playhead: st.playhead && st.playhead !== 'off' ? st.playhead : 'beat' }, () => host.__timeline || timeline, gClock);
   GR.timer = setInterval(() => {
     const now = c.currentTime;
     if (tap) { if (now > GR.end) grStop(true); return; }
@@ -880,9 +887,15 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
     const rms = Math.sqrt(s / W);
     const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;   // pitch about every 40 ms
-    if (GR.poll % 6 === 0) {
-      const dot = btn?.querySelector('.gr-lvl');
-      if (dot) dot.classList.toggle('hot', rms >= GR_MIN_RMS);
+    if (GR.poll % 4 === 0) {
+      const liveBtn = GR.host?.querySelector('[data-sr="grade"]') || GR.btn;
+      const m = liveBtn?.querySelector('.gr-mic-m');
+      if (m) {
+        const hot = rms >= GR_MIN_RMS;
+        m.classList.toggle('hot', hot);
+        const bar = m.querySelector('.gr-lvl > i');
+        if (bar) bar.style.height = Math.min(100, Math.round((rms / 0.075) * 100)) + '%';
+      }
     }
     GR.frames.push({ t: now, rms, f });
   }, 10);

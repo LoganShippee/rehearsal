@@ -1034,17 +1034,17 @@ function renderDockCustom() {
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
   panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
-    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>Open menu</b>, in <b>More (⋯)</b>, or <b>Hidden</b>. Drag ≡ to reorder.</div>
+    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>Open</b> (＋ Open menu), in <b>More</b> (⋯), or <b>Hidden</b>. Drag ≡ to reorder.</div>
     <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id];
       const inOpen = (cfg.inOpen || []).includes(id);
       const launcher = DOCK_LAUNCHERS.includes(id);
       const place = cfg.hidden.includes(id) ? 'off' : inOpen ? 'open' : cfg.menu.includes(id) ? (launcher ? 'off' : 'menu') : 'bar';
       const canOpen = !it.locked && !it.sep && !launcher && id !== 'window' && !it.special;
-      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', 'Open menu']] : it.sep ? [['bar', 'Bar'], ['off', 'Hidden']] : canOpen ? [['bar', 'Bar'], ['open', 'Open menu'], ['menu', 'More'], ['off', 'Hidden']] : [['bar', 'Bar'], ['menu', 'More'], ['off', 'Hidden']];
+      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', 'Open']] : it.sep ? [['bar', 'Bar'], ['off', 'Hidden']] : canOpen ? [['bar', 'Bar'], ['open', 'Open'], ['menu', 'More'], ['off', 'Hidden']] : [['bar', 'Bar'], ['menu', 'More'], ['off', 'Hidden']];
       return `<div class="dc-row ${it.sep ? 'sep' : ''} ${place === 'off' && !launcher ? 'is-off' : ''}" draggable="true" data-id="${id}">
       <span class="dc-grip">≡</span>
       <span class="dc-ico">${it.sep ? '' : dockIcon(id, it) || ''}</span>
-      <span class="dc-name">${esc(it.label)}</span>
+      <span class="dc-name" title="${esc(it.label)}">${esc(it.label)}</span>
       <span class="dc-seg" role="group" aria-label="Where ${esc(it.label)} goes">${opts.map(([v, l]) => `<button type="button" data-dock-place="${id}" data-v="${v}" aria-pressed="${place === v}" ${v === 'open' ? 'title="Show in ＋ Open menu"' : ''}>${l}</button>`).join('')}</span></div>`; }).join('')}</div>
     <div class="dc-look">
       ${dcSeg('Size', 'size', [['s', 'S'], ['m', 'M'], ['l', 'L']], cfg.size || 'm')}
@@ -1054,9 +1054,9 @@ function renderDockCustom() {
       <label class="dc-lrow"><span>Labels under icons</span><input type="checkbox" class="dc-sw" role="switch" data-dock-labels ${cfg.labels ? 'checked' : ''}></label>
       <label class="dc-lrow"><span>Emojis</span><input type="checkbox" class="dc-sw" role="switch" data-dock-emoji ${iconOn('dock') ? 'checked' : ''}></label>
       <div class="dc-lrow"><span>Icon for each button</span><button data-action="icons-open">${IC('ico:icons')} Icons…</button></div>
+      <div class="dc-lrow"><span>Position</span><span class="dc-seg" role="group" aria-label="Toolbar position">${[['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right']].map(([v, l]) => `<button type="button" data-action="dock-spot" data-spot="${v}" aria-pressed="${(!S.settings.dockPos && v === 'top') || (S.settings.dockPos?.spot === v)}">${l}</button>`).join('')}</span></div>
     </div>
-    <div class="dc-spots"><span>Move to</span><button data-action="dock-spot" data-spot="top">Top (header)</button><button data-action="dock-spot" data-spot="bottom">Bottom</button><button data-action="dock-spot" data-spot="left">Left side</button><button data-action="dock-spot" data-spot="right">Right side</button></div>
-    <div class="dc-btns"><button data-action="dock-home">Put toolbar back at the top</button><button data-action="dock-reset">Reset</button></div>`;
+    <div class="dc-btns"><button data-action="dock-reset">Reset toolbar</button></div>`;
   $('#present').appendChild(panel);
   const r = $('#p-dock').getBoundingClientRect();
   panel.style.left = clamp(r.left + r.width / 2 - panel.offsetWidth / 2, 8, innerWidth - panel.offsetWidth - 8) + 'px';
@@ -2752,6 +2752,8 @@ window.__pinch = (x, y, mag, phase) => {
   if (srHost?.__zoomBy) { if (phase === 'toggle') srHost.__zoomToggle?.(); else srHost.__zoomBy(1 + mag); return; }
   const pnHost = hit?.closest('.pn-seq') && hit?.closest('.wg-host');
   if (pnHost?.__pianoZoomBy) { if (phase === 'toggle') pnHost.__pianoZoomBy(1, true); else pnHost.__pianoZoomBy(1 + mag); return; }
+  const pdfHost = hit?.closest('.pdf-host');
+  if (pdfHost?.__zoomBy) { if (phase === 'toggle') pdfHost.__zoomToggle?.(); else pdfHost.__zoomBy(1 + mag); return; }
   const winEl = hit?.closest('.win'), stageEl = hit?.closest('#stage-content');
   let st, box, after, nat = false;
   if (winEl) { const w = findWin(winEl.dataset.win); if (!w) return; st = w; box = winEl.querySelector('.win-body'); nat = winIsNative(w); after = () => { applyZoom(w); save(); }; }

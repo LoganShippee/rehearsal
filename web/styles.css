@@ -317,7 +317,9 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--e-accent);
 .ink { grid-row: 2; grid-column: 1; position: relative; z-index: 20; display: none; }
 .ink.on { display: block; }
 .ink canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.ink.passive { pointer-events: none; }
 .ink.passive canvas { pointer-events: none; }
+.ink.passive .ink-bar, .ink.passive .ink-paused-pill, .ink.passive .ink-text { pointer-events: auto; }
 .ink-bar { position: absolute; left: 50%; top: .6em; transform: translateX(-50%); z-index: 22; display: flex; gap: 4px; align-items: center; padding: 6px; border-radius: 14px; background: rgba(20,22,28,.85); color: #fff; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
 .ink-bar button { background: transparent; border: none; color: #fff; padding: 6px 9px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .ink-bar button.on { background: rgba(255,255,255,.22); }
@@ -1548,14 +1550,14 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 .win-menu .wm-head, .dock-more-menu .dm-head { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: #6b7385; padding: 8px 10px 3px; }
 .win-menu .wm-head:first-child { padding-top: 4px; }
 .dock-more-menu .dm-lbl { color: #6b7385; font-size: 13px; }
-.dock-custom { width: 330px; }
-.dock-custom .dc-row { display: grid; grid-template-columns: 14px 22px 1fr auto; gap: 8px; align-items: center; padding: 5px 6px; }
+.dock-custom { width: 400px; max-width: calc(100vw - 24px); }
+.dock-custom .dc-row { display: grid; grid-template-columns: 14px 20px minmax(100px, 1fr) auto; gap: 8px; align-items: center; padding: 5px 6px; }
 .dock-custom .dc-row.is-off .dc-name, .dock-custom .dc-row.is-off .dc-ico { opacity: .45; }
 .dock-custom .dc-ico { display: inline-flex; justify-content: center; font-size: 15px; color: #4b5366; }
 .dock-custom .dc-ico .ico { width: 16px; height: 16px; }
-.dock-custom .dc-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-custom .dc-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .dc-seg { display: inline-flex; border: 1px solid #d3d7e0; border-radius: 8px; overflow: hidden; background: #fff; flex: none; }
-.dock-custom .dc-seg button { border: 0; border-radius: 0; background: none; padding: 4px 9px; font-size: 12px; font-weight: 600; color: #3a4252; min-width: 34px; }
+.dock-custom .dc-seg button { border: 0; border-radius: 0; background: none; height: 26px; padding: 0 8px; font-size: 12px; font-weight: 600; color: #3a4252; min-width: 44px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }
 .dock-custom .dc-seg button + button { border-left: 1px solid #d3d7e0; }
 .dock-custom .dc-seg button[aria-pressed="true"] { background: #1d2330; color: #fff; }
 .dock-custom .dc-look { display: flex; flex-direction: column; gap: 0; margin-top: 8px; font-size: 12.5px; }
@@ -2824,12 +2826,21 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
   background: linear-gradient(180deg, #22c55e, #16a34a);
   box-shadow: 0 6px 20px rgba(22, 163, 74, .5), 0 0 0 6px rgba(34, 197, 94, .28);
 }
-.gr-lvl {
-  display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px;
-  background: #94a3b8; vertical-align: middle; transition: background .08s, transform .08s, box-shadow .08s;
+.gr-mic-m {
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
 }
-.gr-lvl.hot {
-  background: #22c55e; transform: scale(1.25); box-shadow: 0 0 0 4px rgba(34, 197, 94, .28);
+.gr-mic-m .ico { width: 15px; height: 15px; transition: color .08s; }
+.gr-mic-m.hot .ico { color: #4ade80; }
+.gr-lvl {
+  display: inline-flex; align-items: flex-end; width: 5px; height: 15px; border-radius: 3px;
+  background: rgba(255,255,255,.28); overflow: hidden; flex: none;
+}
+.gr-lvl > i {
+  display: block; width: 100%; height: 8%; min-height: 2px; border-radius: 2px;
+  background: #4ade80; transition: height 55ms linear;
+}
+.sr-zoom-grp {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none;
 }
 .gr-cal-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
@@ -2878,7 +2889,10 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
 .sr-pre-ok, .sr-pre-add {
   height: 26px !important; padding: 0 10px !important; font-size: 12px !important;
   border-radius: 99px !important; font-weight: 700; cursor: pointer;
+  display: inline-flex !important; align-items: center !important; justify-content: center !important;
+  gap: 4px; line-height: 1 !important; vertical-align: middle;
 }
+.sr-pre-add .ico { width: 13px; height: 13px; display: block; flex: none; }
 .sr-pre-ok { background: var(--accent) !important; color: var(--bg) !important; border-color: transparent !important; }
 .sr-pre-empty { font-size: 12px; opacity: .65; margin-right: 4px; }
 .sr-top button.sr-sumchip {
@@ -2905,12 +2919,32 @@ canvas.aud-wave { width: 100%; height: 112px; display: block; cursor: pointer; t
   padding: 2px 6px; border-radius: 99px;
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
+.sb-echo { flex-direction: column; align-items: stretch !important; gap: 7px !important; }
+.sb-echo-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px;
+}
+.sb-echo-acts {
+  display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; flex: none;
+}
+.sb-echo-acts button:disabled { opacity: .4; cursor: default; }
+.sb-esep {
+  width: 1px; height: 16px; background: color-mix(in srgb, var(--text) 18%, transparent); margin: 0 2px;
+}
+.sb-elist {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 28px;
+}
 button.sb-echo-item {
   border: 0; color: inherit; cursor: pointer; font-family: inherit;
 }
 button.sb-echo-item:hover { filter: brightness(1.08); }
 
-/* ---------- UX Polish: PDF page jump & burn message ---------- */
+/* ---------- UX Polish: PDF page jump, zoom & burn message ---------- */
+.pdfv-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.pdfv-zpct {
+  min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700;
+  padding: 3px 5px !important;
+}
+.pdfv-zoom button:disabled { opacity: .38; cursor: default; }
 button.pdfv-num {
   border: 1px solid transparent; background: transparent; color: inherit;
   font: inherit; font-weight: 700; border-radius: 7px; padding: 3px 8px; cursor: pointer;

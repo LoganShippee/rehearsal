@@ -1804,6 +1804,7 @@ function mountSight(host, st, onChange) {
     const kindNow = isBuild() ? st.build.kind : st.mode === 'solfege' && st.solRhythm ? 'rhythm' : st.mode;
     const multiPart = st.mode === 'solfege' && !st.solRhythm && (st.solfege?.parts || 1) > 1;
     const zoomPct = Math.round((st.zoom || 1) * 100);
+    const gradingHere = typeof GR !== 'undefined' && (GR.on || GR.starting) && GR.host === host;
     host.innerHTML = `<div class="sr">
       <div class="sr-top">
         <div class="sr-tabs"><button data-sr="mode" data-v="rhythm" class="${st.mode === 'rhythm' ? 'on' : ''}">${IC('ico:hand')} Rhythm</button><button data-sr="mode" data-v="solfege" class="${st.mode === 'solfege' ? 'on' : ''}">${IC('ico:music')} Solfege</button><button data-sr="mode" data-v="build" class="${isBuild() ? 'on' : ''}" title="Build your own example by clicking">${IC('ico:annotate')} Build</button></div>
@@ -1813,7 +1814,7 @@ function mountSight(host, st, onChange) {
         <button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>
         <span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>
         <button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>
-        <button data-sr="grade" ${multiPart ? 'disabled title="Grading works on 1-line examples — switch Parts to 1 line in Settings"' : 'title="Grade a performance of this example: microphone (sing/clap) or tap rhythm (Space / touch)"'}>${IC('ico:mic')} Grade ▾</button>
+        <button data-sr="grade" class="${gradingHere ? 'on' : ''}" ${!gradingHere && multiPart ? 'disabled title="Grading works on 1-line examples — switch Parts to 1 line in Settings"' : 'title="Grade a performance of this example: microphone (sing/clap) or tap rhythm (Space / touch)"'}>${gradingHere && typeof grBtnHTML === 'function' ? grBtnHTML(GR.input) : IC('ico:mic') + ' Grade ▾'}</button>
         ${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sr="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}
         <span class="sr-sp"></span>
         ${typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : ''}
@@ -1830,9 +1831,7 @@ function mountSight(host, st, onChange) {
         <span class="tb-div" aria-hidden="true"></span>
         <span class="tb-lbl">Playhead</span>
         <button data-sr="playhead" class="sr-phbtn ${st.playhead && st.playhead !== 'off' ? 'on' : ''}" title="Playhead: moves with the beat, jumps from note to note, or is off. Click to switch.">${srTog([`${IC('ico:playhead')} <b>Beat</b>`, `${IC('ico:playhead')} <b>Note</b>`, `${IC('ico:playhead')} <b>Off</b>`], ({ beat: 0, notes: 1 })[st.playhead] ?? 2)}</button>
-        <span class="sr-sp"></span>
-        <span class="tb-lbl">Zoom</span>
-        <span class="sr-zoom" title="Make the music bigger or smaller (${zoomPct}%) — pinch on trackpad or click % to reset"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.5 ? 'disabled' : ''}>${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sr="zoom-reset" title="Reset zoom to 100%">${zoomPct}%</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:plus')}</button></span>
+        <span class="sr-zoom-grp"><span class="tb-lbl">Zoom</span><span class="sr-zoom" title="Make the music bigger or smaller (${zoomPct}%) — pinch on trackpad or click % to reset"><button data-sr="zoom" data-d="-1" title="Smaller" ${(st.zoom || 1) <= 0.5 ? 'disabled' : ''}>${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sr="zoom-reset" title="Reset zoom to 100%">${zoomPct}%</button><button data-sr="zoom" data-d="1" title="Bigger" ${(st.zoom || 1) >= 2.5 ? 'disabled' : ''}>${IC('ico:plus')}</button></span></span>
       </div>
       ${st.settingsOpen ? `<div class="sr-settings">${isBuild() ? srBuildSettingsHTML(st) : srSettingsHTML(st, host)}</div>` : ''}
       ${isBuild() && st.settingsOpen ? srBuildPanelHTML(st) : ''}
@@ -1850,9 +1849,13 @@ function mountSight(host, st, onChange) {
     }
     const staffEl = host.querySelector('.sr-staff');
     if (staffEl) staffEl.style.zoom = '';
-    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Settings to show the building tools.'}</div>`; timeline = []; return; }
+    if (isBuild() && !st.build.items.length) { staffEl.innerHTML = `<div class="sr-msg">${st.settingsOpen ? 'Your example will appear here. Click a note or rest above.' : 'Nothing built yet — press Settings to show the building tools.'}</div>`; timeline = []; host.__timeline = timeline; return; }
     staffEl.__zoom = st.zoom || 1;
-    timeline = srDraw(staffEl, V()); drawFrom(); markSel(); host.__grRedraw();
+    timeline = srDraw(staffEl, V()); host.__timeline = timeline; drawFrom(); markSel(); host.__grRedraw();
+    if (gradingHere) {
+      GR.btn = host.querySelector('[data-sr="grade"]');
+      if (GR.on && GR.input === 'tap' && typeof grMountTapPad === 'function') grMountTapPad(host);
+    }
   };
   let zSaveT = null;
   const applyLiveZoom = nextZ => {

@@ -14,7 +14,7 @@ const PDF_PEN = { tool: 'pen', color: '#e5484d', size: 1 };   // shared by every
 // saveInk(), saveCopy(blob) to store an annotated copy, name (for the copy)
 function mountPdf(host, src, st, onChange, opts = {}) {
   if (!PDFJS) { host.innerHTML = '<div class="res-fallback">PDF viewer missing.</div>'; return; }
-  st.page ||= 1; st.mode ||= 'page'; st.fit ||= 'page';
+  st.page ||= 1; st.mode ||= 'page'; st.fit ||= 'page'; st.zoom = Math.max(0.5, Math.min(3, Number(st.zoom) || 1));
   const canInk = !!opts.ink;
   host.innerHTML = `<div class="pdfv"><div class="pdfv-view"><div class="pdfv-pages"></div></div>
     ${canInk ? '<div class="pdfv-abar" hidden></div>' : ''}
@@ -24,6 +24,8 @@ function mountPdf(host, src, st, onChange, opts = {}) {
       <button data-pdf="fit" title="Fit the whole page / fit the width"></button>
       <button data-pdf="mode" title="One page at a time / scroll through all pages"></button>
       <button data-pdf="two" title="Show two pages side by side (1–2, 3–4, …)"></button>
+      <span class="pdfv-sep"></span>
+      <span class="pdfv-zoom" title="Zoom in or out — pinch on trackpad or click % to reset"><button data-pdf="zout" title="Zoom out" aria-label="Zoom out">${IC('ico:minus')}</button><button type="button" class="pdfv-zpct" data-pdf="zreset" title="Reset zoom to 100%">100%</button><button data-pdf="zin" title="Zoom in" aria-label="Zoom in">${IC('ico:plus')}</button></span>
       ${canInk ? `<span class="pdfv-sep"></span><button data-pdf="annot" title="Draw on this PDF (marks are kept until you erase or clear them)">${IC('ico:pen')} Annotate</button>` : ''}
     </div></div>`;
   const view = host.querySelector('.pdfv-view'), pages = host.querySelector('.pdfv-pages'), abar = host.querySelector('.pdfv-abar');
@@ -55,6 +57,9 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     const tb = host.querySelector('[data-pdf="two"]'); tb.innerHTML = IC('ico:book') + ' 2 pages'; tb.classList.toggle('on', !!st.two);
     host.querySelector('[data-pdf="fit"]').textContent = st.fit === 'page' ? '⤢ Fit width' : '⤡ Fit page';
     host.querySelector('[data-pdf="mode"]').innerHTML = st.mode === 'page' ? IC('ico:scroll') + ' Scroll' : IC('ico:rect') + ' One page';
+    const zpct = host.querySelector('.pdfv-zpct'); if (zpct) zpct.textContent = Math.round((st.zoom || 1) * 100) + '%';
+    const zout = host.querySelector('[data-pdf="zout"]'); if (zout) zout.disabled = (st.zoom || 1) <= 0.51;
+    const zin = host.querySelector('[data-pdf="zin"]'); if (zin) zin.disabled = (st.zoom || 1) >= 2.99;
     host.querySelector('[data-pdf="annot"]')?.classList.toggle('on', annot);
   };
   // the annotation tools (shown while Annotate is on)
@@ -95,7 +100,7 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     const base = page.getViewport({ scale: 1 });
     const cols = st.two ? 2 : 1, gap = st.two ? 12 : 0;
     const fitW = (W - 16 - gap) / cols / base.width, fitP = Math.min(fitW, (H - 16) / base.height);
-    const scale = st.mode === 'page' && st.fit === 'page' ? fitP : fitW;
+    const scale = (st.mode === 'page' && st.fit === 'page' ? fitP : fitW) * (st.zoom || 1);
     const vp = page.getViewport({ scale: scale * dpr * res });
     const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
     const cw = Math.floor(base.width * scale), ch = Math.floor(base.height * scale);
@@ -232,9 +237,12 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     if (k === 'prev') ctl.go(st.page - 1);
     if (k === 'next') ctl.go(st.page + 1);
     if (k === 'jump') openPageJump();
-    if (k === 'fit') { st.fit = st.fit === 'page' ? 'width' : 'page'; onChange(); draw(); }
+    if (k === 'fit') { st.fit = st.fit === 'page' ? 'width' : 'page'; st.zoom = 1; onChange(); draw(); }
     if (k === 'two') { st.two = !st.two; onChange(); draw(); }
     if (k === 'mode') { st.mode = st.mode === 'page' ? 'scroll' : 'page'; onChange(); draw(); }
+    if (k === 'zout') applyPdfZoom(Math.round(((st.zoom || 1) - 0.2) * 10) / 10);
+    if (k === 'zin') applyPdfZoom(Math.round(((st.zoom || 1) + 0.2) * 10) / 10);
+    if (k === 'zreset') applyPdfZoom(1);
     if (k === 'annot') {
       annot = !annot;
       if (annot) {
@@ -247,6 +255,27 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     }
   });
   host.addEventListener('pointerdown', () => { PDF_ACTIVE = ctl; });
+  let zoomTimer = null;
+  const applyPdfZoom = next => {
+    const nz = Math.max(0.5, Math.min(3, Math.round(next * 20) / 20));
+    if (Math.abs(nz - (st.zoom || 1)) < 0.005) return;
+    st.zoom = nz; onChange(); bar();
+    clearTimeout(zoomTimer); zoomTimer = setTimeout(() => draw(), 80);
+  };
+  host.__zoomBy = factor => applyPdfZoom((st.zoom || 1) * factor);
+  host.__zoomToggle = () => applyPdfZoom(Math.abs((st.zoom || 1) - 1) > 0.05 ? 1 : 1.6);
+  if (!host.__pdfPinchWired) {
+    host.__pdfPinchWired = true;
+    host.addEventListener('wheel', e => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault(); e.stopPropagation();
+      host.__zoomBy(Math.exp(-e.deltaY * 0.01));
+    }, { passive: false });
+    let gs = 1;
+    host.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+    host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs); gs = e.scale; });
+    host.addEventListener('gestureend', e => e.preventDefault());
+  }
   // drawing on a page
   if (canInk) {
     let cur = null;
