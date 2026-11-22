@@ -340,9 +340,21 @@ function spInjectVoiceGradeCSS() {
     .sp-ph .seg.top { top: 0; background: linear-gradient(to bottom, rgba(231,111,81,0), #e76f51 45%); }
     .sp-ph .seg.bot { background: linear-gradient(to bottom, #e76f51 55%, rgba(231,111,81,0)); }
     .sp-ph.pulse { animation: srpulse .5s ease-in-out infinite alternate; }
-    .sp-sel.off i { background: rgba(31,111,209,.12) !important; border: 1.5px solid rgba(31,111,209,.52) !important; border-left-width: 0 !important; border-right-width: 0 !important; }
-    .sp-sel.off i.start { border-left-width: 3px !important; border-top-left-radius: 8px !important; border-bottom-left-radius: 8px !important; }
-    .sp-sel.off i.end { border-right-width: 1.5px !important; border-top-right-radius: 8px !important; border-bottom-right-radius: 8px !important; }
+    /* Option A: soft borderless wash + vertical rehearsal brackets (never intersects noteheads) */
+    .sp-sel i { background: rgba(231,111,81,.09) !important; border: 0 !important; box-shadow: none !important; border-radius: 4px !important; }
+    .sp-sel i.start { border-left: 3px solid #e76f51 !important; border-top-left-radius: 3px !important; border-bottom-left-radius: 3px !important; }
+    .sp-sel i.end { border-right: 3px solid #e76f51 !important; border-top-right-radius: 3px !important; border-bottom-right-radius: 3px !important; }
+    .sp-sel i.start::before, .sp-sel i.start::after, .sp-sel i.end::before, .sp-sel i.end::after {
+      content: ""; position: absolute; width: 9px; height: 2.5px; background: #e76f51; border-radius: 2px; pointer-events: none;
+    }
+    .sp-sel i.start::before { top: 0; left: 0; }
+    .sp-sel i.start::after { bottom: 0; left: 0; }
+    .sp-sel i.end::before { top: 0; right: 0; }
+    .sp-sel i.end::after { bottom: 0; right: 0; }
+    .sp-sel.off i { background: rgba(31,111,209,.10) !important; }
+    .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
+    .sp-sel.off i.end { border-right-color: #1f6fd1 !important; }
+    .sp-sel.off i.start::before, .sp-sel.off i.start::after, .sp-sel.off i.end::before, .sp-sel.off i.end::after { background: #1f6fd1; }
     .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
     .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: 0 !important;
       font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
@@ -2145,12 +2157,12 @@ function mountScore(host, st, onChange0, key) {
         groups.push({ left: r.x, right: r.x + r.w, top: r.sysTop, bot: r.sysBot, pillTop: r.pillTop, first: i, last: i });
       }
     }
-    const pad = 4;
+    const pad = 12;
     groups.forEach((g, k) => {
       const d = document.createElement('i');
       d.className = (g.first === a ? 'start ' : '') + (g.last === b ? 'end' : '');
       const topY = g.top - pad, h = Math.max(24, (g.bot - g.top) + pad * 2);
-      Object.assign(d.style, { left: g.left - 2 + 'px', top: topY + 'px', width: g.right - g.left + 4 + 'px', height: h + 'px' });
+      Object.assign(d.style, { left: g.left - 3 + 'px', top: topY + 'px', width: g.right - g.left + 6 + 'px', height: h + 'px' });
       if (k === 0) {
         const t = document.createElement('b');
         t.textContent = labelTxt;
