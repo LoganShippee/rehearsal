@@ -783,7 +783,7 @@ function spStop() {
   if (typeof grStopListen === 'function') grStopListen();
 }
 function spDefaults(st) {
-  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none';
+  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none'; st.playhead ??= 'beat';
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
   st.voicesOpen ??= true; st.recMode ??= false; st.recHeadphones ??= false;
   st.recGuide ??= true; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
@@ -1431,6 +1431,7 @@ function mountScore(host, st, onChange0, key) {
     solfege: () => `<button data-sp="lbl" data-v="solfege" data-ctl="solfege" title="Solfege syllables above the notes (movable do)">${IC('ico:music')} Solfege</button>`,
     counts: () => `<button data-sp="lbl" data-v="counts" data-ctl="counts" title="Rhythm counting above the notes">${IC('ico:list')} Counts</button>`,
     layout: () => `<button data-sp="layout" data-ctl="layout" title="Switch between scrolling down the page and one long line scrolling sideways"></button>`,
+    playhead: () => `<button data-sp="playhead" data-ctl="playhead" class="sp-phbtn" title="Playhead: glides on the beat, jumps from note to note, or is off. Click to switch."></button>`,
     zoom: () => `<span class="sp-zoom" data-ctl="zoom"><button data-sp="zoom" data-d="-0.1" title="Smaller">${IC('ico:minus')}</button><button type="button" class="tb-zpct" data-sp="zoom-reset" title="Reset zoom to 100%">100%</button><button data-sp="zoom" data-d="0.1" title="Bigger">${IC('ico:plus')}</button></span>`,
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
@@ -1443,6 +1444,8 @@ function mountScore(host, st, onChange0, key) {
       <span class="tb-lbl" data-subgrp="show">Show</span>${BAR.nums()}${BAR.solfege()}${BAR.counts()}
       <span class="tb-div" data-subgrp="layout" aria-hidden="true"></span>
       <span class="tb-lbl" data-subgrp="layout">Layout</span>${BAR.layout()}
+      <span class="tb-div" data-subgrp="playhead" aria-hidden="true"></span>
+      <span class="tb-lbl" data-subgrp="playhead">Playhead</span>${BAR.playhead()}
       <span class="sr-sp"></span>
       <span class="tb-lbl" data-subgrp="zoom">Zoom</span>${BAR.zoom()}
     </div>`;
@@ -1467,7 +1470,7 @@ function mountScore(host, st, onChange0, key) {
   const mIdx = txt => { const M = ctl.sc?.measures || []; const i = M.findIndex(m => m.num === String(txt).trim()); return i >= 0 ? i : Math.max(0, Math.min(M.length - 1, (parseInt(txt) || 1) - 1)); };
   const SP_CTLS = [
     ['Top bar', [['file', 'Score list'], ['play', 'Play'], ['tempo', 'Tempo'], ['metronome', 'Metronome'], ['loop', 'Loop'], ['range', 'Measure range boxes'], ['spots', 'Spots'], ['grade', 'Grade'], ['voices', 'Voices & vocal recording']]],
-    ['Display strip', [['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['layout', 'Down / Sideways'], ['zoom', 'Zoom − ＋']]],
+    ['Display strip', [['nums', 'Measure #'], ['solfege', 'Solfege'], ['counts', 'Counts'], ['layout', 'Down / Sideways'], ['playhead', 'Playhead'], ['zoom', 'Zoom − ＋']]],
     ['Choir row', [['pitches', 'Starting pitch buttons'], ['colour', 'Colour parts'], ['show', 'Show (staves)']]],
     ['Settings', [['countin', 'Count-in'], ['countevery', 'Count in every repeat'], ['startpitch', 'Starting pitches'], ['solminor', 'Minor: do- / la-based'], ['speedup', 'Speed up each repeat'], ['mixer', 'Metronome volume'], ['sync', 'Sound / playhead sync'], ['help', 'Help text']]],
   ];
@@ -1483,11 +1486,13 @@ function mountScore(host, st, onChange0, key) {
     if (sub) {
       const showHid = ['nums', 'solfege', 'counts'].every(k => hid.has(k));
       const layHid = hid.has('layout');
+      const phHid = hid.has('playhead');
       const zoomHid = hid.has('zoom');
       sub.querySelectorAll('[data-subgrp="show"]').forEach(el => { el.hidden = showHid; });
       sub.querySelectorAll('[data-subgrp="layout"]').forEach(el => { el.hidden = layHid; });
+      sub.querySelectorAll('[data-subgrp="playhead"]').forEach(el => { el.hidden = phHid; });
       sub.querySelectorAll('[data-subgrp="zoom"]').forEach(el => { el.hidden = zoomHid; });
-      sub.hidden = showHid && layHid && zoomHid;
+      sub.hidden = showHid && layHid && phHid && zoomHid;
     }
   };
   ctl.rebuildBar = () => {
@@ -2054,6 +2059,12 @@ function mountScore(host, st, onChange0, key) {
     }
     const zEl = $q('.sp-zoom .tb-zpct');
     if (zEl) zEl.textContent = `${Math.round((st.zoom || 1) * 100)}%`;
+    const phBtn = $q('[data-sp="playhead"]');
+    if (phBtn) {
+      const pm = st.playhead ?? 'beat';
+      phBtn.classList.toggle('on', pm !== 'off');
+      phBtn.innerHTML = `${IC('ico:playhead')} <b>${({ beat: 'Beat', notes: 'Note', off: 'Off' })[pm] || 'Beat'}</b>`;
+    }
     const anySungMetro = !!(ctl.sc && ctl.sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro));
     const mBtn = $q('[data-sp="metro"]');
     if (mBtn) {
@@ -2208,14 +2219,16 @@ function mountScore(host, st, onChange0, key) {
     const P = ctl.sc.perf, ms = ctl.sc.measures;
     let pi = P.findIndex(m => q >= m.start - 1e-9 && q < m.start + m.len - 1e-9); if (pi < 0) pi = P.length - 1;
     const mi = P[pi].w, r = BOX[mi], ph = $q('.sp-ph'); if (!r || !ph) { if (ph) ph.hidden = true; return; }
+    const phMode = st.playhead ?? 'beat';
+    if (phMode === 'off') { ph.hidden = true; return; }
     const m = ms[mi], dq = q - P[pi].start;
     let x;
     const K = r.knots || [];
     if (K.length) {
-      // glide from note to note: slightly to the left of each notehead so notes are never covered
+      // glide on beat or jump note-to-note, slightly left of each notehead so notes are never covered
       let j = 0; while (j < K.length - 1 && dq >= K[j + 1][0]) j++;
       const [qa, xa] = K[j], [qb, xb] = K[j + 1] || [m.len, r.x + r.w - 4];
-      x = dq <= qa ? xa : xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
+      x = (phMode === 'notes' || dq <= qa) ? xa : xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
     } else { const f = Math.max(0, Math.min(1, dq / (m.len || 1))), pad = Math.min(14, r.w * 0.08); x = r.x + pad + f * (r.w - pad * 1.5); }
     x = Math.max(r.x + 2, x - 6);
     if (!ph.firstChild) ph.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
@@ -2502,6 +2515,7 @@ function mountScore(host, st, onChange0, key) {
         return;
       }
       if (k === 'grrecent') { if (typeof grShowRecent === 'function') grShowRecent(ctl.host); return; }
+      if (k === 'playhead') { st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead ?? 'beat']; onChange(); ctl.updateBar(); if (st.playhead === 'off') ctl.hidePlayhead(); return; }
       if (k === 'pitch') spGivePitch(ctl, b.dataset.w);
       if (k === 'layout') {
         st.layout = st.layout === 'h' ? 'v' : 'h'; onChange(); ctl.updateBar();

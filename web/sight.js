@@ -1923,33 +1923,25 @@ function mountSight(host, st, onChange) {
     const k = st.build.sel; if (k == null) return;
     const ev = timeline[k]; ev?.el?.classList?.add('sr-sel');
   };
-  // the measure playback starts from: blue borderless wash + rehearsal bracket (matches Score Practice)
+  // the measure playback starts from: clean blue start bracket (no wash; shows on m. 1 when clicked)
   const drawFrom = () => {
     const staff = host.querySelector('.sr-staff'), svg = staff?.querySelector('svg'), geo = timeline.geo;
     staff?.querySelectorAll('.sr-from').forEach(el => el.remove());
     svg?.querySelectorAll('text[data-sr-hidemnum]').forEach(t => { t.style.opacity = ''; t.removeAttribute('data-sr-hidemnum'); });
     if (!staff || !svg || !geo) return;
-    const i = Math.min(Number(st.startM) || 0, geo.measures.length - 1); if (i <= 0) return;
+    if (st.startM == null || st.startM === '') return;
+    const i = Math.max(0, Math.min(Number(st.startM) || 0, geo.measures.length - 1));
+    const m0 = geo.measures[i]; if (!m0) return;
     const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect(), k = sr.width / geo.W;
     const ox = sr.left - fr.left, oy = sr.top - fr.top + staff.scrollTop;
-    // Group measures from startM to the end of the piece by staff row (just like Score Practice)
-    const groups = [];
-    for (let mi = i; mi < geo.measures.length; mi++) {
-      const m = geo.measures[mi], g = groups[groups.length - 1];
-      if (g && Math.abs(g.y0 - m.y0) < 4) { g.x1 = m.x1; g.last = mi; }
-      else groups.push({ x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, first: mi, last: mi });
-    }
-    const lastIdx = geo.measures.length - 1;
-    groups.forEach((g, idx) => {
-      const f = document.createElement('div');
-      f.className = 'sr-from' + (g.first === i ? ' start' : '') + (g.last === lastIdx ? ' end' : '');
-      if (idx === 0) f.innerHTML = `<b>m. ${i + 1}${i < lastIdx ? '–' + (lastIdx + 1) : ''}</b>`;
-      const topY = oy + (g.y0 + 6) * k, h = Math.max(24, (g.y1 - g.y0 - 12) * k);
-      Object.assign(f.style, { left: ox + g.x0 * k - 2 + 'px', top: topY + 'px', width: (g.x1 - g.x0) * k + 4 + 'px', height: h + 'px' });
-      staff.appendChild(f);
-    });
-    // Hide the printed measure number right where the selection starts
-    const m0 = geo.measures[i], startNum = String(i + 1);
+    const f = document.createElement('div');
+    f.className = 'sr-from';
+    f.innerHTML = `<b>m. ${i + 1}</b>`;
+    const topY = oy + (m0.y0 + 6) * k, h = Math.max(24, (m0.y1 - m0.y0 - 12) * k);
+    Object.assign(f.style, { left: ox + m0.x0 * k - 2 + 'px', top: topY + 'px', height: h + 'px' });
+    staff.appendChild(f);
+    // Hide the printed measure number right where the start bracket sits
+    const startNum = String(i + 1);
     for (const tx of svg.querySelectorAll('text')) {
       if (tx.textContent.trim() !== startNum) continue;
       let bb; try { bb = tx.getBBox(); } catch { continue; }
@@ -1967,7 +1959,7 @@ function mountSight(host, st, onChange) {
     if (isBuild()) return;
     const m = st.mode, o = st[m];
     if (st.ex[m]) host.__prevEx = { mode: m, ex: JSON.parse(JSON.stringify(st.ex[m])) };
-    st.startM = 0;
+    st.startM = null;
     st.ex[m] = m === 'rhythm' ? { rhythm: srGenRhythm(o.ts, o.measures, o.cells, o.ties) } : srGenParts(o);
   };
   const delSel = () => {
@@ -2019,14 +2011,14 @@ function mountSight(host, st, onChange) {
         if (k >= 0) { st.build.sel = k; st.build.pick = true; onChange && onChange(st); render(); return; }   // a note: select it
         // empty space in a measure: play from there (like the other tabs)
         const mi = measureAtClick(e); if (mi < 0) { st.build.sel = null; st.build.pick = false; render(); return; }
-        st.startM = (Number(st.startM) || 0) === mi ? 0 : mi;
+        st.startM = st.startM === mi ? null : mi;
         onChange && onChange(st); drawFrom();
         if (SR_PLAY.master) { srStop(); host.querySelector('[data-sr="play"]')?.click(); }
         return;
       }
       const i = measureAtClick(e); if (i < 0) return;
       e.stopPropagation();
-      st.startM = (Number(st.startM) || 0) === i ? 0 : i;          // click the flagged measure again (or measure 1) = from the start
+      st.startM = st.startM === i ? null : i;          // click any measure (including m. 1) to place start bracket; click again to clear
       onChange && onChange(st); drawFrom();
       if (SR_PLAY.master) { srStop(); host.querySelector('[data-sr="play"]')?.click(); }
       return;
@@ -2034,7 +2026,7 @@ function mountSight(host, st, onChange) {
     e.stopPropagation();
     const k = b.dataset.sr;
     const B = st.build;
-    if (k === 'mode') { srStop(); st.mode = b.dataset.v; st.startM = 0; }
+    if (k === 'mode') { srStop(); st.mode = b.dataset.v; st.startM = null; }
     else if (k === 'bkind') { srStop(); B.kind = b.dataset.v; }
 
     else if (k === 'badd') { srStop(); B.lastRhythm = b.dataset.id; srBuildPush(B); if (!srBuildInsert(B, [b.dataset.id])) { B.hist.pop(); toast(B.pick ? 'That doesn’t fit there without moving the bar lines — try at the end, or delete a note first.' : 'That’s longer than what’s left of this measure.'); } }
