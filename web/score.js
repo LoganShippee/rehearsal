@@ -1483,7 +1483,7 @@ function mountScore(host, st, onChange0, key) {
   const spBarHTML = () => `<div class="sp-top">
       ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.loop()}${BAR.range()}${BAR.tempo()}${BAR.spots()}
       <span class="sr-sp"></span>
-      ${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${BAR.voices()}${BAR.settings()}
+      ${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${typeof window.HW_TEACHER?.openAssignFromScore === 'function' ? `<button data-sp="assign" title="Assign this score as Online Homework">${IC('ico:fileUp')} Assign</button>` : ''}${BAR.voices()}${BAR.settings()}
     </div>
     <div class="sp-sub">
       <span class="tb-lbl" data-subgrp="show">Show</span>${BAR.nums()}${BAR.solfege()}${BAR.counts()}
@@ -2595,6 +2595,7 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'spot-done') { const x = st.spots.find(y => y.id === b.dataset.id); if (x) { x.done = !x.done; onChange(); ctl.drawSpots(); } }
       if (k === 'spot-del') { st.spots = st.spots.filter(y => y.id !== b.dataset.id); onChange(); ctl.drawSpots(); }
       if (k === 'spot-save') { const x = st.spots.find(y => y.id === b.dataset.id); if (x) { Object.assign(x, { a: Math.min(st.loop.a, st.loop.b), b: Math.max(st.loop.a, st.loop.b), focus: spFoc(st).length ? [...spFoc(st)] : null, tempo: st.tempo }); onChange(); ctl.drawSpots(); toast('Spot updated'); } }
+      if (k === 'assign') { if (typeof window.HW_TEACHER?.openAssignFromScore === 'function') window.HW_TEACHER.openAssignFromScore(ctl); return; }
       if (k === 'settings') { const s = $q('.sp-settings'); s.hidden = !s.hidden; st.settingsOpen = !s.hidden; onChange(); if (!s.hidden) s.innerHTML = settingsHTML(); else $q('.sp-custom').hidden = true; ctl.applyCtl(); ctl.updateBar(); }
       return;
     }

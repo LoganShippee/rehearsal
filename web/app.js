@@ -4225,7 +4225,7 @@ function tickNoise() {
 }
 
 // ============================================================ EDITOR
-const TABS = [['classes', 'Classes'], ['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events'], ['library', 'Library'], ['tutorials', 'Tutorials'], ['settings', 'Settings']];
+const TABS = [['classes', 'Classes'], ['homework', 'Homework'], ['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events'], ['library', 'Library'], ['tutorials', 'Tutorials'], ['settings', 'Settings']];
 function renderEditor() {
   setTimeout(loadBackups, 0);                         // fills the backup list if Settings is showing
   const scroll = $('#e-main')?.scrollTop || 0;
@@ -4235,10 +4235,13 @@ function renderEditor() {
       <button class="btn primary" data-action="present">${IC('ico:play')} Present</button></header>
     <div class="e-main" id="e-main"><div class="e-wrap">${tabHTML()}</div></div></div>`;
   $('#e-main').scrollTop = scroll;
+  if (TAB === 'homework' && typeof window.HW_TEACHER?.mount === 'function') window.HW_TEACHER.mount($('#hw-teacher-root'));
+  if (TAB === 'settings' && typeof window.HW_TEACHER?.mountSettingsCard === 'function') window.HW_TEACHER.mountSettingsCard($('#hw-settings-card'));
 }
 function tabHTML() {
   switch (TAB) {
     case 'classes': return classesTab();
+    case 'homework': return typeof window.HW_TEACHER?.renderTab === 'function' ? window.HW_TEACHER.renderTab() : '<div class="card"><div class="empty">Online Homework could not load.</div></div>';
     case 'schedule': return scheduleTab();
     case 'routines': return routinesTab();
     case 'notes': return notesTab();
@@ -4249,6 +4252,7 @@ function tabHTML() {
   }
   return '';
 }
+window.__openHomeworkTab = () => { TAB = 'homework'; VIEW === 'edit' ? renderEditor() : go('edit'); };
 
 // ---------- classes
 function classesTab() {
@@ -5138,7 +5142,7 @@ function settingsTab() {
   const sim = S.settings.sim;
   return `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
     <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}
-  ${updatesCard()}<div class="card"><h2>Present screen</h2>
+  ${updatesCard()}${typeof window.HW_TEACHER?.renderSettingsCard === 'function' ? window.HW_TEACHER.renderSettingsCard() : ''}<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>

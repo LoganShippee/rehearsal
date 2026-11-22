@@ -1937,6 +1937,7 @@ function mountSight(host, st, onChange) {
         ${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sr="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}
         <span class="sr-sp"></span>
         ${typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : ''}
+        ${typeof window.HW_TEACHER?.openAssignFromSight === 'function' ? `<button data-sr="assign" title="Assign this exercise as Online Homework">${IC('ico:fileUp')} Assign</button>` : ''}
         <button data-sr="print" title="Print this example or make a worksheet with an answer key">${IC('ico:print')} Worksheet</button>
         <button data-sr="settings" class="${st.settingsOpen ? 'on' : ''}" title="Show or hide the settings${st.mode === 'build' ? ' and building tools' : ''}">${IC('ico:sliders')} Settings</button>
       </div>
@@ -2272,6 +2273,8 @@ function mountSight(host, st, onChange) {
       save(); P.stageKey = ''; toast(`Saved to ${cls.name} — it's now a tab on the class screen.`); return;
     } else if (k === 'print') {
       srOpenWorksheet(st, V()); return;
+    } else if (k === 'assign') {
+      if (typeof window.HW_TEACHER?.openAssignFromSight === 'function') window.HW_TEACHER.openAssignFromSight(st, V()); return;
     }
     onChange && onChange(st); render();
   };
