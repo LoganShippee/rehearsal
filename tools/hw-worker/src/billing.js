@@ -15,6 +15,16 @@ export const TRIAL_DAYS = 30;
 export const GRACE_DAYS = 7;
 export const DEFAULT_STUDENT_SOFT_CAP = 200;
 
+export function getServerCapabilities(env) {
+  const googleSignInEnabled = Boolean(env?.GOOGLE_CLIENT_ID && String(env.GOOGLE_CLIENT_ID).trim());
+  const billingEnabled = Boolean(
+    env?.STRIPE_SECRET_KEY &&
+    String(env.STRIPE_SECRET_KEY).trim() &&
+    (String(env?.STRIPE_PRICE_ID_MONTHLY || '').trim() || String(env?.STRIPE_PRICE_ID_ANNUAL || '').trim())
+  );
+  return { googleSignInEnabled, billingEnabled };
+}
+
 export function computePlanState(teacher, now = Date.now()) {
   if (!teacher) {
     return { status: 'expired', canWrite: false, readOnly: true, inGrace: false, daysLeft: 0 };

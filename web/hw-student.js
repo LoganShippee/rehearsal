@@ -163,32 +163,72 @@ async function hwPlayTempoPulse(bpm = 84) {
 }
 
 // ---------- Mandatory Session Audio Sync Check
-const HW_SYNC = { running: false, timers: [], keyHandler: null, mandatory: true };
+const HW_SYNC = { running: false, timers: [], keyHandler: null, mandatory: true, gain: null, onComplete: null };
+function hwSyncSpaceSuppression() {
+  try {
+    const syncOpen = !$('#hw-sync-overlay')?.hidden;
+    const studyCover = !!$('#hw-study-cover');
+    window.__hwSuppressSpace = (HW_STATE.view !== 'runner') || syncOpen || studyCover || !!HW_STATE.srStudying;
+  } catch { window.__hwSuppressSpace = false; }
+}
 function hwSyncIsDone() {
   try { return sessionStorage.getItem(HW_SYNC_SESSION_KEY) === '1'; } catch { return false; }
 }
 function hwClearSyncTimers() {
   HW_SYNC.timers.forEach(id => clearTimeout(id));
   HW_SYNC.timers = [];
+  if (HW_SYNC.gain) {
+    try { HW_SYNC.gain.gain.value = 0; HW_SYNC.gain.disconnect(); } catch { }
+    HW_SYNC.gain = null;
+  }
   if (HW_SYNC.keyHandler) { document.removeEventListener('keydown', HW_SYNC.keyHandler, true); HW_SYNC.keyHandler = null; }
   HW_SYNC.running = false;
 }
-function hwOpenSyncModal(mandatory = false) {
+function hwCloseSyncModal(force = false) {
+  const overlay = $('#hw-sync-overlay');
+  hwClearSyncTimers();
+  if (overlay) overlay.hidden = true;
+  const cb = HW_SYNC.onComplete;
+  HW_SYNC.onComplete = null;
+  hwSyncSpaceSuppression();
+  if (cb && force) cb();
+}
+function hwOpenSyncModal(mandatory = false, onComplete = null) {
   hwClearSyncTimers();
   HW_SYNC.mandatory = mandatory;
+  HW_SYNC.onComplete = typeof onComplete === 'function' ? onComplete : null;
   const overlay = $('#hw-sync-overlay'), dotsEl = $('#hw-sync-dots'), padBtn = $('#hw-sync-pad'),
-    statusEl = $('#hw-sync-status'), startBtn = $('#hw-sync-start'), cancelBtn = $('#hw-sync-cancel');
+    statusEl = $('#hw-sync-status'), startBtn = $('#hw-sync-start'), cancelBtn = $('#hw-sync-cancel'),
+    outBtn = $('#hw-sync-signout');
   if (!overlay) return;
   dotsEl.innerHTML = Array.from({ length: 12 }, (_, i) => `<span class="hw-sync-dot ${i < 4 ? 'lead' : 'tap'}" data-sdot="${i}"></span>`).join('');
   padBtn.disabled = true;
   startBtn.disabled = false;
   startBtn.textContent = 'Start 10-Second Sync Check';
   cancelBtn.hidden = mandatory;
+  if (outBtn) {
+    outBtn.hidden = !HW_STATE.session;
+    outBtn.onclick = async () => {
+      hwCloseSyncModal(false);
+      await hwSignOut();
+    };
+  }
   statusEl.textContent = mandatory
     ? 'Required once at the start of each session so timing matches your device.'
     : `Current sync: ${avDelayMs()} ms. Press Start to recalibrate.`;
   overlay.hidden = false;
-  cancelBtn.onclick = () => { hwClearSyncTimers(); overlay.hidden = true; };
+  hwSyncSpaceSuppression();
+  cancelBtn.onclick = () => { if (!HW_SYNC.mandatory) hwCloseSyncModal(false); };
+  overlay.onclick = e => { if (e.target === overlay && !HW_SYNC.mandatory) hwCloseSyncModal(false); };
+  HW_SYNC.keyHandler = e => {
+    if (overlay.hidden) return;
+    if (e.key === 'Escape' && !HW_SYNC.mandatory) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hwCloseSyncModal(false);
+    }
+  };
+  document.addEventListener('keydown', HW_SYNC.keyHandler, true);
   startBtn.onclick = () => hwRunSyncTest();
 }
 async function hwRunSyncTest() {
@@ -201,18 +241,31 @@ async function hwRunSyncTest() {
   startBtn.disabled = true; padBtn.disabled = false;
 
   const c = ac(); await c.resume();
+  const clickBus = c.createGain();
+  clickBus.gain.value = 1.0;
+  clickBus.connect(c.destination);
+  HW_SYNC.gain = clickBus;
+
   const beat = 60 / 90, t0 = c.currentTime + 0.5, lead = 4, n = 8, clicks = [];
   for (let i = 0; i < lead + n; i++) {
     const t = t0 + i * beat;
-    if (typeof grClick === 'function') grClick(c, t, i % 4 === 0, 1.0);
-    else tone(i % 4 === 0 ? 1100 : 780, t - c.currentTime, 0.05, 'triangle', 0.28 * metVol());
+    const osc = c.createOscillator(), env = c.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = i % 4 === 0 ? 1100 : 780;
+    const vol = (i % 4 === 0 ? 0.34 : 0.24) * metVol();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), t + 0.003);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    osc.connect(env).connect(clickBus);
+    osc.start(t);
+    osc.stop(t + 0.06);
     if (i >= lead) clicks.push(t);
     const msUntil = Math.max(0, (t - c.currentTime) * 1000);
     HW_SYNC.timers.push(setTimeout(() => {
       dots.forEach(d => d.classList.remove('active'));
       if (dots[i]) dots[i].classList.add('active');
-      if (i < lead) statusEl.textContent = `Listen & get ready… (${i + 1} / 4)`;
-      else if (i === lead) statusEl.textContent = 'Tap NOW on each click! (Space or circle)';
+      if (i < lead) statusEl.textContent = `Listen for 4 count-in beats… (${i + 1} / 4)`;
+      else if (i === lead) statusEl.textContent = 'Tap NOW on each of the 8 clicks! (Space or circle)';
     }, msUntil));
   }
 
@@ -239,7 +292,7 @@ async function hwRunSyncTest() {
   HW_SYNC.keyHandler = e => {
     if (overlay.hidden) return;
     if (e.code === 'Space' && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); recordTap(e); }
-    if (e.key === 'Escape' && !HW_SYNC.mandatory) { e.preventDefault(); hwClearSyncTimers(); overlay.hidden = true; }
+    if (e.key === 'Escape' && !HW_SYNC.mandatory) { e.preventDefault(); e.stopImmediatePropagation(); hwCloseSyncModal(false); }
   };
   document.addEventListener('keydown', HW_SYNC.keyHandler, true);
 
@@ -257,7 +310,7 @@ async function hwRunSyncTest() {
     hwRenderHeaderChips();
     statusEl.innerHTML = `Synced: <strong>${ms} ms</strong> on this ${esc(DEVICE)}. You're ready!`;
     startBtn.disabled = false; startBtn.textContent = 'Continue to Homework';
-    startBtn.onclick = () => { overlay.hidden = true; };
+    startBtn.onclick = () => hwCloseSyncModal(true);
     toast(`Audio sync calibrated (${ms} ms)`);
   }, totalMs));
 }
@@ -514,7 +567,10 @@ const HW_STATE = {
   latestTakeId: null,
   expandedJson: new Set(),
   takeUrls: new Map(),
+  serverAudioUrls: new Map(),
+  scoreLoadError: '',
   retryingAll: false,
+  capabilities: { googleSignInEnabled: false, billingEnabled: false },
 };
 
 function hwFmtBytes(b) {
@@ -769,16 +825,25 @@ function hwRenderHeaderChips() {
 
   const devChip = $('#hw-dev-chip');
   if (devChip) {
-    const mime = hwPickAudioMime();
-    devChip.textContent = `${DEVICE} · ${mime ? mime.split(';')[0] : 'WAV fallback'}`;
+    devChip.hidden = !demo;
+    if (demo) {
+      const mime = hwPickAudioMime();
+      devChip.textContent = `${DEVICE} · ${mime ? mime.split(';')[0] : 'WAV fallback'}`;
+    }
   }
+}
+
+function hwCleanupMediaAndMic() {
+  hwStopStudyTimer();
+  if (HW_STATE.aud.recording) hwCleanupAudioOnly();
+  hwAbortParallelRecorder();
+  if (typeof GR !== 'undefined' && (GR.on || GR.starting)) try { grStop(false); } catch { }
+  if (typeof grMicClose === 'function') try { grMicClose(); } catch { }
 }
 
 function hwSetView(view) {
   if (view !== 'runner') {
-    hwStopStudyTimer();
-    if (HW_STATE.aud.recording) hwCleanupAudioOnly();
-    if (typeof GR !== 'undefined' && GR.on) try { grStop(false); } catch { }
+    hwCleanupMediaAndMic();
     HW_STATE.teacherOpen = false;
     const drawer = $('#hw-teacher-drawer');
     if (drawer) drawer.hidden = true;
@@ -788,6 +853,7 @@ function hwSetView(view) {
   if (authEl) authEl.hidden = view !== 'auth';
   if (listEl) listEl.hidden = view !== 'list';
   if (runEl) runEl.hidden = view !== 'runner';
+  hwSyncSpaceSuppression();
   hwRenderHeaderChips();
   hwRenderOfflineBanner();
 }
@@ -808,6 +874,20 @@ function hwShowAuthError(msg) {
   box.textContent = msg;
 }
 
+async function hwEnsureGsiLoaded() {
+  if (window.google?.accounts?.id) return true;
+  if (hwEnsureGsiLoaded._p) return hwEnsureGsiLoaded._p;
+  hwEnsureGsiLoaded._p = new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = () => resolve(!!window.google?.accounts?.id);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+  return hwEnsureGsiLoaded._p;
+}
+
 function hwRenderAuthScreen() {
   hwSetView('auth');
   hwShowAuthError('');
@@ -816,6 +896,16 @@ function hwRenderAuthScreen() {
   const urlCode = QS.get('code');
   if (jcInput && urlCode && !jcInput.value) {
     jcInput.value = hwFormatCodeInputValue(urlCode);
+  }
+
+  const gEnabled = HW_API.isDemoMode() || !!HW_STATE.capabilities?.googleSignInEnabled || !!(QS.get('googleClientId') || window.HW_GOOGLE_CLIENT_ID);
+  const gBox = $('#hw-google-box'), gDiv = $('.hw-divider'), authSub = $('#hw-auth-sub');
+  if (gBox) gBox.hidden = !gEnabled;
+  if (gDiv) gDiv.hidden = !gEnabled;
+  if (authSub) {
+    authSub.innerHTML = gEnabled
+      ? 'Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.'
+      : 'Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher.';
   }
 
   const demoBox = $('#hw-demo-creds');
@@ -865,7 +955,7 @@ async function hwEnterAuthenticated(sessionPayload) {
   hwRenderAssignmentList();
   hwSetView('list');
   if (!hwSyncIsDone()) {
-    hwOpenSyncModal(true);
+    hwOpenSyncModal(true, () => hwRetryQueuedUploads(true));
   } else {
     hwRetryQueuedUploads(true);
   }
@@ -899,18 +989,25 @@ async function hwHandleGoogleSignIn(chosenClassId = '', cachedIdToken = '') {
       idToken = 'dev-google:demo-alex|alex.rivera@school.edu|Alex Rivera';
     } else {
       const clientId = QS.get('googleClientId') || window.HW_GOOGLE_CLIENT_ID || '';
-      if (!clientId || !window.google?.accounts?.id) {
-        hwShowAuthError('Google Sign-In is not configured on this link. Sign in with your Class Code & Personal Code above.');
+      const loaded = clientId ? await hwEnsureGsiLoaded() : false;
+      if (!clientId || !loaded || !window.google?.accounts?.id) {
+        hwShowAuthError('Google Sign-In is not configured on this link. Sign in with your Class Code & Student Code above.');
         return;
       }
       idToken = await new Promise(resolve => {
+        let done = false;
+        const finish = tok => { if (!done) { done = true; resolve(tok || ''); } };
         try {
           window.google.accounts.id.initialize({
             client_id: clientId,
-            callback: resp => resolve(resp?.credential || ''),
+            callback: resp => finish(resp?.credential || ''),
           });
-          window.google.accounts.id.prompt();
-        } catch { resolve(''); }
+          window.google.accounts.id.prompt(n => {
+            if (n && (n.isNotDisplayed?.() || n.isSkippedMoment?.() || n.isDismissedMoment?.())) {
+              finish('');
+            }
+          });
+        } catch { finish(''); }
       });
       if (!idToken) {
         hwShowAuthError('Google Sign-In was canceled or unavailable.');
@@ -944,15 +1041,29 @@ async function hwHandleGoogleSignIn(chosenClassId = '', cachedIdToken = '') {
 }
 
 async function hwSignOut() {
-  hwStopStudyTimer();
-  if (HW_STATE.aud.recording) hwCleanupAudioOnly();
-  if (typeof GR !== 'undefined' && GR.on) try { grStop(false); } catch { }
+  hwCleanupMediaAndMic();
+  const prevSid = HW_STATE.session?.student?.id;
+  for (const url of HW_STATE.takeUrls.values()) { try { URL.revokeObjectURL(url); } catch { } }
+  HW_STATE.takeUrls.clear();
+  for (const url of HW_STATE.serverAudioUrls.values()) { try { URL.revokeObjectURL(url); } catch { } }
+  HW_STATE.serverAudioUrls.clear();
+  try {
+    const allTakes = await hwIdbAll();
+    for (const t of allTakes) {
+      if (t.status === 'submitted' && (!prevSid || t.studentId === prevSid || t.studentId === 'local')) {
+        await hwIdbDelete(t.id);
+      }
+    }
+    HW_STATE.takes = await hwIdbAll();
+  } catch { HW_STATE.takes = []; }
+  try { sessionStorage.removeItem(HW_SYNC_SESSION_KEY); } catch { }
   await HW_API.logout();
   HW_STATE.session = null;
   HW_STATE.assignments = [];
   HW_STATE.activeAssignment = null;
   HW_STATE.activeAttemptStart = null;
   HW_STATE.latestTakeId = null;
+  HW_STATE.scoreLoadError = '';
   const sc = $('#hw-in-stucode'), sn = $('#hw-in-stuname');
   if (sc) sc.value = '';
   if (sn) sn.value = '';
@@ -992,11 +1103,17 @@ function hwRenderAssignmentList() {
     </div>`;
 
   if (!HW_STATE.assignments.length) {
-    grid.innerHTML = `<div class="hw-empty" style="grid-column:1/-1;background:#fff;border:1px solid #dce2ec;border-radius:14px">No homework assigned yet. Check back soon!</div>`;
+    grid.innerHTML = `<div class="hw-empty hw-empty-card">No homework assigned yet. Check back soon!</div>`;
     return;
   }
 
   const queuedByAsgn = new Set(hwQueuedOfflineTakes().map(t => t.assignmentId));
+  const localSubmittedByAsgn = new Map();
+  for (const t of HW_STATE.takes) {
+    if (t.status === 'submitted' && t.assignmentId) {
+      localSubmittedByAsgn.set(t.assignmentId, (localSubmittedByAsgn.get(t.assignmentId) || 0) + 1);
+    }
+  }
 
   grid.innerHTML = HW_STATE.assignments.map(a => {
     const isTrueSr = a.type === 'sight' && a.mode === 'true_sight_read';
@@ -1010,21 +1127,24 @@ function hwRenderAssignmentList() {
     const typeCls = isTrueSr ? 'truesr' : 'type';
     const best = a.bestSubmission || a.latestSubmission;
     const isQueued = queuedByAsgn.has(a.id);
+    const usedCount = Math.max(Number(a.attemptsUsed || 0), localSubmittedByAsgn.get(a.id) || 0);
 
     let statusPill = `<span class="hw-pill draft">Not Started</span>`;
     if (isQueued) {
       statusPill = `<span class="hw-pill queued">Saved Offline</span>`;
     } else if (best) {
-      const scoreTxt = best.overallPct != null ? ` · ${best.overallPct}%` : '';
+      const shownPct = best.effectivePct != null ? best.effectivePct : best.overallPct;
+      const scoreTxt = shownPct != null ? ` · ${shownPct}%` : '';
       statusPill = `<span class="hw-pill score">✓ Submitted${scoreTxt}</span>`;
     }
 
     const attemptsTxt = a.maxAttempts != null
-      ? `${a.attemptsUsed || 0} of ${a.maxAttempts} attempt${a.maxAttempts === 1 ? '' : 's'}`
-      : `${a.attemptsUsed || 0} submitted · Unlimited`;
+      ? `${usedCount} of ${a.maxAttempts} attempt${a.maxAttempts === 1 ? '' : 's'}${a.expiredStartsCount > 0 ? ` (${a.expiredStartsCount} expired)` : ''}`
+      : `${usedCount} submitted · Unlimited`;
 
-    const exhausted = a.attemptsRemaining != null && a.attemptsRemaining <= 0;
-    const ctaLabel = exhausted ? 'View Submission' : (a.attemptsUsed > 0 ? 'Open / Retry →' : 'Open Assignment →');
+    const remaining = a.maxAttempts != null ? Math.max(0, Number(a.maxAttempts) - usedCount) : a.attemptsRemaining;
+    const exhausted = remaining != null && remaining <= 0;
+    const ctaLabel = exhausted ? 'View Submission' : (usedCount > 0 ? 'Open / Retry →' : 'Open Assignment →');
 
     return `<article class="hw-asgn-card" data-asgn="${esc(a.id)}">
       <div style="display:flex;flex-direction:column;gap:8px">
@@ -1038,12 +1158,11 @@ function hwRenderAssignmentList() {
       <div>
         <div class="hw-asgn-meta">
           <span>Due ${esc(hwFmtDue(a.dueAt))}</span>
-          <span>·</span>
-          <span>${esc(attemptsTxt)}</span>
-          ${a.gradePolicy === 'last' && a.maxAttempts !== 1 ? `<span>· Uses last take</span>` : (a.maxAttempts !== 1 ? `<span>· Uses best score</span>` : '')}
+          <span class="hw-meta-dot">${esc(attemptsTxt)}</span>
+          ${a.gradePolicy === 'last' && a.maxAttempts !== 1 ? `<span class="hw-meta-dot">Uses last take</span>` : (a.maxAttempts !== 1 ? `<span class="hw-meta-dot">Uses best score</span>` : '')}
         </div>
         <div class="hw-asgn-foot" style="margin-top:10px">
-          <span class="small muted">${isTrueSr && a.attemptsUsed === 0 ? 'Excerpt hidden until start' : (a.scoreFilename ? esc(a.scoreFilename) : '')}</span>
+          <span class="small muted hw-asgn-file" title="${isTrueSr && usedCount === 0 ? 'Excerpt hidden until start' : esc(a.scoreFilename || '')}">${isTrueSr && usedCount === 0 ? 'Excerpt hidden until start' : (a.scoreFilename ? esc(a.scoreFilename) : '')}</span>
           <button type="button" class="hw-btn ${exhausted ? '' : 'primary'}" data-open-asgn="${esc(a.id)}">${esc(ctaLabel)}</button>
         </div>
       </div>
@@ -1060,14 +1179,16 @@ function hwRenderRunnerHeaderBar() {
   const titleEl = $('#hw-back-title'), attEl = $('#hw-runner-attempts');
   if (titleEl) titleEl.textContent = a ? a.title : 'Homework';
   if (attEl && a) {
+    const localSubs = hwCurrentTakesForAssignment().filter(t => t.status === 'submitted').length;
+    const serverSubs = Array.isArray(HW_STATE.activeSubmissions) ? HW_STATE.activeSubmissions.length : 0;
+    const used = Math.max(Number(a.attemptsUsed || 0), localSubs, serverSubs);
     if (a.maxAttempts != null) {
-      const used = a.attemptsUsed || 0;
-      const done = a.attemptsRemaining != null && a.attemptsRemaining <= 0;
+      const done = used >= Number(a.maxAttempts);
       attEl.className = `hw-pill ${done ? 'score' : 'draft'}`;
       attEl.textContent = `${used} of ${a.maxAttempts} attempt${a.maxAttempts === 1 ? '' : 's'} used`;
     } else {
       attEl.className = 'hw-pill draft';
-      attEl.textContent = `${a.attemptsUsed || 0} submitted · Unlimited attempts`;
+      attEl.textContent = `${used} submitted · Unlimited attempts`;
     }
   }
 }
@@ -1080,8 +1201,10 @@ async function hwOpenAssignment(assignmentId) {
   }
   const a = res.assignment;
   HW_STATE.activeAssignment = a;
+  HW_STATE.activeSubmissions = Array.isArray(res.submissions) ? res.submissions : [];
   HW_STATE.activeAttemptStart = a.activeStart || null;
   HW_STATE.srTrueSubmitted = null;
+  HW_STATE.scoreLoadError = '';
   HW_STATE.tab = a.type === 'score' ? 'score' : (a.type === 'audio' ? 'audio' : 'sight');
 
   const cfg = a.config || {};
@@ -1115,17 +1238,19 @@ async function hwOpenAssignment(assignmentId) {
       if (dl.ok && dl.blob) {
         fid = hwRegisterFile(dl.blob, dl.filename || a.scoreFilename || 'Score.musicxml');
         HW_STATE.scoreFileIds.set(a.id, fid);
-      } else {
+      } else if (HW_API.isDemoMode()) {
         const sampleBlob = new Blob([HW_SAMPLE_MUSICXML], { type: 'application/xml' });
         fid = hwRegisterFile(sampleBlob, 'Sample Vocal Check-In.musicxml');
         HW_STATE.scoreFileIds.set(a.id, fid);
+      } else {
+        HW_STATE.scoreLoadError = dl.error || 'Could not download the score file for this assignment. Check your connection and try again.';
       }
     }
-    HW_STATE.spFileId = fid;
+    HW_STATE.spFileId = fid || null;
     HW_STATE.spGradeMode = cfg.gradeMode || cfg.spState?.gradeMode || 'mic';
     HW_STATE.spState = {
       ...(cfg.spState || {}),
-      fileId: fid,
+      fileId: fid || null,
       name: a.title,
       gradeMode: HW_STATE.spGradeMode,
     };
@@ -1306,6 +1431,7 @@ function hwRenderTeacherOptions() {
 function hwStopStudyTimer() {
   if (HW_STATE.srStudyTimer) { clearInterval(HW_STATE.srStudyTimer); HW_STATE.srStudyTimer = null; }
   HW_STATE.srStudying = false;
+  hwSyncSpaceSuppression();
 }
 
 function hwSightEffectiveKind(st) {
@@ -1454,6 +1580,7 @@ function hwMountSightRunner() {
   const host = $('#hw-sr-host');
   HW_STATE.srHost = host;
   window.__spaceTarget = 'sr';
+  hwSyncSpaceSuppression();
 
   // True Sight-Read security: when excerptLocked is true, keep the real notation empty behind the cover!
   if (!excerptLocked || HW_STATE.teacherOpen) {
@@ -1548,11 +1675,13 @@ function hwMountSightRunner() {
 
       HW_STATE.srStudyLeft = studyLeft;
       HW_STATE.srStudying = true;
+      hwSyncSpaceSuppression();
       if (timerEl) timerEl.textContent = hwFmtTime(HW_STATE.srStudyLeft);
 
       const triggerAutoGrade = () => {
         if (!HW_STATE.srStudying) return;
         hwStopStudyTimer();
+        hwSyncSpaceSuppression();
         if (barEl) barEl.classList.add('live');
         if (timerEl) timerEl.textContent = 'LIVE';
         if (msgEl) {
@@ -1583,7 +1712,28 @@ function hwMountScoreRunner() {
   hwStopStudyTimer();
   hwSyncRunnerViewClass();
   const body = $('#hw-runner-body');
-  if (!HW_STATE.spFileId) {
+  if (HW_STATE.scoreLoadError && !HW_STATE.teacherOpen && HW_STATE.activeAssignment) {
+    body.innerHTML = `
+      <div class="hw-card">
+        <div class="hw-card-head">
+          <div>
+            <h2>${esc(HW_STATE.activeAssignment.title || 'Score Practice')}</h2>
+            <div class="hw-submeta">Score Download Issue</div>
+          </div>
+        </div>
+        <div class="hw-audio-body">
+          <div class="hw-auth-err" role="alert">${esc(HW_STATE.scoreLoadError)}</div>
+          <div class="row">
+            <button type="button" class="hw-btn primary" id="hw-sp-retry-dl">Retry Download</button>
+          </div>
+        </div>
+      </div>`;
+    const rbtn = $('#hw-sp-retry-dl');
+    if (rbtn) rbtn.onclick = () => hwOpenAssignment(HW_STATE.activeAssignment.id);
+    hwRenderLatestBanner();
+    return;
+  }
+  if (!HW_STATE.spFileId && (HW_API.isDemoMode() || HW_STATE.teacherOpen)) {
     const sampleBlob = new Blob([HW_SAMPLE_MUSICXML], { type: 'application/xml' });
     HW_STATE.spFileId = hwRegisterFile(sampleBlob, 'Sample Vocal Check-In.musicxml');
   }
@@ -1628,7 +1778,7 @@ function hwMountScoreRunner() {
       ${!HW_STATE.teacherOpen ? `<div class="hw-student-bar">
         <div class="hw-student-actions">
           <label class="small" style="display:inline-flex;align-items:center;gap:6px">Part:
-            <select id="hw-sp-part" style="border:1px solid #cbd5e1;border-radius:8px;padding:5px 8px;background:#fff"></select>
+            <select id="hw-sp-part" class="hw-part-select"></select>
           </label>
           <button type="button" class="hw-btn pitch" id="hw-sp-pitch">Starting Pitch</button>
           <button type="button" class="hw-btn" id="hw-sp-play">Practice Playback</button>
@@ -1849,15 +1999,44 @@ function hwRenderTakes() {
   if (clearBtn) clearBtn.hidden = !isTeacher;
 
   const list = hwCurrentTakesForAssignment();
-  if (countEl) countEl.textContent = `${list.length} saved on this ${DEVICE}`;
-  if (!list.length) {
+  const serverSubs = Array.isArray(HW_STATE.activeSubmissions) ? HW_STATE.activeSubmissions : [];
+  const serverSubById = new Map(serverSubs.map(s => [s.id, s]));
+  const localServerIds = new Set(list.map(t => t.serverSubmissionId).filter(Boolean));
+  const remoteOnlySubs = serverSubs.filter(s => !localServerIds.has(s.id));
+
+  if (countEl) {
+    const totalShown = list.length + remoteOnlySubs.length;
+    countEl.textContent = remoteOnlySubs.length
+      ? `${list.length} saved on this ${DEVICE} · ${serverSubs.length} submitted`
+      : `${totalShown} saved on this ${DEVICE}`;
+  }
+  if (!list.length && !remoteOnlySubs.length) {
     host.innerHTML = `<div class="hw-empty">No takes recorded yet for this assignment. Completed takes stay saved on this device even if Wi-Fi drops.</div>`;
     return;
   }
 
   const canSub = hwCanSubmitActive();
 
-  host.innerHTML = list.map(t => {
+  const remoteHtml = remoteOnlySubs.map(s => {
+    const eff = s.effectivePct != null ? s.effectivePct : s.overallPct;
+    const when = s.submittedAt ? new Date(s.submittedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    const cachedAudio = HW_STATE.serverAudioUrls.get(s.id);
+    return `<div class="hw-take-item" data-srv-sub="${esc(s.id)}">
+      <div class="hw-take-top">
+        <div><strong>Attempt #${Number(s.attemptNum || 1)}</strong> ${when ? `<span class="muted small">· ${esc(when)}</span>` : ''}</div>
+        <div class="hw-take-meta">
+          ${eff != null ? `<span class="hw-pill score">Score ${eff}%${s.teacherOverridePct != null && s.teacherOverridePct !== s.overallPct ? ` (Teacher override from ${s.overallPct}%)` : (s.rhythmPct != null ? ` (Rhythm ${s.rhythmPct}%${s.pitchPct != null ? ` · Pitch ${s.pitchPct}%` : ''})` : '')}</span>` : ''}
+          <span class="hw-pill submitted">✓ Submitted</span>
+        </div>
+      </div>
+      ${s.teacherComment ? `<div class="hw-teacher-feedback"><strong>Teacher comment:</strong> ${esc(s.teacherComment)}</div>` : ''}
+      ${cachedAudio ? `<audio class="hw-take-audio" controls preload="metadata" src="${cachedAudio}"></audio>` : (s.audioAvailable ? `<div><button type="button" class="hw-btn" data-hw-load-audio="${esc(s.id)}">Listen to Submitted Audio</button></div>` : '')}
+    </div>`;
+  }).join('');
+
+  host.innerHTML = remoteHtml + list.map(t => {
+    const srv = t.serverSubmissionId ? serverSubById.get(t.serverSubmissionId) : null;
+    const shownOverall = srv?.effectivePct != null ? srv.effectivePct : t.overallPct;
     let audioUrl = HW_STATE.takeUrls.get(t.id);
     if (!audioUrl && t.audioBlob instanceof Blob && t.audioBlob.size > 0) {
       audioUrl = URL.createObjectURL(t.audioBlob);
@@ -1871,7 +2050,7 @@ function hwRenderTakes() {
     const packetPreview = {
       id: t.id, assignmentId: t.assignmentId, status: t.status, uploadState: t.uploadState,
       serverSubmissionId: t.serverSubmissionId, auto_submitted: !!t.autoSubmitted, submitted_at: t.submittedAt,
-      type: t.type, overall_pct: t.overallPct, rhythm_pct: t.rhythmPct, pitch_pct: t.pitchPct,
+      type: t.type, overall_pct: shownOverall, rhythm_pct: t.rhythmPct, pitch_pct: t.pitchPct,
       audio_mime: t.audioMime, audio_bytes: t.audioBytes, audio_duration_sec: t.durationSec, expected_sec: t.expectedSec,
       integrity_flags: t.integrityFlags, results_json: t.resultsJson, meta: t.meta,
     };
@@ -1885,11 +2064,12 @@ function hwRenderTakes() {
       <div class="hw-take-top">
         <div><strong>${esc(t.label)}</strong> <span class="muted small">· ${esc(when)}</span></div>
         <div class="hw-take-meta">
-          ${t.overallPct != null ? `<span class="hw-pill score">Score ${t.overallPct}% (Rhythm ${t.rhythmPct}%${t.pitchPct != null ? ` · Pitch ${t.pitchPct}%` : ''})</span>` : ''}
+          ${shownOverall != null ? `<span class="hw-pill score">Score ${shownOverall}%${srv?.teacherOverridePct != null && srv.teacherOverridePct !== t.overallPct ? ` (Teacher override)` : ` (Rhythm ${t.rhythmPct}%${t.pitchPct != null ? ` · Pitch ${t.pitchPct}%` : ''})`}</span>` : ''}
           ${isTeacher && t.integrityFlags?.length ? `<span class="hw-pill flag">Flags: ${esc(t.integrityFlags.join(', '))}</span>` : ''}
           ${pillHtml}
         </div>
       </div>
+      ${srv?.teacherComment ? `<div class="hw-teacher-feedback"><strong>Teacher comment:</strong> ${esc(srv.teacherComment)}</div>` : ''}
       ${t.lastUploadError && !isSubmitted ? `<div class="small" style="color:#b45309">${esc(t.lastUploadError)}</div>` : ''}
       ${isTeacher ? `<div class="hw-take-meta">
         <span>Audio: ${t.audioBytes ? `${esc(t.audioMime || 'audio')} · ${hwFmtBytes(t.audioBytes)} · ${t.durationSec}s` : 'None (Spacebar / Tap rhythm)'}</span>
@@ -1911,6 +2091,20 @@ function hwRenderTakes() {
     </div>`;
   }).join('');
 
+  host.querySelectorAll('[data-hw-load-audio]').forEach(b => {
+    b.onclick = async () => {
+      const sid = b.dataset.hwLoadAudio;
+      b.disabled = true; b.textContent = 'Loading audio…';
+      const r = await HW_API.fetchSubmissionAudioUrl(sid);
+      if (r.ok && r.url) {
+        HW_STATE.serverAudioUrls.set(sid, r.url);
+        hwRenderTakes();
+      } else {
+        b.disabled = false; b.textContent = 'Listen to Submitted Audio';
+        toast(r.error || 'Could not load audio recording.');
+      }
+    };
+  });
   host.querySelectorAll('[data-hw-submit]').forEach(b => { b.onclick = () => hwUploadTake(b.dataset.hwSubmit); });
   host.querySelectorAll('[data-hw-json]').forEach(b => {
     b.onclick = () => {
@@ -1943,6 +2137,7 @@ function hwSwitchTab(tab) {
 }
 
 async function hwBoot() {
+  HW_STATE.capabilities = await HW_API.getCapabilities();
   hwRenderHeaderChips();
   hwInstallEngineHooks(() => hwRefreshTakes());
   window.__onGrStrictnessChange = () => {
@@ -1976,6 +2171,7 @@ async function hwBoot() {
   $('#hw-sync-btn').onclick = () => hwOpenSyncModal(false);
   $('#hw-retry-all').onclick = () => hwRetryQueuedUploads(false);
   $('#hw-back-list').onclick = async () => {
+    hwCleanupMediaAndMic();
     await hwRefreshAssignments();
     hwRenderAssignmentList();
     hwSetView('list');

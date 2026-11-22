@@ -93,6 +93,8 @@ async function main() {
     assertEq(h.data?.ok, true, 'health ok=true');
     assertEq(h.data?.service, 'rehearsal-hw', 'health service');
     assertEq(h.data?.devMode, true, 'Worker must be running with DEV_MODE=true (--env dev)');
+    assertEq(typeof h.data?.googleSignInEnabled, 'boolean', 'health exposes googleSignInEnabled');
+    assertEq(typeof h.data?.billingEnabled, 'boolean', 'health exposes billingEnabled');
 
     const p = await req('GET', '/privacy');
     assertEq(p.status, 302, 'GET /privacy returns 302');
@@ -302,6 +304,15 @@ async function main() {
     headers: { 'X-Forwarded-For': `10.2.0.3` },
   });
   assertEq(samNewLogin.status, 200, 'new regenerated student code succeeds immediately');
+
+  // 25 valid student logins from the same classroom NAT IP MUST all succeed (F-04)
+  for (let i = 0; i < 25; i++) {
+    const okNat = await req('POST', '/api/auth/student/code', {
+      json: { joinCode, studentCode: alex.code },
+      headers: { 'X-Forwarded-For': '10.99.99.99' },
+    });
+    assertEq(okNat.status, 200, `classroom NAT valid login #${i + 1} succeeds`);
+  }
 
   // ==========================================================================
   // 6. True Sight-Read Excerpt Hiding, /start, Score Tampering, Audio + Range 206, Attempt Limit 409

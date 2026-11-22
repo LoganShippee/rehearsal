@@ -331,6 +331,14 @@
     D.scoreFile = null;
     D.scoreLoadError = '';
     D.msczWarn = false;
+    D.scoreParts = [];
+    D.scoreMeasuresCount = 0;
+    D.scoreMeasureNums = [];
+    D.scoreOrigBpm = 0;
+    D.scoreFocus = '';
+    D.scoreFromMeasure = '';
+    D.scoreToMeasure = '';
+    D.scoreBaseSpState = null;
   }
 
   async function extractScoreFromFileId(fileId, xmlIdHint, fallbackName) {
@@ -340,10 +348,8 @@
     const origName = fileMeta.name || fallbackName || 'Score.musicxml';
     const isMscz = /\.(mscz|mscx)$/i.test(origName);
 
+    resetScoreSelection();
     D.scoreLoading = true;
-    D.scoreLoadError = '';
-    D.msczWarn = false;
-    D.scoreFile = null;
     render();
 
     try {
@@ -408,8 +414,7 @@
   function handleManualScoreFile(file) {
     if (!D || !file) return;
     D.error = '';
-    D.scoreLoadError = '';
-    D.msczWarn = false;
+    resetScoreSelection();
 
     const name = String(file.name || '').trim();
     const lower = name.toLowerCase();
@@ -457,12 +462,22 @@
         a.listClasses(false).catch(() => null),
       ]);
       if (!D) return;
-      if (meRes?.ok && meRes.plan) D.plan = meRes.plan;
+      const planObj = meRes?.ok ? (meRes.teacher?.plan || meRes.plan || null) : null;
+      if (planObj) D.plan = planObj;
       if (clsRes?.ok && Array.isArray(clsRes.classes)) {
         D.classes = clsRes.classes.filter(c => !c.archivedAt);
         D.classesLoaded = true;
         if (!D.classId || !D.classes.some(c => c.id === D.classId)) {
-          D.classId = D.classes[0]?.id || '';
+          const activeLocal = typeof selClass === 'function' ? selClass() : null;
+          const localName = String(activeLocal?.name || '').trim().toLowerCase();
+          const localMatch = localName ? D.classes.find(c => {
+            const hn = String(c.name || '').toLowerCase();
+            return hn === localName || hn.includes(localName) || localName.includes(hn);
+          }) : null;
+          D.classId = localMatch?.id || D.classes[0]?.id || '';
+          if (activeLocal?.name && !localMatch && !D.editId) {
+            D.newClassName = activeLocal.subtitle ? `${activeLocal.name} — ${activeLocal.subtitle}` : activeLocal.name;
+          }
         }
         if (!D.classes.length && !D.editId) {
           D.newClassOpen = true;
@@ -521,7 +536,7 @@
         }
       }
       const inField = !!e.target?.closest?.('input,textarea,select,[contenteditable="true"]');
-      if (inField || e.code === 'Space' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (inField || e.code === 'Space' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || (e.key && e.key.length === 1)) {
         e.stopPropagation();
       }
     };
@@ -664,7 +679,7 @@
       return;
     }
 
-    if (act === 'auth-send') {
+    if (act === 'auth-send' || act === 'auth-resend') {
       if (!a) {
         D.auth.error = 'Online Homework API is not loaded.';
         render();
@@ -690,6 +705,7 @@
       D.auth.step = 'code';
       D.auth.devCode = res.devCode || '';
       D.auth.code = res.devCode || '';
+      if (act === 'auth-resend') notify(`Sent a fresh 6-digit code to ${email}.`);
       render();
       return;
     }
@@ -735,7 +751,8 @@
         render();
         return;
       }
-      if (res.plan) D.plan = res.plan;
+      const nextPlan = res.teacher?.plan || res.plan;
+      if (nextPlan) D.plan = nextPlan;
       notify('Signed in to Online Homework.');
       await loadTeacherContext();
       return;
@@ -1364,6 +1381,7 @@
   // ---------- Rendering
   function renderSignInBody() {
     const au = D.auth;
+    const isDemo = !!api()?.isDemoMode?.();
     const summaryLine = D.type === 'sight'
       ? buildSightSummary(D.srState).join(' · ')
       : D.type === 'score'
@@ -1376,9 +1394,12 @@
         <div class="small muted">${esc(summaryLine)}</div>
       </div>
       <div class="hwt-auth-card" style="margin:0;padding:16px">
-        <h3 style="margin:0">Sign in to Online Homework</h3>
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h3 style="margin:0">Sign in to Online Homework</h3>
+          <span class="hwt-pill ${isDemo ? 'info' : 'ok'}">${isDemo ? 'Local Preview' : 'Live Server'}</span>
+        </div>
         <p class="small muted" style="margin:0">Your ${D.type === 'score' ? 'score and settings' : 'exercise and settings'} stay right here while you sign in.</p>
-        ${au.error ? `<div class="hwt-banner warn">${esc(au.error)}</div>` : ''}
+        ${au.error ? `<div class="hwt-banner readonly">${esc(au.error)}</div>` : ''}
         ${au.step === 'email' ? `
           <div class="hwt-field-grid">
             <label class="fld"><span>Teacher email</span><input type="email" data-hwt-input="auth-email" value="${esc(au.email)}" placeholder="teacher@school.edu" autocomplete="email"></label>
@@ -1404,7 +1425,8 @@
           </div>
           <div class="row">
             <button type="button" class="btn primary" data-hwt="auth-verify" ${au.busy ? 'disabled' : ''}>${au.busy ? 'Signing in…' : 'Verify & Continue'}</button>
-            <button type="button" class="btn" data-hwt="auth-back" ${au.busy ? 'disabled' : ''}>Use different email</button>
+            <button type="button" class="btn" data-hwt="auth-resend" ${au.busy ? 'disabled' : ''}>Resend Code</button>
+            <button type="button" class="btn ghost" data-hwt="auth-back" ${au.busy ? 'disabled' : ''}>Use different email</button>
           </div>
         `}
       </div>
@@ -1447,23 +1469,26 @@
   function renderStrictnessSliders(tempo, rhythmOnlyNote) {
     const sp = computeStrictSpec(D.strictness.rhythm, D.strictness.pitch, tempo);
     return `
-      <div class="hwt-strict-box">
-        <div class="hwt-strict-row">
-          <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
-            <label for="hwt-sr-r"><strong>Rhythm strictness</strong></label>
-            <span class="small muted" data-hwt-strict-r>${esc(sp.rhythmLabel)} (±${sp.rhythmMs} ms · ±${sp.beatPct}% beat)</span>
+      <details class="hwt-strict-box">
+        <summary class="small" style="cursor:pointer;font-weight:600">Advanced Grading Settings (${esc(sp.label)} · ±${sp.rhythmMs} ms${rhythmOnlyNote ? '' : ` / ±${sp.pitchCents}¢`})</summary>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
+          <div class="hwt-strict-row">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+              <label for="hwt-sr-r"><strong>Rhythm strictness</strong></label>
+              <span class="small muted" data-hwt-strict-r>${esc(sp.rhythmLabel)} (±${sp.rhythmMs} ms · ±${sp.beatPct}% beat)</span>
+            </div>
+            <input id="hwt-sr-r" type="range" min="0" max="100" step="1" data-hwt-input="strict-rhythm" value="${D.strictness.rhythm}">
           </div>
-          <input id="hwt-sr-r" type="range" min="0" max="100" step="1" data-hwt-input="strict-rhythm" value="${D.strictness.rhythm}">
-        </div>
-        <div class="hwt-strict-row">
-          <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
-            <label for="hwt-sr-p"><strong>Pitch strictness</strong></label>
-            <span class="small muted" data-hwt-strict-p>${esc(sp.pitchLabel)} (±${sp.pitchCents}¢)</span>
+          <div class="hwt-strict-row">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+              <label for="hwt-sr-p"><strong>Pitch strictness</strong></label>
+              <span class="small muted" data-hwt-strict-p>${esc(sp.pitchLabel)} (±${sp.pitchCents}¢)</span>
+            </div>
+            <input id="hwt-sr-p" type="range" min="0" max="100" step="1" data-hwt-input="strict-pitch" value="${D.strictness.pitch}">
+            ${rhythmOnlyNote ? '<div class="small muted">Pitch is not graded in Rhythm-only mode.</div>' : ''}
           </div>
-          <input id="hwt-sr-p" type="range" min="0" max="100" step="1" data-hwt-input="strict-pitch" value="${D.strictness.pitch}">
-          ${rhythmOnlyNote ? '<div class="small muted">Pitch is not graded in Rhythm-only mode.</div>' : ''}
         </div>
-      </div>
+      </details>
     `;
   }
 
@@ -1700,7 +1725,7 @@
       ${D.scoreLoadError ? `<div class="hwt-banner warn">${esc(D.scoreLoadError)}</div>` : ''}
 
       <div class="hwt-field-grid">
-        ${!D.scoreFile && lib.length ? `
+        ${lib.length ? `
           <label class="fld" style="grid-column:1 / -1">
             <span>Use a score from Rehearsal</span>
             <select data-hwt-change="score-lib-pick">

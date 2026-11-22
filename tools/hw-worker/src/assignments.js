@@ -686,6 +686,47 @@ export async function handleDownloadAssignmentScore(request, env, assignmentId) 
 
 // ---------- Student Assignment Portal
 
+export function buildStudentAssignmentSummary(row, rawSubs = [], unconsumedStarts = [], now = Date.now()) {
+  const cleanSubs = (rawSubs || []).map(s => formatStudentSubmissionSummary(s, now));
+  const linkedStartIds = new Set();
+  for (const s of (rawSubs || [])) {
+    if (s?.attempt_start_id) linkedStartIds.add(s.attempt_start_id);
+  }
+
+  let activeStart = null;
+  let expiredStartsCount = 0;
+  for (const st of (unconsumedStarts || [])) {
+    if (!st || st.consumed_at != null || linkedStartIds.has(st.id)) continue;
+    if (isActiveAttemptStart(st, now)) {
+      if (!activeStart) activeStart = formatAttemptStart(st);
+    } else if (row.mode === 'true_sight_read') {
+      expiredStartsCount++;
+    }
+  }
+
+  const attemptsUsed = cleanSubs.length + expiredStartsCount;
+  const maxAttempts = row.max_attempts != null ? Number(row.max_attempts) : null;
+  const attemptsRemaining = maxAttempts != null ? Math.max(0, maxAttempts - attemptsUsed) : null;
+  const latestSubmission = cleanSubs[0] || null;
+  const bestSubmission = pickBestSubmission(cleanSubs);
+
+  const parsedConfig = safeJsonParse(row.config_json, {});
+  // Keep excerpt locked until an attempt is actively open or at least one submission exists
+  const excerptLocked = row.mode === 'true_sight_read' && !activeStart && cleanSubs.length === 0;
+  const outConfig = excerptLocked ? stripTrueSightReadExcerpt(parsedConfig) : parsedConfig;
+
+  return {
+    ...formatAssignment(row, outConfig),
+    excerptLocked,
+    attemptsUsed,
+    attemptsRemaining,
+    expiredStartsCount,
+    activeStart,
+    latestSubmission,
+    bestSubmission,
+  };
+}
+
 export async function handleStudentListAssignments(request, env, auth) {
   const now = nowMs(env);
   const classId = auth.student.class_id;
@@ -699,7 +740,7 @@ export async function handleStudentListAssignments(request, env, auth) {
   const rows = asgnRes?.results || [];
 
   const subsRes = await env.DB.prepare(
-    `SELECT id, assignment_id, attempt_num, overall_pct, rhythm_pct, pitch_pct,
+    `SELECT id, assignment_id, attempt_num, attempt_start_id, overall_pct, rhythm_pct, pitch_pct,
             audio_r2_key, audio_expires_at, audio_deleted_at,
             teacher_override_pct, teacher_comment, graded_at, submitted_at
      FROM submissions
@@ -714,46 +755,30 @@ export async function handleStudentListAssignments(request, env, auth) {
       list = [];
       subsByAsgn.set(s.assignment_id, list);
     }
-    list.push(formatStudentSubmissionSummary(s, now));
+    list.push(s);
   }
 
   const startsRes = await env.DB.prepare(
-    `SELECT id, assignment_id, attempt_num, started_at, study_seconds, expected_sec, consumed_at
-     FROM attempt_starts
-     WHERE student_id = ? AND consumed_at IS NULL
-     ORDER BY started_at DESC`
+    `SELECT a_s.id, a_s.assignment_id, a_s.attempt_num, a_s.started_at, a_s.study_seconds, a_s.expected_sec, a_s.consumed_at
+     FROM attempt_starts a_s
+     LEFT JOIN submissions s ON s.attempt_start_id = a_s.id
+     WHERE a_s.student_id = ? AND a_s.consumed_at IS NULL AND s.id IS NULL
+     ORDER BY a_s.started_at DESC`
   ).bind(studentId).all();
 
-  const activeStartByAsgn = new Map();
+  const startsByAsgn = new Map();
   for (const st of (startsRes?.results || [])) {
-    if (!activeStartByAsgn.has(st.assignment_id) && isActiveAttemptStart(st, now)) {
-      activeStartByAsgn.set(st.assignment_id, formatAttemptStart(st));
+    let list = startsByAsgn.get(st.assignment_id);
+    if (!list) {
+      list = [];
+      startsByAsgn.set(st.assignment_id, list);
     }
+    list.push(st);
   }
 
-  const assignments = rows.map(row => {
-    const cleanSubs = subsByAsgn.get(row.id) || [];
-    const attemptsUsed = cleanSubs.length;
-    const maxAttempts = row.max_attempts != null ? Number(row.max_attempts) : null;
-    const attemptsRemaining = maxAttempts != null ? Math.max(0, maxAttempts - attemptsUsed) : null;
-    const activeStart = activeStartByAsgn.get(row.id) || null;
-    const latestSubmission = cleanSubs[0] || null;
-    const bestSubmission = pickBestSubmission(cleanSubs);
-
-    const parsedConfig = safeJsonParse(row.config_json, {});
-    const excerptLocked = row.mode === 'true_sight_read' && !activeStart && attemptsUsed === 0;
-    const outConfig = excerptLocked ? stripTrueSightReadExcerpt(parsedConfig) : parsedConfig;
-
-    return {
-      ...formatAssignment(row, outConfig),
-      excerptLocked,
-      attemptsUsed,
-      attemptsRemaining,
-      activeStart,
-      latestSubmission,
-      bestSubmission,
-    };
-  });
+  const assignments = rows.map(row =>
+    buildStudentAssignmentSummary(row, subsByAsgn.get(row.id) || [], startsByAsgn.get(row.id) || [], now)
+  );
 
   return jsonResponse({ ok: true, assignments }, 200, request, env);
 }
@@ -770,7 +795,7 @@ export async function handleStudentGetAssignment(request, env, auth, assignmentI
   if (!row) return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
 
   const subsRes = await env.DB.prepare(
-    `SELECT id, assignment_id, attempt_num, overall_pct, rhythm_pct, pitch_pct,
+    `SELECT id, assignment_id, attempt_num, attempt_start_id, overall_pct, rhythm_pct, pitch_pct,
             audio_r2_key, audio_expires_at, audio_deleted_at,
             teacher_override_pct, teacher_comment, graded_at, submitted_at
      FROM submissions
@@ -778,48 +803,27 @@ export async function handleStudentGetAssignment(request, env, auth, assignmentI
      ORDER BY attempt_num DESC, submitted_at DESC`
   ).bind(assignmentId, studentId).all();
 
-  const cleanSubs = (subsRes?.results || []).map(s => formatStudentSubmissionSummary(s, now));
-  const attemptsUsed = cleanSubs.length;
-  const maxAttempts = row.max_attempts != null ? Number(row.max_attempts) : null;
-  const attemptsRemaining = maxAttempts != null ? Math.max(0, maxAttempts - attemptsUsed) : null;
+  const rawSubs = subsRes?.results || [];
+  const cleanSubs = rawSubs.map(s => formatStudentSubmissionSummary(s, now));
 
   const startsRes = await env.DB.prepare(
-    `SELECT id, assignment_id, attempt_num, started_at, study_seconds, expected_sec, consumed_at
-     FROM attempt_starts
-     WHERE assignment_id = ? AND student_id = ? AND consumed_at IS NULL
-     ORDER BY started_at DESC LIMIT 5`
+    `SELECT a_s.id, a_s.assignment_id, a_s.attempt_num, a_s.started_at, a_s.study_seconds, a_s.expected_sec, a_s.consumed_at
+     FROM attempt_starts a_s
+     LEFT JOIN submissions s ON s.attempt_start_id = a_s.id
+     WHERE a_s.assignment_id = ? AND a_s.student_id = ? AND a_s.consumed_at IS NULL AND s.id IS NULL
+     ORDER BY a_s.started_at DESC`
   ).bind(assignmentId, studentId).all();
 
-  let activeStart = null;
-  for (const st of (startsRes?.results || [])) {
-    if (isActiveAttemptStart(st, now)) {
-      activeStart = formatAttemptStart(st);
-      break;
-    }
-  }
-
-  const parsedConfig = safeJsonParse(row.config_json, {});
-  const excerptLocked = row.mode === 'true_sight_read' && !activeStart && attemptsUsed === 0;
-  const outConfig = excerptLocked ? stripTrueSightReadExcerpt(parsedConfig) : parsedConfig;
-
-  const latestSubmission = cleanSubs[0] || null;
-  const bestSubmission = pickBestSubmission(cleanSubs);
+  const summary = buildStudentAssignmentSummary(row, rawSubs, startsRes?.results || [], now);
 
   return jsonResponse({
     ok: true,
-    assignment: {
-      ...formatAssignment(row, outConfig),
-      excerptLocked,
-      attemptsUsed,
-      attemptsRemaining,
-      activeStart,
-      latestSubmission,
-      bestSubmission,
-    },
-    excerptLocked,
-    attemptsUsed,
-    attemptsRemaining,
-    activeStart,
+    assignment: summary,
+    excerptLocked: summary.excerptLocked,
+    attemptsUsed: summary.attemptsUsed,
+    attemptsRemaining: summary.attemptsRemaining,
+    expiredStartsCount: summary.expiredStartsCount,
+    activeStart: summary.activeStart,
     submissions: cleanSubs,
   }, 200, request, env);
 }

@@ -10,12 +10,24 @@
 (function () {
   const SESSION_TOKEN_KEY = 'rehearsal-hw-student-token';
   const SESSION_API_KEY = 'rehearsal-hw-api-session';
+  const SESSION_ACTIVE_BASE_KEY = 'rehearsal-hw-api-active-base';
   const LOCAL_API_KEY = 'rehearsal-hw-api';
   const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
   const DEMO_SENTINEL = 'demo';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-demo-offline';
   const DEMO_DB_KEY = 'rehearsal-hw-demo-db-v1';
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const capsByBase = new Map();
+
+  function syncActiveBaseToken(resolved) {
+    try {
+      const prev = sessionStorage.getItem(SESSION_ACTIVE_BASE_KEY);
+      if (prev !== null && prev !== resolved) {
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      }
+      sessionStorage.setItem(SESSION_ACTIVE_BASE_KEY, resolved);
+    } catch { }
+  }
 
   function normalizeCode(raw) {
     return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -31,7 +43,7 @@
   }
 
   // ---------- API Base Resolution (URL ?demo=1 / ?api= -> sessionStorage -> window -> localStorage -> prod default)
-  function getApiBase() {
+  function resolveApiBaseRaw() {
     try {
       const qs = new URLSearchParams(location.search);
       if (qs.get('demo') === '1') return '';
@@ -63,6 +75,12 @@
       }
     } catch { }
     return DEFAULT_API_BASE;
+  }
+
+  function getApiBase() {
+    const resolved = resolveApiBaseRaw();
+    syncActiveBaseToken(resolved);
+    return resolved;
   }
 
   function isDemoMode() {
@@ -501,6 +519,25 @@
     clearSession,
     isDemoOffline,
     setDemoOffline,
+
+    async getCapabilities(force = false) {
+      const base = getApiBase();
+      if (!base) {
+        return { ok: true, devMode: true, googleSignInEnabled: true, billingEnabled: true };
+      }
+      if (!force && capsByBase.has(base)) return capsByBase.get(base);
+      const res = await liveFetch('/api/health', { method: 'GET', auth: false });
+      const caps = res.ok
+        ? {
+            ok: true,
+            devMode: !!res.devMode,
+            googleSignInEnabled: !!res.googleSignInEnabled,
+            billingEnabled: !!res.billingEnabled,
+          }
+        : { ok: false, devMode: false, googleSignInEnabled: false, billingEnabled: false };
+      if (res.ok) capsByBase.set(base, caps);
+      return caps;
+    },
 
     getDemoCredentials() {
       const db = loadDemoDb();

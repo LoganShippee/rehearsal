@@ -137,12 +137,17 @@ function pickFile(accept = '', multiple = false) {
 }
 
 function printHTML(html) {
-  const w = window.open('', '_blank', 'width=860,height=980');
-  if (!w) { toast('Allow pop-ups to print.'); return; }
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 250);
+  let area = document.getElementById('print-area');
+  if (!area) {
+    area = document.createElement('div');
+    area.id = 'print-area';
+    document.body.appendChild(area);
+  }
+  area.innerHTML = String(html || '');
+  const cleanup = () => { area.innerHTML = ''; window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 60000);
+  window.print();
 }
 
 // ---------- Audio engine helpers (matches web/app.js behavior for iPad / Chromebook / desktop)

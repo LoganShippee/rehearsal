@@ -14,6 +14,7 @@
   const DEMO_HANDOFFS_KEY = 'rehearsal-hw-demo-handoffs-v1';
 
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const capsByBase = new Map();
   const MAX_SCORE_BYTES = 10 * 1024 * 1024;
   const AUDIO_RETENTION_DAYS = 90;
   const DEFAULT_SOFT_CAP = 200;
@@ -149,14 +150,31 @@
     return DEFAULT_API_BASE;
   }
 
+  function normalizeServerUrl(url) {
+    let clean = String(url == null ? '' : url).trim().replace(/\/+$/, '');
+    if (!clean || clean.toLowerCase() === DEMO_SENTINEL) return '';
+    if (!/^https?:\/\//i.test(clean)) {
+      const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(clean);
+      clean = `${isLocal ? 'http' : 'https'}://${clean}`;
+    }
+    return clean;
+  }
+
   function setApiBase(url) {
-    const clean = String(url == null ? '' : url).trim().replace(/\/+$/, '');
+    const prevBase = getApiBase();
+    const clean = normalizeServerUrl(url);
     try {
-      if (!clean || clean.toLowerCase() === DEMO_SENTINEL) localStorage.setItem(LOCAL_API_KEY, DEMO_SENTINEL);
+      if (!clean) localStorage.setItem(LOCAL_API_KEY, DEMO_SENTINEL);
       else if (clean === DEFAULT_API_BASE) localStorage.removeItem(LOCAL_API_KEY);
       else localStorage.setItem(LOCAL_API_KEY, clean);
     } catch { }
-    return getApiBase();
+    const nextBase = getApiBase();
+    if (nextBase !== prevBase) {
+      clearSession();
+      clearCache();
+      capsByBase.delete(nextBase);
+    }
+    return nextBase;
   }
 
   function isDemoMode() {
@@ -1707,6 +1725,24 @@
     getApiBase,
     setApiBase,
     isDemoMode,
+    async getCapabilities(force = false) {
+      const base = getApiBase();
+      if (!base) {
+        return { ok: true, devMode: true, googleSignInEnabled: true, billingEnabled: true };
+      }
+      if (!force && capsByBase.has(base)) return capsByBase.get(base);
+      const res = await liveFetch('/api/health', { method: 'GET', auth: false });
+      const caps = res.ok
+        ? {
+            ok: true,
+            devMode: !!res.devMode,
+            googleSignInEnabled: !!res.googleSignInEnabled,
+            billingEnabled: !!res.billingEnabled,
+          }
+        : { ok: false, devMode: false, googleSignInEnabled: false, billingEnabled: false };
+      if (res.ok) capsByBase.set(base, caps);
+      return caps;
+    },
     isOffline,
     getDemoOffline,
     setDemoOffline,
@@ -1889,80 +1925,6 @@
         token,
         expiresAt: now + ttl,
         ephemeral: !!ephemeral,
-        teacher: formatDemoTeacherPublic(db),
-      };
-    },
-
-    async oauthHandoffStart({ ephemeral = false } = {}) {
-      if (!isDemoMode()) {
-        return liveFetch('/api/auth/teacher/oauth/start', {
-          method: 'POST',
-          auth: false,
-          json: { ephemeral: !!ephemeral },
-        });
-      }
-      if (isOffline()) return offlineErr('Connect to the internet to start browser sign-in.');
-      const now = Date.now();
-      const state = 'ho_' + randomHandoffHex(12);
-      const pollSecret = randomHandoffHex(16);
-      const map = loadDemoHandoffs();
-      // Prune expired demo entries
-      for (const k of Object.keys(map)) {
-        if (!map[k] || (map[k].expiresAt && map[k].expiresAt <= now)) delete map[k];
-      }
-      map[state] = {
-        state,
-        pollSecret,
-        ephemeral: !!ephemeral,
-        status: 'pending',
-        expiresAt: now + 60 * 1000,
-        createdAt: now,
-      };
-      saveDemoHandoffs(map);
-      return { ok: true, state, pollSecret, expiresInSec: 60 };
-    },
-
-    async oauthHandoffPoll({ state, pollSecret, ephemeral = false } = {}) {
-      if (!isDemoMode()) {
-        const res = await liveFetch('/api/auth/teacher/oauth/poll', {
-          method: 'POST',
-          auth: false,
-          json: { state, pollSecret },
-        });
-        if (res.ok && res.status === 'complete' && res.token) {
-          setSession(res.token, !!ephemeral);
-        }
-        return res;
-      }
-      if (isOffline()) return offlineErr('You are offline.');
-      const now = Date.now();
-      const map = loadDemoHandoffs();
-      const entry = map[state];
-      if (!entry || entry.expiresAt <= now || entry.status === 'claimed') {
-        return demoErr(410, 'HANDOFF_EXPIRED', 'Sign-in handoff expired.');
-      }
-      if (entry.pollSecret !== pollSecret) {
-        return demoErr(401, 'UNAUTHORIZED', 'Unauthorized poll.');
-      }
-      if (entry.status !== 'complete') {
-        return { ok: true, status: 'pending' };
-      }
-
-      const db = loadDemoDb();
-      db.teacher.hasGoogle = true;
-      const useEphemeral = !!(entry.ephemeral || ephemeral);
-      const ttl = useEphemeral ? 12 * 60 * 60 * 1000 : 30 * DAY_MS;
-      const token = 'demo_hotch_' + Math.random().toString(36).slice(2, 12);
-      db.sessions[token] = { createdAt: now, expiresAt: now + ttl, ephemeral: useEphemeral };
-      saveDemoDb();
-
-      entry.status = 'claimed';
-      saveDemoHandoffs(map);
-      setSession(token, useEphemeral);
-      return {
-        ok: true,
-        status: 'complete',
-        token,
         teacher: formatDemoTeacherPublic(db),
       };
     },

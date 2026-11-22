@@ -5,6 +5,8 @@
 const CACHE = 'rehearsal-app';
 const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'score.js', 'tools.js',
   'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js',
+  'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html',
+  'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',
   'vendor/vexflow.js', 'vendor/osmd.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/piano.js',
   'vendor/hands/do.png', 'vendor/hands/re.png', 'vendor/hands/mi.png', 'vendor/hands/fa.png', 'vendor/hands/sol.png', 'vendor/hands/la.png', 'vendor/hands/ti.png',
@@ -20,5 +22,11 @@ self.addEventListener('fetch', e => {
   e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
-  }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
+  }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => {
+    if (r) return r;
+    const p = url.pathname;
+    if (p.endsWith('/hw.html')) return caches.match('hw.html');
+    if (p === '/' || p.endsWith('/index.html') || !p.split('/').pop().includes('.')) return caches.match('index.html');
+    return undefined;
+  })));
 });

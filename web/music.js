@@ -182,7 +182,7 @@ function muTunerControlsHTML(st, id, listening, showSet) {
       ${st.ens && droneOn ? `<button data-mu="drone" class="tu-go on" title="Stop playing the drone">${IC('ico:stop')} Stop drone · ${MU_NAMES[st.drone.pc]}${transSemi ? ` (written ${drWritten})` : ''}</button>` : ''}
       <span class="grow"></span>
       <button data-mu="ens" class="mu-ic ${st.ens ? 'on' : ''}" title="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}" aria-label="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}">${IC('ico:fullscreen')}</button>
-      <button data-mu="tset" class="mu-ic ${showSet ? 'on' : ''}" title="Tuner settings" aria-label="Tuner settings">${IC('ico:sliders')}</button></div>
+      <button data-mu="tset" class="mu-ic ${showSet ? 'on' : ''}" title="Tuner settings" aria-label="Tuner settings">${IC('ico:sliders')} Settings</button></div>
     ${showSet ? `<div class="tu-set">
       <label>A = <select data-mu="ref">${[435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445].map(v => `<option value="${v}" ${(st.refA || 440) === v ? 'selected' : ''}>${v} Hz</option>`).join('')}</select></label>
       <label>Tune to <select data-mu="target"><option value="auto" ${!st.target || st.target === 'auto' ? 'selected' : ''}>Nearest note</option>${MU_NAMES.map((nm, i) => {
@@ -284,7 +284,7 @@ function muDroneRender(host, st) {
       <label>Sound <select data-mu="d" data-k="sound">${[['organ', 'Organ'], ['sine', 'Soft sine'], ['strings', 'Strings']].map(([k, l]) => `<option value="${k}" ${d.sound === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label>Fade in <select data-mu="d" data-k="fade">${[[0, 'Quick'], [2, '2 s'], [5, '5 s']].map(([v, l]) => `<option value="${v}" ${(d.fade || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>
-    <div class="mu-row"><label class="mu-chk"><input type="checkbox" data-mu="d" data-k="pure" ${d.pure ? 'checked' : ''}> Pure (just) intervals</label>
+    <div class="mu-row"><label class="mu-chk" title="Harmonic pure (just) intervals tuned without equal-temperament beats"><input type="checkbox" data-mu="d" data-k="pure" ${d.pure ? 'checked' : ''}> Pure (just) intervals</label>
       <label class="dr-vol">${IC('ico:loud')}<input type="range" min="0.05" max="1" step="0.05" data-mu="d" data-k="vol" value="${d.vol}" title="Volume"></label></div>
     <button class="dr-play ${playing ? 'on' : ''}" data-mu="drone">${playing ? IC('ico:stop') + ' Stop drone' : IC('ico:play') + ' Start drone'} · concert ${MU_NAMES[d.pc]}${transSemi ? ` (written ${written})` : ''}${MU_DRONE_MODES[d.mode][1].length > 1 ? ' ' + (MU_DRONE_MODES[d.mode][0].toLowerCase()) : ''}</button>`;
 }
@@ -469,7 +469,7 @@ function metRender(host, st) {
       </div>
       <div class="me-go">
         <button data-mu="start" class="me-start ${running && !MET.countOff ? 'on' : ''}" title="Start or stop (Space)">${running && !MET.countOff ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Start'}</button>
-        <button data-mu="count" class="me-start ${running && MET.countOff ? 'on' : ''}">${IC('ico:timer')} Count-off</button></div>
+        <button data-mu="count" class="${running && MET.countOff ? 'on' : ''}">${IC('ico:timer')} Count-off</button></div>
       <label class="mu-chk me-then"><input type="checkbox" data-mu="thenGo" ${st.thenGo ? 'checked' : ''}> Keep going after the count-off</label>
       <details class="me-more" ${more ? 'open' : ''}><summary>More options</summary>
         <div class="mu-row">
@@ -514,6 +514,21 @@ function mountMetronome(host, st, onChange, id) {
       onChange();
     }
   };
+  host.addEventListener('pointerdown', () => { window.__spaceTarget = 'met'; window.__metActive = { host, st, id }; });
+  window.__metActive = { host, st, id };
+  if (!window.__metKbdInit) {
+    window.__metKbdInit = true;
+    document.addEventListener('keydown', e => {
+      if (e.code !== 'Space' || e.repeat || window.__spaceTarget !== 'met') return;
+      if (e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+      if (document.querySelector('#bug-modal, #wn-modal, #av-cal, #sr-ws-modal, #gr-card, .modal:not([hidden])')) return;
+      const cur = window.__metActive;
+      if (!cur || !cur.host?.isConnected || !cur.host.offsetWidth) return;
+      e.preventDefault();
+      if (MET.on && MET.id === cur.id) { metStop(); metRender(cur.host, cur.st); }
+      else metStart(cur.host, cur.st, false, cur.id);
+    });
+  }
   host.onkeydown = e => {
     if (e.target.closest('input, select, textarea')) return;
     if (e.code === 'Space') {
@@ -591,4 +606,7 @@ function mountMetronome(host, st, onChange, id) {
 window.muDefaults = muDefaults;
 window.mountTuner = mountTuner;
 window.mountMetronome = mountMetronome;
+window.muTunerStop = muTunerStop;
+window.muDroneStop = muDroneStop;
+window.metStop = metStop;
 if (typeof mountSightHosts === 'function') mountSightHosts();

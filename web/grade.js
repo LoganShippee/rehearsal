@@ -581,6 +581,20 @@ function grSyncRecentBtn(host) {
   }
   rBtn.innerHTML = `${IC('ico:agenda')} Recent (${GR_RECENT.length})`;
 }
+function grBindCardEsc(card) {
+  if (typeof document === 'undefined' || !card) return;
+  if (window.__grCardEsc) document.removeEventListener('keydown', window.__grCardEsc, true);
+  window.__grCardEsc = ev => {
+    if (ev.key !== 'Escape') return;
+    if (!card.isConnected) { document.removeEventListener('keydown', window.__grCardEsc, true); window.__grCardEsc = null; return; }
+    ev.preventDefault(); ev.stopPropagation();
+    card.remove();
+    document.removeEventListener('keydown', window.__grCardEsc, true);
+    window.__grCardEsc = null;
+  };
+  document.addEventListener('keydown', window.__grCardEsc, true);
+}
+
 function grShowRecent(host = null) {
   document.getElementById('gr-card')?.remove();
   const card = document.createElement('div');
@@ -603,6 +617,7 @@ function grShowRecent(host = null) {
     };
   });
   document.body.appendChild(card);
+  grBindCardEsc(card);
 }
 window.grShowRecent = grShowRecent;
 
@@ -655,10 +670,11 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
     grListen(host, mv, lb);
   };
   document.body.appendChild(card);
+  grBindCardEsc(card);
 }
 
-// Persistent, teacher-friendly inline mic error card with optional one-click Tap fallback
-function grShowMicError(host, err, onTapFallback = null) {
+// Persistent, teacher-friendly inline mic error card with optional Retry & Tap fallback
+function grShowMicError(host, err, onTapFallback = null, onRetry = null) {
   document.getElementById('gr-card')?.remove();
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
   const name = err?.name || '';
@@ -672,13 +688,16 @@ function grShowMicError(host, err, onTapFallback = null) {
         : 'Could not start the microphone. Check your mic connection and permissions.';
   const card = document.createElement('div');
   card.id = 'gr-card'; card.className = 'gr-card';
+  const retryFn = onRetry || GR.retry || null;
   card.innerHTML = `<button class="gr-x" title="Close" aria-label="Close">${IC('ico:close')}</button>
     <div class="gr-head"><b>Microphone unavailable</b><span class="gr-sub">${msg}</span></div>
-    <div class="gr-again-row">${onTapFallback ? `<button type="button" class="gr-tap-fb">${IC('ico:keyboard')} Tap rhythm instead</button>` : ''}<button type="button" class="gr-exit">Close</button></div>`;
+    <div class="gr-again-row">${retryFn ? `<button type="button" class="gr-retry">${IC('ico:mic')} Try Mic Again</button>` : ''}${onTapFallback ? `<button type="button" class="gr-tap-fb">${IC('ico:keyboard')} Tap rhythm instead</button>` : ''}<button type="button" class="gr-exit">Close</button></div>`;
   card.querySelector('.gr-x').onclick = () => card.remove();
   card.querySelector('.gr-exit').onclick = () => card.remove();
+  card.querySelector('.gr-retry')?.addEventListener('click', () => { card.remove(); retryFn(); });
   card.querySelector('.gr-tap-fb')?.addEventListener('click', () => { card.remove(); onTapFallback(); });
   document.body.appendChild(card);
+  grBindCardEsc(card);
 }
 window.grShowMicError = grShowMicError;
 
@@ -948,7 +967,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     if (c0.state !== 'running') return toast(`Sound is not running yet. Press ${tap ? 'Tap' : 'Grade'} again.`);
     if (!tap) {
       try { mic = await grMic(); } catch (e) {
-        grShowMicError(host, e, () => grStart(host, st, timeline, btn, 'tap'));
+        grShowMicError(host, e, () => grStart(host, st, timeline, btn, 'tap'), () => grStart(host, st, timeline, btn, 'mic'));
         return;
       }
       const ok = await grMicReady(mic, btn);

@@ -539,6 +539,17 @@ async function main() {
     assertEq(healthBody.ok, true, 'health ok=true');
     assertEq(healthBody.service, 'rehearsal-hw', 'health service name');
     assertEq(healthBody.devMode, true, 'health devMode=true');
+    assertEq(healthBody.googleSignInEnabled, false, 'health googleSignInEnabled=false when unset');
+    assertEq(healthBody.billingEnabled, false, 'health billingEnabled=false when unset');
+
+    const capRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/api/health', { method: 'GET' }),
+      { GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com', STRIPE_SECRET_KEY: 'sk_test_1', STRIPE_PRICE_ID_MONTHLY: 'price_1' },
+      {}
+    );
+    const capBody = await capRes.json();
+    assertEq(capBody.googleSignInEnabled, true, 'health googleSignInEnabled=true when configured');
+    assertEq(capBody.billingEnabled, true, 'health billingEnabled=true when configured');
 
     const optRes = await indexMod.default.fetch(
       new Request('https://hw.example.com/api/classes', {
@@ -916,6 +927,41 @@ async function main() {
     // Verify original was not mutated
     assertEq(original.ex.notes[0].midi, 60, 'stripTrueSightReadExcerpt does not mutate original');
     assertEq(original.srState.ex.notes[0].midi, 64, 'stripTrueSightReadExcerpt does not mutate nested original');
+  }
+
+  // --- buildStudentAssignmentSummary expired unconsumed True Sight-Read starts
+  {
+    const now = Date.now();
+    const row = {
+      id: 'asgn_tsr',
+      class_id: 'cls_1',
+      title: 'TSR',
+      instructions: '',
+      type: 'sight',
+      mode: 'true_sight_read',
+      max_attempts: 1,
+      grade_policy: 'best',
+      due_at: null,
+      published: 1,
+      archived_at: null,
+      score_r2_key: null,
+      score_filename: null,
+      created_at: now - 100000,
+    };
+    const expiredStart = {
+      id: 'st_exp',
+      assignment_id: 'asgn_tsr',
+      attempt_num: 1,
+      started_at: now - 500000,
+      study_seconds: 15,
+      expected_sec: 12,
+      consumed_at: null,
+    };
+    const summary = assignmentsMod.buildStudentAssignmentSummary(row, [], [expiredStart], now);
+    assertEq(summary.expiredStartsCount, 1, 'expired unconsumed TSR start counted');
+    assertEq(summary.attemptsUsed, 1, 'attemptsUsed includes expired unconsumed TSR start');
+    assertEq(summary.attemptsRemaining, 0, 'attemptsRemaining reflects expired unconsumed TSR start');
+    assertEq(summary.activeStart, null, 'expired TSR start is not active');
   }
 
   // --- parseRangeHeader

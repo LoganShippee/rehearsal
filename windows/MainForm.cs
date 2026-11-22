@@ -1278,7 +1278,10 @@ internal sealed class MainForm : Form
                     StartCompanionResize();
                     break;
                 case "requestPermission":
+                    EvalScript("window.toast && window.toast('Screen Recording permission is only needed on Mac.')");
+                    break;
                 case "launchApp":
+                    EvalScript("window.toast && window.toast('External app windows are currently Mac-only.')");
                     break;
                 case "chromeBookmarks":
                 {
@@ -1436,6 +1439,18 @@ internal sealed class MainForm : Form
 
             var env = await Program.GetWebEnvAsync();
             await popupWeb.EnsureCoreWebView2Async(env);
+            popupWeb.CoreWebView2.PermissionRequested += (_, pe) =>
+            {
+                pe.State = CoreWebView2PermissionState.Deny;
+                pe.Handled = true;
+            };
+            popupWeb.CoreWebView2.NavigationStarting += (_, ne) =>
+            {
+                if (!Uri.TryCreate(ne.Uri, UriKind.Absolute, out var pu) || (pu.Scheme != "https" && pu.Scheme != "http" && ne.Uri != "about:blank"))
+                {
+                    ne.Cancel = true;
+                }
+            };
             popupWeb.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             popupWeb.CoreWebView2.WindowCloseRequested += (_, _) => popupForm.Close();
 

@@ -912,7 +912,7 @@ function srVoice(c, dest, time, midi, dur, ins = 'soft', cue = false) {
 }
 function srStop() {
   try { SR_PLAY.master && SR_PLAY.master.disconnect(); } catch { }
-  SR_PLAY.master = null; clearInterval(SR_PLAY.timer); SR_PLAY.timer = null;
+  SR_PLAY.master = null; SR_PLAY.host = null; clearInterval(SR_PLAY.timer); SR_PLAY.timer = null;
   for (const n of SR_PLAY.extra || []) { try { n.stop ? n.stop() : n.disconnect(); } catch { } }   // a take being listened back
   SR_PLAY.extra = [];
   document.querySelectorAll('.gr-listen.on').forEach(b => { b.classList.remove('on'); if (b.dataset.idle) b.innerHTML = b.dataset.idle; });
@@ -1534,6 +1534,9 @@ function srBuildSettingsHTML(st) {
         <label>Count-in <select data-k="countIn">${[[0, 'None'], [1, '1 bar'], [2, '2 bars']].map(([v, l]) => opt(v, b.countIn ?? 1, l)).join('')}</select></label>
         <label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, b.countPitch ?? 'do', l)).join('')}</select></label>
         <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, b.gradeVoice ?? 'written', l)).join('')}</select></label>
+        ${metVolSlider()}
+        ${typeof grStrictnessSlider === 'function' ? grStrictnessSlider(b.tempo) : ''}
+        <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
       </div>
     </div>
   </div>`;
@@ -1930,7 +1933,7 @@ function mountSight(host, st, onChange) {
         <button data-sr="new" ${isBuild() ? 'disabled title="Not used when building"' : ''}>${IC('ico:random')} New</button>
         ${!isBuild() && host.__prevEx ? `<button data-sr="undo-ex" title="Return to previous example">${IC('ico:undo')}</button>` : ''}
         <span class="tb-div" aria-hidden="true"></span>
-        <button data-sr="play" class="sr-primary">${SR_PLAY.master ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>
+        <button data-sr="play" class="sr-primary">${SR_PLAY.master && SR_PLAY.host === host ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>
         <span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>
         <button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>
         <button data-sr="grade" class="${gradingHere ? 'on' : ''}" ${!gradingHere && multiPart ? 'disabled title="Grading works on 1-line examples — switch Parts to 1 line in Settings"' : 'title="Grade a performance of this example: microphone (sing/clap) or tap rhythm (Space / touch)"'}>${gradingHere && typeof grBtnHTML === 'function' ? grBtnHTML(GR.input) : IC('ico:mic') + ' Grade ▾'}</button>
@@ -1945,7 +1948,7 @@ function mountSight(host, st, onChange) {
         <button type="button" class="sr-sumchip" data-sr="settings" title="Current settings — click to open Settings">${esc(summaryChip())}</button>
         <span class="tb-div" aria-hidden="true"></span>
         <span class="tb-lbl">Show</span>
-        ${st.mode === 'rhythm' ? '' : `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="Turn off Rhythm only to show solfege syllables"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:music')} Solfege</button>`}
+        ${st.mode === 'rhythm' ? '' : `<button data-sr="show" class="${st.show && kindNow !== 'rhythm' ? 'on' : ''}" ${kindNow === 'rhythm' ? 'disabled title="Turn off Rhythm only to show solfege syllables"' : 'title="Write the solfege syllables under the notes"'}>${IC('ico:music')} Syllables</button>`}
         <button data-sr="counts" class="${curShowCounts() ? 'on' : ''}" title="Write the rhythm counts under the notes">${IC('ico:list')} Counts</button>
         ${st.mode === 'rhythm' ? '' : `<button data-sr="rhyonly" class="${kindNow === 'rhythm' ? 'on' : ''}" title="Show and play just the rhythm (one line)">${IC('ico:hand')} Rhythm only</button>`}
         <span class="tb-div" aria-hidden="true"></span>
@@ -2031,6 +2034,7 @@ function mountSight(host, st, onChange) {
       return v[key];
     } });
     const clock = srPlay(live, timeline, () => srHidePlayhead(host));
+    SR_PLAY.host = host;
     const pb = host.querySelector('[data-sr="play"]'); if (pb) pb.innerHTML = IC('ico:stop') + ' Stop';
     srAnimate(host, live, () => timeline, clock);
     return clock;
@@ -2263,7 +2267,7 @@ function mountSight(host, st, onChange) {
       if (SR_PLAY.master) { srStop(); return; }
       if (!timeline.length) return;
       const live = new Proxy({}, { get: (_, key) => V()[key] });   // always the current view
-      const clock = srPlay(live, timeline, () => srHidePlayhead(host)); b.innerHTML = IC('ico:stop') + ' Stop';
+      const clock = srPlay(live, timeline, () => srHidePlayhead(host)); SR_PLAY.host = host; b.innerHTML = IC('ico:stop') + ' Stop';
       srAnimate(host, live, () => timeline, clock); return;
     } else if (k === 'save') {
       const cls = currentClass(); if (!cls) return toast('Show a class first (Class picker in the dock) to save this to it.');
@@ -2349,7 +2353,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || e.repeat || e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
   if (window.__spaceTarget && window.__spaceTarget !== 'sr') return;
-  if (document.querySelector('.sr-grmenu')) return;            // the Grade menu is open: Space picks the highlighted choice
+  if (document.querySelector('.sr-grmenu, #bug-modal, #wn-modal, #av-cal, #sr-ws-modal, #gr-card, .modal:not([hidden])')) return;            // modal / Grade menu is open
   let h = SR_ACTIVE && SR_ACTIVE.isConnected ? SR_ACTIVE : null;
   if (!h) h = [...document.querySelectorAll('.sr-host')].find(x => x.offsetParent);   // the one on screen
   if (!h) return;

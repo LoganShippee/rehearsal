@@ -373,6 +373,23 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.hwt-code-list > div {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--e-panel);
+  color: var(--e-text);
+  border: 1px solid var(--hwt-ok-border);
+}
+
+.hwt-stu-tbl td .row {
+  flex-wrap: nowrap;
+}
+@media (max-width: 960px) {
+  .hwt-stu-tbl td .row {
+    flex-wrap: wrap;
+  }
+}
+
 .hwt-stu-tbl {
   width: 100%;
   border-collapse: collapse;

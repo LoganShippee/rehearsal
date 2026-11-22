@@ -507,6 +507,19 @@ body.hw-page {
 .hw-sync-dot.tap.active { background: #2563eb; transform: scale(1.3); }
 .hw-sync-dot.done { background: #22c55e; }
 
+.hw-sync-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted, #475569);
+}
+.hw-sync-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.hw-dot-sample { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e2e8f0; }
+.hw-dot-sample.lead { background: #fef08a; border: 1px solid #eab308; }
+.hw-dot-sample.tap { background: #cbd5e1; border: 1px solid #94a3b8; }
+
 .hw-sync-pad {
   width: 148px;
   height: 148px;
@@ -936,18 +949,139 @@ body.hw-page {
 .hw-asgn-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 4px 10px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--muted, #64748b);
+}
+.hw-asgn-meta .hw-meta-dot::before {
+  content: '·';
+  margin-right: 10px;
+  opacity: .75;
 }
 
 .hw-asgn-foot {
   padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--line, #e2e8f0);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+.hw-asgn-foot .hw-asgn-file {
+  flex: 1 1 140px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hw-asgn-foot .hw-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.hw-empty-card {
+  grid-column: 1 / -1;
+  background: var(--card, #fff);
+  border: 1px solid var(--line, #dce2ec);
+  border-radius: 14px;
+}
+
+.hw-part-select {
+  border: 1px solid var(--line, #cbd5e1);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: var(--card, #fff);
+  color: var(--text, #182235);
+}
+
+.hw-teacher-feedback {
+  background: rgba(37, 99, 235, .07);
+  border: 1px solid rgba(37, 99, 235, .24);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text, #1e293b);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.hw-page {
+    background: #0f172a;
+    color: #e2e8f0;
+    --bg: #0f172a;
+    --surface: #162032;
+    --card: #162032;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --line: #2b384f;
+    --accent: #60a5fa;
+  }
+  body.hw-page .hw-card,
+  body.hw-page .hw-auth-card,
+  body.hw-page .hw-list-head,
+  body.hw-page .hw-asgn-card,
+  body.hw-page .hw-back-bar,
+  body.hw-page .hw-sync-card,
+  body.hw-page .hw-study-cover,
+  body.hw-page .hw-empty-card {
+    background: #162032;
+    border-color: #2b384f;
+    color: #e2e8f0;
+  }
+  body.hw-page .hw-card-head,
+  body.hw-page .hw-student-bar,
+  body.hw-page .hw-audio-prompt,
+  body.hw-page .hw-teacher-drawer {
+    background: #1b273c;
+    border-color: #2b384f;
+    color: #e2e8f0;
+  }
+  body.hw-page .hw-card-head h2,
+  body.hw-page .hw-auth-head h2,
+  body.hw-page .hw-list-head h2,
+  body.hw-page .hw-asgn-card h3,
+  body.hw-page .hw-back-title,
+  body.hw-page .hw-sync-status,
+  body.hw-page .hw-study-cover h3 {
+    color: #f1f5f9;
+  }
+  body.hw-page .hw-submeta,
+  body.hw-page .hw-auth-head p,
+  body.hw-page .hw-field,
+  body.hw-page .hw-asgn-desc,
+  body.hw-page .hw-sync-card p,
+  body.hw-page .hw-study-cover p,
+  body.hw-page .hw-controls label {
+    color: #cbd5e1;
+  }
+  body.hw-page .hw-field input,
+  body.hw-page .hw-controls select,
+  body.hw-page .hw-controls input[type="number"],
+  body.hw-page .hw-controls input[type="text"],
+  body.hw-page .hw-part-select,
+  body.hw-page .hw-btn:not(.primary):not(.danger):not(.good) {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+  }
+  body.hw-page .hw-sync-pad {
+    background: #172554;
+    border-color: #60a5fa;
+    color: #dbeafe;
+  }
+  body.hw-page .hw-teacher-feedback {
+    background: rgba(96, 165, 250, .12);
+    border-color: rgba(96, 165, 250, .35);
+    color: #e2e8f0;
+  }
+  body.hw-page .hw-auth-err {
+    background: #3f1818;
+    border-color: #7f1d1d;
+    color: #fecaca;
+  }
 }
 
 /* Runner workspace back bar */

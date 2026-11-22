@@ -16,7 +16,7 @@ import {
   verifyStudentCode,
 } from './crypto.js';
 import { checkRateLimit, clearRateLimit, recordRateFailure } from './rate-limit.js';
-import { computePlanState, DEFAULT_STUDENT_SOFT_CAP, TRIAL_DAYS } from './billing.js';
+import { computePlanState, DEFAULT_STUDENT_SOFT_CAP, getServerCapabilities, TRIAL_DAYS } from './billing.js';
 
 const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;          // 10 minutes
 const EMAIL_CODE_MAX_FAILS = 5;
@@ -265,9 +265,11 @@ export async function handleTeacherEmailVerify(request, env) {
 
   const teacher = await upsertTeacher(env, { email, name });
   const session = await createTeacherSession(env, teacher.id, request, ephemeral);
-  const plan = computePlanState(teacher, now);
+  const capabilities = getServerCapabilities(env);
+  const plan = { ...computePlanState(teacher, now), billingEnabled: capabilities.billingEnabled };
   return jsonResponse({
     ok: true,
+    capabilities,
     token: session.token,
     expiresAt: session.expiresAt,
     ephemeral: session.ephemeral,
@@ -290,9 +292,11 @@ export async function handleTeacherGoogleAuth(request, env) {
     name: verified.name,
   });
   const session = await createTeacherSession(env, teacher.id, request, ephemeral);
-  const plan = computePlanState(teacher, now);
+  const capabilities = getServerCapabilities(env);
+  const plan = { ...computePlanState(teacher, now), billingEnabled: capabilities.billingEnabled };
   return jsonResponse({
     ok: true,
+    capabilities,
     token: session.token,
     expiresAt: session.expiresAt,
     ephemeral: session.ephemeral,
@@ -390,7 +394,11 @@ export async function handleOAuthHandoffPoll(request, env) {
 // ---------- Teacher /me, Logout, Sign Out All Devices
 export async function handleTeacherMe(request, env, auth) {
   const now = nowMs(env);
-  const plan = computePlanState(auth.teacher, now);
+  const capabilities = getServerCapabilities(env);
+  const plan = {
+    ...computePlanState(auth.teacher, now),
+    billingEnabled: capabilities.billingEnabled,
+  };
   const countRow = await env.DB.prepare(
     `SELECT COUNT(*) AS n
      FROM students st
@@ -400,6 +408,7 @@ export async function handleTeacherMe(request, env, auth) {
   const activeStudentCount = Number(countRow?.n || 0);
   return jsonResponse({
     ok: true,
+    capabilities,
     teacher: formatTeacherPublic(auth.teacher, plan),
     activeStudentCount,
     overSoftCap: activeStudentCount > (plan.studentSoftCap || DEFAULT_STUDENT_SOFT_CAP),
@@ -435,7 +444,9 @@ export function formatTeacherPublic(teacher, plan) {
 // Accepts { joinCode, studentCode, name? } — NO public roster dropdown ever exposed.
 export async function handleStudentCodeLogin(request, env) {
   const ipHash = await sha256Hex(getClientIp(request));
-  const ipLimit = await checkRateLimit(env, `stucode_ip:${ipHash}`, STUDENT_IP_LIMIT, STUDENT_IP_WINDOW_MS);
+  const ipKey = `stucode_ip:${ipHash}`;
+  // Check IP block without incrementing so valid classroom NAT logins never consume the IP failure budget.
+  const ipLimit = await checkRateLimit(env, ipKey, STUDENT_IP_LIMIT, STUDENT_IP_WINDOW_MS, { increment: false });
   if (!ipLimit.allowed) {
     return errResponse(
       'Too many login attempts from this connection. Wait 15 minutes or ask your teacher.',
@@ -446,6 +457,7 @@ export async function handleStudentCodeLogin(request, env) {
       { retryAfterSec: ipLimit.retryAfterSec }
     );
   }
+  const chargeIpFailure = () => checkRateLimit(env, ipKey, STUDENT_IP_LIMIT, STUDENT_IP_WINDOW_MS, { increment: true });
 
   const body = await readJsonBody(request);
   if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
@@ -462,6 +474,7 @@ export async function handleStudentCodeLogin(request, env) {
     'SELECT * FROM classes WHERE join_code = ? AND archived_at IS NULL'
   ).bind(joinCode).first();
   if (!cls) {
+    await chargeIpFailure();
     return errResponse('Class code or student code did not match. Check for typos or ask your teacher.', 401, 'INVALID_CODE', request, env);
   }
 
@@ -469,6 +482,7 @@ export async function handleStudentCodeLogin(request, env) {
   const clsIpKey = `stucode_clsip:${cls.id}:${ipHash}`;
   const clsIpRow = await env.DB.prepare('SELECT blocked_until FROM rate_limits WHERE key = ?').bind(clsIpKey).first();
   if (clsIpRow && clsIpRow.blocked_until && clsIpRow.blocked_until > now) {
+    await chargeIpFailure();
     return errResponse(
       'Too many wrong codes for this class. Wait 15 minutes or ask your teacher.',
       429,
@@ -505,12 +519,14 @@ export async function handleStudentCodeLogin(request, env) {
   }
 
   if (!student) {
+    await chargeIpFailure();
     await recordRateFailure(env, clsIpKey, STUDENT_IP_WINDOW_MS, STUDENT_COOLDOWN_FAILS, STUDENT_COOLDOWN_MS, STUDENT_HARD_LOCK_FAILS, 60 * 60 * 1000);
     return errResponse('Class code or student code did not match. Check for typos or ask your teacher.', 401, 'INVALID_CODE', request, env);
   }
 
   // Enforce per-student hard lock (10 fails) and cooldown (5 fails = 15 min) BEFORE accepting code
   if (student.code_hard_locked) {
+    await chargeIpFailure();
     return errResponse(
       'Your login code is locked after too many wrong tries. Ask your teacher to print you a new code.',
       423,
@@ -520,6 +536,7 @@ export async function handleStudentCodeLogin(request, env) {
     );
   }
   if (student.code_cooldown_until && student.code_cooldown_until > now) {
+    await chargeIpFailure();
     return errResponse(
       'Too many wrong tries. Wait 15 minutes or ask your teacher for a new code.',
       429,
@@ -532,6 +549,7 @@ export async function handleStudentCodeLogin(request, env) {
 
   const pbkdfValid = !matchedByNameOnly && await verifyStudentCode(studentCode, student.code_salt, student.code_hash);
   if (!pbkdfValid) {
+    await chargeIpFailure();
     const nextFails = Number(student.failed_code_attempts || 0) + 1;
     const hardLocked = nextFails >= STUDENT_HARD_LOCK_FAILS ? 1 : 0;
     const cooldownUntil = (!hardLocked && nextFails >= STUDENT_COOLDOWN_FAILS)

@@ -285,9 +285,10 @@ export async function handleStartAttempt(request, env, auth, assignmentId) {
   // Reuse an active unconsumed attempt_starts row within its live window so an accidental
   // page refresh does not burn an attempt or reset the server-side True Sight-Read timer.
   const active = await env.DB.prepare(
-    `SELECT * FROM attempt_starts
-     WHERE assignment_id = ? AND student_id = ? AND consumed_at IS NULL
-     ORDER BY attempt_num DESC LIMIT 1`
+    `SELECT a_s.* FROM attempt_starts a_s
+     LEFT JOIN submissions s ON s.attempt_start_id = a_s.id
+     WHERE a_s.assignment_id = ? AND a_s.student_id = ? AND a_s.consumed_at IS NULL AND s.id IS NULL
+     ORDER BY a_s.attempt_num DESC LIMIT 1`
   ).bind(assignment.id, student.student_id).first();
 
   if (active) {
@@ -446,9 +447,16 @@ export async function handleSubmitAttempt(request, env, auth, assignmentId) {
     'SELECT COALESCE(MAX(attempt_num), 0) AS n FROM submissions WHERE assignment_id = ? AND student_id = ?'
   ).bind(assignment.id, student.student_id).first();
   const maxExisting = Number(maxRow?.n || 0);
+  let startMaxExisting = 0;
+  if (!attemptStart && assignment.mode === 'true_sight_read') {
+    const startMaxRow = await env.DB.prepare(
+      'SELECT COALESCE(MAX(attempt_num), 0) AS n FROM attempt_starts WHERE assignment_id = ? AND student_id = ?'
+    ).bind(assignment.id, student.student_id).first();
+    startMaxExisting = Number(startMaxRow?.n || 0);
+  }
   const attemptNum = attemptStart
     ? Math.max(Number(attemptStart.attempt_num), maxExisting + 1)
-    : maxExisting + 1;
+    : Math.max(maxExisting, startMaxExisting) + 1;
 
   if (assignment.max_attempts !== null && assignment.max_attempts !== undefined && attemptNum > Number(assignment.max_attempts)) {
     return errResponse(

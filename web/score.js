@@ -698,6 +698,7 @@ async function spStartVocalRec(ctl, lineIdx) {
   if (SP_VREC.starting) return;
   if (SP_VREC.on) spStopVocalRec(false);
   if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+  if (typeof grStopListen === 'function') grStopListen();
   if (SP_PLAY.ctl) spStop();
   const { sc, st } = ctl;
   if (!sc || !sc.lines[lineIdx]) return;
@@ -794,7 +795,7 @@ function spStop() {
 function spDefaults(st) {
   st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= false; st.pitches ??= 'none'; st.playhead ??= 'beat'; st.nums ??= true;
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
-  st.voicesOpen ??= true; st.recMode ??= false; st.recHeadphones ??= false;
+  st.recMode ??= false; st.recHeadphones ??= false;
   st.recGuide ??= true; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
   return st;
 }
@@ -868,6 +869,7 @@ function spTimeBetweenQ(sc, qA, qB, fac = 1) {
 }
 function spPlay(ctl, playOpts = null) {
   if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+  if (typeof grStopListen === 'function') grStopListen();
   if (SP_VREC.on && playOpts?.recordingLine == null) spStopVocalRec(false);
   spHoldStop();
   if (SP_PLAY.ctl) {
@@ -1249,7 +1251,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
     if (c0.state !== 'running') return toast('Sound is not running yet. Press Grade again.');
     if (!tap) {
       try { mic = await grMic(); } catch (e) {
-        if (typeof grShowMicError === 'function') grShowMicError(host, e, () => spGradeStart(ctl, btn, 'tap'));
+        if (typeof grShowMicError === 'function') grShowMicError(host, e, () => spGradeStart(ctl, btn, 'tap'), () => spGradeStart(ctl, btn, mode));
         else toast('Microphone not available: ' + e.message);
         return;
       }
@@ -1463,7 +1465,7 @@ function mountScore(host, st, onChange0, key) {
   if (cached && SP_PLAY.ctl === cached) spStop();
   const root = document.createElement('div'); root.className = 'sp-root';
   const BAR = {
-    file: () => `<span class="sp-grp" data-ctl="file"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)" aria-label="Add a score file">${IC('ico:plus')}</button></span>`,
+    file: () => `<span class="sp-grp" data-ctl="file"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)" aria-label="Add a score file">${IC('ico:plus')}</button><button data-sp="remscore" title="Remove this score from the list" aria-label="Remove this score from the list" hidden>${IC('ico:trash')}</button></span>`,
     play: () => `<button data-sp="play" data-ctl="play" class="sp-primary">${IC('ico:play')} Play</button>`,
     tempo: () => `<span class="sp-step" data-ctl="tempo" title="Tempo (BPM &amp; percent of original score tempo)"><button data-sp="tempo-step" data-d="-5" title="Slower (-5%)" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm" data-sp="tempo-edit" title="Click to type a BPM"></output><button data-sp="tempo-step" data-d="5" title="Faster (+5%)" aria-label="Faster">${IC('ico:plus')}</button><button class="sp-treset" data-sp="tempo-reset" title="Reset to 100% original score tempo" aria-label="Reset tempo to 100%" hidden>${IC('ico:reload')}</button></span>`,
     metronome: () => `<button data-sp="metro" data-ctl="metronome" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
@@ -1481,7 +1483,7 @@ function mountScore(host, st, onChange0, key) {
     settings: () => `<button data-sp="settings" title="Settings: count-in, voices, speed-up, and which buttons show here">${IC('ico:sliders')} Settings</button>`,
   };
   const spBarHTML = () => `<div class="sp-top">
-      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.loop()}${BAR.range()}${BAR.tempo()}${BAR.spots()}
+      ${BAR.file()}<span class="tb-div" aria-hidden="true"></span>${BAR.play()}${BAR.loop()}${BAR.range()}${BAR.tempo()}${BAR.metronome()}${BAR.spots()}
       <span class="sr-sp"></span>
       ${BAR.grade()}${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sp="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${typeof window.HW_TEACHER?.openAssignFromScore === 'function' ? `<button data-sp="assign" title="Assign this score as Online Homework">${IC('ico:fileUp')} Assign</button>` : ''}${BAR.voices()}${BAR.settings()}
     </div>
@@ -1589,12 +1591,14 @@ function mountScore(host, st, onChange0, key) {
   ctl.fillFiles = () => {
     const sel = $q('.sp-file'), lib = spLibrary();
     if (st.fileId && !lib.some(x => x.id === st.fileId) && S.files[st.fileId]) lib.unshift({ id: st.fileId, name: (S.files[st.fileId].name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '') });
-    sel.innerHTML = lib.map(x => `<option value="${x.id}" ${x.id === st.fileId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
-      + (lib.length > 1 ? '<option value="__remove">Remove this score from the list</option>' : '');
+    sel.innerHTML = lib.map(x => `<option value="${x.id}" ${x.id === st.fileId ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    const rem = $q('[data-sp="remscore"]');
+    if (rem) rem.hidden = lib.length <= 1;
   };
   ctl.switchTo = id => {
     if (!id || id === st.fileId) return;
     if (typeof GR !== 'undefined' && GR.on && typeof grStop === 'function') grStop(false);
+  if (typeof grStopListen === 'function') grStopListen();
     if (SP_VREC.on && SP_VREC.ctl === ctl) spStopVocalRec(false);
     if (SP_PLAY.ctl === ctl) spStop();
     spHoldStop();
@@ -2113,12 +2117,11 @@ function mountScore(host, st, onChange0, key) {
       phBtn.innerHTML = `${IC('ico:playhead')} <b>${({ beat: 'Beat', notes: 'Note', off: 'Off' })[pm] || 'Beat'}</b>`;
     }
     const anySungMetro = !!(ctl.sc && ctl.sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro));
-    const mBtn = $q('[data-sp="metro"]');
-    if (mBtn) {
+    root.querySelectorAll('[data-sp="metro"]').forEach(mBtn => {
       mBtn.classList.toggle('on', !!st.metronome || anySungMetro);
       mBtn.innerHTML = `${IC('ico:metro')} ${anySungMetro ? 'Metronome (rec)' : 'Metronome'}`;
       mBtn.title = anySungMetro ? 'Click track is coming from your recorded sung voice' : 'Metronome clicks while playing';
-    }
+    });
     const open = !!st.settingsOpen; root.classList.toggle('sp-closed', !open); $q('[data-sp="settings"]').classList.toggle('on', open);
     const la = Math.min(st.loop.a, st.loop.b), lb = Math.max(st.loop.a, st.loop.b);
     $q('.sp-looplbl').textContent = st.loop.on ? (la === lb ? `Loop m. ${mNum(la)}` : `Loop m. ${mNum(la)}–${mNum(lb)}`) : 'Loop';
@@ -2473,7 +2476,10 @@ function mountScore(host, st, onChange0, key) {
         inp.type = 'number'; inp.min = Math.round(origBpm * 0.3); inp.max = Math.round(origBpm * 1.5); inp.value = String(curBpm);
         inp.className = 'sp-bpm-inp'; inp.title = `Type target BPM (original: ${origBpm} BPM)`;
         inp.onclick = ev => ev.stopPropagation();
+        let closed = false;
         const done = commit => {
+          if (closed) return;
+          closed = true;
           if (commit) {
             const v = Number(inp.value);
             if (isFinite(v) && v > 0) { st.tempo = Math.max(30, Math.min(150, Math.round((v / origBpm) * 100))); onChange(); }
@@ -2577,6 +2583,7 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'lbl') { st.labels = st.labels === b.dataset.v ? null : b.dataset.v; onChange(); ctl.updateBar(); if (ctl.applySpacing()) { ctl.lastW = 0; ctl.relayout(); } else ctl.drawLabels(); }
       if (k === 'hold') { ctl.holdMode = !ctl.holdMode; if (!ctl.holdMode) spHoldStop(); ctl.updateBar(); }
       if (k === 'addscore') { ctl.addScore(); return; }
+      if (k === 'remscore') { ctl.removeScore(); return; }
       if (k === 'tabs') { const t = $q('.sp-tabs'); t.hidden = !t.hidden; ctl.drawTabs(); return; }
       if (k === 'custom') { const c = $q('.sp-custom'); c.hidden = !c.hidden; ctl.drawCustom(); }
       if (k === 'barreset') { mbarReset(SP_BARCFG); ctl.rebuildBar(); return; }
@@ -2639,7 +2646,8 @@ function mountScore(host, st, onChange0, key) {
     drag.last = i; ctl.dragged = true; ctl.anchor = drag.from;
     ctl.selectTo(i, true);
   });
-  window.addEventListener('pointerup', () => { drag = null; });
+  const onWinUp = () => { drag = null; };
+  window.addEventListener('pointerup', onWinUp);
   root.addEventListener('input', e => {
     const el = e.target, k = el.dataset.spk;
     if (k === 'avDelay') { setAvDelay(Number(el.value)); el.nextElementSibling.textContent = el.value + ' ms'; return; }
@@ -2718,6 +2726,7 @@ function mountScore(host, st, onChange0, key) {
         ctl._ro?.disconnect();
         window.removeEventListener('resize', onSpWinResize);
         window.removeEventListener('rehearsal-resize', onSpNativeResize);
+        window.removeEventListener('pointerup', onWinUp);
       }
       return;
     }
@@ -2782,7 +2791,9 @@ function mountScore(host, st, onChange0, key) {
       ctl.applyNums(); ctl.applySpacing();
       { const R = ctl.osmd.EngravingRules; if (R) { R.PageTopMargin = 1; R.TitleTopDistance = 1; } }
       await ctl.osmd.load(xml);
-      ctl.osmd.zoom = st.zoom; ctl.drawChoir(); ctl.drawVoices();
+      ctl.osmd.zoom = st.zoom;
+      if (st.voicesOpen === undefined) st.voicesOpen = (ctl.sc.lines.length > 1 && (root.clientWidth || window.innerWidth) >= 820);
+      ctl.drawChoir(); ctl.drawVoices();
       if (st.settingsOpen) { const sp = $q('.sp-settings'); sp.hidden = false; sp.innerHTML = settingsHTML(); }
       ctl.updateBar();
       ctl.applyCtl();   // controls shown unless you hide them
@@ -2802,6 +2813,7 @@ function mountScore(host, st, onChange0, key) {
 // Space bar plays / stops the score you used last (unless you're typing).
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || e.repeat || (window.__spaceTarget && window.__spaceTarget !== 'sp') || !SP_ACTIVE || !SP_ACTIVE.root.isConnected || e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+  if (document.querySelector('#bug-modal, #wn-modal, #av-cal, #sr-ws-modal, #gr-card, .modal:not([hidden])')) return;
   e.preventDefault(); if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
   if (SP_ACTIVE.playing) spStop(); else if (SP_ACTIVE.sc) spPlay(SP_ACTIVE);
 });

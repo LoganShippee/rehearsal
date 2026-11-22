@@ -17,6 +17,7 @@
     initialized: false,
     error: '',
     me: null,
+    capabilities: { googleSignInEnabled: false, billingEnabled: false },
     subTab: 'classes', // 'classes' | 'assignments' | 'gradebook' | 'account'
 
     classes: [],
@@ -322,6 +323,12 @@
 
     S_STATE.auth.serverUrl = api.getApiBase();
     S_STATE.accountServerUrl = api.getApiBase();
+    S_STATE.capabilities = await api.getCapabilities().catch(() => ({ googleSignInEnabled: false, billingEnabled: false }));
+
+    const curTok = api.getToken();
+    if (curTok && !api.isDemoMode() && /^(?:tok_)?demo_/i.test(curTok)) {
+      api.clearSession();
+    }
 
     if (!api.getToken()) {
       S_STATE.me = null;
@@ -345,7 +352,8 @@
       S_STATE.initialized = true;
       if (meRes?.status === 401 || !api.getToken()) {
         S_STATE.me = null;
-        S_STATE.auth.error = meRes?.error || 'Session expired — please sign in again.';
+        if (meRes?.status === 401) api.clearSession();
+        S_STATE.auth.error = '';
       } else {
         S_STATE.error = meRes?.error || 'Could not load your teacher account.';
       }
@@ -353,6 +361,7 @@
       return;
     }
 
+    if (meRes.capabilities) S_STATE.capabilities = meRes.capabilities;
     S_STATE.me = meRes;
     if (!preserveTab && !S_STATE.subTab) S_STATE.subTab = 'classes';
     await loadClassesAndActiveData();
@@ -393,9 +402,17 @@
       api.getGradebook(classId),
     ]);
 
+    const errs = [];
     if (stuRes?.ok) S_STATE.students = Array.isArray(stuRes.students) ? stuRes.students : [];
+    else { S_STATE.students = []; if (stuRes?.error) errs.push(stuRes.error); }
+
     if (asgnRes?.ok) S_STATE.assignments = Array.isArray(asgnRes.assignments) ? asgnRes.assignments : [];
+    else { S_STATE.assignments = []; if (asgnRes?.error) errs.push(asgnRes.error); }
+
     if (gbRes?.ok) S_STATE.gradebook = gbRes;
+    else { S_STATE.gradebook = null; if (gbRes?.error) errs.push(gbRes.error); }
+
+    if (errs.length) S_STATE.error = errs[0];
   }
 
   async function refreshAll() {
@@ -586,28 +603,24 @@
     const isDemo = api.isDemoMode();
     const nativeApp = isNativeApp();
     const gClientId = window.HW_GOOGLE_CLIENT_ID || '';
+    const googleEnabled = isDemo || !!S_STATE.capabilities?.googleSignInEnabled || !!gClientId;
 
     let googleSection = '';
-    if (nativeApp) {
-      googleSection = `
-        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google (Opens Browser)</button>
-        <div class="small muted">Opens your system browser using a secure 60-second sign-in handoff so school Google accounts work smoothly.</div>
-      `;
-    } else if (isDemo) {
+    if (isDemo) {
       googleSection = `
         <div class="row">
           <button type="button" class="btn" data-hwt="auth-google" ${a.busy ? 'disabled' : ''}>Sign in with Google (Local Preview)</button>
           <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Test Desktop Browser Handoff</button>
         </div>
       `;
-    } else if (gClientId) {
+    } else if (googleEnabled && nativeApp) {
+      googleSection = `
+        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google (Opens Browser)</button>
+        <div class="small muted">Opens your system browser using a secure 60-second sign-in handoff so school Google accounts work smoothly.</div>
+      `;
+    } else if (googleEnabled) {
       googleSection = `
         <button type="button" class="btn" data-hwt="auth-google" ${a.busy ? 'disabled' : ''}>Sign in with Google</button>
-      `;
-    } else {
-      googleSection = `
-        <button type="button" class="btn" disabled>Sign in with Google</button>
-        <div class="small muted">Google Sign-In is not configured on this server yet. Use the 6-digit email code above.</div>
       `;
     }
 
@@ -630,7 +643,8 @@
         </div>
 
         ${isDemo ? `<div class="hwt-banner info">
-          <div><b>Local Preview Mode</b> — No Worker URL is configured, so your teacher workspace runs locally in this browser with realistic sample data.</div>
+          <div><b>Local Preview Mode</b> — Testing locally with sample classes and students. Ready to go live?</div>
+          <button type="button" class="btn small" data-hwt="auth-use-live">Use Live Server</button>
         </div>` : ''}
 
         ${a.error ? `<div class="hwt-banner readonly">${escHtml(a.error)}</div>` : ''}
@@ -668,6 +682,7 @@
         ` : `
           <div class="row">
             <button type="button" class="btn primary" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Send 6-Digit Code'}</button>
+            ${!isDemo ? `<button type="button" class="btn" data-hwt="auth-use-demo">Try Interactive Preview (No Sign-In Needed)</button>` : ''}
           </div>
         `}
 
@@ -676,11 +691,12 @@
           Shared / classroom computer (sign out automatically when browser closes)
         </label>
 
-        <div class="hwt-divider">or</div>
-
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
-          ${googleSection}
-        </div>
+        ${googleSection ? `
+          <div class="hwt-divider">or</div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+            ${googleSection}
+          </div>
+        ` : ''}
         ${handoffBox}
 
         <div class="hwt-privacy-note">
@@ -693,10 +709,10 @@
         </div>
 
         <details ${a.showServerConfig ? 'open' : ''}>
-          <summary class="small muted" style="cursor:pointer">Worker Server URL / Local Preview Mode (${isDemo ? 'Currently: Local Preview' : escHtml(api.getApiBase())})</summary>
+          <summary class="small muted" style="cursor:pointer">Advanced / Custom Server Settings</summary>
           <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
             <label class="fld">
-              <span>Cloudflare Worker URL (leave blank for Local Preview Mode)</span>
+              <span>Server URL (blank switches to Local Preview Mode)</span>
               <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(a.serverUrl)}" data-hwt-input="auth-server-url">
             </label>
             <div class="row">
@@ -879,7 +895,18 @@
         <div class="hwt-split">
           ${sidebarHTML}
           <div class="hwt-main">
-            <div class="card"><div class="empty">Select or create a class on the left to manage its join code and student roster.</div></div>
+            <div class="card">
+              <h2 style="margin-top:0">Get Started in 3 Easy Steps</h2>
+              <p class="desc">Set up your first Online Homework class in under 2 minutes — students sign in with simple 6-character codes (no student email addresses required).</p>
+              <ol style="margin:0 0 16px 20px;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13.5px">
+                <li><strong>Create a class</strong> (or copy the roster from one of your Rehearsal classroom periods).</li>
+                <li><strong>Add students &amp; print Student Code slips</strong> so everyone has their 6-character sign-in code.</li>
+                <li><strong>Assign Sight Reading, Score Practice, or Audio Check-Ins</strong> and listen to recordings in the Gradebook.</li>
+              </ol>
+              <div class="row">
+                <button type="button" class="btn primary" data-hwt="toggle-new-class" ${writable ? '' : 'disabled'}>+ Create Your First Class</button>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -928,7 +955,7 @@
               <h3>Add Students</h3>
               <span class="grow"></span>
               <button type="button" class="btn small" data-hwt="toggle-bulk-paste">${rf.showBulk ? 'Hide Bulk Paste' : 'Bulk Paste List'}</button>
-              <button type="button" class="btn small" data-hwt="regen-all-codes" ${writable && S_STATE.students.length ? '' : 'disabled'}>Regenerate &amp; Print All Class Codes</button>
+              <button type="button" class="btn small" data-hwt="regen-all-codes" ${writable && S_STATE.students.length ? '' : 'disabled'}>Regenerate &amp; Print All Student Codes</button>
             </div>
 
             <div class="row" style="align-items:flex-end">
@@ -1000,7 +1027,7 @@
                   </tbody>
                 </table>
               </div>
-            ` : `<div class="empty">No students in this class yet. Add students above or share Join Code <b>${escHtml(joinCodeFmt)}</b> for Google Sign-In.</div>`}
+            ` : `<div class="empty">No students in this class yet. Add a student above (or paste your roster) to generate their printable 6-character <strong>Student Code</strong>${S_STATE.capabilities?.googleSignInEnabled ? `, or share Class Code <b>${escHtml(joinCodeFmt)}</b> for Google Sign-In` : ''}.</div>`}
           </div>
 
           <div class="hwt-danger-bar">
@@ -1033,9 +1060,9 @@
         </div>
         <div class="hwt-code-list">
           ${codeAlert.items.map(it => `
-            <div style="padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.45);border:1px solid var(--hwt-ok-border)">
+            <div>
               <div style="font-weight:700">${escHtml(it.displayName)}${it.part ? ` <span class="small" style="font-weight:400">(${escHtml(it.part)})</span>` : ''}</div>
-              <div>Code: <code>${escHtml(formatCodeDisplay(it.code))}</code></div>
+              <div>Student Code: <code>${escHtml(formatCodeDisplay(it.code))}</code></div>
             </div>
           `).join('')}
         </div>
@@ -1306,6 +1333,8 @@
     const offline = isOffline();
     const count = Number(S_STATE.me.activeStudentCount || 0);
     const softCap = Number(plan.studentSoftCap || 200);
+    const billingReady = isDemo || !!S_STATE.capabilities?.billingEnabled || !!plan.billingEnabled;
+    const isPaidActive = plan.status === 'active' || plan.status === 'po_active';
 
     return `
       <div class="card">
@@ -1321,14 +1350,23 @@
           ${plan.planEndsAt ? `<div class="hwt-metric"><span>Renews / Ends</span><strong style="font-size:14px">${escHtml(formatDateShort(plan.planEndsAt))}</strong></div>` : ''}
         </div>
 
-        <div class="row">
-          <button type="button" class="btn primary" data-hwt="checkout-monthly" ${offline ? 'disabled' : ''}>Upgrade Monthly ($5/mo)</button>
-          <button type="button" class="btn primary" data-hwt="checkout-annual" ${offline ? 'disabled' : ''}>Upgrade Annual ($49/yr)</button>
-          <button type="button" class="btn" data-hwt="billing-portal" ${offline ? 'disabled' : ''}>Manage Billing Portal</button>
-        </div>
+        ${billingReady ? `
+          <div class="row">
+            <button type="button" class="btn ${isPaidActive ? '' : 'primary'}" data-hwt="checkout-monthly" ${offline ? 'disabled' : ''}>Upgrade Monthly ($5/mo)</button>
+            <button type="button" class="btn" data-hwt="checkout-annual" ${offline ? 'disabled' : ''}>Upgrade Annual ($49/yr)</button>
+            <button type="button" class="btn" data-hwt="billing-portal" ${offline ? 'disabled' : ''}>Manage Billing Portal</button>
+          </div>
+        ` : `
+          <div class="hwt-banner info" style="margin-bottom:10px">
+            <div><strong>30-day free trial active</strong> — Online card checkout (\$5/mo or \$49/yr) is opening soon. Every homework feature is unlocked for your trial today, and school/district purchase orders are available anytime.</div>
+          </div>
+          <div class="row">
+            <button type="button" class="btn" disabled>Online Billing Opening Soon ($5/mo · $49/yr)</button>
+          </div>
+        `}
 
         <div class="hwt-privacy-note" style="margin-top:12px">
-          <b>School Purchase Orders (POs):</b> Need a school or district invoice for multiple teachers or more than ${softCap} students? Email your school PO details to request a <code>po_active</code> license grant with custom seat caps — no credit card required.
+          <b>School Purchase Orders (POs):</b> Need a school or district invoice for multiple teachers or more than ${softCap} students? Request a <strong>School Purchase Order</strong> license grant with custom seat caps — no credit card required.
         </div>
       </div>
 
@@ -1357,18 +1395,24 @@
       ` : ''}
 
       <div class="card">
-        <h3>Worker Server &amp; Sessions</h3>
-        <label class="fld" style="margin-bottom:10px">
-          <span>Online Homework Worker URL (blank = Local Preview Mode)</span>
-          <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(S_STATE.accountServerUrl)}" data-hwt-input="account-server-url">
-        </label>
-        <div class="row">
-          <button type="button" class="btn small primary" data-hwt="account-save-server">Save Server URL</button>
-          <button type="button" class="btn small" data-hwt="account-use-demo">Switch to Local Preview Mode</button>
-          <span class="grow"></span>
+        <h3>Sessions &amp; Server</h3>
+        <div class="row" style="margin-bottom:10px">
           <button type="button" class="btn small" data-hwt="logout">Sign Out</button>
           <button type="button" class="btn small danger" data-hwt="logout-all" ${offline ? 'disabled' : ''}>Sign Out All Devices</button>
         </div>
+        <details>
+          <summary class="small muted" style="cursor:pointer">Advanced / Custom Server Settings</summary>
+          <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+            <label class="fld">
+              <span>Server URL (blank switches to Local Preview Mode)</span>
+              <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(S_STATE.accountServerUrl)}" data-hwt-input="account-server-url">
+            </label>
+            <div class="row">
+              <button type="button" class="btn small primary" data-hwt="account-save-server">Save Server URL</button>
+              <button type="button" class="btn small" data-hwt="account-use-demo">Switch to Local Preview Mode</button>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="card">
@@ -1401,7 +1445,8 @@
 
     el.innerHTML = `
       <div class="hwt-project-backdrop" data-hwt="project-backdrop">
-        <div class="hwt-project-card" role="dialog" aria-modal="true" aria-label="Class Join Code">
+        <div class="hwt-project-card" role="dialog" aria-modal="true" aria-label="Class Join Code" style="position:relative">
+          <button type="button" class="iconbtn" data-hwt="project-close" title="Close" aria-label="Close" style="position:absolute;top:14px;right:14px">✕</button>
           <div class="small muted" style="font-size:16px;font-weight:600">${escHtml(pm.className)}</div>
           <div style="font-size:15px;opacity:0.9">Go to the Student Portal and enter this Class Code:</div>
           <div class="hwt-project-code">${escHtml(pm.joinCode)}</div>
@@ -1449,7 +1494,7 @@
             <div class="row">
               <button type="button" class="btn small" data-hwt="sub-prev-stu" ${hasPrev ? '' : 'disabled'}>◀ Prev Student</button>
               <button type="button" class="btn small" data-hwt="sub-next-stu" ${hasNext ? '' : 'disabled'}>Next Student ▶</button>
-              <button type="button" class="btn small" data-hwt="sub-close">Close</button>
+              <button type="button" class="iconbtn" data-hwt="sub-close" title="Close" aria-label="Close">✕</button>
             </div>
           </div>
 
@@ -2038,13 +2083,28 @@
     }
   }
 
+  function handleRootKeydown(e) {
+    if (e.key === 'Enter' && e.target?.matches?.('input')) {
+      const k = e.target.dataset?.hwtInput;
+      if (k === 'auth-email' || k === 'auth-name') { e.preventDefault(); e.stopPropagation(); doEmailStart(); return; }
+      if (k === 'auth-code') { e.preventDefault(); e.stopPropagation(); doEmailVerify(); return; }
+      if (k === 'new-class-name') { e.preventDefault(); e.stopPropagation(); doCreateClass(); return; }
+      if (k === 'stu-name' || k === 'stu-part' || k === 'stu-email') { e.preventDefault(); e.stopPropagation(); doAddSingleStudent(); return; }
+    }
+    stopTypingLeak(e);
+  }
+
+  function handleModalKeydown(e) {
+    if (e.key !== 'Escape') e.stopPropagation();
+  }
+
   function bindRootEvents(el) {
     if (!el || el.__hwtBound) return;
     el.__hwtBound = true;
     el.addEventListener('click', handleClick);
     el.addEventListener('change', handleChange);
     el.addEventListener('input', handleInput);
-    el.addEventListener('keydown', stopTypingLeak);
+    el.addEventListener('keydown', handleRootKeydown);
     el.addEventListener('keyup', stopTypingLeak);
   }
 
@@ -2054,8 +2114,8 @@
     el.addEventListener('click', handleClick);
     el.addEventListener('change', handleChange);
     el.addEventListener('input', handleInput);
-    el.addEventListener('keydown', stopTypingLeak);
-    el.addEventListener('keyup', stopTypingLeak);
+    el.addEventListener('keydown', handleModalKeydown);
+    el.addEventListener('keyup', handleModalKeydown);
   }
 
   function handleInput(e) {
@@ -2232,7 +2292,11 @@
       case 'auth-save-server':
         stopOAuthHandoff(true);
         api.setApiBase(S_STATE.auth.serverUrl.trim());
+        S_STATE.me = null;
         S_STATE.auth.error = '';
+        S_STATE.auth.emailSent = false;
+        S_STATE.auth.code = '';
+        S_STATE.auth.devCode = '';
         S_STATE.auth.notice = api.isDemoMode()
           ? 'Switched to Local Preview Mode.'
           : `Server URL set to ${api.getApiBase()}.`;
@@ -2241,9 +2305,25 @@
       case 'auth-use-demo':
         stopOAuthHandoff(true);
         api.setApiBase('');
+        S_STATE.me = null;
         S_STATE.auth.serverUrl = '';
         S_STATE.auth.error = '';
+        S_STATE.auth.emailSent = false;
+        S_STATE.auth.code = '';
+        S_STATE.auth.devCode = '';
         S_STATE.auth.notice = 'Switched to Local Preview Mode.';
+        await loadSessionAndWorkspace(true);
+        break;
+      case 'auth-use-live':
+        stopOAuthHandoff(true);
+        api.setApiBase('https://rehearsal-hw.logan-shippee.workers.dev');
+        S_STATE.me = null;
+        S_STATE.auth.serverUrl = api.getApiBase();
+        S_STATE.auth.error = '';
+        S_STATE.auth.emailSent = false;
+        S_STATE.auth.code = '';
+        S_STATE.auth.devCode = '';
+        S_STATE.auth.notice = 'Switched back to Live Server.';
         await loadSessionAndWorkspace(true);
         break;
 
@@ -2265,13 +2345,18 @@
       case 'logout':
         await doLogout();
         break;
-      case 'logout-all':
+      case 'logout-all': {
         if (!confirm('Sign out of Online Homework on all your devices?')) break;
-        await api.logoutAll();
+        const r = await api.logoutAll();
+        if (!r?.ok) {
+          showToast(r?.error || 'Could not sign out all devices.');
+          break;
+        }
         S_STATE.me = null;
         renderAll();
         showToast('Signed out on all devices.');
         break;
+      }
       case 'dismiss-error':
         S_STATE.error = '';
         renderMain();
@@ -2546,14 +2631,16 @@
         S_STATE.gbFilter.assignmentId = '';
         renderMain();
         break;
-      case 'export-class-csv':
-        await api.downloadGradebookCsv(S_STATE.selectedClassId);
-        showToast('Gradebook CSV exported.');
+      case 'export-class-csv': {
+        const r = await api.downloadGradebookCsv(S_STATE.selectedClassId);
+        showToast(r?.ok ? 'Gradebook CSV exported.' : (r?.error || 'Could not export Gradebook CSV.'));
         break;
-      case 'export-asgn-csv':
-        await api.downloadGradebookCsv(S_STATE.selectedClassId, S_STATE.gbFilter.assignmentId);
-        showToast('Assignment CSV exported.');
+      }
+      case 'export-asgn-csv': {
+        const r = await api.downloadGradebookCsv(S_STATE.selectedClassId, S_STATE.gbFilter.assignmentId);
+        showToast(r?.ok ? 'Assignment CSV exported.' : (r?.error || 'Could not export Assignment CSV.'));
         break;
+      }
       case 'open-sub':
         await openSubmissionModal(btn.dataset.stu, btn.dataset.asgn);
         break;
@@ -2581,7 +2668,9 @@
         S_STATE.subModal.audioRate = rate;
         const audio = document.querySelector('#hw-sub-modal audio');
         if (audio) try { audio.playbackRate = rate; } catch { }
-        renderSubModal();
+        document.querySelectorAll('#hw-sub-modal [data-hwt="sub-rate"]').forEach(b => {
+          b.classList.toggle('primary', Number(b.dataset.rate || 1) === rate);
+        });
         break;
       }
       case 'sub-save-grade':
@@ -2626,16 +2715,20 @@
         break;
       case 'account-save-server':
         api.setApiBase(S_STATE.accountServerUrl.trim());
+        S_STATE.me = null;
         S_STATE.selectedClassId = '';
         S_STATE.generatedCodes = null;
+        S_STATE.auth.error = '';
         await loadSessionAndWorkspace(true);
         showToast(api.isDemoMode() ? 'Switched to Local Preview Mode.' : 'Worker Server URL saved.');
         break;
       case 'account-use-demo':
         api.setApiBase('');
+        S_STATE.me = null;
         S_STATE.accountServerUrl = '';
         S_STATE.selectedClassId = '';
         S_STATE.generatedCodes = null;
+        S_STATE.auth.error = '';
         await loadSessionAndWorkspace(true);
         showToast('Switched to Local Preview Mode.');
         break;
@@ -2785,13 +2878,19 @@
         return;
       }
       idToken = await new Promise(resolve => {
+        let done = false;
+        const finish = tok => { if (!done) { done = true; resolve(tok || ''); } };
         try {
           window.google.accounts.id.initialize({
             client_id: clientId,
-            callback: resp => resolve(resp?.credential || ''),
+            callback: resp => finish(resp?.credential || ''),
           });
-          window.google.accounts.id.prompt();
-        } catch { resolve(''); }
+          window.google.accounts.id.prompt(n => {
+            if (n && (n.isNotDisplayed?.() || n.isSkippedMoment?.() || n.isDismissedMoment?.())) {
+              finish('');
+            }
+          });
+        } catch { finish(''); }
       });
       if (!idToken) {
         S_STATE.auth.error = 'Google Sign-In was canceled.';

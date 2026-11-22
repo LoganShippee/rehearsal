@@ -22,7 +22,7 @@ compatibility_date = "2026-01-01"
 
 [vars]
 DEV_MODE = "false"
-APP_ORIGINS = "https://loganshippee.github.io,http://localhost:*,http://127.0.0.1:*"
+APP_ORIGINS = "https://loganshippee.github.io,https://rehearsalmusic.com,https://www.rehearsalmusic.com,http://localhost:*,http://127.0.0.1:*"
 FROM_EMAIL = "Rehearsal <noreply@rehearsalmusic.com>"
 STRIPE_PRICE_ID_MONTHLY = ""
 STRIPE_PRICE_ID_ANNUAL = ""

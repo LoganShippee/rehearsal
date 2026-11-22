@@ -130,12 +130,29 @@ const PIANO_OFF_TO_KBD = Object.fromEntries(Object.entries(PIANO_KBD_MAP).map(([
 
 const PIANO_SEQ = { playing: false, host: null, timers: [], stepIdx: 0, noteIdx: -1, roots: [] };
 
-function pianoState() {
-  const st = (S.settings.piano ||= {
-    baseOct: 3, keyPc: 0, labels: 'notes', sustain: false, kbdOn: true, seqOpen: true,
-    pattern: 'scale5', startMidi: 60, peakMidi: 67, dir: 'updown', tempo: 116,
-    chordBetween: true, autoStep: true, clef: 'treble', showCounts: false,
-  });
+const PIANO_DEFAULTS = () => ({
+  baseOct: 3, keyPc: 0, labels: 'notes', sustain: false, kbdOn: true, seqOpen: true,
+  pattern: 'scale5', startMidi: 60, peakMidi: 67, dir: 'updown', tempo: 116,
+  chordBetween: true, autoStep: true, clef: 'treble', showCounts: false,
+  zoom: 1, staffH: 136,
+});
+function pianoState(h = null) {
+  let st = null;
+  const rid = h?.dataset?.wgRes, wid = h?.dataset?.wgWin;
+  if (rid && typeof findRes === 'function') {
+    const r = findRes(rid);
+    if (r?.widget) {
+      if (!r.widget.state) r.widget.state = Object.assign(PIANO_DEFAULTS(), JSON.parse(JSON.stringify(S.settings.piano || {})));
+      st = r.widget.state;
+    }
+  } else if (wid && typeof findWin === 'function') {
+    const w = findWin(wid);
+    if (w) {
+      if (!w.wgState) w.wgState = Object.assign(PIANO_DEFAULTS(), JSON.parse(JSON.stringify(S.settings.piano || {})));
+      st = w.wgState;
+    }
+  }
+  st ||= (S.settings.piano ||= PIANO_DEFAULTS());
   if (st.kbdOn === undefined) st.kbdOn = true;
   if (!st.clef) st.clef = 'treble';
   if (st.showCounts === undefined) st.showCounts = false;
@@ -463,7 +480,7 @@ function pianoPlayStep(host, st, idx) {
 }
 
 function renderPiano(h) {
-  const st = pianoState();
+  const st = pianoState(h);
   const baseMidi = 12 * (st.baseOct + 1); // e.g., C3 = 48
   const kbdBase = baseMidi + 12;          // middle octave (C4..E5 when showing C3..G5)
   // Build 19 white keys (2.5 octaves: C..G) + intervening black keys
@@ -546,15 +563,15 @@ function renderPiano(h) {
     })() : ''}${st.seqOpen ? `
       <div class="pq-row">
         <button data-pn="seq-play" class="pn-primary">${PIANO_SEQ.playing && PIANO_SEQ.host === h ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Start warm-up'}</button>
-        ${PIANO_SEQ.playing && !st.autoStep ? `<button data-pn="seq-next" class="pn-primary">Next key ${IC('ico:chevright')}</button>` : ''}
+        ${PIANO_SEQ.playing && !st.autoStep ? `<button data-pn="seq-next">Next key ${IC('ico:chevright')}</button>` : ''}
         <label>Pattern <select data-pn-k="pattern">${Object.entries(PIANO_PATTERNS).map(([k, p]) => `<option value="${k}" ${st.pattern === k ? 'selected' : ''}>${p.name}</option>`).join('')}</select></label>
         <label>Start <select data-pn-k="startMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.startMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
-        <label><span class="pq-peak-lbl">${st.dir === 'down' ? 'Low' : st.peakMidi < st.startMidi ? 'Turnaround' : 'Peak'}</span> <select data-pn-k="peakMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.peakMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
+        <label title="Highest (or turnaround/lowest) key the warm-up reaches before turning back"><span class="pq-peak-lbl">${st.dir === 'down' ? 'Low' : st.peakMidi < st.startMidi ? 'Turnaround' : 'Peak'}</span> <select data-pn-k="peakMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.peakMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
         <label>Move <select data-pn-k="dir">${[['updown', 'Up & down'], ['up', 'Up only'], ['down', 'Down only']].map(([v, l]) => `<option value="${v}" ${st.dir === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Clef <select data-pn-k="clef">${[['treble', 'Treble'], ['bass', 'Bass']].map(([v, l]) => `<option value="${v}" ${st.clef === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>BPM <input type="number" min="50" max="200" step="4" data-pn-k="tempo" value="${st.tempo}"></label>
         <label class="pn-chk" title="Play V7 → I modulation chord into each new key"><input type="checkbox" data-pn-k="chordBetween" ${st.chordBetween ? 'checked' : ''}> Modulate chord</label>
-        <label class="pn-chk"><input type="checkbox" data-pn-k="autoStep" ${st.autoStep ? 'checked' : ''}> Auto-step</label>
+        <label class="pn-chk" title="Automatically advance to the next key after each pattern"><input type="checkbox" data-pn-k="autoStep" ${st.autoStep ? 'checked' : ''}> Auto-advance keys</label>
         <label class="pn-chk" title="Show rhythm counting syllables under the warm-up staff"><input type="checkbox" data-pn-k="showCounts" ${st.showCounts ? 'checked' : ''}> Counts</label>
       </div>
     </div>` : ''}
@@ -593,6 +610,10 @@ function renderPiano(h) {
         e.preventDefault(); e.stopPropagation();
         h.__pianoZoomBy(Math.exp(-e.deltaY * 0.01));
       }, { passive: false });
+      let gs = 1;
+      wrap.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+      wrap.addEventListener('gesturechange', e => { e.preventDefault(); h.__pianoZoomBy(e.scale / gs); gs = e.scale; });
+      wrap.addEventListener('gestureend', e => e.preventDefault());
     }
     if (rz && wrap) {
       rz.onpointerdown = ev => {
@@ -725,7 +746,7 @@ function renderPiano(h) {
         let nxt = h.querySelector('[data-pn="seq-next"]');
         if (!st.autoStep && !nxt && playBtn) {
           nxt = document.createElement('button');
-          nxt.dataset.pn = 'seq-next'; nxt.className = 'pn-primary';
+          nxt.dataset.pn = 'seq-next';
           nxt.innerHTML = `Next key ${IC('ico:chevright')}`;
           playBtn.insertAdjacentElement('afterend', nxt);
         } else if (st.autoStep && nxt) {
@@ -930,14 +951,16 @@ function mountAudioPlayer(host, fileId) {
     }
     st.counting = true;
     const c = ac(); c.resume?.();
-    const beatMs = 60000 / clamp(Number(st.bpm) || 100, 40, 220);
+    const beatSec = 60 / clamp(Number(st.bpm) || 100, 40, 220);
+    const beatMs = beatSec * 1000;
+    const t0 = c.currentTime + 0.04;
     statEl.hidden = false;
     for (let i = 0; i < 4; i++) {
+      if (typeof metClick === 'function') metClick(t0 + i * beatSec, i === 0 ? 'down' : 'beat');
       st.countTimers.push(setTimeout(() => {
         if (!st.counting || !host.isConnected) return;
         statEl.textContent = String(i + 1);
-        if (typeof metClick === 'function') metClick(c.currentTime + 0.01, i === 0 ? 'down' : 'beat');
-      }, i * beatMs));
+      }, Math.max(0, Math.round(i * beatMs + 35))));
     }
     st.countTimers.push(setTimeout(() => {
       if (!st.counting || !host.isConnected) return;
@@ -945,7 +968,7 @@ function mountAudioPlayer(host, fileId) {
       audio.playbackRate = st.speed;
       audio.play().catch(() => { });
       syncUI();
-    }, 4 * beatMs));
+    }, Math.round(4 * beatMs + 35)));
     syncUI();
   };
 
@@ -955,6 +978,9 @@ function mountAudioPlayer(host, fileId) {
     const startAt = st.loop && st.loopA != null && (audio.currentTime < st.loopA || (st.loopB != null && audio.currentTime >= st.loopB - 0.05)) ? st.loopA : null;
     startWithOptionalCountIn(startAt);
   };
+  window.__audActive = host;
+  host.__audTogglePlay = togglePlay;
+  rootEl.addEventListener('pointerdown', () => { window.__spaceTarget = 'aud'; window.__audActive = host; });
 
   const addMarkerHere = () => {
     const t = +(audio.currentTime || 0).toFixed(2);
@@ -969,7 +995,10 @@ function mountAudioPlayer(host, fileId) {
     const inp = document.createElement('input');
     inp.type = 'text'; inp.value = m.label; inp.className = 'aud-mren-inp';
     inp.onclick = ev => ev.stopPropagation();
+    let closed = false;
     const done = commit => {
+      if (closed) return;
+      closed = true;
       if (commit) { const v = inp.value.trim(); if (v) m.label = v; save(); }
       renderMarks();
     };
@@ -1003,6 +1032,10 @@ function mountAudioPlayer(host, fileId) {
   st.raf = requestAnimationFrame(tickLoop);
 
   audio.addEventListener('loadedmetadata', () => { st.dur = audio.duration || 0; syncUI(); });
+  audio.addEventListener('error', () => {
+    cleanup();
+    host.innerHTML = `<div class="res-fallback">Could not play “${esc(title)}”. The file may be missing or unsupported in this browser.</div>`;
+  });
   audio.addEventListener('ended', () => {
     if (st.loop) startWithOptionalCountIn(st.loopA ?? 0);
     else syncUI();
@@ -1105,6 +1138,7 @@ function mountAudioPlayer(host, fileId) {
 
   renderMarks();
   syncUI();
+  initToolsKeyboard();
 }
 
 // ============================================================ 3. INTERACTIVE SOLFEGE LADDER, CURWEN HAND SIGNS & ECHO BOARD
@@ -1129,11 +1163,27 @@ const SB_COLORS = {
   ti:  ['#d64891', '#fff'],
 };
 
-function solBoardState() {
-  return (S.settings.solboard ||= {
-    keyPc: 0, mode: 'major', range: 'lowsol', sound: 'piano',
-    hands: true, notes: false, colors: true, layout: 'ladder', mysteryLen: 4,
-  });
+const SOLBOARD_DEFAULTS = () => ({
+  keyPc: 0, mode: 'major', range: 'lowsol', sound: 'piano',
+  hands: true, notes: false, colors: true, layout: 'ladder', mysteryLen: 4,
+});
+function solBoardState(h = null) {
+  let st = null;
+  const rid = h?.dataset?.wgRes, wid = h?.dataset?.wgWin;
+  if (rid && typeof findRes === 'function') {
+    const r = findRes(rid);
+    if (r?.widget) {
+      if (!r.widget.state) r.widget.state = Object.assign(SOLBOARD_DEFAULTS(), JSON.parse(JSON.stringify(S.settings.solboard || {})));
+      st = r.widget.state;
+    }
+  } else if (wid && typeof findWin === 'function') {
+    const w = findWin(wid);
+    if (w) {
+      if (!w.wgState) w.wgState = Object.assign(SOLBOARD_DEFAULTS(), JSON.parse(JSON.stringify(S.settings.solboard || {})));
+      st = w.wgState;
+    }
+  }
+  return st || (S.settings.solboard ||= SOLBOARD_DEFAULTS());
 }
 
 function solBoardSteps(st) {
@@ -1214,7 +1264,7 @@ function solBoardSteps(st) {
 }
 
 function renderSolBoard(h) {
-  const st = solBoardState();
+  const st = solBoardState(h);
   const steps = solBoardSteps(st);
   const isChrom = st.mode === 'chromatic' || st.mode === 'chromatic_flat';
   const hasLow = steps.some(s => s.semi < 0);
@@ -1270,7 +1320,7 @@ function renderSolBoard(h) {
           <span class="grow"></span>
           <div class="sb-echo-acts">
             <button data-sb="mys-replay">${IC('ico:play')} Replay</button>
-            <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
+            <button data-sb="echo-spd" title="Replay speed">Speed: ${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
             <button data-sb="mys-reveal" class="sb-primary">${mys.revealed ? 'Hide' : 'Reveal'}</button>
             <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
             <button data-sb="mys-new">New</button>
@@ -1281,12 +1331,12 @@ function renderSolBoard(h) {
           <span class="grow"></span>
           <div class="sb-echo-acts">
             <button data-sb="trail-play" ${trail.length ? '' : 'disabled'}>${IC('ico:play')} Replay</button>
-            <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
-            <button data-sb="trail-undo" title="Remove last note" ${trail.length ? '' : 'disabled'}>⌫</button>
+            <button data-sb="echo-spd" title="Replay speed">Speed: ${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
+            <button data-sb="trail-undo" title="Remove last note" ${trail.length ? '' : 'disabled'}>⌫ Undo</button>
             <button data-sb="trail-clear" ${trail.length ? '' : 'disabled'}>Clear</button>
             <span class="sb-esep" aria-hidden="true"></span>
             <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
-            <button data-sb="mys-new" class="sb-primary">${IC('ico:sparkle')} Mystery echo</button>
+            <button data-sb="mys-new">${IC('ico:sparkle')} Mystery echo</button>
           </div>
         `}
       </div>
@@ -1430,7 +1480,7 @@ function initToolsKeyboard() {
     const k = e.key.toLowerCase();
 
     if (top.querySelector('.pn')) {
-      const st = pianoState();
+      const st = pianoState(top);
       if (e.code === 'Space' && (window.__spaceTarget === 'piano' || (PIANO_SEQ.playing && PIANO_SEQ.host === top))) {
         e.preventDefault();
         if (PIANO_SEQ.playing && PIANO_SEQ.host === top) {
@@ -1464,3 +1514,4 @@ function initToolsKeyboard() {
     }
   });
 }
+window.pianoSeqStop = pianoSeqStop;

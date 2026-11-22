@@ -24,7 +24,7 @@
       <button type="button" class="hw-chip hw-chip-btn" id="hw-offline-btn" hidden title="Simulate Wi-Fi drop to test local save & Retry Upload">Offline Test: Off</button>
       <button type="button" class="hw-chip hw-chip-btn" id="hw-teacher-toggle" hidden title="Preview & configure assignment settings (Preview only)">Teacher Setup ▾</button>
       <button type="button" class="hw-chip hw-chip-btn" id="hw-signout-btn" hidden>Sign Out</button>
-      <span class="hw-chip" id="hw-dev-chip"></span>
+      <span class="hw-chip" id="hw-dev-chip" hidden></span>
     </div>
   </header>
 
@@ -43,7 +43,7 @@
       <div class="hw-auth-card">
         <div class="hw-auth-head">
           <h2>Sign In to Homework</h2>
-          <p>Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.</p>
+          <p id="hw-auth-sub">Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.</p>
         </div>
 
         <form id="hw-code-form" class="hw-auth-form" autocomplete="off">
@@ -53,7 +53,7 @@
               <input type="text" class="hw-code-input" id="hw-in-joincode" placeholder="K7M-4P2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
             </label>
             <label class="hw-field">
-              <span>Personal Code</span>
+              <span>Student Code</span>
               <input type="text" class="hw-code-input" id="hw-in-stucode" placeholder="H7P-9KM" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false">
             </label>
           </div>
@@ -131,16 +131,21 @@
   <div class="hw-sync-overlay" id="hw-sync-overlay" hidden>
     <div class="hw-sync-card" role="dialog" aria-modal="true" aria-labelledby="hw-sync-title">
       <h2 id="hw-sync-title">Quick Audio Sync Check</h2>
-      <p>Every device and pair of headphones has a slightly different audio delay. Tap along with 8 steady clicks so your rhythm grading is fair and accurate.</p>
+      <p>Every device and pair of headphones has a slightly different audio delay. Wait for the <strong>4 yellow count-in beats</strong>, then tap along with the <strong>8 steady clicks</strong> so your rhythm grading is fair and accurate.</p>
       <div class="hw-sync-dots" id="hw-sync-dots"></div>
+      <div class="hw-sync-legend">
+        <span><i class="hw-dot-sample lead"></i> 4-beat count-in</span>
+        <span><i class="hw-dot-sample tap"></i> 8 steady taps</span>
+      </div>
       <button type="button" class="hw-sync-pad" id="hw-sync-pad" disabled>
         <span>Tap</span>
         <small>or press Space</small>
       </button>
       <div class="hw-sync-status" id="hw-sync-status">Press Start when you can hear your speakers or headphones.</div>
-      <div class="row" style="justify-content:center;gap:10px">
+      <div class="row" style="justify-content:center;gap:10px;flex-wrap:wrap">
         <button type="button" class="hw-btn primary" id="hw-sync-start">Start 10-Second Sync Check</button>
         <button type="button" class="hw-btn" id="hw-sync-cancel" hidden>Close</button>
+        <button type="button" class="hw-btn" id="hw-sync-signout" hidden>Sign Out</button>
       </div>
     </div>
   </div>

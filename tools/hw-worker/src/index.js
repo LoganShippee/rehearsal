@@ -20,6 +20,7 @@ import {
   requireTeacher,
 } from './auth.js';
 import {
+  getServerCapabilities,
   handleAdminPoGrant,
   handleBillingCheckout,
   handleBillingPortal,
@@ -93,10 +94,13 @@ async function route(request, env) {
 
   // ---------- Health & Privacy
   if (method === 'GET' && path === '/api/health') {
+    const { googleSignInEnabled, billingEnabled } = getServerCapabilities(env);
     return jsonResponse({
       ok: true,
       service: 'rehearsal-hw',
       devMode: isDevMode(env),
+      googleSignInEnabled,
+      billingEnabled,
     }, 200, request, env);
   }
 

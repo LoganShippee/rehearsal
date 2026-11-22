@@ -49,7 +49,7 @@ function mountPdf(host, src, st, onChange, opts = {}) {
   };
   const pairStart = n => n - ((n - 1) % 2);          // 1–2, 3–4, …
   host.__pdf = ctl;
-  if (!PDF_ACTIVE || !PDF_ACTIVE.host.isConnected) PDF_ACTIVE = ctl;
+  host.addEventListener('focusin', () => { PDF_ACTIVE = ctl; });
   const bar = () => {
     const two = st.two && doc && st.mode === 'page' && st.page < doc.numPages;
     const numEl = host.querySelector('.pdfv-num');
@@ -171,7 +171,10 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     const inp = document.createElement('input');
     inp.type = 'number'; inp.min = '1'; inp.max = String(doc.numPages); inp.value = String(st.page);
     inp.className = 'pdfv-num pdfv-jump-inp'; inp.setAttribute('aria-label', 'Jump to page');
+    let closed = false;
     const finish = commit => {
+      if (closed) return;
+      closed = true;
       const v = parseInt(inp.value, 10);
       inp.replaceWith(btn);
       if (commit && Number.isFinite(v)) ctl.go(v);
@@ -361,8 +364,12 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     if (cur && +cur.dataset.pg !== st.page) { st.page = +cur.dataset.pg; bar(); clearTimeout(view._t); view._t = setTimeout(onChange, 500); }
   });
   let rt = null;
-  new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(draw, 150); }).observe(view);
-  pdfDoc(src).then(d => { doc = d; st.page = Math.min(st.page, d.numPages); PDF_ACTIVE ||= ctl; draw(); })
+  const ro = new ResizeObserver(() => {
+    if (!host.isConnected) { clearTimeout(rt); ro.disconnect(); return; }
+    clearTimeout(rt); rt = setTimeout(() => { if (host.isConnected) draw(); else ro.disconnect(); }, 150);
+  });
+  ro.observe(view);
+  pdfDoc(src).then(d => { doc = d; st.page = Math.min(st.page, d.numPages); draw(); })
     .catch(err => { host.innerHTML = `<div class="res-fallback">Couldn't open this PDF (${esc(err.message || err)}).</div>`; });
   bar();
 }

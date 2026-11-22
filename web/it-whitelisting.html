@@ -134,11 +134,12 @@
     </div>
 
     <div class="section">
-      <h2>1. How to Whitelist Google Sign-In in Google Admin Console</h2>
+      <h2>1. Optional Google Sign-In Whitelisting in Google Admin Console</h2>
+      <p style="margin:0 0 8px"><strong>Current Launch Status:</strong> Google Sign-In is <strong>disabled by default</strong> in the current deployment — teachers use 6-digit email verification codes and students use 6-character Class + Student Codes, so <strong>no Google Admin Console whitelisting is required</strong> right now.</p>
       <ol>
-        <li>Sign in at <strong>admin.google.com</strong> as a Super Administrator.</li>
+        <li>If your district later enables custom Google OAuth, sign in at <strong>admin.google.com</strong> as a Super Administrator.</li>
         <li>Navigate to <strong>Security → Access and data control → API controls → Manage Third-Party App Access</strong>.</li>
-        <li>Click <strong>Add app → OAuth App Name Or Client ID</strong>, then search for Rehearsal's production <strong>Google OAuth Client ID</strong> (<code>&lt;YOUR_GOOGLE_CLIENT_ID&gt;.apps.googleusercontent.com</code> — replace with your district/deployment Client ID).</li>
+        <li>Click <strong>Add app → OAuth App Name Or Client ID</strong>, then enter your deployment's verified Google OAuth Web Client ID.</li>
         <li>Select <strong>Trusted</strong> (recommended for assigned student/music OUs) or <strong>Limited</strong> so students and teachers on restricted school Google accounts can sign in cleanly.</li>
       </ol>
       <p style="margin:6px 0 0"><strong>Non-Sensitive Scopes Requested:</strong> <code>openid</code>, <code>email</code>, <code>profile</code> ONLY. Rehearsal <strong>never</strong> requests Google Drive, Google Classroom, Gmail, or Contacts scopes for Online Homework.</p>

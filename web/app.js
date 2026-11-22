@@ -16,11 +16,23 @@ function native(cmd, data = {}) {
   try { window.webkit.messageHandlers.native.postMessage({ cmd, ...data }); return true; } catch { return false; }
 }
 const IS_NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
+const IS_MAC_OS = /Mac/i.test(navigator.platform || navigator.userAgent || '') && !/iPad|iPhone|iPod/.test(navigator.userAgent) && !(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // what to call this device in messages ("saved on this iPad")
 const DEVICE = IS_NATIVE ? (window.__REHEARSAL_PLATFORM === 'windows' ? 'PC' : 'Mac') : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
 function toast(msg, ms = 2600) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
+  return t;
+}
+function undoToast(msg, onUndo, ms = 4500) {
+  const el = toast(msg, ms);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = 'Undo';
+  b.style.cssText = 'margin-left:10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;font-weight:700';
+  b.onclick = () => { onUndo(); el.remove(); };
+  el.appendChild(b);
+  return el;
 }
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -92,7 +104,7 @@ function sampleData() {
   const today = dateKey(new Date());
   const music = (name, period, themeIdx, warmup) => Object.assign(newClass(name, themeIdx), {
     subtitle: period,
-    hideWarmup: true,
+    hideWarmup: false,
     agenda: [{ text: 'Warm-up', min: 8 }, { text: 'Sight-reading', min: 10 }, { text: 'Rehearsal', min: 25 }, { text: 'Pack up', min: 5 }],
     warmup,
     resources: [
@@ -356,6 +368,7 @@ const P = {
   tools: {},               // name -> {x,y}
   ink: { on: false, tool: 'pen', color: '#e63946', size: 4, interact: false, blank: false },
   inkStore: {},            // ctxKey|stage -> dataURL (kept for the session)
+  searchNotice: {},        // winId | 'stage-' + resId -> last browser search query
   layoutKey: '', sideKey: '', stageKey: '',
   lastMove: Date.now(),
 };
@@ -858,10 +871,54 @@ function stopMusicHosts() {
   if (typeof spStop === 'function') spStop();
   if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
 }
+function stopAllPresentAudio(opts = {}) {
+  const root = opts.root || document;
+  if (opts.stageOnly) {
+    stopMusicHosts();
+    fbStopAudio();
+    if (root && root !== document) {
+      if (typeof MET !== 'undefined' && MET.id && root.querySelector(`[data-mu-win="${MET.id}"]`) && typeof metStop === 'function') metStop();
+      if (typeof MU_TUNER !== 'undefined' && MU_TUNER.id && root.querySelector(`[data-mu-win="${MU_TUNER.id}"]`) && typeof muTunerStop === 'function') muTunerStop();
+      if (typeof MU_DRONE !== 'undefined' && MU_DRONE.id && root.querySelector(`[data-mu-win="${MU_DRONE.id}"]`) && typeof muDroneStop === 'function') muDroneStop(0);
+      if (typeof PIANO_SEQ !== 'undefined' && PIANO_SEQ.host && root.contains(PIANO_SEQ.host) && typeof pianoSeqStop === 'function') pianoSeqStop();
+    }
+  } else if (opts.closing) {
+    const c = opts.closing, r = winRes(c);
+    if (c.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
+    if (c.kind === 'files' || (c.kind === 'res' && r?.filesBrowser)) fbStopAudio();
+    if ((c.kind === 'piano' || r?.widget?.kind === 'piano') && typeof pianoSeqStop === 'function') pianoSeqStop();
+    if ((c.kind === 'metro' || r?.music?.kind === 'metro') && typeof metStop === 'function') metStop();
+    if ((c.kind === 'tuner' || r?.music?.kind === 'tuner')) {
+      if (typeof muTunerStop === 'function') muTunerStop();
+      if (typeof muDroneStop === 'function') muDroneStop(0);
+    }
+    if (['score', 'sight', 'res'].includes(c.kind)) stopMusicHosts();
+  } else {
+    stopMusicHosts();
+    try { if (typeof metStop === 'function') metStop(); } catch { }
+    try { if (typeof muTunerStop === 'function') muTunerStop(); } catch { }
+    try { if (typeof muDroneStop === 'function') muDroneStop(0); } catch { }
+    try { if (typeof pianoSeqStop === 'function') pianoSeqStop(); } catch { }
+    if (typeof noiseStop === 'function') noiseStop();
+    if (REC.state === 'rec' || REC.state === 'countin') recStop();
+    if (REC.meter) recMeter(false);
+    if (opts.keepReview && REC.state === 'review') PLAY.au?.pause();
+    else closePlayer();
+    fbStopAudio();
+  }
+  root?.querySelectorAll('.aud-host, .aud-player').forEach(el => { try { el.__audCleanup?.(); } catch { } });
+}
+function onClassSwitched() {
+  stopAllPresentAudio({ stageOnly: true });
+  if (P.tools.random) rerenderTool('random');
+  if (P.tools.points) rerenderTool('points');
+  refreshWidgets('cal');
+  refreshWidgets('prog');
+}
 function go(view) {
-  if (VIEW === 'present' && view !== 'present') { saveInk(); undockStageApp(false); fbStopAudio(); }
+  if (VIEW === 'present' && view !== 'present') { saveInk(); undockStageApp(false); stopAllPresentAudio({ keepReview: true }); }
   VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.webModeMenu = null; $('#web-mode-menu')?.remove(); P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
-  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else { stopMusicHosts(); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#ffffff'); }
+  if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else { document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#ffffff'); }
   render();
 }
 
@@ -924,7 +981,7 @@ const DOCK_ITEMS = {
   signal: { icon: 'ico:signal', label: 'Signal', act: 'tool', tool: 'signal' },
   annotate: { icon: 'ico:annotate', label: 'Annotate', act: 'ink-toggle', on: () => P.ink.on && !P.ink.blank },
   board: { icon: 'ico:board', label: 'Board', act: 'board-toggle', on: () => P.ink.on && P.ink.blank },
-  tuner: { icon: 'ico:tuner', label: 'Tuner', act: 'open-music', kind: 'tuner', on: () => winList().some(w => w.kind === 'tuner') },
+  tuner: { icon: 'ico:tuner', label: 'Tuner & drone', act: 'open-music', kind: 'tuner', on: () => winList().some(w => w.kind === 'tuner') },
   metro: { icon: 'ico:metro', label: 'Metronome', act: 'open-music', kind: 'metro', on: () => winList().some(w => w.kind === 'metro') },
   sight: { icon: 'ico:sight', label: 'Sight reading', act: 'wm-sight' },
   cal: { icon: 'ico:events', label: 'Calendar', act: 'wm-cal', on: () => winList().some(w => w.kind === 'cal') },
@@ -1110,7 +1167,7 @@ function renderDockCustom() {
   if (!P.dockCustom) return;
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
-  panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
+  panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button class="iconbtn pop-x" data-action="dock-custom" title="Close" aria-label="Close">${IC('ico:close')}</button></div>
     <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>Open</b> (＋ Open menu), in <b>More</b> (⋯), or <b>Hidden</b>. Drag ≡ to reorder.</div>
     <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id];
       const inOpen = (cfg.inOpen || []).includes(id);
@@ -1405,8 +1462,7 @@ function updateClassBody(ctx, t) {
     P.lastStageId = sel;
     P.stageKey = stageKey;
     if (prevStageId && prevStageId !== sel) {
-      stopMusicHosts();
-      fbStopAudio();
+      stopAllPresentAudio({ root: $('#stage-content'), stageOnly: true });
       if (typeof prevStageId === 'string' && prevStageId.startsWith('app:') && !activeExtApp) {
         undockStageApp(true);
       }
@@ -1437,7 +1493,7 @@ function updateClassBody(ctx, t) {
       } else if (res && res.sight) {
         sc.innerHTML = `<div class="sr-host stage-sr" data-sr-res="${res.id}"></div>`; mountSightHosts(sc);
       } else if (res && res.widget) {
-        sc.innerHTML = widgetHost(res.widget.kind, 'stage-wg'); mountWidgets(sc);
+        sc.innerHTML = widgetHost(res.widget.kind, 'stage-wg', `data-wg-res="${res.id}"`); mountWidgets(sc);
       } else if (res && res.music) {
         sc.innerHTML = `<div class="mu-host stage-mu" data-mu-win="r-${res.id}" data-mu-res="${res.id}"></div>`; mountSightHosts(sc);
       } else if (res && res.score) {
@@ -1496,19 +1552,24 @@ function updateClassBody(ctx, t) {
       const modeBtn = IS_NATIVE
         ? `<button class="mode ${P.webModeMenu?.target === 'stage' && P.webModeMenu?.id === res.id ? 'on' : ''}" data-action="web-mode-menu" data-target="stage" data-id="${res.id}" title="Switch between Embedded frame and Full browser">${nat ? 'Full browser ▾' : 'Embedded ▾'}</button>`
         : `<span class="swb-hint" title="Some sites block embedded frames in browser mode">Blocked? Use ↗</span>`;
-      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${modeBtn}${drawBtn}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
+      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${modeBtn}${drawBtn}<button data-action="bm-star" data-target="stage" data-id="${esc(res.id)}" title="Bookmark this page">${IC('ico:star')}</button><button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
+      const searchHint = !IS_NATIVE && P.searchNotice?.['stage-' + res.id] ? `<span class="swb-hint">Opened Google search in a new tab</span>` : '';
       const inp = wb.querySelector('.stage-url');
       if (!inp || inp.dataset.surl !== res.id) {
         wb._h = '';
-        wb.innerHTML = `${IS_NATIVE ? `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button>` : ''}<input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false"><div class="swb-acts">${actsHTML}</div>`;
-        const a = wb.querySelector('.swb-acts'); if (a) a._h = actsHTML;
+        wb.innerHTML = `${IS_NATIVE ? `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button>` : ''}<input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false">${searchHint}<div class="swb-acts">${actsHTML}</div>`;
+        const a = wb.querySelector('.swb-acts'); if (a) a._h = actsHTML + '|' + searchHint;
       } else {
         if (document.activeElement !== inp && inp.value !== res.url) inp.value = res.url;
         const b = wb.querySelector('[data-action="stage-back"]'), f = wb.querySelector('[data-action="stage-fwd"]');
         if (b) b.disabled = !nav.back;
         if (f) f.disabled = !nav.forward;
         const a = wb.querySelector('.swb-acts');
-        if (a && a._h !== actsHTML) { a.innerHTML = actsHTML; a._h = actsHTML; }
+        if (a && a._h !== actsHTML + '|' + searchHint) {
+          wb.querySelector('.swb-search-msg')?.remove();
+          if (searchHint) { const sp = document.createElement('span'); sp.className = 'swb-hint swb-search-msg'; sp.textContent = 'Opened Google search in a new tab'; a.before(sp); }
+          a.innerHTML = actsHTML; a._h = actsHTML + '|' + searchHint;
+        }
       }
     } else {
       wb.hidden = true;
@@ -1528,7 +1589,7 @@ function updateCenter(ctx, t) {
   } else if (ctx.mode === 'after') {
     html = `<div class="big">${fmtClock(t)}</div><div class="msg">${esc(S.settings.afterSchool)}</div>`;
   } else {
-    html = `<div class="big">${fmtClock(t)}</div><div class="msg">${longDate(t)}</div><div class="next" style="opacity:.75">No classes on the schedule today. Use ${IC('ico:pin')} in the dock to show a class anyway.</div>`;
+    html = `<div class="big">${fmtClock(t)}</div><div class="msg">${longDate(t)}</div><div class="next" style="opacity:.75">No classes on the schedule today. Use ${IC('ico:pin')} in the toolbar to show a class anyway.</div>`;
   }
   if (evs.length) html += `<div class="p-card"><h4>Today</h4><ul class="ev-list">${evs.map(e => `<li>${esc(eventLabel(e))}${e.time ? ` <span style="opacity:.7">${fmtHM(e.time)}</span>` : ''}</li>`).join('')}</ul></div>`;
   setHTML('#center', html);
@@ -1580,7 +1641,7 @@ function mountSightHosts(root = document) {
 // ============================================================ calendar & progress windows
 const WIDGETS = { cal: { title: 'Calendar', icon: 'ico:events' }, prog: { title: 'Progress', icon: 'ico:gauge' }, rec: { title: 'Recorder', icon: 'ico:mic' }, yt: { title: 'YouTube', icon: 'ico:youtube' }, piano: { title: 'Piano & Warm-up', icon: 'ico:piano' }, solboard: { title: 'Solfege board', icon: 'ico:ladder' } };
 const WG_RENDER = k => ({ cal: renderCal, prog: renderProg, rec: renderRec, yt: renderYt, piano: typeof renderPiano === 'function' ? renderPiano : null, solboard: typeof renderSolBoard === 'function' ? renderSolBoard : null })[k];
-const widgetHost = (kind, cls = '') => `<div class="wg-host ${cls}" data-wg="${kind}"></div>`;
+const widgetHost = (kind, cls = '', extra = '') => `<div class="wg-host ${cls}" data-wg="${kind}"${extra ? ' ' + extra : ''}></div>`;
 function mountWidgets(root = document) { for (const h of root.querySelectorAll('.wg-host')) WG_RENDER(h.dataset.wg)?.(h); }
 // Re-render keeps each widget's scroll position (rebuilding the HTML would otherwise jump to the top).
 function refreshWidgets(kind) { document.querySelectorAll(`.wg-host[data-wg="${kind}"]`).forEach(h => keepScroll(h, () => WG_RENDER(kind)(h))); }
@@ -1980,7 +2041,10 @@ function ytClick(h, e) {
     else if (tab === 'recent') d.recent = d.recent.filter(x => !ks.has(ytKey(x)));
     h.__sel = new Set();
   }
-  if (act === 'rclear' && confirm('Clear the recently watched list?')) d.recent = [];
+  if (act === 'rclear' && d.recent.length) {
+    const prev = d.recent.slice(); d.recent = [];
+    undoToast('Cleared recent videos.', () => { d.recent = prev; save(); refreshWidgets('yt'); });
+  }
   // playlists
   if (act === 'lnew') { h.__tab = 'list'; h.__picker = null; const n = prompt('Name for the new playlist:', ''); if (!n?.trim()) return renderYtSide(h); const l = { id: uid(), name: n.trim(), items: [] }; d.lists.push(l); h.__showList = l.id; }
   if (act === 'lren' && show) { const n = prompt('Rename the playlist:', show.name); if (n?.trim()) show.name = n.trim(); }
@@ -2231,7 +2295,7 @@ function renderRec(h) {
       <div class="rec-info"><input data-rc-name value="${esc(r.name)}"><span>${new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${fmtSec(r.dur)}${r.marks?.length ? ` · ${r.marks.length} mark${r.marks.length > 1 ? 's' : ''}` : ''}${r.classId && r.classId !== cls?.id ? ' · ' + esc(S.classes.find(c => c.id === r.classId)?.name || '') : ''}</span></div>
       ${miniWave(r.peaks)}
       <span class="rec-acts"><button data-rc="cmp" title="Compare with another recording">A/B</button>
-      <button data-rc="export" title="${IS_NATIVE ? 'Save a copy to your Mac' : 'Share or save a copy'}">${IC('ico:external')}</button>
+      <button data-rc="export" title="${IS_NATIVE ? `Save a copy to your ${DEVICE}` : 'Share or save a copy'}">${IC('ico:external')}</button>
       ${cls ? `<button data-rc="tab" title="Add as a tab in ${esc(cls.name)}">${IC('ico:pin')}</button>` : ''}
       <button data-rc="del" title="Delete">${IC('ico:trash')}</button></span></div>`;
   const today = list.filter(isToday), older = list.filter(r => !isToday(r));
@@ -2277,6 +2341,9 @@ function renderRec(h) {
       ${older.length ? `<div class="rec-lh">Earlier</div>${older.map(row).join('')}` : ''}</div></div>`;
   if (PLAY.view) requestAnimationFrame(() => { const c = h.querySelector('canvas.rec-pwave'); if (c) drawPlayer(c); });
 
+  h.onpointerdown = () => { window.__spaceTarget = 'rec'; };
+  h.onfocusin = () => { window.__spaceTarget = 'rec'; };
+  if (REC.state !== 'idle' || PLAY.view || !window.__spaceTarget) window.__spaceTarget = 'rec';
   // drag on the waveform = loop that section; click = jump there
   const pw = h.querySelector('canvas.rec-pwave');
   if (pw) pw.onpointerdown = e => {
@@ -2342,8 +2409,9 @@ function renderRec(h) {
 // keys while the Recorder is open: M = mark (while recording), Space = play / pause the player
 document.addEventListener('keydown', e => {
   if (VIEW !== 'present' || !recHosts().length || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if (document.querySelector('#bug-modal, #wn-modal, #av-cal, .tour-card')) return;
   if ((e.key === 'm' || e.key === 'M') && REC.state === 'rec') { e.preventDefault(); recMark(); }
-  else if (e.key === ' ' && PLAY.view) { e.preventDefault(); const au = playAu(); au.paused ? au.play().catch(() => { }) : au.pause(); }
+  else if (e.key === ' ' && PLAY.view && window.__spaceTarget === 'rec') { e.preventDefault(); const au = playAu(); au.paused ? au.play().catch(() => { }) : au.pause(); }
 });
 
 function winTitle(w) {
@@ -2384,21 +2452,49 @@ function winIcon0(w) {
   if (w.kind === 'res') { const r = winRes(w); return r ? resIcon(r) : 'ico:warn'; }
   return 'ico:web';
 }
+function setSpaceTargetForWin(w) {
+  if (!w || w.id === '__tour_win') return;
+  const r = winRes(w);
+  const k = w.kind === 'res'
+    ? (r?.sight ? 'sight' : r?.score ? 'score' : r?.widget?.kind || r?.music?.kind || (r?.fileId && resKind(r) === 'audio' ? 'aud' : ''))
+    : (w.kind === 'file' && resKind({ fileId: w.fileId }) === 'audio' ? 'aud' : w.kind);
+  if (k === 'piano') window.__spaceTarget = 'piano';
+  else if (k === 'sight') window.__spaceTarget = 'sr';
+  else if (k === 'score') window.__spaceTarget = 'sp';
+  else if (k === 'rec') window.__spaceTarget = 'rec';
+  else if (k === 'metro') window.__spaceTarget = 'met';
+  else if (k === 'aud') {
+    window.__spaceTarget = 'aud';
+    const audEl = $(`.win[data-win="${w.id}"] .aud-host`);
+    if (audEl) window.__audActive = audEl;
+  }
+}
 function addWindow(w, size) {
   const list = winList();
   const front = list.length ? list.reduce((a, b) => (b.z || 0) > (a.z || 0) ? b : a) : null;
   const ww = size?.w || 0.56, hh = size?.h || 0.78;
+  const stepX = Math.max(0.022, 28 / Math.max(800, innerWidth));
+  const stepY = Math.max(0.03, 28 / Math.max(600, innerHeight));
+  const maxX = Math.max(0.01, 0.98 - ww), maxY = Math.max(0.01, 0.98 - hh);
   let x = 0.04, y = 0.03;
   if (front && !front.max) {
-    x = front.x + 0.045; y = front.y + 0.05;
-    if (x + ww > 0.98) x = 0.04;
-    if (y + hh > 0.98) y = 0.03;
+    x = front.x + stepX; y = front.y + stepY;
   } else if (list.length) {
     const n = list.length;
-    x = 0.04 + 0.045 * (n % 5); y = 0.03 + 0.05 * (n % 5);
+    x = 0.04 + stepX * (n % 6); y = 0.03 + stepY * (n % 6);
   }
-  Object.assign(w, { id: uid(), x: clamp(x, 0.01, Math.max(0.01, 0.98 - ww)), y: clamp(y, 0.01, Math.max(0.01, 0.98 - hh)), w: ww, h: hh, z: topZ(list) + 1 });
+  if (x > maxX) x = 0.02 + (x % Math.max(0.04, maxX));
+  if (y > maxY) y = 0.02 + (y % Math.max(0.04, maxY));
+  x = clamp(x, 0.01, maxX);
+  y = clamp(y, 0.01, maxY);
+  for (let tries = 0; tries < 8 && list.some(o => !o.max && Math.abs(o.x - x) < 0.015 && Math.abs(o.y - y) < 0.015); tries++) {
+    x = clamp(x + stepX > maxX ? 0.02 + tries * 0.012 : x + stepX, 0.01, maxX);
+    y = clamp(y + stepY > maxY ? 0.02 + tries * 0.015 : y + stepY, 0.01, maxY);
+  }
+  Object.assign(w, { id: uid(), x, y, w: ww, h: hh, z: topZ(list) + 1 });
+  setSpaceTargetForWin(w);
   list.push(w); save(); P.winMenu = false; renderWinMenu(); renderDock(); WIN.sig = ''; renderWins(context(now()));
+  setSpaceTargetForWin(w);
   return w;
 }
 function tileWindows() {
@@ -2437,8 +2533,8 @@ function winBodyHTML(w) {
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
-  if (WIDGETS[w.kind]) return widgetHost(w.kind);
-  if (w.kind === 'res' && winRes(w)?.widget) return widgetHost(winRes(w).widget.kind);
+  if (WIDGETS[w.kind]) return widgetHost(w.kind, '', `data-wg-win="${w.id}"`);
+  if (w.kind === 'res' && winRes(w)?.widget) return widgetHost(winRes(w).widget.kind, '', `data-wg-res="${w.resId}"`);
   if (w.kind === 'res' && winRes(w)?.music) return `<div class="mu-host" data-mu-win="r-${w.resId}-w${w.id}" data-mu-res="${w.resId}"></div>`;
   if (w.kind === 'res' && winRes(w)?.sight) return `<div class="sr-host" data-sr-res="${w.resId}"></div>`;
   if (w.kind === 'warmup') { const cls = currentClass(); return `<div class="warmup"><div class="lbl">Warm-up question</div><div class="q">${esc(cls?.warmup || 'Welcome!')}</div></div>`; }
@@ -2454,7 +2550,11 @@ function winBodyHTML(w) {
     return `<iframe src="${src}"></iframe>`;
   }
   const url = winURL(w);
-  if (!url) return `<div class="win-start"><div>${IC('ico:web')}<br>Type a web address or a search above and press Return.${IS_NATIVE ? '<br><span style="font-size:13px;color:#888">Searches open in full browser mode.</span>' : ''}</div></div>`;
+  if (!url) {
+    const sq = P.searchNotice?.[w.id];
+    if (sq) return `<div class="win-start"><div>${IC('ico:web')}<br><b>Opened Google search in a new tab</b><br><span style="font-size:13px;opacity:.75">Searched for “${esc(sq)}”. Type another web address or search above and press ${IS_MAC_OS ? 'Return' : 'Enter'}.</span></div></div>`;
+    return `<div class="win-start"><div>${IC('ico:web')}<br>Type a web address or a search above and press ${IS_MAC_OS ? 'Return' : 'Enter'}.${IS_NATIVE ? '<br><span style="font-size:13px;color:#888">Searches open in full browser mode.</span>' : ''}</div></div>`;
+  }
   const src = winTargetURL(w);
   return `<iframe src="${esc(src)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
 }
@@ -2528,9 +2628,7 @@ function applyWinGeom() {
 }
 function bringToFront(w) {
   if (w.id === '__tour_win') return;
-  if (w.kind === 'piano') window.__spaceTarget = 'piano';
-  else if (w.kind === 'sight') window.__spaceTarget = 'sr';
-  else if (w.kind === 'score') window.__spaceTarget = 'sp';
+  setSpaceTargetForWin(w);
   const list = winList(); const t = topZ(list);
   if (w.z === t) return;
   w.z = t + 1;
@@ -2542,7 +2640,14 @@ function openWebAddress(w, raw) {
   let url;
   if (looksURL) url = /^https?:\/\//i.test(q) ? q : 'https://' + q;
   else { url = 'https://www.google.com/search?q=' + encodeURIComponent(q); if (IS_NATIVE && !w.native) w.native = true; }
-  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); toast('Search opened in a new browser tab.'); return; }
+  if (!IS_NATIVE && !looksURL) {
+    native('openExternal', { url }) || window.open(url, '_blank');
+    (P.searchNotice ||= {})[w.id] = q;
+    document.activeElement?.blur(); WIN.sig = ''; renderWins(context(now()), true);
+    toast('Opened Google search in a new tab.');
+    return;
+  }
+  if (P.searchNotice) delete P.searchNotice[w.id];
   w.url = url; w.title = '';
   if (IS_NATIVE && w.native == null) { /* autoNativeWeb(url) decides */ }
   if (winIsNative(w)) native('webCmd', { id: w.id, action: 'load', url });
@@ -2555,7 +2660,14 @@ function openStageAddress(resId, raw) {
   let url;
   if (looksURL) url = /^https?:\/\//i.test(q) ? q : 'https://' + q;
   else { url = 'https://www.google.com/search?q=' + encodeURIComponent(q); if (IS_NATIVE && !res.native) res.native = true; }
-  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); toast('Search opened in a new browser tab.'); return; }
+  if (!IS_NATIVE && !looksURL) {
+    native('openExternal', { url }) || window.open(url, '_blank');
+    (P.searchNotice ||= {})['stage-' + resId] = q;
+    document.activeElement?.blur(); tick();
+    toast('Opened Google search in a new tab.');
+    return;
+  }
+  if (P.searchNotice) delete P.searchNotice['stage-' + resId];
   res.url = url;
   if (res.mode === 'present' && resKind(res) !== 'slides') res.mode = 'embed';
   P.forceStageUrl = res.id;
@@ -3240,14 +3352,14 @@ function renderClip() {
   const cls = clipClass(); P.clipFor = cls?.id || null;
   const p = document.createElement('div'); p.id = 'clip-panel'; p.className = 'look-panel clip-panel';
   if (!cls) {
-    p.innerHTML = `<div class="dc-head"><b>${IC('ico:clip')} Copy / paste</b><span class="grow"></span><button data-action="clip-open">Done</button></div><div class="dc-note">Show a class first (Class picker in the toolbar), then copy or paste its items.</div>`;
+    p.innerHTML = `<div class="dc-head"><b>${IC('ico:clip')} Copy / paste</b><span class="grow"></span><button class="iconbtn pop-x" data-action="clip-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div><div class="dc-note">Show a class first (Class picker in the toolbar), then copy or paste its items.</div>`;
     document.body.appendChild(p); return;
   }
   const s = clipSel(cls), C = S.clip;
   const chk = (k, label, on, extra = '') => `<label class="cp-item"><input type="checkbox" data-clip="${k}" ${extra} ${on ? 'checked' : ''}> ${label}</label>`;
   const modes = (P.clipMode ||= {});
   const conf = C ? clipConflicts(cls, C) : [];
-  p.innerHTML = `<div class="dc-head"><b>${IC('ico:clip')} Copy / paste — ${esc(cls.name)}</b><span class="grow"></span><button data-action="clip-open">Done</button></div>
+  p.innerHTML = `<div class="dc-head"><b>${IC('ico:clip')} Copy / paste — ${esc(cls.name)}</b><span class="grow"></span><button class="iconbtn pop-x" data-action="clip-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div>
     <div class="cp-h">Copy from this class</div>
     <div class="cp-list">
       ${cls.resources.map(r => chk('tab', `${icoSp(resIcon(r))}${esc(r.title || 'Tab')}`, s.tabs.has(r.id), `data-id="${r.id}"`)).join('') || '<div class="dc-note">No pinned tabs.</div>'}
@@ -3344,13 +3456,14 @@ function renderIcons() {
   $('#icons-panel')?.remove();
   if (!P.iconsOpen) return;
   const ic = icoCfg(), cls = VIEW === 'present' ? ieClass()?.cls : selClass();
-  const inp = (path, val, def) => `<input class="ic-in" data-ic="${path}" value="${esc(val ?? '')}" placeholder="${esc(ICL(def))}" maxlength="8" title="Type or pick an emoji (⌃⌘Space). Leave empty for the default; type - for none.">`;
+  const emojiHint = IS_MAC_OS ? '⌃⌘Space' : 'Win + .';
+  const inp = (path, val, def) => `<input class="ic-in" data-ic="${path}" value="${esc(val ?? '')}" placeholder="${esc(ICL(def))}" maxlength="8" title="Type or pick an emoji (${emojiHint}). Leave empty for the default; type - for none.">`;
   const KN = { slides: 'Google Slides', doc: 'Google Doc', sheet: 'Google Sheet', form: 'Google Form', drive: 'Drive file', youtube: 'YouTube', canva: 'Canva', web: 'Web page', pdf: 'PDF', image: 'Picture', video: 'Video', audio: 'Audio', file: 'Other file', sight: 'Sight reading', score: 'Score', warmup: 'Warm-up' };
   const sw = (k, l) => `<label><input type="checkbox" data-icshow="${k}" ${iconOn(k) ? 'checked' : ''}> ${l}</label>`;
   const p = document.createElement('div'); p.id = 'icons-panel'; p.className = 'look-panel icons-panel';
-  p.innerHTML = `<div class="dc-head"><b>${IC('ico:icons')} Icons</b><span class="grow"></span><button data-action="icons-reset">Reset all</button><button data-action="icons-open">Done</button></div>
+  p.innerHTML = `<div class="dc-head"><b>${IC('ico:icons')} Icons</b><span class="grow"></span><button data-action="icons-reset">Reset all</button><button class="iconbtn pop-x" data-action="icons-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div>
     <div class="ic-sw"><b>Show emojis on</b> ${sw('tabs', 'Tabs')} ${sw('dock', 'Toolbar')} ${sw('win', 'Window titles')} ${sw('events', 'Announcements')}</div>
-    <div class="dc-note">Click a box and type or pick an emoji (⌃⌘Space). Empty = the default shown in grey; type <b>-</b> for no icon.</div>
+    <div class="dc-note">Click a box and type or pick an emoji (${emojiHint}). Empty = the default shown in grey; type <b>-</b> for no icon.</div>
     <div class="ic-grid">
       ${cls && cls.resources.length ? `<div><h5>${esc(cls.name)}'s tabs</h5>${cls.resources.map(r => `<label>${inp('res.' + r.id, r.icon, kindIcon(resKind(r)))} ${esc(r.title || 'Tab')}</label>`).join('')}</div>` : ''}
       <div><h5>Tab types</h5>${Object.entries(KN).map(([k, l]) => `<label>${inp('kind.' + k, ic.kind?.[k], k === 'warmup' ? 'ico:warmup' : KIND_ICON[k])} ${l}</label>`).join('')}</div>
@@ -3375,7 +3488,7 @@ function renderLook() {
   const c = ieClass(); if (!P.lookOpen || !c) return;
   const th = c.cls.theme, img = th.image ? (th.image.startsWith('file:') ? S.files[th.image.slice(5)]?.name || 'picture' : 'web picture') : '';
   const p = document.createElement('div'); p.id = 'look-panel'; p.className = 'look-panel';
-  p.innerHTML = `<div class="dc-head"><b>${IC('ico:look')} Look — ${esc(c.cls.name)}</b><span class="grow"></span><button data-action="look-open">Done</button></div>
+  p.innerHTML = `<div class="dc-head"><b>${IC('ico:look')} Look — ${esc(c.cls.name)}</b><span class="grow"></span><button class="iconbtn pop-x" data-action="look-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div>
     <div class="lp-themes">${THEMES.map((t, k) => `<button class="lp-theme ${t.bg === th.bg && t.accent === th.accent ? 'on' : ''}" style="background:${t.bg};color:${t.text}" data-action="look-theme" data-k="${k}">${t.name} <span style="color:${t.accent}">●</span></button>`).join('')}</div>
     <div class="lp-row"><label>Background <input type="color" data-look="bg" value="${th.bg}"></label><label>Accent <input type="color" data-look="accent" value="${th.accent}"></label><label>Text <input type="color" data-look="text" value="${th.text || '#ffffff'}"></label></div>
     <div class="lp-row"><label>Class title <input type="color" data-look="titleText" value="${th.titleText || th.text || '#ffffff'}"></label><label>Clock <input type="color" data-look="clockText" value="${th.clockText || th.text || '#ffffff'}"></label>${th.titleText || th.clockText ? `<button type="button" data-action="look-text-reset">Match text</button>` : ''}</div>
@@ -3413,7 +3526,7 @@ function renderAutoDrawer() {
   const c = ieClass(); if (!P.autoDrawer || !c) return;
   const ci = S.classes.indexOf(c.cls); SEL_CLASS = c.cls.id;
   const d = document.createElement('div'); d.id = 'auto-drawer'; d.className = 'auto-drawer';
-  d.innerHTML = `<div class="ad-head"><b>${IC('ico:auto')} Automations — ${esc(c.cls.name)}</b><span class="grow"></span><button class="btn small" data-action="auto-open">Close</button></div>${timelineCard(c.cls, ci)}`;
+  d.innerHTML = `<div class="ad-head"><b>${IC('ico:auto')} Automations — ${esc(c.cls.name)}</b><span class="grow"></span><button class="iconbtn pop-x" data-action="auto-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div>${timelineCard(c.cls, ci)}`;
   $('#present').appendChild(d);
 }
 const tlRerender = () => { if (VIEW === 'edit') renderEditor(); else renderAutoDrawer(); };
@@ -3436,7 +3549,7 @@ function renderSnapMenu() {
   const btn = $(`.win[data-win="${P.snapFor}"] [data-action="win-snap"]`); if (!btn) { P.snapFor = null; return; }
   const r = btn.getBoundingClientRect();
   const host = document.createElement('div'); host.id = 'snap-host'; host.className = 'snap-menu';
-  host.innerHTML = SNAPS.map((s, i) => `<button data-action="win-snap-to" data-i="${i}" title="${s[0]}">${snapIcon(s)}</button>`).join('');
+  host.innerHTML = SNAPS.map((s, i) => `<button data-action="win-snap-to" data-i="${i}" title="${s[0]}" aria-label="${s[0]}">${snapIcon(s)}<span>${s[0]}</span></button>`).join('');
   $('#present').appendChild(host);
   const hw = host.offsetWidth;
   host.style.left = clamp(r.right - hw, 8, innerWidth - hw - 8) + 'px';
@@ -3869,11 +3982,18 @@ function updateInkUI() {
     <select data-action-change="ink-size" aria-label="Brush size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
       ${[2, 4, 8, 14].map(s => `<option value="${s}" ${P.ink.size === s ? 'selected' : ''} style="color:#000">${s}px</option>`).join('')}</select>
     ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['treble', 'Treble staff'], ['bass', 'Bass staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${paperKind === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
-    ${!P.ink.blank && P.ink.interact ? `<span class="ink-paused-pill">Drawing paused</span>` : ''}
-    <button data-action="ink-undo" title="Undo (⌘Z)" ${inkUndo.length ? '' : 'disabled'}>${IC('ico:undo')} Undo</button>
+    <button data-action="ink-undo" title="Undo (${IS_MAC_OS ? '⌘Z' : 'Ctrl+Z'})" ${inkUndo.length ? '' : 'disabled'}>${IC('ico:undo')} Undo</button>
     <button data-action="ink-clear" title="Clear board (can be undone)">${IC('ico:trash')} Clear</button>
     <button data-action="ink-close" title="Close drawing (Esc)" aria-label="Close drawing">${IC('ico:close')}</button>`;
   placeInkBar();
+  host.querySelector('#ink-paused-pill')?.remove();
+  if (P.ink.on && !P.ink.blank && P.ink.interact) {
+    const pill = document.createElement('div');
+    pill.id = 'ink-paused-pill';
+    pill.className = 'ink-paused-pill';
+    pill.innerHTML = `<span>Drawing paused</span><button type="button" data-action="ink-mode" data-m="draw">Resume</button>`;
+    host.appendChild(pill);
+  }
   inkPaperTop();
 }
 window.closeGlobalAnnotate = () => {
@@ -4296,10 +4416,10 @@ function classesTab() {
     <div class="card"><div class="card-head"><h2>Resources</h2><span class="grow"></span>
         ${IS_NATIVE ? '<button class="btn small primary" data-action="drive-browse">Browse Google Drive…</button>' : ''}
         <button class="btn small ic-btn" data-action="res-add-url">${IC('ico:plus')} Link</button><button class="btn small ic-btn" data-action="res-add-file">${IC('ico:plus')} File (PDF, image, video, audio)</button></div>
-      <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your Mac. They appear as tabs on the Present screen.</p>
+      <p class="desc">Google Slides, Docs, Sheets, Forms, Drive files, YouTube, Canva or any web page, plus PDFs and images from your ${DEVICE}. They appear as tabs on the Present screen.</p>
       ${cls.resources.map((r, k) => `<div class="res-item"><span class="res-ico" style="font-size:18px">${resIcon(r) === '-' ? '' : IC(resIcon(r))}</span>
         <div class="row" style="gap:6px"><input class="grow" data-bind="${base}.resources.${k}.title" value="${esc(r.title)}" placeholder="Title">
-        ${r.widget ? `<span class="pill">${IC(WIDGETS[r.widget.kind].icon)} ${WIDGETS[r.widget.kind].title}</span>` : r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.score ? `<span class="pill">${IC('ico:score')} ${esc(r.score.name || S.files[r.score.fileId]?.name || 'Score')}</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
+        ${r.filesBrowser ? `<span class="pill">${IC('ico:folder')} Files browser</span>` : r.widget ? `<span class="pill">${IC(WIDGETS[r.widget.kind].icon)} ${WIDGETS[r.widget.kind].title}</span>` : r.music ? `<span class="pill">${IC(kindIcon(r.music.kind))} ${r.music.kind === 'tuner' ? 'Tuner & drone' : 'Metronome'}</span>` : r.sight ? `<span class="pill">${IC('ico:sight')} Sight-reading (${r.sight.mode})</span>` : r.score ? `<span class="pill">${IC('ico:score')} ${esc(r.score.name || S.files[r.score.fileId]?.name || 'Score')}</span>` : r.url != null ? `<input class="grow" data-bind="${base}.resources.${k}.url" value="${esc(r.url)}" placeholder="https://…" style="flex:2">` : `<span class="pill">${esc(S.files[r.fileId]?.name || 'missing file')}</span>`}
         ${resKind(r) === 'slides' || resKind(r) === 'doc' ? `<select data-bind="${base}.resources.${k}.mode" title="How it appears"><option value="embed" ${r.mode !== 'edit' ? 'selected' : ''}>Presenter view</option><option value="edit" ${r.mode === 'edit' ? 'selected' : ''}>Editor view</option></select>` : ''}</div>
         <span class="row" style="gap:2px"><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="-1">${IC('ico:up')}</button><button class="iconbtn" data-action="res-move" data-k="${k}" data-d="1">${IC('ico:down')}</button><button class="iconbtn" data-action="res-del" data-k="${k}">${IC('ico:close')}</button></span></div>`).join('') || '<div class="empty">No resources yet.</div>'}
     </div>
@@ -4940,7 +5060,7 @@ const FEATURE_GUIDES = [
           updateInkUI(); renderDock();
         },
         delay: 90,
-        sel: '.ink-bar', fallback: '[data-dock-id="ink"]',
+        sel: '.ink-bar', fallback: '[data-dock-id="annotate"]',
         title: 'Drawing Tools',
         body: 'Use Annotate in the toolbar to pick pen, highlighter, arrows, shapes, or eraser over anything on screen. Click the close button on this bar to stop drawing.',
       },
@@ -5309,7 +5429,7 @@ const A = {
     if (P.tools.timer) { delete P.tools.timer; renderTools(); renderDock(); }
   },
   'comp-quick-timer': () => { startTimer({ label: '2 minutes', minutes: 2, sound: S.settings.timerTool?.sound || 'bell' }); tick(); },
-  'unpin-schedule': () => { P.pinned = null; S.settings.lastPinned = ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); tick(); toast('Following your bell schedule.'); },
+  'unpin-schedule': () => { P.pinned = null; S.settings.lastPinned = ''; save(); P.layoutKey = ''; onClassSwitched(); renderDock(); tick(); toast('Following your bell schedule.'); },
   'fb-audio-stop': () => { fbStopAudio(); renderDock(); },
   'ie-priv-toggle': () => { P.showPrivNotes = !P.showPrivNotes; P.sideKey = ''; tick(); },
   'tl-enable-all': el => { const c = S.classes[+el.dataset.ci] || selClass(); if (!c) return; c.automations.forEach(a => a.enabled = true); save(); tlRerender(); toast(`Turned on ${c.automations.length} automations for ${c.name}.`); },
@@ -5333,9 +5453,9 @@ const A = {
   'music-stop-ed': () => stopMusic(true),
   pt: el => { const c = currentClass(); if (!c) return; c.points[el.dataset.i].score += Number(el.dataset.d); save(); rerenderTool('points'); },
   'pt-add': () => { const c = currentClass(); if (!c) return; c.points.push({ name: `Team ${c.points.length + 1}`, score: 0 }); save(); rerenderTool('points'); },
-  'pt-del-row': el => { const c = currentClass(), i = +el.dataset.i; if (!c || c.points.length <= 1 || !c.points[i]) return; const t = c.points[i]; if (t.score && !confirm(`Remove “${t.name}” (${t.score} pts)?`)) return; c.points.splice(i, 1); save(); rerenderTool('points'); },
-  'pt-del': () => { const c = currentClass(); if (!c || c.points.length <= 1) return; const last = c.points[c.points.length - 1]; if (last.score && !confirm(`Remove “${last.name}” (${last.score} pts)?`)) return; c.points.pop(); save(); rerenderTool('points'); },
-  'pt-reset': () => { const c = currentClass(); if (!c) return; if (c.points.some(p => p.score) && !confirm('Reset all team scores to 0?')) return; c.points.forEach(p => p.score = 0); save(); rerenderTool('points'); },
+  'pt-del-row': el => { const c = currentClass(), i = +el.dataset.i; if (!c || c.points.length <= 1 || !c.points[i]) return; const prev = JSON.parse(JSON.stringify(c.points)), name = c.points[i].name; c.points.splice(i, 1); save(); rerenderTool('points'); undoToast(`Removed “${name}”.`, () => { c.points = prev; save(); rerenderTool('points'); }); },
+  'pt-del': () => { const c = currentClass(); if (!c || c.points.length <= 1) return; const prev = JSON.parse(JSON.stringify(c.points)), last = c.points.pop(); save(); rerenderTool('points'); undoToast(`Removed “${last.name}”.`, () => { c.points = prev; save(); rerenderTool('points'); }); },
+  'pt-reset': () => { const c = currentClass(); if (!c || !c.points.some(p => p.score)) return; const prev = JSON.parse(JSON.stringify(c.points)); c.points.forEach(p => p.score = 0); save(); rerenderTool('points'); undoToast('Reset all team scores to 0.', () => { c.points = prev; save(); rerenderTool('points'); }); },
   'noise-start': () => noiseStart(),
   'noise-stop': () => noiseStop(),
   'rand-quick-add': () => {
@@ -5578,17 +5698,14 @@ const A = {
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },
-  'wm-closeall': () => { stopMusicHosts(); const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
+  'wm-closeall': () => { stopAllPresentAudio(); const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
   'win-close': el => {
     const closing = winList().find(w => w.id === el.dataset.id);
     if (closing?.kind === 'rec' && REC.state !== 'idle') {
       if (REC.state === 'rec' || REC.state === 'countin') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
-    if (closing?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
-    if (closing?.kind === 'files' || (closing?.kind === 'res' && winRes(closing)?.filesBrowser)) fbStopAudio();
-    if (closing?.kind === 'piano' && typeof pianoSeqStop === 'function') pianoSeqStop();
-    if (closing && ['score', 'sight', 'res'].includes(closing.kind)) stopMusicHosts();
+    if (closing) stopAllPresentAudio({ closing });
     const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {
@@ -5597,10 +5714,13 @@ const A = {
   },
   'bm-folder': el => { const o = BM.open; BM.open = o && o.folderId === el.dataset.id && o.winId === el.dataset.win ? null : { winId: el.dataset.win, folderId: el.dataset.id }; renderBmMenu(); },
   'bm-star': el => {
-    const w = findWin(el.dataset.id); if (!w?.url) return;
+    const isStage = el.dataset.target === 'stage';
+    const target = isStage ? findRes(el.dataset.id) : findWin(el.dataset.id);
+    if (!target?.url) return;
     S.bookmarks ||= [];
-    if (S.bookmarks.some(b => b.url === w.url)) return toast('Already bookmarked.');
-    S.bookmarks.push({ id: uid(), title: (w.title || winTitle(w)).slice(0, 60), url: w.url }); save(); WIN.sig = ''; toast('Bookmarked.');
+    if (S.bookmarks.some(b => b.url === target.url)) return toast('Already bookmarked.');
+    const title = (target.title || (isStage ? guessTitle(target.url) : winTitle(target))).slice(0, 60);
+    S.bookmarks.push({ id: uid(), title, url: target.url }); save(); WIN.sig = ''; toast('Bookmarked.');
   },
   'bm-chrome': () => native('chromeBookmarks'),
   'bm-cancel': () => { BM.profiles = null; renderEditor(); },
@@ -5629,7 +5749,11 @@ const A = {
     save(); renderDock(); renderDockCustom();
   },
   'dock-home': () => { dockCfg().pos = { mode: 'header' }; save(); renderDock(); renderDockCustom(); },
-  'dock-reset': () => { if (!confirm('Reset the toolbar buttons, order, and style back to defaults?')) return; S.settings.dock = {}; S.settings.hideDockAfter = 0; save(); renderDock(); renderDockCustom(); },
+  'dock-reset': () => {
+    const prevDock = JSON.parse(JSON.stringify(S.settings.dock || {})), prevHide = S.settings.hideDockAfter;
+    S.settings.dock = {}; S.settings.hideDockAfter = 0; save(); renderDock(); renderDockCustom();
+    undoToast('Toolbar reset to defaults.', () => { S.settings.dock = prevDock; S.settings.hideDockAfter = prevHide; save(); renderDock(); renderDockCustom(); });
+  },
   'tab-group': el => { P.groupMenu = P.groupMenu === el.dataset.id ? null : el.dataset.id; renderGroupMenu(); },
   'group-out': el => {
     const c = ieClass(); if (!c) return; const r = c.cls.resources.find(x => x.id === el.dataset.id); if (!r) return;
@@ -5659,18 +5783,26 @@ const A = {
   },
   'warmup-hide': () => {
     const c = context(now()), cls = c.cls; if (!cls) return;
-    if (!confirm(`Remove the warm-up tab from ${cls.name}? (Bring it back in Setup → Classes or Quick edit.)`)) return;
-    cls.hideWarmup = true; if (P.stageSel[c.key] === 'warmup') delete P.stageSel[c.key]; save(); P.stageKey = '';
+    const prevSel = P.stageSel[c.key];
+    cls.hideWarmup = true; if (prevSel === 'warmup') delete P.stageSel[c.key]; save(); P.stageKey = '';
+    undoToast(`Hid the warm-up tab from ${cls.name}.`, () => { cls.hideWarmup = false; if (prevSel === 'warmup') P.stageSel[c.key] = 'warmup'; save(); P.stageKey = ''; });
   },
   'warmup-show': () => { const c = ieClass() || null, cls = c?.cls || selClass(); if (!cls) return; cls.hideWarmup = false; save(); P.stageKey = ''; if (VIEW !== 'present') renderEditor(); },
   'res-remove': el => {
     const c = context(now()), cls = c.cls; if (!cls) return;
-    const r = cls.resources.find(x => x.id === el.dataset.id); if (!r) return;
-    if (!confirm(`Remove “${r.title || 'this tab'}” from ${cls.name}?`)) return;
-    cls.resources = cls.resources.filter(x => x !== r);
-    for (const list of Object.values(S.windows || {})) for (let i = list.length - 1; i >= 0; i--) if (list[i].resId === r.id) list.splice(i, 1);
-    if (P.stageSel[c.key] === r.id) P.stageSel[c.key] = 'warmup';
+    const idx = cls.resources.findIndex(x => x.id === el.dataset.id), r = idx >= 0 ? cls.resources[idx] : null; if (!r) return;
+    cls.resources.splice(idx, 1);
+    const removedWins = [];
+    for (const [wk, list] of Object.entries(S.windows || {})) for (let i = list.length - 1; i >= 0; i--) if (list[i].resId === r.id) removedWins.push([wk, list.splice(i, 1)[0]]);
+    const prevSel = P.stageSel[c.key];
+    if (prevSel === r.id) P.stageSel[c.key] = 'warmup';
     P.stageKey = ''; WIN.sig = ''; save();
+    undoToast(`Removed “${r.title || 'tab'}” from ${cls.name}.`, () => {
+      cls.resources.splice(Math.min(idx, cls.resources.length), 0, r);
+      for (const [wk, w] of removedWins) (S.windows[wk] ||= []).push(w);
+      if (prevSel === r.id) P.stageSel[c.key] = r.id;
+      P.stageKey = ''; WIN.sig = ''; save();
+    });
   },
   'edit-mode': () => {
     document.activeElement?.blur?.();
@@ -5696,7 +5828,17 @@ const A = {
   'clip-all': () => clipSelectAll(true),
   'clip-none': () => clipSelectAll(false),
   'icons-open': () => { P.iconsOpen = !P.iconsOpen; P.dockCustom = false; if (typeof renderDockCustom === 'function') renderDockCustom(); renderIcons(); },
-  'icons-reset': () => { if (!confirm('Put every icon back to the default?')) return; S.settings.icons = {}; for (const c of S.classes) for (const r of c.resources) delete r.icon; save(); P.stageKey = ''; P.sideKey = ''; WIN.sig = ''; renderDock(); renderIcons(); },
+  'icons-reset': () => {
+    const prevIcons = JSON.parse(JSON.stringify(S.settings.icons || {}));
+    const prevRes = [];
+    for (const c of S.classes) for (const r of c.resources) if (r.icon !== undefined) { prevRes.push([r, r.icon]); delete r.icon; }
+    S.settings.icons = {}; save(); P.stageKey = ''; P.sideKey = ''; WIN.sig = ''; renderDock(); renderIcons();
+    undoToast('Icons reset to defaults.', () => {
+      S.settings.icons = prevIcons;
+      for (const [r, ic] of prevRes) r.icon = ic;
+      save(); P.stageKey = ''; P.sideKey = ''; WIN.sig = ''; renderDock(); renderIcons();
+    });
+  },
   'look-open': () => { P.lookOpen = !P.lookOpen; P.autoDrawer = false; renderAutoDrawer(); renderLook(); },
   'look-theme': el => { const c = ieClass(); if (!c) return; const th = c.cls.theme; Object.assign(th, { ...THEMES[el.dataset.k], image: th.image || '', dim: th.dim }); delete th.titleText; delete th.clockText; save(); renderLook(); },
   'look-text-reset': () => { const c = ieClass(); if (!c) return; delete c.cls.theme.titleText; delete c.cls.theme.clockText; save(); renderLook(); },
@@ -5920,7 +6062,7 @@ function calibrateSync() {
 }
 const CHANGE = {
   'board-paper': el => { saveInk(); S.settings.boardPaper = el.value; save(); switchInkKey(desiredInkKey()); updateInkUI(); },
-  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); if (P.tools.random) rerenderTool('random'); },
+  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; onClassSwitched(); renderDock(); },
   'ink-size': el => { P.ink.size = Number(el.value); },
   'noise-beep': el => { NOISE.beep = el.checked; S.settings.noiseBeep = el.checked; save(); },
   'noise-dyn': el => { S.settings.noiseDyn = el.checked; save(); rerenderTool('noise'); },
@@ -6028,6 +6170,7 @@ document.addEventListener('pointerup', () => {
 document.addEventListener('keydown', e => {
   P.lastMove = Date.now();
   if (VIEW !== 'present' || e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
+  if (document.querySelector('#bug-modal, #wn-modal, #av-cal, #sr-ws-modal, #gr-card')) return;
   if (P.ink.on && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); inkDoUndo(); return; }
   if (e.key === 'ArrowRight') A['agenda-next']();
   else if (e.key === 'ArrowLeft') A['agenda-prev']();
@@ -6719,34 +6862,38 @@ function openWhatsNewModal(force = false) {
   const markSeen = () => {
     if (S.settings.seenWhatsNew !== WHATS_NEW.id) { S.settings.seenWhatsNew = WHATS_NEW.id; save(); }
   };
+  const isFirstRun = (IS_FRESH_INSTALL || (!S.settings.seenWhatsNew && !S.settings.tourDone)) && !force;
   const m = document.createElement('div');
   m.id = 'wn-modal';
   m.className = 'bug-backdrop';
   m.innerHTML = `<div class="bug-card wn-card" role="dialog" aria-label="${esc(WHATS_NEW.title)}">
     <div class="bug-head">
       <h3>${IC('ico:book')} ${esc(WHATS_NEW.title)}</h3>
-      <button class="bug-x" data-wn="close" title="Close">${IC('ico:close')}</button>
+      <button class="bug-x" data-wn="close" title="Close" aria-label="Close">${IC('ico:close')}</button>
     </div>
-    <p class="wn-intro">${esc((IS_FRESH_INSTALL || (!S.settings.seenWhatsNew && !S.settings.tourDone)) && !force ? (WHATS_NEW.welcomeIntro || WHATS_NEW.intro) : WHATS_NEW.intro)}</p>
-    ${WHATS_NEW.featured?.length ? `<div class="wn-sec">Featured Highlights</div><ul class="wn-list wn-featured">${WHATS_NEW.featured.map(rowHTML).join('')}</ul>` : ''}
-    ${WHATS_NEW.more?.length ? `<div class="wn-sec">More Features</div><ul class="wn-compact">${WHATS_NEW.more.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <p class="wn-more">Want to learn more? You can explore on your own, or check out the step-by-step walkthroughs anytime in <b>Setup → Tutorials</b>.</p>
+    <p class="wn-intro">${esc(isFirstRun ? (WHATS_NEW.welcomeIntro || WHATS_NEW.intro) : WHATS_NEW.intro)}</p>
+    ${WHATS_NEW.featured?.length ? `<div class="wn-sec">${isFirstRun ? 'Start Here' : 'Featured Highlights'}</div><ul class="wn-list wn-featured">${WHATS_NEW.featured.map(rowHTML).join('')}</ul>` : ''}
+    ${!isFirstRun && WHATS_NEW.more?.length ? `<div class="wn-sec">More Features</div><ul class="wn-compact">${WHATS_NEW.more.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${isFirstRun ? '' : `<p class="wn-more">Want to learn more? You can explore on your own, or check out the step-by-step walkthroughs anytime in <b>Setup → Tutorials</b>.</p>
     <div class="wn-bug">
       <span class="wn-ic">${IC('ico:warn')}</span>
       <div>
         <b>Spotted a bug or have an idea?</b>
         <p>Press <kbd>${bugKey}</kbd> or open <b>⋯ → Report a Bug</b> anytime. Rehearsal grabs a screenshot automatically (uncheck it if student names are visible) and sends your note straight from the app, with no sign-in needed.</p>
       </div>
-    </div>
+    </div>`}
     <div class="bug-foot wn-foot">
       <button type="button" class="bug-btn" data-wn="tutorials">${IC('ico:book')} Tutorials</button>
       <button type="button" class="bug-btn" data-wn="bug">${IC('ico:warn')} Report a Bug</button>
       <span class="grow"></span>
-      <button type="button" class="bug-btn primary" data-wn="close">Continue</button>
+      ${isFirstRun
+        ? `<button type="button" class="bug-btn" data-wn="explore">Explore on my own</button><button type="button" class="bug-btn primary" data-wn="tour">Take Quick Tour</button>`
+        : `<button type="button" class="bug-btn primary" data-wn="close">Continue</button>`}
     </div>
   </div>`;
   document.body.appendChild(m);
   const close = (allowTour = false) => {
+    document.removeEventListener('keydown', onWnKey, true);
     markSeen();
     m.remove();
     if (allowTour && VIEW === 'present' && !S.settings.seenBasicTour) {
@@ -6754,8 +6901,13 @@ function openWhatsNewModal(force = false) {
       setTimeout(() => startTour(null, true), 160);
     }
   };
+  const onWnKey = ev => {
+    if (!m.isConnected) { document.removeEventListener('keydown', onWnKey, true); return; }
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(false); }
+  };
+  document.addEventListener('keydown', onWnKey, true);
   m.addEventListener('click', e => {
-    if (e.target === m) { close(!force); return; }
+    if (e.target === m) { close(false); return; }
     const b = e.target.closest('[data-wn]'); if (!b) return;
     const act = b.dataset.wn;
     if (act === 'tutorials') {
@@ -6765,8 +6917,10 @@ function openWhatsNewModal(force = false) {
     } else if (act === 'bug') {
       close(false);
       triggerBugReport();
-    } else {
-      close(!force);
+    } else if (act === 'explore' || act === 'close') {
+      close(false);
+    } else if (act === 'tour') {
+      close(true);
     }
   });
 }
