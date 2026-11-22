@@ -1,10 +1,13 @@
 {
-  "description": "Protected feature zones in Rehearsal. Any diff touching these zones is flagged by tests/check-diff.sh so unrelated edits cannot silently alter zoom, scrolling, stacking, or persistent identifiers.",
+  "description": "Protected feature zones in Rehearsal. Any edit or diff touching these zones is flagged by tests/edit-guard.py (before editing) and tests/check-diff.sh (before committing) so unrelated edits cannot silently alter zoom, scrolling, stacking, or persistent identifiers.",
   "zones": [
     {
       "id": "pdf-zoom-scroll",
       "label": "PDF viewer zoom & 2D scrolling",
       "reason": "Smooth 60fps CSS resize + scroll-anchor math + sharp re-render + 2D scrolling when zoomed.",
+      "keywords": ["pdf", "pdfview", "pdfv"],
+      "requireAny": ["zoom", "pinch", "scroll", "pan", "pdf", "pdfview"],
+      "requirePair": [["pdf", "pdfview", "pdfv"], ["zoom", "pinch", "scroll", "pan"]],
       "rules": [
         {
           "file": "web/pdfview.js",
@@ -36,6 +39,7 @@
       "id": "unified-pinch-zoom",
       "label": "Unified pinch-zoom & pan router (app.js)",
       "reason": "Routes trackpad/touch pinch zoom to Score Practice, Sight Reading, Piano, PDF, floating windows, and stage without double-scaling.",
+      "requireAny": ["pinch", "zoom", "__pinch", "applyzoom", "zoomapply"],
       "rules": [
         {
           "file": "web/app.js",
@@ -50,6 +54,7 @@
       "id": "sight-zoom-scroll",
       "label": "Sight Reading zoom & isolated staff scrollbar",
       "reason": "Keeps Sight Reading vector zoom (__zoom, not CSS zoom) and isolated .sr-staff scrolling intact.",
+      "requirePair": [["sight", "sight-reading", "solfege", "rhythm", "staff", "sr-staff"], ["zoom", "pinch", "scroll", "scrollbar"]],
       "rules": [
         {
           "file": "web/sight.js",
@@ -72,6 +77,7 @@
       "id": "score-zoom-scroll",
       "label": "Score Practice zoom & scroll",
       "reason": "Keeps OSMD zoom-around-cursor and .sp-score scrolling intact.",
+      "requirePair": [["score", "osmd", "musicxml", "musescore", "sp-score"], ["zoom", "pinch", "scroll", "scrollbar"]],
       "rules": [
         {
           "file": "web/score.js",
@@ -92,6 +98,7 @@
       "id": "piano-zoom-scroll",
       "label": "Piano warm-up staff zoom & scroll",
       "reason": "Keeps resizable warm-up staff scrolling and pinch-zoom handler intact.",
+      "requirePair": [["piano", "warm-up", "warmup", "vocalize", "pq-staff"], ["zoom", "pinch", "scroll", "scrollbar", "resize"]],
       "rules": [
         {
           "file": "web/tools.js",
@@ -114,6 +121,7 @@
       "id": "present-stacking",
       "label": "Present screen stacking & Annotate pass-through",
       "reason": "Header/toolbar (z:50), ink canvas (z:20), floating windows (z:6), INK_UI pass-through, and placeInkBar.",
+      "requireAny": ["z-index", "stacking", "annotate", "annotation", "ink", "whiteboard", "draw", "interact", "pass-through", "passthrough"],
       "rules": [
         {
           "file": "web/styles.css",
@@ -137,6 +145,7 @@
       "id": "persistent-ids",
       "label": "Persistent bundle ID, data folder, and localStorage keys",
       "reason": "Renaming these breaks macOS permissions, updates, and teachers' saved data.",
+      "alwaysAsk": true,
       "rules": [
         {
           "file": "build.sh",
@@ -159,6 +168,7 @@
       "id": "ipad-shell",
       "label": "iPad / web safe-area dark shell",
       "reason": "Prevents white top status-bar seam and rubber-band overscroll on iPad.",
+      "requireAny": ["ipad", "safari", "status bar", "status-bar", "safe-area", "seam", "overscroll", "viewport"],
       "rules": [
         {
           "file": "web/index.html",
@@ -174,6 +184,7 @@
       "id": "grader-core",
       "label": "Sight-reading & rhythm grading engine",
       "reason": "Pitch/onset/tap grading algorithms are tuned against recorded fixtures.",
+      "requireAny": ["grade", "grader", "grading", "tap", "tapping", "pitch", "onset", "mic", "microphone", "clap", "clapping", "sing", "singing"],
       "rules": [
         {
           "file": "web/grade.js",

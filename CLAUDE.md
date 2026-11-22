@@ -23,10 +23,12 @@ tests/check-diff.sh        # audit every touched file/section and fail if a Prot
 ./release.sh "Notes"       # publish to everyone (see Releases); --minor / --major for bigger bumps
 ```
 
-### Guarding against accidental regressions (mandatory before every commit)
-1. **Run `tests/run.sh`** — runs `tests/invariants-test.js` (syntax-checks all `web/*.js`, checks `index.html` ↔ `sw.js` parity, and enforces zoom/scrolling, stacking z-index, persistent ID, and iPad shell contracts) plus the grader tests. (`release.sh` runs this automatically.)
-2. **Run `tests/check-diff.sh`** — lists every file and feature section touched in your diff and **fails** if any Protected Zone in `tests/protected-zones.json` (PDF zoom/scroll, unified pinch-zoom, Sight Reading/Score Practice/Piano zoom & scrollbars, Present stacking, persistent IDs, iPad shell, grader core) was edited without explicit approval (`--allow <zone>`). Never modify a Protected Zone while working on an unrelated feature without telling the user first and getting approval.
-3. **Keep new features modular** — when building large new features (e.g., paid features), put new code in dedicated `web/*.js` files (and register them in `web/index.html` and `web/sw.js`) instead of weaving large blocks into fragile sections of `web/app.js` or `web/styles.css`.
+### Guarding against accidental regressions & unrelated edits (mandatory)
+1. **Live Pre-Edit Permission Gate (automatic hook)** — `.agents/hooks.json` (Antigravity) and `.claude/settings.json` (Claude Code) run `tests/edit-guard.py` *before* every file edit (`edit_file`/`write_file` and `Edit`/`Write`/`MultiEdit`). If an edit touches a Protected Zone or any app file/section unrelated to the user's request (or tries to modify the guardrail files themselves), the hook pauses and prompts the user for explicit permission. Never bypass `edit_file`/`write_file` by mutating source files through shell commands (`sed -i`, `python -c`, redirection).
+2. **Do not touch unrelated code** — only edit files/sections directly required to fulfill the user's request or fix the reported bug. If you discover a necessary edit outside the request's scope, explain why and get explicit user permission first.
+3. **Run `tests/run.sh` before every commit** — runs `tests/invariants-test.js` (syntax-checks all `web/*.js`, checks `index.html` ↔ `sw.js` parity, and enforces zoom/scrolling, stacking z-index, persistent ID, and iPad shell contracts), `tests/edit-guard-test.py`, and the grader tests. (`release.sh` runs this automatically.)
+4. **Run `tests/check-diff.sh` before every commit** — lists every file and feature section touched in your diff and **fails** if any Protected Zone in `tests/protected-zones.json` was edited without explicit approval (`--allow <zone>`).
+5. **Keep new features modular** — when building large new features (e.g., paid features), put new code in dedicated `web/*.js` files (and register them in `web/index.html` and `web/sw.js`) instead of weaving large blocks into fragile sections of `web/app.js` or `web/styles.css`.
 
 Run a single test (each test gets the modules it needs passed after `--`, plus its own name):
 ```bash
