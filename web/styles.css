@@ -1613,10 +1613,13 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
 /* ---------- music windows v4: Fixed 2-tier toolbar (Action bar + slim Display strip) ---------- */
 .score-host, .sr-host { container-type: inline-size; }
 .sp-top, .sr-top {
-  --ctl-h: 30px;
+  --ctl-h: 34px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
-  padding: 6px 10px; flex: none;
+  padding: 7px 10px; flex: none;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+.sp-top .sp-primary, .sr-top .sr-primary {
+  padding: 0 14px; font-size: 13.5px; font-weight: 700;
 }
 .sr-sub, .sp-sub {
   --sub-h: 26px;

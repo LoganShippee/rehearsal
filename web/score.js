@@ -431,33 +431,34 @@ function spInjectVoiceGradeCSS() {
     .sp-grmenu label.sp-grm-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #333a48; cursor: pointer; padding: 2px 2px; }
 
     /* Idea 3A: Compact single-row Voice Pills + Built-in Pitch Bells + Collapsible Vocal Recording */
-    .sp-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; padding: 5px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
+    .sp-voices { --v-h: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; padding: 5px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
       background: color-mix(in srgb, var(--text, #1d2330) 4%, transparent); color: var(--text, #1d2330); flex: 0 0 auto; }
     .sp-voices[hidden] { display: none !important; }
     .sp-choir { display: none !important; }
     .sp-vbar-sep { width: 1px; height: 18px; background: var(--line, rgba(0,0,0,.18)); flex: none; margin: 0 2px; }
     .sp-parts { display: flex; flex-wrap: wrap; gap: 5px 6px; align-items: center; }
-    .sp-part { display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
-      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 8px; padding: 2px 6px; font-size: 12px; transition: border-color .15s, background .15s; }
+    .sp-part { display: inline-flex; align-items: center; gap: 4px; height: var(--v-h); box-sizing: border-box; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
+      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 7px; padding: 0 6px; font-size: 12px; transition: border-color .15s, background .15s; }
     .sp-part.is-sung { border-color: color-mix(in srgb, var(--accent, #e76f51) 65%, var(--line, transparent)); background: color-mix(in srgb, var(--accent, #e76f51) 12%, transparent); }
     .sp-part.is-rec { border-color: #e5484d; background: rgba(229, 72, 77, 0.14); }
     .sp-part-lbl { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 600; white-space: nowrap; }
     .sp-part input[type=range] { width: 44px; cursor: pointer; }
     .sp-pitch-btn { border: 1px solid transparent; background: transparent; color: var(--text, #1d2330); border-radius: 6px;
-      padding: 2px 4px !important; height: 22px !important; font-size: 11.5px !important; font-weight: 600; cursor: pointer;
+      padding: 0 4px !important; height: 20px !important; font-size: 11.5px !important; font-weight: 600; cursor: pointer;
       display: inline-flex; align-items: center; gap: 3px; opacity: .78; line-height: 1; white-space: nowrap; }
     .sp-pitch-btn:hover { opacity: 1; background: color-mix(in srgb, var(--text, #1d2330) 12%, transparent); border-color: var(--line, rgba(0,0,0,.15)); }
     .sp-pitch-btn .ico { width: 13px; height: 13px; flex: none; }
-    .sp-pitch-grp { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
-      color: var(--text, #1d2330); border-radius: 7px; padding: 2px 7px !important; height: 24px !important; font-size: 11.5px !important; font-weight: 600;
+    .sp-pitch-grp, .sp-voices > .sp-vfoc-btn, .sp-vrec-btn, .sp-metro-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 7%, transparent);
+      color: var(--text, #1d2330); border-radius: 7px; padding: 0 8px !important; height: var(--v-h) !important; box-sizing: border-box; font-size: 12px !important; font-weight: 600;
       cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1; }
-    .sp-pitch-grp:hover { background: color-mix(in srgb, var(--text, #1d2330) 14%, transparent); }
-    .sp-pitch-grp .ico { width: 12px; height: 12px; flex: none; }
-    .sp-vrec-btn, .sp-vdel-btn, .sp-vfoc-btn, .sp-metro-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
-      color: var(--text, #1d2330); border-radius: 6px; padding: 2px 6px !important; height: 22px !important; font-size: 11px !important; font-weight: 600;
+    .sp-pitch-grp:hover, .sp-voices > .sp-vfoc-btn:hover, .sp-vrec-btn:hover, .sp-metro-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 15%, transparent); }
+    .sp-pitch-grp .ico, .sp-vrec-btn .ico, .sp-metro-btn .ico { width: 13px; height: 13px; flex: none; }
+    .sp-part .sp-vfoc-btn, .sp-vdel-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
+      color: var(--text, #1d2330); border-radius: 5px; padding: 0 6px !important; height: 20px !important; font-size: 11px !important; font-weight: 600;
       cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; line-height: 1; }
-    .sp-vrec-btn .ico, .sp-vdel-btn .ico, .sp-metro-btn .ico { width: 12px; height: 12px; flex: none; }
-    .sp-vrec-btn:hover, .sp-vdel-btn:hover, .sp-vfoc-btn:hover, .sp-metro-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
+    .sp-vdel-btn .ico { width: 12px; height: 12px; flex: none; }
+    .sp-part .sp-vfoc-btn:hover, .sp-vdel-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
+    .sp-vbar-end select { height: var(--v-h) !important; box-sizing: border-box; border-radius: 7px; padding: 0 7px !important; font-size: 12px !important; }
     .sp-vrec-btn.rec-on { background: #e5484d !important; color: #fff !important; border-color: #e5484d !important; animation: sprecpulse 1s infinite; }
     .sp-vfoc-btn.on, .sp-metro-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
     .sp-vfoc-btn.solo.on { background: #1f6fd1 !important; color: #fff !important; border-color: transparent !important; }
