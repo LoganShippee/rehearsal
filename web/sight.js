@@ -49,7 +49,7 @@ const SR_LEAPS = { step: 'Steps only', third: 'Steps & 3rds', triad: 'Steps & do
 
 function srDefaults() {
   return {
-    mode: 'rhythm', show: false, settingsOpen: false,
+    mode: 'solfege', show: false, settingsOpen: false,
     rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'] },
     solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, startDo: true, cells: ['q', 'h', 'w'] },
     ex: {},

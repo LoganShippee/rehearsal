@@ -1366,7 +1366,7 @@ function mountScore(host, st, onChange0, key) {
   const BAR = {
     file: () => `<span class="sp-grp" data-ctl="file"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)" aria-label="Add a score file">${IC('ico:plus')}</button></span>`,
     play: () => `<button data-sp="play" data-ctl="play" class="sp-primary">${IC('ico:play')} Play</button>`,
-    tempo: () => `<span class="sp-step" data-ctl="tempo" title="Tempo (beats per minute)"><button data-sp="tempo-step" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm"></output><button data-sp="tempo-step" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>`,
+    tempo: () => `<span class="sp-step" data-ctl="tempo" title="Tempo (beats per minute &amp; percent of original score tempo)"><button data-sp="tempo-step" data-d="-5" title="Slower (-5%)" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm" data-sp="tempo-reset"></output><button data-sp="tempo-step" data-d="5" title="Faster (+5%)" aria-label="Faster">${IC('ico:plus')}</button><button class="sp-treset" data-sp="tempo-reset" title="Reset to 100% original score tempo" aria-label="Reset tempo to 100%" hidden>${IC('ico:reload')}</button></span>`,
     metronome: () => `<button data-sp="metro" data-ctl="metronome" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
     loop: () => `<button data-sp="loop" data-ctl="loop" title="Loop the selected measures (click or drag on the music to choose them)">${IC('ico:repeat')} <span class="sp-looplbl">Loop</span></button>`,
     range: () => `<span class="sp-range" data-ctl="range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
@@ -1958,12 +1958,24 @@ function mountScore(host, st, onChange0, key) {
     const f = $q('[data-spk="from"]'), t = $q('[data-spk="to"]');
     if (document.activeElement !== f) f.value = mNum(Math.min(st.loop.a, st.loop.b));
     if (document.activeElement !== t) t.value = mNum(Math.max(st.loop.a, st.loop.b));
-    const bpm = ctl.sc ? Math.round(spBpmAt(ctl.sc, ctl.sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0) * st.tempo / 100) : '';
+    const origBpm = ctl.sc ? Math.round(spBpmAt(ctl.sc, ctl.sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0)) : 0;
+    const bpm = origBpm ? Math.round(origBpm * st.tempo / 100) : '';
     const ramp = st.speed.on && ctl.playing ? ` · ${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.iter || 0))}%` : '';
+    const changed = st.tempo !== 100;
     const bpmEl = $q('.sp-bpm');
     if (bpmEl) {
-      bpmEl.innerHTML = bpm ? `<b>${bpm}</b><small>BPM</small>` : `<b>${st.tempo}%</b>`;
-      bpmEl.title = bpm ? `${bpm} BPM (${st.tempo}% of score tempo${ramp})` : `${st.tempo}% tempo${ramp}`;
+      bpmEl.innerHTML = bpm
+        ? `<b>${bpm}</b><small>BPM</small><span class="sp-tpct${changed ? ' mod' : ''}">${st.tempo}%</span>`
+        : `<b>${st.tempo}%</b>`;
+      bpmEl.classList.toggle('is-mod', changed);
+      bpmEl.title = bpm
+        ? `${bpm} BPM (${st.tempo}% of ${origBpm} BPM original${ramp})${changed ? ' · Click to reset to 100%' : ''}`
+        : `${st.tempo}% of original tempo${ramp}${changed ? ' · Click to reset to 100%' : ''}`;
+    }
+    const trBtn = $q('[data-sp="tempo-reset"].sp-treset');
+    if (trBtn) {
+      trBtn.hidden = !changed;
+      trBtn.title = origBpm ? `Reset to 100% (${origBpm} BPM original)` : 'Reset to 100% original tempo';
     }
     const zEl = $q('.sp-zoom .tb-zpct');
     if (zEl) zEl.textContent = `${Math.round((st.zoom || 1) * 100)}%`;
@@ -2282,6 +2294,7 @@ function mountScore(host, st, onChange0, key) {
       const k = b.dataset.sp;
       if (k === 'play') { if (ctl.playing) spStop(); else if (ctl.sc) spPlay(ctl); }
       if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); onChange(); }
+      if (k === 'tempo-reset') { if (st.tempo !== 100) { st.tempo = 100; ctl.updateBar(); onChange(); } }
       if (k === 'metro') { st.metronome = !st.metronome; onChange(); ctl.updateBar(); }
       if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }

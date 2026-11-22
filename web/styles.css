@@ -1675,6 +1675,20 @@ canvas.rec-pwave { height: 84px; cursor: pointer; touch-action: none; }
   font-size: 10px; font-weight: 600; opacity: .7; letter-spacing: .02em; line-height: 1;
 }
 .sp-step output b { font-weight: 700; }
+.sp-step output.sp-bpm.is-mod { cursor: pointer; }
+.sp-step output.sp-bpm.is-mod:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.sp-tpct {
+  font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 5px; margin-left: 2px;
+  background: color-mix(in srgb, var(--text) 10%, transparent); opacity: .78; line-height: 1.25;
+}
+.sp-tpct.mod {
+  background: color-mix(in srgb, var(--accent) 26%, transparent); opacity: 1;
+}
+.sp-top .sp-step button.sp-treset {
+  border-left: 1px solid var(--line); min-width: 26px; padding: 0 6px !important;
+  color: var(--text);
+}
+.sp-top .sp-step button.sp-treset .ico { width: 13px; height: 13px; }
 
 /* Tier 2 controls: slim display strip */
 .sr-sub button, .sp-sub button {

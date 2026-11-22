@@ -80,30 +80,38 @@ const ACTION_TYPES = {
   warmup: 'Show the warm-up', agenda: 'Go to agenda step', signal: 'Show a signal', clearSignal: 'Clear signal',
 };
 
-function newClass(name = 'New class', themeIdx = 0) {
+function newClass(name = 'New class', themeIdx = 7) {
   return {
     id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: '' },
     agenda: [], warmup: '', resources: [], roster: [], automations: [], points: [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }], notes: {},
   };
 }
 // What a new copy of Rehearsal starts with: a basic music-classroom template to edit or replace.
-// No students, events or files: each teacher adds their own.
+// No students or files: each teacher adds their own.
 function sampleData() {
+  const today = dateKey(new Date());
   const music = (name, period, themeIdx, warmup) => Object.assign(newClass(name, themeIdx), {
     subtitle: period,
+    hideWarmup: true,
     agenda: [{ text: 'Warm-up', min: 8 }, { text: 'Sight-reading', min: 10 }, { text: 'Rehearsal', min: 25 }, { text: 'Pack up', min: 5 }],
     warmup,
+    resources: [
+      { id: uid(), title: 'Sight Reading', sight: { mode: 'solfege' } },
+      { id: uid(), title: 'Score Practice', score: {} },
+      { id: uid(), title: 'Files', filesBrowser: true },
+    ],
+    screenNotes: { [today]: 'Click Quick edit to add your own notes here, or clear the text to hide this card.' },
   });
-  const p1 = music('Choir', 'Period 1', 0, 'Hum a comfortable note, then slide up and down an octave.\nWhat key signature has one sharp?');
+  const p1 = music('Choir', 'Period 1', 7, 'Hum a comfortable note, then slide up and down an octave.\nWhat key signature has one sharp?');
   const p2 = music('Band', 'Period 2', 1, 'Assemble your instrument and play your concert B♭ scale.\nHow many beats does a dotted half note get in 4/4?');
-  const p3 = music('Orchestra', 'Period 3', 3, 'Tune with the drone, then play a D major scale.\nName the notes of the open strings on your instrument.');
-  const p4 = music('General Music', 'Period 4', 5, 'Clap the rhythm on the board.\nWhat is the difference between beat and rhythm?');
+  const p3 = music('Orchestra', 'Period 3', 8, 'Tune with the drone, then play a D major scale.\nName the notes of the open strings on your instrument.');
+  const p4 = music('General Music', 'Period 4', 6, 'Clap the rhythm on the board.\nWhat is the difference between beat and rhythm?');
   const classes = [p1, p2, p3, p4];
   for (const c of classes) {
     c.automations = [
-      { id: uid(), enabled: true, anchor: 'start', offset: 0, action: 'sound', sound: 'chime' },
-      { id: uid(), enabled: true, anchor: 'start', offset: 0, action: 'message', text: `Welcome to ${c.name}! Get your music and start the warm-up.`, seconds: 8 },
-      { id: uid(), enabled: true, anchor: 'end', offset: 5, action: 'timer', label: 'Pack up', minutes: 4, sound: 'bell', endMessage: 'Instruments and folders away. See you next time!' },
+      { id: uid(), enabled: false, anchor: 'start', offset: 0, action: 'sound', sound: 'chime' },
+      { id: uid(), enabled: false, anchor: 'start', offset: 0, action: 'message', text: `Welcome to ${c.name}! Get your music and start the warm-up.`, seconds: 8 },
+      { id: uid(), enabled: false, anchor: 'end', offset: 5, action: 'timer', label: 'Pack up', minutes: 4, sound: 'bell', endMessage: 'Instruments and folders away. See you next time!' },
     ];
   }
   // a simple bell schedule: four 50-minute periods (and a shorter early-release day)
@@ -114,7 +122,9 @@ function sampleData() {
     version: 1,
     settings: {
       welcome: "Good morning! Find your seat, get your music, and check today's agenda.",
-      afterSchool: 'See you tomorrow!', use24h: false, showSeconds: true, hideDockAfter: 3,
+      afterSchool: 'See you tomorrow!', use24h: false, showSeconds: false, hideDockAfter: 0,
+      boardPaper: 'staff', rhythmSystem: 'numbers', lastPinned: p1.id,
+      dock: { order: [...DOCK_DEFAULT], color: 'light', size: 'm', alpha: 90, labels: true, pos: { mode: 'header' } },
       sim: { on: false, time: '08:58', setAt: 0 }, subInfo: '',
     },
     classes,
@@ -122,7 +132,9 @@ function sampleData() {
     weekdays: { 0: '', 1: tRegular.id, 2: tRegular.id, 3: tRegular.id, 4: tRegular.id, 5: tRegular.id, 6: '' },
     overrides: {}, calDays: {},
     routines: [],
-    events: [],
+    events: [
+      { id: uid(), kind: 'announcement', date: today, title: 'Click Quick edit to add announcements or remove this panel', time: '', yearly: false, classes: [] },
+    ],
     files: {},
   };
 }
@@ -137,7 +149,7 @@ function migrate(d) {
     for (const c of d.classes || []) { const r = (c.resources || []).find(x => x.id === w.resId); if (r && !r.url && !r.fileId && !r.sight) { r.sight = w.sr; delete r.url; r.title = (w.sr.mode === 'solfege' ? 'Solfege' : 'Rhythm') + ' reading'; } }
     delete w.sr;
   }
-  for (const c of d.classes || []) c.resources = (c.resources || []).filter(r => r.url || r.fileId || r.sight || r.score || r.url === '');
+  for (const c of d.classes || []) c.resources = (c.resources || []).filter(r => r.url || r.fileId || r.sight || r.score || r.filesBrowser || r.widget || r.music || r.url === '');
   // live app-window status (editing etc.) never survives a restart
   for (const list of Object.values(d.windows || {})) for (const w of list || []) if (w.kind === 'app') delete w.status;
   // 1.0.8: emoji icons left over from older versions are replaced by the drawn icons (once; you can still type one back in)
@@ -148,14 +160,16 @@ function migrate(d) {
     d.settings.drawnIcons = true;
   }
   for (const k of ['weekdays', 'overrides', 'files', 'windows', 'calDays']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
+  if (d.settings.lastPinned && !d.classes.some(c => c.id === d.settings.lastPinned)) d.settings.lastPinned = '';
   for (const c of d.classes) {
-    c.theme ||= { ...THEMES[0] }; c.agenda ||= []; c.resources ||= []; c.roster ||= []; c.automations ||= [];
+    c.theme ||= { ...THEMES[7] }; c.agenda ||= []; c.resources ||= []; c.roster ||= []; c.automations ||= [];
     c.points ||= [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }]; c.notes ||= {}; c.screenNotes ||= {}; c.progress ||= [];
   }
   return d;
 }
 
 let S = null;
+let IS_FRESH_INSTALL = false;
 async function loadData() {
   let d = null;
   if (HAS_SERVER) {
@@ -165,6 +179,7 @@ async function loadData() {
     } catch (e) { console.warn(e); }
   }
   if (!d) { try { d = JSON.parse(localStorage.getItem('rehearsal') || 'null'); } catch { } }
+  IS_FRESH_INSTALL = !d;
   S = migrate(d || sampleData());
 }
 let saveTimer = null;
@@ -783,7 +798,7 @@ function renderPresent() {
   </div>`;
   P.layoutKey = P.sideKey = P.stageKey = ''; WIN.key = null; WIN.sig = '';
   setupInk();
-  renderDock(); renderTimers(); renderTools(); tick();
+  renderTimers(); renderTools(); tick(); renderDock();
   // The header's title and clock change width (Quick edit adds time fields, the class name changes…):
   // re-fit the toolbar so ⋯ never gets pushed out of reach
   let fitQueued = false;
@@ -857,6 +872,9 @@ function dockCfg() {
   d.menu ||= ['points', 'noise', 'random', 'signal', 'score', 'clip', 'tile', 'fullscreen', 'cal', 'prog', 'yt', 'solboard']; // shown in the ⋯ / ＋ Open menu instead of on the bar
   d.inOpen ||= [];                                                                 // extra toolbar buttons placed in ＋ Open
   if (d.labels == null) d.labels = true;
+  d.size ||= 'm';
+  d.color ||= 'light';
+  if (d.alpha == null) d.alpha = 90;
   d.pos ||= { mode: 'header' };
   return d;
 }
@@ -900,7 +918,7 @@ function fitDock() {
     if (d.scrollWidth > d.clientWidth + 1) return true;
     return !!(more && more.getBoundingClientRect().right > d.getBoundingClientRect().right + 1);
   };
-  if (!over()) return;
+  if (!over()) { if (P.tour != null) positionTour(); return; }
   // Setup goes last: only when nothing else is left, so the ⋯ button itself always stays reachable
   // Buttons that are switched on (Quick edit, Annotate…) go after the others, so you can always switch them off
   const tuck = kids.filter(k => k.dataset.dockId && k.dataset.dockId !== 'edit').reverse();
@@ -915,6 +933,7 @@ function fitDock() {
     if (k.style.display === 'none' || k.classList.contains('dock-grip') || k.classList.contains('dock-idle-ic')) continue;
     if (k.classList.contains('sep')) { if (prevSep) k.style.display = 'none'; prevSep = true; } else prevSep = k.classList.contains('dock-more');
   }
+  if (P.tour != null) positionTour();
 }
 /** The ⋯ menu: tools kept off the bar, ones that didn't fit, and the toolbar settings. */
 function renderDockMore() {
@@ -950,7 +969,7 @@ function applyDockLook() {
   const cfg = dockCfg();
   d.classList.toggle('dock-sm', cfg.size === 's'); d.classList.toggle('dock-lg', cfg.size === 'l');
   d.classList.toggle('dock-light', cfg.color === 'light'); d.classList.toggle('dock-class', cfg.color === 'class');
-  d.style.setProperty('--dock-a', ((cfg.alpha ?? 82) / 100).toFixed(2));
+  d.style.setProperty('--dock-a', ((cfg.alpha ?? 90) / 100).toFixed(2));
 }
 function placeDock() {
   const d = $('#p-dock'); if (!d) return;
@@ -963,7 +982,7 @@ function placeDock() {
   d.style.left = clamp(pos.x * innerWidth - w / 2, 4, innerWidth - w - 4) + 'px';
   d.style.top = clamp(pos.y * innerHeight - h / 2, 4, innerHeight - h - 4) + 'px';
 }
-window.addEventListener('resize', () => { placeDock(); fitDock(); });
+window.addEventListener('resize', () => { placeDock(); fitDock(); if (P.tour != null) positionTour(); });
 let DOCKDRAG = null;
 // Keep the grip handle exactly under the pointer, even when the toolbar flips between horizontal and vertical.
 function dockFollow(px, py) {
@@ -1021,9 +1040,9 @@ function renderDockCustom() {
       <span class="dc-seg" role="group" aria-label="Where ${esc(it.label)} goes">${opts.map(([v, l]) => `<button type="button" data-dock-place="${id}" data-v="${v}" aria-pressed="${place === v}" ${v === 'open' ? 'title="Show in ＋ Open menu"' : ''}>${l}</button>`).join('')}</span></div>`; }).join('')}</div>
     <div class="dc-look">
       ${dcSeg('Size', 'size', [['s', 'S'], ['m', 'M'], ['l', 'L']], cfg.size || 'm')}
-      ${dcSeg('Colour', 'color', [['dark', 'Dark'], ['light', 'Light'], ['class', 'Class']], cfg.color || 'dark')}
-      ${dcSeg('Shrink when idle', 'hide', (() => { const cur = Number(S.settings.hideDockAfter ?? 3), o = [[0, 'Never'], [3, '3 s'], [10, '10 s'], [30, '30 s']]; if (!o.some(([v]) => v === cur)) o.push([cur, `${cur} s`]); return o.sort((a, b) => a[0] - b[0]); })(), Number(S.settings.hideDockAfter ?? 3))}
-      <div class="dc-lrow"><span>See-through</span><input type="range" min="25" max="100" step="5" data-dock-opt="alpha" value="${cfg.alpha ?? 82}"></div>
+      ${dcSeg('Colour', 'color', [['dark', 'Dark'], ['light', 'Light'], ['class', 'Class']], cfg.color || 'light')}
+      ${dcSeg('Shrink when idle', 'hide', (() => { const cur = Number(S.settings.hideDockAfter ?? 0), o = [[0, 'Never'], [3, '3 s'], [10, '10 s'], [30, '30 s']]; if (!o.some(([v]) => v === cur)) o.push([cur, `${cur} s`]); return o.sort((a, b) => a[0] - b[0]); })(), Number(S.settings.hideDockAfter ?? 0))}
+      <div class="dc-lrow"><span>See-through</span><input type="range" min="25" max="100" step="5" data-dock-opt="alpha" value="${cfg.alpha ?? 90}"></div>
       <label class="dc-lrow"><span>Labels under icons</span><input type="checkbox" class="dc-sw" role="switch" data-dock-labels ${cfg.labels ? 'checked' : ''}></label>
       <label class="dc-lrow"><span>Emojis</span><input type="checkbox" class="dc-sw" role="switch" data-dock-emoji ${iconOn('dock') ? 'checked' : ''}></label>
       <div class="dc-lrow"><span>Icon for each button</span><button data-action="icons-open">${IC('ico:icons')} Icons…</button></div>
@@ -1219,7 +1238,7 @@ function tick() {
   tickTimers(); tickOverlay(); tickNoise(); syncNative();
   if (P.clipOpen && (clipClass()?.id || null) !== P.clipFor) renderClip();   // class changed (schedule / picker)
   // auto-hide dock & cursor
-  const hideAfter = S.settings.hideDockAfter ?? 3, since = Date.now() - P.lastMove;
+  const hideAfter = S.settings.hideDockAfter ?? 0, since = Date.now() - P.lastMove;
   const anyTool = Object.keys(P.tools).length || P.ink.on || P.winMenu || WIN.drag || P.dockCustom || P.dockMore || DOCKDRAG || P.editMode || P.iconsOpen || P.tour != null;
   $('#p-dock').classList.toggle('hidden', hideAfter > 0 && Date.now() - (P.dockNear || 0) > hideAfter * 1000 && !anyTool);
   root.classList.toggle('hide-cursor', since > 3000 && !anyTool);
@@ -3709,9 +3728,10 @@ function updateInkUI() {
   host.classList.toggle('on', P.ink.on);
   if (P.ink.on) requestAnimationFrame(inkFit), setTimeout(inkFit, 50);
   host.classList.toggle('passive', P.ink.interact);
-  const paper = P.ink.blank ? boardPaper(S.settings.boardPaper) : '';
+  const paperKind = S.settings.boardPaper || 'staff';
+  const paper = P.ink.blank ? boardPaper(paperKind) : '';
   host.style.background = !P.ink.blank ? 'transparent' : paper || '#ffffff';
-  host.classList.toggle('papered', P.ink.blank && !!S.settings.boardPaper && S.settings.boardPaper !== 'blank');
+  host.classList.toggle('papered', P.ink.blank && paperKind !== 'blank');
   const colors = [['#e63946', 'Red'], ['#1d3557', 'Navy'], ['#2a9d8f', 'Teal'], ['#f4a261', 'Orange'], ['#7b2cbf', 'Purple'], ['#111111', 'Black'], ['#ffffff', 'White'], ['#ffd60a', 'Yellow']];
   const tb = (t, label) => `<button class="${P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}">${label}</button>`;
   $('#ink-bar').innerHTML = `<span class="ink-grip" title="Drag to move this toolbar">⋮⋮</span>
@@ -3720,7 +3740,7 @@ function updateInkUI() {
     ${colors.map(([c, nm]) => `<button class="dot ${P.ink.color === c ? 'on' : ''}" style="background:${c}" data-action="ink-color" data-c="${c}" title="${nm}" aria-label="${nm}"></button>`).join('')}
     <select data-action-change="ink-size" aria-label="Brush size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
       ${[2, 4, 8, 14].map(s => `<option value="${s}" ${P.ink.size === s ? 'selected' : ''} style="color:#000">${s}px</option>`).join('')}</select>
-    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${(S.settings.boardPaper || 'blank') === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
+    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${paperKind === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
     ${P.ink.blank ? '' : `<button class="${P.ink.interact ? 'on' : ''}" data-action="ink-interact" title="Click through to the slide underneath; drawings stay visible">${IC('ico:pointer')} Click slides</button>`}
     <button data-action="ink-undo" title="Undo (⌘Z)" ${inkUndo.length ? '' : 'disabled'}>${IC('ico:undo')} Undo</button>
     <button data-action="ink-clear" title="Clear board (can be undone)">${IC('ico:trash')} Clear</button>
@@ -5398,7 +5418,7 @@ const A = {
     save(); renderDock(); renderDockCustom();
   },
   'dock-home': () => { dockCfg().pos = { mode: 'header' }; save(); renderDock(); renderDockCustom(); },
-  'dock-reset': () => { S.settings.dock = {}; save(); renderDock(); renderDockCustom(); },
+  'dock-reset': () => { S.settings.dock = {}; S.settings.hideDockAfter = 0; save(); renderDock(); renderDockCustom(); },
   'tab-group': el => { P.groupMenu = P.groupMenu === el.dataset.id ? null : el.dataset.id; renderGroupMenu(); },
   'group-out': el => {
     const c = ieClass(); if (!c) return; const r = c.cls.resources.find(x => x.id === el.dataset.id); if (!r) return;
@@ -5584,7 +5604,7 @@ const A = {
   // settings
   export: () => { const text = JSON.stringify(S, null, 2), name = `rehearsal-backup-${dateKey(new Date())}.json`; if (!native('saveText', { name, text })) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; a.click(); } },
   import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.classes) throw 0; if (!confirm('Replace all current data with this backup?')) return; S = migrate(d); save(); renderEditor(); toast('Backup imported.'); } catch { alert('That file is not a Rehearsal backup.'); } },
-  reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; S = sampleData(); save(); renderEditor(); },
+  reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; S = sampleData(); P.pinned = S.settings.lastPinned || null; save(); renderEditor(); },
   'upd-check': () => {
     UPD.dismissed = null;
     if (UPD.state === 'web-ready') { refreshUpdateUI(); const b = $('#upd-status'); b?.classList.add('flash'); return; }   // already downloaded: it just needs a restart
@@ -5856,11 +5876,13 @@ function startTour(customSteps = null, force = false) {
   if (P.stageMax) P.stageMax = false;
   P.tour = 0;
   P.layoutKey = P.sideKey = P.stageKey = ''; WIN.sig = '';
-  renderDock(); tick(); renderTour();
+  // Update header/title/clock first so fitDock() measures the real class header width before placing step 1
+  tick(); renderDock(); renderTour();
 }
 function endTour(silent = false) {
   const wasFull = !P.tourSteps;
   clearTimeout(P.tourDelayTimer);
+  cancelAnimationFrame(P.tourRaf); P.tourRaf = 0;
   P.tour = null;
   P.tourSteps = null;
   P.tourWin = false;
@@ -5890,7 +5912,7 @@ function endTour(silent = false) {
   P.layoutKey = P.sideKey = P.stageKey = ''; WIN.sig = '';
   if (wasFull && !silent) { S.settings.tourDone = true; save(); }
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
-  renderDock(); tick();
+  tick(); renderDock();
 }
 function stepTour(d) {
   if (P.tour == null) return;
@@ -5899,8 +5921,57 @@ function stepTour(d) {
   P.tour = Math.max(0, n);
   renderTour();
 }
+function tourTarget(step) {
+  const vis = sel => {
+    if (!sel) return null;
+    const el = $(sel);
+    return el && el.offsetWidth > 0 && el.offsetHeight > 0 ? el : null;
+  };
+  let target = vis(step.sel);
+  // If a toolbar button got tucked into the ⋯ overflow menu on a narrow window, point at ⋯ instead of losing the ring
+  if (!target && step.sel && step.sel.includes('data-dock-id')) target = vis('#p-dock .dock-more');
+  if (!target) target = vis(step.fallback);
+  return target;
+}
+function positionTour() {
+  if (P.tour == null || VIEW !== 'present') return;
+  const steps = activeTourSteps(), step = steps[P.tour]; if (!step) return;
+  const card = $('.tour-card'); if (!card) return;
+  const target = tourTarget(step);
+  const r = target ? target.getBoundingClientRect() : null;
+  let ring = $('.tour-ring');
+  if (r) {
+    if (!ring) {
+      ring = document.createElement('div'); ring.className = 'tour-ring';
+      document.body.insertBefore(ring, card);
+    }
+    const pad = 6;
+    Object.assign(ring.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
+  } else if (ring) {
+    ring.remove();
+  }
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  let left = (innerWidth - cw) / 2, top = (innerHeight - ch) / 2;
+  if (r) {
+    if (r.width > innerWidth * 0.72 && r.height > innerHeight * 0.65) {
+      left = innerWidth - cw - 20;
+      top = innerHeight - ch - 20;
+    } else if (r.right + 16 + cw < innerWidth - 12 && r.height > 200) {
+      left = r.right + 16;
+      top = clamp(r.top + 12, 12, innerHeight - ch - 12);
+    } else if (r.left - 16 - cw > 12 && r.height > 200) {
+      left = r.left - cw - 16;
+      top = clamp(r.top + 12, 12, innerHeight - ch - 12);
+    } else {
+      left = clamp(r.left + r.width / 2 - cw / 2, 12, innerWidth - cw - 12);
+      top = r.bottom + 14 + ch < innerHeight - 12 ? r.bottom + 14 : Math.max(12, r.top - ch - 14);
+    }
+  }
+  card.style.left = left + 'px'; card.style.top = top + 'px';
+}
 function renderTour() {
   clearTimeout(P.tourDelayTimer);
+  cancelAnimationFrame(P.tourRaf); P.tourRaf = 0;
   document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
   if (P.tour == null || VIEW !== 'present') return;
   const steps = activeTourSteps(), step = steps[P.tour]; if (!step) return endTour();
@@ -5912,16 +5983,8 @@ function renderTour() {
   const paintOverlay = () => {
     if (P.tour == null || VIEW !== 'present') return;
     document.querySelectorAll('.tour-backdrop, .tour-ring, .tour-card').forEach(el => el.remove());
-    const target = (step.sel && $(step.sel)) || (step.fallback && $(step.fallback));
-    const r = target && target.offsetWidth > 0 ? target.getBoundingClientRect() : null;
     const bd = document.createElement('div'); bd.className = 'tour-backdrop'; bd.onclick = () => endTour();
     document.body.appendChild(bd);
-    if (r) {
-      const pad = 6;
-      const ring = document.createElement('div'); ring.className = 'tour-ring';
-      Object.assign(ring.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
-      document.body.appendChild(ring);
-    }
     const card = document.createElement('div'); card.className = 'tour-card';
     card.innerHTML = `<div class="tour-top"><span>Step ${P.tour + 1} of ${steps.length}</span><button data-action="tour-skip">Close</button></div>
       <h3>${esc(step.title)}</h3><p>${esc(step.body)}</p>
@@ -5929,24 +5992,13 @@ function renderTour() {
       <div class="tour-dots">${steps.map((_, i) => `<i class="${i === P.tour ? 'on' : ''}"></i>`).join('')}</div>
       <button class="primary" data-action="tour-next">${P.tour === steps.length - 1 ? 'Done' : 'Next →'}</button></div>`;
     document.body.appendChild(card);
-    const cw = card.offsetWidth, ch = card.offsetHeight;
-    let left = (innerWidth - cw) / 2, top = (innerHeight - ch) / 2;
-    if (r) {
-      if (r.width > innerWidth * 0.72 && r.height > innerHeight * 0.65) {
-        left = innerWidth - cw - 20;
-        top = innerHeight - ch - 20;
-      } else if (r.right + 16 + cw < innerWidth - 12 && r.height > 200) {
-        left = r.right + 16;
-        top = clamp(r.top + 12, 12, innerHeight - ch - 12);
-      } else if (r.left - 16 - cw > 12 && r.height > 200) {
-        left = r.left - cw - 16;
-        top = clamp(r.top + 12, 12, innerHeight - ch - 12);
-      } else {
-        left = clamp(r.left + r.width / 2 - cw / 2, 12, innerWidth - cw - 12);
-        top = r.bottom + 14 + ch < innerHeight - 12 ? r.bottom + 14 : Math.max(12, r.top - ch - 14);
-      }
-    }
-    card.style.left = left + 'px'; card.style.top = top + 'px';
+    positionTour();
+    // Re-align after header ResizeObserver / fitDock / layout settles on first launch
+    P.tourRaf = requestAnimationFrame(() => {
+      if (P.tour == null) return;
+      positionTour();
+      P.tourRaf = requestAnimationFrame(positionTour);
+    });
   };
   if (step.delay) P.tourDelayTimer = setTimeout(paintOverlay, step.delay);
   else paintOverlay();
@@ -6352,6 +6404,7 @@ window.__bugReportOpen = data => {
 const WHATS_NEW = {
   id: '1.1.8',
   title: 'Welcome to Rehearsal',
+  welcomeIntro: 'Welcome to Rehearsal! Here is a quick look at what you can do.',
   intro: 'Thanks for updating Rehearsal! Here is what is new in this release.',
   featured: [
     { icon: 'ico:sight', title: 'Sight Reading with Live Grading', body: 'Generate custom rhythm or solfege exercises at any difficulty and grade students live using a microphone or the space bar.' },
@@ -6386,7 +6439,7 @@ function openWhatsNewModal(force = false) {
       <h3>${IC('ico:book')} ${esc(WHATS_NEW.title)}</h3>
       <button class="bug-x" data-wn="close" title="Close">${IC('ico:close')}</button>
     </div>
-    <p class="wn-intro">${esc(WHATS_NEW.intro)}</p>
+    <p class="wn-intro">${esc((IS_FRESH_INSTALL || (!S.settings.seenWhatsNew && !S.settings.tourDone)) && !force ? (WHATS_NEW.welcomeIntro || WHATS_NEW.intro) : WHATS_NEW.intro)}</p>
     ${WHATS_NEW.featured?.length ? `<div class="wn-sec">Featured Highlights</div><ul class="wn-list wn-featured">${WHATS_NEW.featured.map(rowHTML).join('')}</ul>` : ''}
     ${WHATS_NEW.more?.length ? `<div class="wn-sec">More Features</div><ul class="wn-compact">${WHATS_NEW.more.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <p class="wn-more">Want to learn more? You can explore on your own, or check out the step-by-step walkthroughs anytime in <b>Setup → Tutorials</b>.</p>
