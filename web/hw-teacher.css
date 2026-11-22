@@ -218,6 +218,31 @@
   border-color: var(--e-line);
 }
 
+.hwt-trial-hero {
+  background: var(--hwt-ok-bg);
+  border: 1px solid var(--hwt-ok-border);
+  color: var(--hwt-ok-fg);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hwt-trial-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hwt-trial-points {
+  font-size: 12.5px;
+  line-height: 1.45;
+  opacity: 0.94;
+}
+
 .hwt-banner {
   border-radius: var(--radius);
   padding: 11px 15px;

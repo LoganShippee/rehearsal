@@ -12,7 +12,8 @@
   const SESSION_API_KEY = 'rehearsal-hw-api-session';
   const SESSION_ACTIVE_BASE_KEY = 'rehearsal-hw-api-active-base';
   const LOCAL_API_KEY = 'rehearsal-hw-api';
-  const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const LEGACY_WORKERS_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const DEFAULT_API_BASE = 'https://api.rehearsalmusic.com';
   const DEMO_SENTINEL = 'demo';
   const DEMO_OFFLINE_KEY = 'rehearsal-hw-demo-offline';
   const DEMO_DB_KEY = 'rehearsal-hw-demo-db-v1';
@@ -70,8 +71,11 @@
       const stored = localStorage.getItem(LOCAL_API_KEY);
       if (stored !== null) {
         const clean = stored.trim().replace(/\/+$/, '');
-        if (clean.toLowerCase() === DEMO_SENTINEL) return '';
-        if (clean) return clean;
+        if (clean.toLowerCase() === DEMO_SENTINEL || clean === LEGACY_WORKERS_BASE) {
+          localStorage.removeItem(LOCAL_API_KEY);
+        } else if (clean) {
+          return clean;
+        }
       }
     } catch { }
     return DEFAULT_API_BASE;

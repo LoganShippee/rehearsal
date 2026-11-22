@@ -148,8 +148,7 @@
 
   function openDocPage(relPath) {
     if (!relPath) return;
-    let url = relPath;
-    try { url = new URL(relPath, location.href).href; } catch { }
+    const url = API()?.getPublicDocUrl ? API().getPublicDocUrl(relPath) : (() => { try { return new URL(relPath, location.href).href; } catch { return relPath; } })();
     openExternalUrl(url);
   }
 
@@ -635,16 +634,26 @@
       </div>
     ` : '';
 
+    let qsDemo = false;
+    try { qsDemo = new URLSearchParams(location.search).get('demo') === '1'; } catch { }
+
     return `
       <div class="hwt-auth-card">
         <div>
           <h2>Online Homework — Teacher Sign-In</h2>
-          <p class="desc" style="margin-bottom:0">Create classes, print student sign-in codes, assign Sight Reading or Score Practice, and review recordings. Your local classroom tools stay free and offline on this device.</p>
+          <p class="desc" style="margin-bottom:0">Create classes, print simple student sign-in codes, assign Sight Reading or Score Practice, and listen to student recordings. Your local classroom tools stay free forever on this device.</p>
         </div>
 
-        ${isDemo ? `<div class="hwt-banner info">
-          <div><b>Local Preview Mode</b> — Testing locally with sample classes and students. Ready to go live?</div>
-          <button type="button" class="btn small" data-hwt="auth-use-live">Use Live Server</button>
+        <div class="hwt-trial-hero">
+          <div class="hwt-trial-head">
+            <strong>30-Day Free Trial — No Credit Card Required</strong>
+            <span class="hwt-pill ok">Up to 200 students</span>
+          </div>
+          <div class="hwt-trial-points">Try every homework feature right away by entering your school email below. After 30 days, continue for $5/mo or $49/yr (or a School Purchase Order).</div>
+        </div>
+
+        ${qsDemo ? `<div class="hwt-banner info">
+          <div><b>Preview Mode Active</b> — Exploring sample classes and students from <code>?demo=1</code>.</div>
         </div>` : ''}
 
         ${a.error ? `<div class="hwt-banner readonly">${escHtml(a.error)}</div>` : ''}
@@ -669,7 +678,7 @@
             </label>
             ${a.devCode ? `
               <div class="hwt-devcode">
-                <span>${isDemo ? 'Local Preview' : 'Dev'} sign-in code: <b>${escHtml(a.devCode)}</b></span>
+                <span>Sign-in code: <b>${escHtml(a.devCode)}</b></span>
                 <button type="button" class="btn small primary" data-hwt="auth-use-devcode" ${a.busy ? 'disabled' : ''}>Fill &amp; Sign In (${escHtml(a.devCode)})</button>
               </div>
             ` : ''}
@@ -681,9 +690,10 @@
           </div>
         ` : `
           <div class="row">
-            <button type="button" class="btn primary" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Send 6-Digit Code'}</button>
-            ${!isDemo ? `<button type="button" class="btn" data-hwt="auth-use-demo">Try Interactive Preview (No Sign-In Needed)</button>` : ''}
+            <button type="button" class="btn primary" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Start Free Trial / Send Sign-In Code'}</button>
+            <button type="button" class="btn hwt-demo-btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
           </div>
+          <div class="small muted">New here? Entering your school email automatically starts your free 30-day trial — no password or credit card needed.</div>
         `}
 
         <label class="chk">
@@ -700,27 +710,13 @@
         ${handoffBox}
 
         <div class="hwt-privacy-note">
-          <b>Privacy &amp; Data Note:</b> Student codes are salted and cryptographically hashed; student audio recordings automatically expire after 90 days (or whenever you click Delete Audio Now); and Rehearsal's local classroom setup stays private on your device.
+          <b>Privacy &amp; Data Note:</b> Student login codes are protected like passwords, student audio recordings auto-delete after 90 days (or anytime you click Delete Audio Now), and your classroom setup stays private on this device.
           <div class="row" style="margin-top:6px;gap:12px">
-            <a href="privacy.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</a>
-            <a href="privacy-sdpc.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</a>
-            <a href="it-whitelisting.html" target="_blank" rel="noopener" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Whitelisting</a>
+            <a href="${escHtml(api.getPublicDocUrl('privacy.html'))}" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</a>
+            <a href="${escHtml(api.getPublicDocUrl('privacy-sdpc.html'))}" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</a>
+            <a href="${escHtml(api.getPublicDocUrl('it-whitelisting.html'))}" target="_blank" rel="noopener" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Info</a>
           </div>
         </div>
-
-        <details ${a.showServerConfig ? 'open' : ''}>
-          <summary class="small muted" style="cursor:pointer">Advanced / Custom Server Settings</summary>
-          <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-            <label class="fld">
-              <span>Server URL (blank switches to Local Preview Mode)</span>
-              <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(a.serverUrl)}" data-hwt-input="auth-server-url">
-            </label>
-            <div class="row">
-              <button type="button" class="btn small primary" data-hwt="auth-save-server">Save Server URL</button>
-              <button type="button" class="btn small" data-hwt="auth-use-demo">Use Local Preview Mode</button>
-            </div>
-          </div>
-        </details>
       </div>
     `;
   }
@@ -1395,33 +1391,21 @@
       ` : ''}
 
       <div class="card">
-        <h3>Sessions &amp; Server</h3>
-        <div class="row" style="margin-bottom:10px">
+        <h3>Sessions &amp; Sign Out</h3>
+        <div class="row">
           <button type="button" class="btn small" data-hwt="logout">Sign Out</button>
           <button type="button" class="btn small danger" data-hwt="logout-all" ${offline ? 'disabled' : ''}>Sign Out All Devices</button>
         </div>
-        <details>
-          <summary class="small muted" style="cursor:pointer">Advanced / Custom Server Settings</summary>
-          <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-            <label class="fld">
-              <span>Server URL (blank switches to Local Preview Mode)</span>
-              <input type="url" placeholder="https://rehearsal-hw.logan-shippee.workers.dev" value="${escHtml(S_STATE.accountServerUrl)}" data-hwt-input="account-server-url">
-            </label>
-            <div class="row">
-              <button type="button" class="btn small primary" data-hwt="account-save-server">Save Server URL</button>
-              <button type="button" class="btn small" data-hwt="account-use-demo">Switch to Local Preview Mode</button>
-            </div>
-          </div>
-        </details>
       </div>
 
       <div class="card">
-        <h3>Privacy &amp; School IT Resources</h3>
-        <p class="desc">Share these plain-language documents with parents, school administrators, or district IT teams.</p>
+        <h3>How It Works, Privacy &amp; School Resources</h3>
+        <p class="desc">Preview what students see or share these plain-language documents with parents, administrators, or district IT teams.</p>
         <div class="row">
+          <button type="button" class="btn small primary" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
           <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</button>
-          <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary (PDF)</button>
-          <button type="button" class="btn small" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Google Whitelisting</button>
+          <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</button>
+          <button type="button" class="btn small" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Info</button>
         </div>
       </div>
     `;
@@ -2000,12 +1984,12 @@
     card.innerHTML = `
       <div class="card-head">
         <h2>Online Homework</h2>
-        ${badge ? `<span class="hwt-pill ${badge.cls}">${escHtml(badge.label)}</span>` : ''}
-        <span class="hwt-pill ${isDemo ? 'info' : 'ok'}">${isDemo ? 'Local Preview Mode' : 'Live Worker'}</span>
+        ${badge ? `<span class="hwt-pill ${badge.cls}">${escHtml(badge.label)}</span>` : '<span class="hwt-pill ok">30-Day Free Trial</span>'}
       </div>
-      <p class="desc">${escHtml(statusLine)}. Manage classes, print student sign-in codes, assign Sight Reading or Score Practice, and review student audio recordings.</p>
+      <p class="desc">${hasTok ? escHtml(statusLine) + '. ' : 'Start a free 30-day trial (no credit card) to '}manage classes, print student sign-in codes, assign Sight Reading or Score Practice, and review recordings.</p>
       <div class="row">
-        <button type="button" class="btn primary" data-hwt="settings-open-hw">Open Online Homework</button>
+        <button type="button" class="btn primary" data-hwt="settings-open-hw">${hasTok ? 'Open Online Homework' : 'Start Free 30-Day Trial / Sign In'}</button>
+        <button type="button" class="btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
         ${hasTok ? `<button type="button" class="btn" data-hwt="settings-logout">Sign Out</button>` : ''}
       </div>
     `;
@@ -2020,7 +2004,7 @@
     const portalUrl = api.getStudentPortalUrl(codeAlert.joinCode);
 
     const slipsHtml = `
-      <p class="meta">Cut along the dashed lines and hand one slip to each student. Students open the Student Portal link and enter both the Class Code and their Personal Code.</p>
+      <p class="meta">Cut along the dashed lines and hand one slip to each student. Students open the Student Portal link and enter both the Class Code and their Student Code.</p>
       <div class="hwt-code-sheet">
         ${codeAlert.items.map(it => `
           <div class="hwt-code-slip">
@@ -2289,6 +2273,10 @@
         e?.preventDefault?.();
         openDocPage(btn.dataset.href || btn.getAttribute('href') || '');
         break;
+      case 'open-demo':
+        e?.preventDefault?.();
+        openDocPage('hw-demo.html');
+        break;
       case 'auth-save-server':
         stopOAuthHandoff(true);
         api.setApiBase(S_STATE.auth.serverUrl.trim());
@@ -2316,7 +2304,7 @@
         break;
       case 'auth-use-live':
         stopOAuthHandoff(true);
-        api.setApiBase('https://rehearsal-hw.logan-shippee.workers.dev');
+        api.setApiBase('https://api.rehearsalmusic.com');
         S_STATE.me = null;
         S_STATE.auth.serverUrl = api.getApiBase();
         S_STATE.auth.error = '';

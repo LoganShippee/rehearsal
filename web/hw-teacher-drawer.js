@@ -710,6 +710,15 @@
       return;
     }
 
+    if (act === 'open-demo') {
+      const url = a?.getPublicDocUrl ? a.getPublicDocUrl('hw-demo.html') : (() => { try { return new URL('hw-demo.html', location.href).href; } catch { return 'hw-demo.html'; } })();
+      try {
+        if (typeof native === 'function' && native('openExternal', { url })) return;
+      } catch { }
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+
     if (act === 'auth-use-dev') {
       if (D.auth.devCode) {
         D.auth.code = D.auth.devCode;
@@ -1396,21 +1405,22 @@
       <div class="hwt-auth-card" style="margin:0;padding:16px">
         <div class="row" style="justify-content:space-between;align-items:center">
           <h3 style="margin:0">Sign in to Online Homework</h3>
-          <span class="hwt-pill ${isDemo ? 'info' : 'ok'}">${isDemo ? 'Local Preview' : 'Live Server'}</span>
+          <span class="hwt-pill ok">30-Day Free Trial</span>
         </div>
-        <p class="small muted" style="margin:0">Your ${D.type === 'score' ? 'score and settings' : 'exercise and settings'} stay right here while you sign in.</p>
-        ${au.error ? `<div class="hwt-banner readonly">${esc(au.error)}</div>` : ''}
+        <p class="small muted" style="margin:0">Start your free 30-day trial (no credit card) or sign back in — your ${D.type === 'score' ? 'score and settings' : 'exercise and settings'} stay right here.</p>
+        ${au.error ? `<div class="hwt-banner readonly">${escHtml(au.error)}</div>` : ''}
         ${au.step === 'email' ? `
           <div class="hwt-field-grid">
-            <label class="fld"><span>Teacher email</span><input type="email" data-hwt-input="auth-email" value="${esc(au.email)}" placeholder="teacher@school.edu" autocomplete="email"></label>
-            <label class="fld"><span>Your name (optional)</span><input type="text" data-hwt-input="auth-name" value="${esc(au.name)}" placeholder="Ms. Rivera"></label>
+            <label class="fld"><span>School email</span><input type="email" data-hwt-input="auth-email" value="${esc(au.email)}" placeholder="teacher@school.edu" autocomplete="email"></label>
+            <label class="fld"><span>Your name (first time)</span><input type="text" data-hwt-input="auth-name" value="${esc(au.name)}" placeholder="Ms. Rivera"></label>
           </div>
           <label class="chk">
             <input type="checkbox" data-hwt-change="auth-ephemeral" ${au.ephemeral ? 'checked' : ''}>
             <span>Shared / classroom computer (sign out when browser closes)</span>
           </label>
-          <div>
-            <button type="button" class="btn primary" data-hwt="auth-send" ${au.busy ? 'disabled' : ''}>${au.busy ? 'Sending code…' : 'Send 6-Digit Sign-In Code'}</button>
+          <div class="row">
+            <button type="button" class="btn primary" data-hwt="auth-send" ${au.busy ? 'disabled' : ''}>${au.busy ? 'Sending code…' : 'Start Free Trial / Send Sign-In Code'}</button>
+            <button type="button" class="btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
           </div>
         ` : `
           <p class="small" style="margin:0">Enter the 6-digit code sent to <strong>${esc(au.email)}</strong>.</p>

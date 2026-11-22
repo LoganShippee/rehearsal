@@ -5,7 +5,8 @@
 
 (function () {
   const LOCAL_API_KEY = 'rehearsal-hw-api';
-  const DEFAULT_API_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const LEGACY_WORKERS_BASE = 'https://rehearsal-hw.logan-shippee.workers.dev';
+  const DEFAULT_API_BASE = 'https://api.rehearsalmusic.com';
   const DEMO_SENTINEL = 'demo';
   const TOKEN_KEY = 'rehearsal-hw-teacher-token';
   const CACHE_KEY = 'rehearsal-hw-teacher-cache-v1';
@@ -143,8 +144,11 @@
       const stored = localStorage.getItem(LOCAL_API_KEY);
       if (stored !== null) {
         const v = stored.trim().replace(/\/+$/, '');
-        if (v.toLowerCase() === DEMO_SENTINEL) return '';
-        if (v) return v;
+        if (v.toLowerCase() === DEMO_SENTINEL || v === LEGACY_WORKERS_BASE) {
+          localStorage.removeItem(LOCAL_API_KEY);
+        } else if (v) {
+          return v;
+        }
       }
     } catch { }
     return DEFAULT_API_BASE;
@@ -204,6 +208,23 @@
     return false;
   }
 
+  const PUBLIC_SITE_BASE = 'https://app.rehearsalmusic.com/';
+
+  function getPublicDocUrl(relPath) {
+    const clean = String(relPath || '').replace(/^\/+/, '');
+    if (!clean) return PUBLIC_SITE_BASE;
+    try {
+      const apiBase = getApiBase();
+      const locHref = (typeof location !== 'undefined' && location.href) ? location.href : '';
+      const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(locHref);
+      if (!isDemoMode() && isLoopback && apiBase && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(apiBase)) {
+        return new URL(clean, PUBLIC_SITE_BASE).href;
+      }
+      if (locHref) return new URL(clean, locHref).href;
+    } catch { }
+    return new URL(clean, PUBLIC_SITE_BASE).href;
+  }
+
   function getStudentPortalUrl(joinCode) {
     let base = 'hw.html';
     try {
@@ -211,7 +232,7 @@
       const locHref = (typeof location !== 'undefined' && location.href) ? location.href : '';
       const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(locHref);
       if (!isDemoMode() && isLoopback && apiBase && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(apiBase)) {
-        base = (typeof window !== 'undefined' && window.HW_STUDENT_PORTAL_URL) || 'https://loganshippee.github.io/rehearsal/hw.html';
+        base = (typeof window !== 'undefined' && window.HW_STUDENT_PORTAL_URL) || 'https://app.rehearsalmusic.com/hw.html';
       } else if (locHref) {
         base = new URL('hw.html', locHref).href;
       }
@@ -1679,7 +1700,7 @@
       const locHref = (typeof location !== 'undefined' && location.href) ? location.href : '';
       const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(locHref);
       if (!isDemoMode() && isLoopback && apiBase && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(apiBase)) {
-        base = window.HW_OAUTH_PAGE_URL || 'https://loganshippee.github.io/rehearsal/hw-oauth.html';
+        base = window.HW_OAUTH_PAGE_URL || 'https://app.rehearsalmusic.com/hw-oauth.html';
       } else if (locHref) {
         base = new URL('hw-oauth.html', locHref).href;
       }
@@ -1748,6 +1769,7 @@
     setDemoOffline,
     setDemoPlan,
     resetDemoData,
+    getPublicDocUrl,
     getStudentPortalUrl,
     getOAuthHandoffUrl,
     getCacheInfo,

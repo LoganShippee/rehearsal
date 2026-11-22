@@ -99,9 +99,13 @@ touch "$PAGES/.nojekyll"
   && git -c user.name="$(git -C "$OLDPWD" config user.name)" -c user.email="$(git -C "$OLDPWD" config user.email)" commit -q -m "Rehearsal $NEW (web)" \
   && git push -q -f "https://github.com/$REPO.git" gh-pages )
 gh api "repos/$REPO/pages" >/dev/null 2>&1 || gh api -X POST "repos/$REPO/pages" -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null 2>&1 || true   # 409 = already on
+if [[ -f tools/hw-worker/node_modules/wrangler/bin/wrangler.js ]] && command -v node >/dev/null 2>&1; then
+  node tools/hw-worker/node_modules/wrangler/bin/wrangler.js pages deploy "$PAGES" --project-name=rehearsal-app --branch=main >/dev/null 2>&1 || echo "Note: Cloudflare Pages deploy skipped/failed (run wrangler pages deploy manually if needed)."
+fi
 gh release create "v$NEW" "$OUT/Rehearsal.zip" "$OUT/Rehearsal-Windows.zip" "$OUT/Rehearsal-Setup.exe" "$OUT/web.zip" "$OUT/latest.json" "$OUT/latest.json.sig" \
   --repo "$REPO" --title "Rehearsal $NEW" --notes "$NOTES" --latest
 echo "Published: https://github.com/$REPO/releases/tag/v$NEW"
 echo "New users download: https://github.com/$REPO/releases/latest/download/Rehearsal.zip"
 echo "Windows download: https://github.com/$REPO/releases/latest/download/Rehearsal-Setup.exe"
-OWNER=${REPO%%/*}; echo "Web version (any browser): https://${OWNER:l}.github.io/${REPO#*/}/"
+echo "Web version (custom domain): https://app.rehearsalmusic.com/"
+OWNER=${REPO%%/*}; echo "Web version (GitHub Pages mirror): https://${OWNER:l}.github.io/${REPO#*/}/"

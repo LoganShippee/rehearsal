@@ -5,7 +5,7 @@
 const CACHE = 'rehearsal-app';
 const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'score.js', 'tools.js',
   'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js',
-  'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html',
+  'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-demo.html', 'hw-oauth.html',
   'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',
   'vendor/vexflow.js', 'vendor/osmd.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/piano.js',
@@ -25,7 +25,8 @@ self.addEventListener('fetch', e => {
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => {
     if (r) return r;
     const p = url.pathname;
-    if (p.endsWith('/hw.html')) return caches.match('hw.html');
+    if (p.endsWith('/hw.html') || p.endsWith('/hw')) return caches.match('hw.html');
+    if (p.endsWith('/hw-demo.html') || p.endsWith('/hw-demo') || p.endsWith('/demo')) return caches.match('hw-demo.html');
     if (p === '/' || p.endsWith('/index.html') || !p.split('/').pop().includes('.')) return caches.match('index.html');
     return undefined;
   })));
