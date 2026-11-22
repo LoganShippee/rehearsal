@@ -1,7 +1,7 @@
 'use strict';
 
 (function () {
-  const DEFAULT_VERSION = '1.3.0';
+  const DEFAULT_VERSION = '1.3.1';
   const GITHUB_BASE = 'https://github.com/LoganShippee/rehearsal/releases/latest/download';
   const RELEASE_CACHE_KEY = 'rehearsal-site-release-v1';
 
@@ -40,7 +40,7 @@
       },
       web: {
         label: 'Open Web App (No Install)',
-        href: isLocalHost ? '../web/index.html' : '/app/',
+        href: isLocalHost ? '../web/index.html' : 'https://app.rehearsalmusic.com/',
         note: 'Runs in Chrome, Safari, or Edge · Works offline'
       }
     };
@@ -62,7 +62,8 @@
         const target = el.getAttribute('data-app-href');
         if (target === 'app') el.setAttribute('href', '../web/index.html');
         if (target === 'hw') el.setAttribute('href', '../web/hw.html');
-        if (target === 'hw-demo') el.setAttribute('href', '../web/hw.html?demo=1');
+        if (target === 'hw-demo') el.setAttribute('href', '../web/hw-demo.html');
+        if (target === 'hw-sandbox') el.setAttribute('href', '../web/hw.html?demo=1');
       });
     }
 

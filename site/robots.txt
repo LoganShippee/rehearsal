@@ -1,4 +1,3 @@
 User-agent: *
 Allow: /
-Disallow: /app/hw.html
 Sitemap: https://rehearsalmusic.com/sitemap.xml

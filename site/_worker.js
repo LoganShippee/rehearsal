@@ -16,19 +16,15 @@ const ALLOWED_DOWNLOADS = {
 };
 
 const REDIRECTS = {
-  '/hw': '/app/hw.html',
-  '/hw/': '/app/hw.html',
-  '/hw/demo': '/app/hw.html?demo=1',
-  '/demo/app': '/app/',
-  '/demo/homework': '/app/hw.html?demo=1',
-  '/privacy': '/privacy.html',
-  '/sdpc': '/privacy-sdpc.html',
-  '/it': '/it-whitelisting.html',
-  '/download': '/download.html',
-  '/demo': '/demo.html',
-  '/homework': '/homework.html',
-  '/schools': '/schools.html',
-  '/changelog': '/changelog.html',
+  '/app': 'https://app.rehearsalmusic.com/',
+  '/app/': 'https://app.rehearsalmusic.com/',
+  '/hw': 'https://app.rehearsalmusic.com/hw',
+  '/hw/': 'https://app.rehearsalmusic.com/hw',
+  '/hw/demo': 'https://app.rehearsalmusic.com/hw-demo',
+  '/demo/app': 'https://app.rehearsalmusic.com/',
+  '/demo/homework': 'https://app.rehearsalmusic.com/hw-demo',
+  '/sdpc': '/privacy-sdpc',
+  '/it': '/it-whitelisting',
 };
 
 function jsonResponse(obj, status = 200, extraHeaders = {}) {
@@ -105,7 +101,7 @@ async function handleReleaseJson() {
     if (res.ok) {
       const data = await res.json();
       return jsonResponse({
-        version: data.version || '1.3.0',
+        version: data.version || '1.3.1',
         date: data.date || '',
         notes: data.notes || '',
         downloads: {
@@ -118,9 +114,9 @@ async function handleReleaseJson() {
   } catch { }
 
   return jsonResponse({
-    version: '1.3.0',
+    version: '1.3.1',
     date: '2026-11-22',
-    notes: 'Rehearsal v1.3.0',
+    notes: 'Rehearsal v1.3.1',
     downloads: {
       mac: '/dl/Rehearsal.zip',
       winSetup: '/dl/Rehearsal-Setup.exe',
@@ -155,10 +151,10 @@ async function handleReleasesList() {
 
   return jsonResponse([
     {
-      tag: 'v1.3.0',
-      name: 'Rehearsal 1.3.0',
+      tag: 'v1.3.1',
+      name: 'Rehearsal 1.3.1',
       publishedAt: '2026-11-22',
-      notes: 'Online Homework, Student Portal, Privacy/SDPC docs, and full-app release.',
+      notes: 'Hosted web app & Student Portal on app.rehearsalmusic.com and Homework API on api.rehearsalmusic.com; added interactive How It Works & Student Demo page.',
       url: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
     },
   ], 200, { 'Cache-Control': 'public, max-age=120' });
@@ -240,6 +236,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (url.hostname === 'www.rehearsalmusic.com') {
+      return Response.redirect(`https://rehearsalmusic.com${path}${url.search}`, 301);
+    }
 
     if (request.method === 'POST' && path === '/api/inquiry') {
       return handleInquiry(request, env);
