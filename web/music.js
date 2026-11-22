@@ -365,7 +365,7 @@ function metSay(n) {
 }
 async function metStart(host, st, countOff = false, id = MET.id) {
   metStop();
-  const c = muAC();
+  const c = typeof acForPlayback === 'function' ? acForPlayback() : muAC();
   try { await c.resume(); } catch {}
   Object.assign(MET, { on: true, st, host, id, next: c.currentTime + 0.12, beat: 0, sub: 0, beatsPlayed: 0, queue: [], countOff, base: st.tempo });
   MET.timer = setInterval(() => {
@@ -383,9 +383,10 @@ async function metStart(host, st, countOff = false, id = MET.id) {
       const g = st.gap, gapped = (!MET.countOff || st.thenGo) && g?.on && bar % ((g.play || 2) + (g.mute || 2)) >= (g.play || 2);
       const kind = MET.sub ? 'sub' : state === 'accent' ? (MET.beat === 0 ? 'down' : 'accent') : 'beat';
       // sound is nudged by the sync offset (video/audio lag); the flash stays on the true beat
+      const stale = MET.next < c.currentTime - 0.1;
       const at = Math.max(c.currentTime + 0.001, MET.next + (st.offset || 0) / 1000);
-      if (!st.mute && !gapped && state !== 'silent') metClick(at, kind, st.sound || 'click');
-      MET.queue.push({ t: MET.next, beat: MET.beat, sub: MET.sub, gap: gapped, tempo: MET.cur });
+      if (!stale && !st.mute && !gapped && state !== 'silent') metClick(at, kind, st.sound || 'click');
+      if (!stale) MET.queue.push({ t: MET.next, beat: MET.beat, sub: MET.sub, gap: gapped, tempo: MET.cur });
       // gradual tempo change: moves linearly from the start BPM to "ramp to" over the chosen number of bars
       const frac = st.rampTo ? Math.min(1, MET.beatsPlayed / Math.max(1, (st.rampBars || 4) * beats)) : 0;
       const tr = st.trainer, tempo = tr?.on && (!MET.countOff || st.thenGo)

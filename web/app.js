@@ -405,15 +405,69 @@ function agendaStep(ctx, t) {
 }
 
 // ============================================================ sound & music
-let AC = null;
-function ac() { if (!AC) { audioSession('playback'); AC = new (window.AudioContext || window.webkitAudioContext)(); } return AC; }
+let AC = null, AC_NEEDS_RESET = false, AC_LIVE_MICS = 0, AC_HIDDEN_AT = 0;
+function ac() {
+  if (!AC || AC.state === 'closed') {
+    audioSession('playback');
+    const c = new (window.AudioContext || window.webkitAudioContext)();
+    c.onstatechange = () => { if (AC === c && c.state === 'closed') AC = null; };
+    AC = c;
+    AC_NEEDS_RESET = false;
+  }
+  return AC;
+}
+function resetAudioEngine() {
+  try { if (typeof spHoldStop === 'function') spHoldStop(); } catch { }
+  try { if (typeof muDroneStop === 'function') muDroneStop(0); } catch { }
+  try { if (typeof GR !== 'undefined' && GR.mic && !GR.mic.own && typeof grMicClose === 'function') grMicClose(); } catch { }
+  const old = AC;
+  AC = null;
+  AC_NEEDS_RESET = false;
+  if (old) {
+    if (old.__music) MUSIC_OUTS.delete(old.__music);
+    try { if (old.state !== 'closed') old.close(); } catch { }
+  }
+  const fresh = ac();
+  fresh.resume?.().catch(() => { });
+  return fresh;
+}
+function acForPlayback() {
+  const busyRec = (typeof GR !== 'undefined' && GR.on)
+    || (typeof SP_VREC !== 'undefined' && SP_VREC.on)
+    || (typeof REC !== 'undefined' && (REC.state === 'rec' || REC.state === 'countin'))
+    || (typeof MU_TUNER !== 'undefined' && !!MU_TUNER.stream);
+  const c = (AC_NEEDS_RESET && !busyRec) ? resetAudioEngine() : ac();
+  if (!AC_LIVE_MICS) audioSession('playback');
+  if (c.state !== 'running') c.resume?.().catch(() => { });
+  return c;
+}
+// Detect a frozen or time-dilated AudioContext (common after OS sleep, HDMI/Bluetooth switch, or mic use)
+// and automatically recreate AC so playback recovers without restarting the program.
+function watchPlaybackClock(c, isAlive, onBroken) {
+  const t0 = c.currentTime, p0 = performance.now();
+  setTimeout(() => {
+    if (!isAlive() || AC !== c) return;
+    const dtWall = (performance.now() - p0) / 1000;
+    const dtAudio = c.currentTime - t0;
+    if (c.state !== 'running' || dtAudio < 0.05 || (dtWall > 0.25 && dtAudio > dtWall * 1.75)) {
+      console.warn(`[audio] unhealthy AudioContext (state=${c.state}, dtAudio=${dtAudio.toFixed(3)}s / ${dtWall.toFixed(3)}s) — resetting`);
+      resetAudioEngine();
+      try { onBroken && onBroken(); } catch { }
+    }
+  }, 550);
+}
+window.resetAudioEngine = resetAudioEngine;
+window.acForPlayback = acForPlayback;
+window.watchPlaybackClock = watchPlaybackClock;
 // iPad / iPhone: Safari plays web audio in a quiet "ambient" mode, and after the microphone has been used
 // it stays in a record mode that makes everything quieter. Ask for normal playback, switch to record mode
 // only while a microphone is actually on, and switch back when the last one stops.
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !window.webkit?.messageHandlers?.native);
 function audioSession(type) { if (!IS_IOS) return; try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { } }
 (() => {
-  const md = navigator.mediaDevices; if (!md?.getUserMedia || !navigator.audioSession) return;
+  const md = navigator.mediaDevices; if (!md) return;
+  try { md.addEventListener?.('devicechange', () => { AC_NEEDS_RESET = true; }); } catch { }
+  if (!md.getUserMedia) return;
   const live = new Set(), gum = md.getUserMedia.bind(md);
   md.getUserMedia = async c => {
     if (c?.audio) audioSession('play-and-record');
@@ -423,16 +477,39 @@ function audioSession(type) { if (!IS_IOS) return; try { if (navigator.audioSess
       // "AudioSession category is not compatible with audio capture": the audio mode is stuck on playback
       // (it is shared by the whole app, so it can outlast a page reload). Ask for record mode and try again.
       if (!c?.audio || !/AudioSession|category/i.test(e?.message || '')) throw e;
-      try { navigator.audioSession.type = 'play-and-record'; } catch { }
+      try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch { }
       s = await gum(c);
     }
     s.getAudioTracks().forEach(t => live.add(t));
-    if (AC && AC.state !== 'running') AC.resume().catch(() => { });   // switching modes can pause the sound engine
+    AC_LIVE_MICS = live.size;
+    if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });   // switching modes can pause the sound engine
     return s;
   };
   const stop = MediaStreamTrack.prototype.stop;
-  MediaStreamTrack.prototype.stop = function () { stop.call(this); if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) { live.clear(); setTimeout(() => { if (live.size) return; if (IS_IOS) audioSession('playback'); else try { if (navigator.audioSession.type !== 'auto') navigator.audioSession.type = 'auto'; } catch { } }, 50); } };
+  MediaStreamTrack.prototype.stop = function () {
+    stop.call(this);
+    if (live.delete(this)) {
+      AC_LIVE_MICS = live.size;
+      if (![...live].some(t => t.readyState === 'live')) {
+        live.clear(); AC_LIVE_MICS = 0;
+        AC_NEEDS_RESET = true;   // OS audio hardware switches back from record/HFP mode; next Play gets a clean context
+        setTimeout(() => {
+          if (live.size) return;
+          if (IS_IOS) audioSession('playback');
+          else try { if (navigator.audioSession && navigator.audioSession.type !== 'auto') navigator.audioSession.type = 'auto'; } catch { }
+          if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });
+        }, 50);
+      }
+    }
+  };
 })();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { AC_HIDDEN_AT = Date.now(); return; }
+  // Returning after sleep / app switch: mark idle AudioContext for clean rebuild, and resume if interrupted.
+  if (AC_HIDDEN_AT && Date.now() - AC_HIDDEN_AT > 15000) AC_NEEDS_RESET = true;
+  if (!AC_LIVE_MICS) audioSession('playback');
+  if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });
+});
 document.addEventListener('pointerdown', () => audioSession(document.hidden ? 'auto' : (navigator.audioSession?.type === 'play-and-record' ? 'play-and-record' : 'playback')), { once: true, capture: true });
 // Sound / playhead sync: extra delay (ms) between the audio clock and what you hear. Kept per device,
 // because speakers, Bluetooth and the iPad all differ.
@@ -490,7 +567,7 @@ const SYNTH = {
 async function playSound(name) {
   if (!name || name === 'none') return;
   try {
-    if (ac().state === 'suspended') await ac().resume();
+    if (ac().state !== 'running') await ac().resume();
     if (name.startsWith('file:')) {
       const a = new Audio(await fileBlobURL(name.slice(5))); a.play().catch(() => { });
     } else (SYNTH[name] || SYNTH.chime)();
@@ -1964,7 +2041,7 @@ async function recBegin() {
     catch { return toast('Rehearsal needs the microphone to record. Allow it and try again.'); }
     openedAt = Date.now();
   }
-  if (ac().state === 'suspended') await ac().resume();
+  if (ac().state !== 'running') await ac().resume();
   REC.stream = stream;
   const warm = Math.max(0, openedAt + REC_WARM_MS - Date.now()) / 1000;   // seconds still needed
   if (o.count === 'none') {
@@ -5083,7 +5160,7 @@ function settingsTab() {
     <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
   <div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
     <div class="row"><span style="width:9em">Playhead delay</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay" style="flex:1;max-width:320px"><b class="av-val">${avDelayMs()} ms</b><button class="btn" data-action="av-cal">Calibrate…</button></div>
-    <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button></div>
+    <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button><button class="btn" data-action="audio-reset" title="Restart the sound engine without reopening Rehearsal (useful if audio glitches after switching speakers or sleeping)">Reset sound</button></div>
     <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div>
     <div class="row" style="margin-top:8px"><span style="width:9em">Rhythm counts</span><select data-action-change="rhythm-sys">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => `<option value="${v}" ${(S.settings.rhythmSystem || 'numbers') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="small muted">Used in Sight Reading, Score Practice, and Warm-up notation.</span></div></div>
   <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or the web version in any browser (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
@@ -5480,7 +5557,8 @@ const A = {
   'app-front': el => { const w = findWin(el.dataset.id); if (!w) return; if (w.status === 'not-running') native('launchApp', { bundleId: w.bundleId }); else native('webCmd', { id: w.id, action: 'front' }); },
   'wm-cal': () => { const w = addWindow({ kind: 'cal' }); w.w = 0.62; w.h = 0.8; save(); applyWinGeom(); },
   'av-cal': () => calibrateSync(),
-  'vol-test': () => { const c = ac(); c.resume?.(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut()); o.start(t); o.stop(t + 0.55); }); },
+  'vol-test': () => { const c = acForPlayback(); [60, 64, 67, 72].forEach((m, i) => { const t = c.currentTime + 0.05 + i * 0.25, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(musicOut(c)); o.start(t); o.stop(t + 0.55); }); },
+  'audio-reset': () => { stopMusicHosts(); resetAudioEngine(); toast('Sound engine reset.'); },
   'wm-yt': () => { const w = addWindow({ kind: 'yt' }); w.w = 0.6; w.h = 0.7; save(); applyWinGeom(); },
   'wm-rec': () => { const ex = winList().find(w => w.kind === 'rec'); if (ex) return bringToFront(ex); addWindow({ kind: 'rec' }, { w: 0.42, h: 0.72 }); },
   'wm-piano': () => { window.__spaceTarget = 'piano'; const ex = winList().find(w => w.kind === 'piano'); if (ex) return bringToFront(ex); addWindow({ kind: 'piano' }, { w: 0.68, h: 0.74 }); },
@@ -5985,7 +6063,7 @@ function dockNearCheck(e) {
 }
 document.addEventListener('pointermove', dockNearCheck, true);
 document.addEventListener('pointerdown', dockNearCheck, true);
-document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC && AC.state === 'suspended') AC.resume().then(() => $('.sound-chip')?.remove()); }, true);
+document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().then(() => $('.sound-chip')?.remove()).catch(() => { }); }, true);
 
 // ============================================================ boot
 window.__companionState = on => { if (!on && P.companion) { P.companion = null; P.compAppsOpen = false; P.compAppsHover = false; tick(); } };

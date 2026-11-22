@@ -872,18 +872,21 @@ const SR_INS = {
   mallet: { p: [['sine', 1, .45], ['sine', 3.93, .07], ['sine', 9.4, .015]], atk: .002, env: 'decay', tc: .22 },
 };
 function srVoice(c, dest, time, midi, dur, ins = 'soft', cue = false) {
-  const I = SR_INS[ins] || SR_INS.soft, f = 440 * Math.pow(2, (midi - 69) / 12), end = time + dur;
-  const rel = Math.min(0.08, dur * 0.25), hold = Math.max(time + I.atk + 0.01, end - rel);
+  if (!isFinite(midi) || !isFinite(time) || !isFinite(dur) || dur <= 0) return;
+  const I = SR_INS[ins] || SR_INS.soft, f = 440 * Math.pow(2, (midi - 69) / 12);
+  if (!isFinite(f) || f <= 0) return;
+  const safeDur = Math.max(0.04, dur), end = time + safeDur;
+  // count-in pitches always ring and fade (never a held note); slow attacks are kept short there
+  const env = cue ? 'decay' : I.env, atk = Math.min(cue ? Math.min(I.atk, 0.02) : I.atk, safeDur * 0.35);
+  const rel = Math.min(0.08, safeDur * 0.25), hold = Math.min(end - 0.005, Math.max(time + atk + 0.005, end - rel));
   let out = dest, lp = null;
   if (I.lp) { lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(12000, f * I.lp); lp.Q.value = 0.5; lp.connect(dest); out = lp; }
   let lfo = null, lfoG = null;
-  if (I.vib && dur > 0.35 && !cue) {   // vibrato fades in after the start, like a player would
+  if (I.vib && safeDur > 0.35 && !cue) {   // vibrato fades in after the start, like a player would
     lfo = c.createOscillator(); lfoG = c.createGain(); lfo.frequency.value = 5.2;
     lfoG.gain.setValueAtTime(0, time); lfoG.gain.setValueAtTime(0, time + 0.2); lfoG.gain.linearRampToValueAtTime(f * I.vib, time + 0.6);
     lfo.connect(lfoG); lfo.start(time); lfo.stop(end + 0.1);
   }
-  // count-in pitches always ring and fade (never a held note); slow attacks are kept short there
-  const env = cue ? 'decay' : I.env, atk = cue ? Math.min(I.atk, 0.02) : I.atk;
   for (const [type, mul, amp0] of I.p) {
     const os = c.createOscillator(), g = c.createGain(), amp = amp0 * (cue && env !== I.env ? 0.9 : 1);
     os.type = type; os.frequency.value = f * mul;
@@ -927,12 +930,26 @@ function srKeepAwake(c) {
 }
 function srPlay(st, timeline, onEnd) {
   srStop();
-  const c = ac(); c.resume && c.resume(); srKeepAwake(c);
-  const master = c.createGain(); master.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9; master.connect(musicOut(c)); SR_PLAY.master = master;
+  let c = typeof acForPlayback === 'function' ? acForPlayback() : ac();
+  c.resume && c.resume(); srKeepAwake(c);
+  const makeMaster = ctx => {
+    const m = ctx.createGain();
+    m.gain.value = (timeline.parts || 1) > 1 ? 0.55 : 0.9;
+    m.connect(musicOut(ctx));
+    return m;
+  };
+  let master = makeMaster(c); SR_PLAY.master = master;
   const o = st[st.mode]; const [beats, kind] = SR_METERS[o.ts];
   const beatQ = kind === 'compound' ? 1.5 : 1;                  // tempo counts the beat (dotted quarter in compound)
   const q = 60 / o.tempo / beatQ;                              // seconds per quarter-note unit
-  const t0 = c.currentTime + (c.state === 'running' ? 0.25 : 0.4);   // room for the output to start
+  const ensureNoise = () => {
+    if (!SR_PLAY.noise || SR_PLAY.noise.sampleRate !== c.sampleRate) {
+      const b = c.createBuffer(1, c.sampleRate, c.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      SR_PLAY.noise = b;
+    }
+  };
+  ensureNoise();
   // count-in & metronome: a light, high electronic tick (accent on beat 1)
   const click = (time, accent, gain = 1) => {
     gain *= metVol(); if (gain < 0.002) return;                 // the metronome's own volume
@@ -941,12 +958,8 @@ function srPlay(st, timeline, onEnd) {
     g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(0.22 * gain, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
     os.connect(g).connect(master); os.start(time); os.stop(time + 0.04);
   };
-  if (!SR_PLAY.noise || SR_PLAY.noise.sampleRate !== c.sampleRate) {
-    const b = c.createBuffer(1, c.sampleRate, c.sampleRate), d = b.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    SR_PLAY.noise = b;
-  }
   const noise = (time, dur, type, freq, q, peak) => {
+    ensureNoise();
     const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
     src.buffer = SR_PLAY.noise; f.type = type; f.frequency.value = freq; f.Q.value = q;
     g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(peak, time + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
@@ -987,21 +1000,25 @@ function srPlay(st, timeline, onEnd) {
   const cuePitch = st.mode === 'solfege' ? (o.countPitch ?? 'do') : 'none';
   const bars = Number(o.countIn ?? 1) || (cuePitch !== 'none' ? 1 : 0);   // a pitch cue needs at least one bar
   const beatSec = q * beatQ, countBeats = beats * bars;
-  for (let b = 0; b < countBeats; b++) click(t0 + b * beatSec, b % beats === 0, 1.2);
   let cue = null;
-  if (cuePitch !== 'none' && st.ex.solfege) {
-    const sp = d => srSpell(o.key, o.scale, d, o.clef), first = sp(st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0), barSec = beats * beatSec;
-    if (cuePitch === 'start') {
-      if ((timeline.parts || 1) > 1) {                         // each part hears its own first note
-        for (let pp = 0; pp < timeline.parts; pp++) { const e = timeline.find(x => x.part === pp && !x.rest && x.t >= tStart - 1e-6); if (e) tone(t0 + pp * 0.12, e.midi, beatSec, true); }
-      } else tone(t0, first.midi, beatSec, true);
+  const scheduleCountIn = tStartAudio => {
+    for (let b = 0; b < countBeats; b++) click(tStartAudio + b * beatSec, b % beats === 0, 1.2);
+    if (cuePitch !== 'none' && st.ex.solfege) {
+      const sp = d => srSpell(o.key, o.scale, d, o.clef), first = sp(st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0), barSec = beats * beatSec;
+      if (cuePitch === 'start') {
+        if ((timeline.parts || 1) > 1) {                         // each part hears its own first note
+          for (let pp = 0; pp < timeline.parts; pp++) { const e = timeline.find(x => x.part === pp && !x.rest && x.t >= tStart - 1e-6); if (e) tone(tStartAudio + pp * 0.12, e.midi, beatSec, true); }
+        } else tone(tStartAudio, first.midi, beatSec, true);
+      }
+      else if (cuePitch === 'chord') { [0, 2, 4].forEach((d, i) => tone(tStartAudio + i * Math.min(beatSec, barSec / 3) * 0.5, sp(d).midi, beatSec * 1.5, true)); }
+      else tone(tStartAudio, sp(0).midi, beatSec, true);
+      cue = { heard: cuePitch === 'start' ? first.syl : cuePitch === 'chord' ? 'do – mi – sol' : 'do', start: first.syl };
+    } else if (st.mode === 'solfege' && st.ex.solfege) {
+      cue = { heard: null, start: srSpell(o.key, o.scale, st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0, o.clef).syl };
     }
-    else if (cuePitch === 'chord') { [0, 2, 4].forEach((d, i) => tone(t0 + i * Math.min(beatSec, barSec / 3) * 0.5, sp(d).midi, beatSec * 1.5, true)); }
-    else tone(t0, sp(0).midi, beatSec, true);
-    cue = { heard: cuePitch === 'start' ? first.syl : cuePitch === 'chord' ? 'do – mi – sol' : 'do', start: first.syl };
-  } else if (st.mode === 'solfege' && st.ex.solfege) {
-    cue = { heard: null, start: srSpell(o.key, o.scale, st.ex.solfege.pitches[firstPitchIdx] ?? st.ex.solfege.pitches[0] ?? 0, o.clef).syl };
-  }
+  };
+  const t0 = c.currentTime + (c.state === 'running' ? 0.25 : 0.4);   // room for the output to start
+  scheduleCountIn(t0);
   const total = timeline.reduce((m, e) => Math.max(m, e.t + e.len), 0);
   const countLen = countBeats * beatQ;                          // count-in length in quarter-note units
   // The clock maps "position in quarter notes" (count-in is negative) to audio time. When the tempo
@@ -1018,22 +1035,41 @@ function srPlay(st, timeline, onEnd) {
   // rhythm sound and tempo all take effect on the next beat — no restart needed. (The look-ahead is
   // long enough that a short pause while the page redraws can't make a note late.)
   SR_PLAY.timer = setInterval(() => {
-    if (!SR_PLAY.master) return;
+    if (SR_PLAY.master !== master) return;
     const now = c.currentTime, oo = st[st.mode] || o;
     const nq = 60 / (Number(oo.tempo) || 80) / beatQ;
     if (Math.abs(nq - clock.q) > 1e-9 && clock.pos(now) > tStart) { const pnow = clock.pos(now); clock.anchorT = now; clock.anchorPos = pnow; clock.q = nq; }
     const horizon = now + 0.3;
     while (nextBeat * beatQ < total - 1e-6 && clock.timeAt(nextBeat * beatQ) < horizon) {
-      if (oo.metronome) click(Math.max(now, clock.timeAt(nextBeat * beatQ)), nextBeat % beats === 0, 0.5);
+      const bt = clock.timeAt(nextBeat * beatQ);
+      if (oo.metronome && bt >= now - 0.12) click(Math.max(now, bt), nextBeat % beats === 0, 0.5);
       nextBeat++;
     }
     while (nextEv < evs.length && clock.timeAt(evs[nextEv].t) < horizon) {
       const e = evs[nextEv++]; if (e.rest) continue;
-      const at = Math.max(now, clock.timeAt(e.t));
+      const et = clock.timeAt(e.t);
+      if (et < now - 0.12) continue;   // don't fire a stale burst of missed notes after a resize/pause
+      const at = Math.max(now, et);
       if (st.mode === 'rhythm') { if (oo.sound !== 'none') ({ clap, drum, woodblock: block }[oo.sound] || clap)(at); } else tone(at, e.midi, e.len * clock.q);
     }
     if (nextEv >= evs.length && clock.pos(now) > total + 0.4) { srStop(); onEnd && onEnd(); }
   }, 25);
+  // If AudioContext turns out frozen/time-dilated (sleep, device change, post-mic glitch),
+  // swap in the fresh AudioContext and cleanly re-anchor this exact playback + playhead.
+  if (typeof watchPlaybackClock === 'function') {
+    watchPlaybackClock(c, () => SR_PLAY.master === master, () => {
+      if (SR_PLAY.master !== master) return;
+      try { master.disconnect(); } catch { }
+      c = ac(); c.resume && c.resume(); srKeepAwake(c);
+      master = makeMaster(c); SR_PLAY.master = master;
+      ensureNoise();
+      const freshT0 = c.currentTime + 0.35;
+      clock.anchorT = freshT0; clock.anchorPos = tStart - countLen; clock.q = q;
+      nextBeat = Math.ceil(tStart / beatQ - 1e-6);
+      nextEv = evs.findIndex(e => e.t >= tStart - 1e-6); if (nextEv < 0) nextEv = evs.length;
+      scheduleCountIn(freshT0);
+    });
+  }
   return clock;
 }
 

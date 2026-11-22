@@ -270,7 +270,8 @@ async function spPianoReady(midis) {
   }));
 }
 function spPianoNote(dest, time, midi, dur, vel = 0.8) {
-  const c = ac(), buf = SP_PIANO.buffers[spNoteName(midi)]; if (!buf) return;
+  if (!dest || !isFinite(time) || !isFinite(midi) || !isFinite(dur) || dur <= 0) return;
+  const c = dest.context || ac(), buf = SP_PIANO.buffers[spNoteName(midi)]; if (!buf) return;
   const src = c.createBufferSource(), g = c.createGain();
   src.buffer = buf;
   const shift = midi - Math.max(21, Math.min(108, midi)); if (shift) src.playbackRate.value = Math.pow(2, shift / 12);
@@ -279,8 +280,9 @@ function spPianoNote(dest, time, midi, dur, vel = 0.8) {
   src.connect(g).connect(dest); src.start(time, buf.lead || 0); src.stop(time + Math.max(0.05, dur) + 0.6);
 }
 function spClick(dest, time, accent) {
+  if (!dest || !isFinite(time)) return;
   const v = metVol(); if (v < 0.002) return;                      // the metronome's own volume
-  const c = ac(), os = c.createOscillator(), g = c.createGain();
+  const c = dest.context || ac(), os = c.createOscillator(), g = c.createGain();
   os.type = 'sine'; os.frequency.value = accent ? 3200 : 2500;
   g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime((accent ? 0.3 : 0.2) * v, time + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
   os.connect(g).connect(dest); os.start(time); os.stop(time + 0.04);
@@ -869,12 +871,16 @@ function spPlay(ctl, playOpts = null) {
   if (SP_VREC.on && playOpts?.recordingLine == null) spStopVocalRec(false);
   spHoldStop();
   if (SP_PLAY.ctl) {
-    clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf);
+    const prev = SP_PLAY.ctl;
+    clearInterval(SP_PLAY.timer); SP_PLAY.timer = null; cancelAnimationFrame(SP_PLAY.raf); SP_PLAY.raf = 0;
     try { SP_PLAY.master && SP_PLAY.master.disconnect(); } catch { }
-    spStopVocalNodes(SP_PLAY.ctl);
+    spStopVocalNodes(prev);
+    prev._paintPlayhead = null;
+    if (prev !== ctl) { prev.playing = false; prev.hideCountOverlay?.(); prev.hidePlayhead(); prev.updateBar(); }
     SP_PLAY.master = null; SP_PLAY.ctl = null;
   }
-  const { sc, st } = ctl, c = ac(); c.resume && c.resume();
+  const { sc, st } = ctl, c = (playOpts?.recordingLine == null && typeof acForPlayback === 'function') ? acForPlayback() : ac();
+  c.resume && c.resume();
   if (typeof srKeepAwake === 'function') srKeepAwake(c);
   SP_ACTIVE = ctl;
   const master = c.createGain(); master.gain.value = 0.9; master.connect(musicOut(c));
@@ -1040,31 +1046,34 @@ function spPlay(ctl, playOpts = null) {
       const s = stops[si];
       if (s && s.q < R.b - 1e-9) {
         walker.t += (s.q - walker.q) * secPerQ(walker.q); walker.q = s.q; ctl.marks.push({ t: walker.t, q: s.q });
+        const stale = walker.t < now - 0.12;   // skip stale missed notes after a resize/pause so they never crash together
         const sp = secPerQ(s.q);
-        for (const e of s.evs) {
-          if (playOpts?.recordingLine != null) {
-            if (!st.recHeadphones) continue;
-            if (!spRecHear(st, sc, playOpts.recordingLine, e.line)) continue;
-            if (e.line === playOpts.recordingLine) {
-              const len = Math.min(e.q + e.dur, R.b) - e.q;
-              spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.72);
-              continue;
+        if (!stale) {
+          for (const e of s.evs) {
+            if (playOpts?.recordingLine != null) {
+              if (!st.recHeadphones) continue;
+              if (!spRecHear(st, sc, playOpts.recordingLine, e.line)) continue;
+              if (e.line === playOpts.recordingLine) {
+                const len = Math.min(e.q + e.dur, R.b) - e.q;
+                spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97, 0.72);
+                continue;
+              }
+            } else {
+              if (st.parts[e.line]?.on === false) continue;
+              const soloSet = spSolo(st).filter(x => sc.lines[x]);
+              if (soloSet.length && !soloSet.includes(e.line)) continue;
             }
-          } else {
-            if (st.parts[e.line]?.on === false) continue;
-            const soloSet = spSolo(st).filter(x => sc.lines[x]);
-            if (soloSet.length && !soloSet.includes(e.line)) continue;
+            // Skip MIDI notes when this part is in Sung mode with a valid recording
+            if (!playOpts?.ignoreVocalRecs && spIsLineSung(ctl, e.line)) continue;
+            const len = Math.min(e.q + e.dur, R.b) - e.q;
+            spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97);
           }
-          // Skip MIDI notes when this part is in Sung mode with a valid recording
-          if (!playOpts?.ignoreVocalRecs && spIsLineSung(ctl, e.line)) continue;
-          const len = Math.min(e.q + e.dur, R.b) - e.q;
-          spPianoNote(ctl.gains[e.line], Math.max(now, walker.t), e.midi, len * sp * 0.97);
+          const anySungHasMetro = !playOpts?.ignoreVocalRecs && sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro);
+          const allowMetro = playOpts?.recordingLine != null
+            ? !!(st.recHeadphones && st.recMetro)
+            : (!playOpts?.noMetro && !anySungHasMetro && !!st.metronome);
+          if (s.beat && allowMetro) spClick(master, Math.max(now, walker.t), s.beat.accent);
         }
-        const anySungHasMetro = !playOpts?.ignoreVocalRecs && sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro);
-        const allowMetro = playOpts?.recordingLine != null
-          ? !!(st.recHeadphones && st.recMetro)
-          : (!playOpts?.noMetro && !anySungHasMetro && !!st.metronome);
-        if (s.beat && allowMetro) spClick(master, Math.max(now, walker.t), s.beat.accent);
         si++;
       } else {
         walker.t += (R.b - walker.q) * secPerQ(walker.q); walker.q = R.b; ctl.marks.push({ t: walker.t, q: R.b });
@@ -1117,6 +1126,11 @@ function spPlay(ctl, playOpts = null) {
   ctl._paintPlayhead = () => paintFrame(true);
   step(); SP_PLAY.timer = setInterval(step, 25);
   if (!SP_PLAY.raf) SP_PLAY.raf = requestAnimationFrame(frame);
+  if (!playOpts?.recordingLine && !playOpts?._retried && typeof watchPlaybackClock === 'function') {
+    watchPlaybackClock(c, () => SP_PLAY.ctl === ctl && SP_PLAY.master === master, () => {
+      if (SP_PLAY.ctl === ctl && SP_PLAY.master === master) spPlay(ctl, { ...(playOpts || {}), _retried: true });
+    });
+  }
   const q0 = 60 / spBpmAt(sc, R.a) / factorAt(0);
   return {
     when0: pass0StartT,

@@ -146,7 +146,7 @@ function printHTML(html) {
 }
 
 // ---------- Audio engine helpers (matches web/app.js behavior for iPad / Chromebook / desktop)
-let AC = null;
+let AC = null, AC_NEEDS_RESET = false, AC_LIVE_MICS = 0, AC_HIDDEN_AT = 0;
 function audioSession(type) {
   if (!IS_IOS) return;
   try {
@@ -157,17 +157,60 @@ function audioSession(type) {
 }
 
 function ac() {
-  if (!AC) {
+  if (!AC || AC.state === 'closed') {
     audioSession('playback');
-    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const c = new (window.AudioContext || window.webkitAudioContext)();
+    c.onstatechange = () => { if (AC === c && c.state === 'closed') AC = null; };
+    AC = c;
+    AC_NEEDS_RESET = false;
   }
   return AC;
 }
 
-// iPad / iPhone Safari audioSession switching so playback stays full volume after recording
+function resetAudioEngine() {
+  try { if (typeof spHoldStop === 'function') spHoldStop(); } catch { }
+  try { if (typeof GR !== 'undefined' && GR.mic && !GR.mic.own && typeof grMicClose === 'function') grMicClose(); } catch { }
+  const old = AC;
+  AC = null;
+  AC_NEEDS_RESET = false;
+  if (old) {
+    try { if (old.state !== 'closed') old.close(); } catch { }
+  }
+  const fresh = ac();
+  fresh.resume?.().catch(() => { });
+  return fresh;
+}
+
+function acForPlayback() {
+  const busyRec = (typeof GR !== 'undefined' && GR.on) || (typeof SP_VREC !== 'undefined' && SP_VREC.on);
+  const c = (AC_NEEDS_RESET && !busyRec) ? resetAudioEngine() : ac();
+  if (!AC_LIVE_MICS) audioSession('playback');
+  if (c.state !== 'running') c.resume?.().catch(() => { });
+  return c;
+}
+
+function watchPlaybackClock(c, isAlive, onBroken) {
+  const t0 = c.currentTime, p0 = performance.now();
+  setTimeout(() => {
+    if (!isAlive() || AC !== c) return;
+    const dtWall = (performance.now() - p0) / 1000;
+    const dtAudio = c.currentTime - t0;
+    if (c.state !== 'running' || dtAudio < 0.05 || (dtWall > 0.25 && dtAudio > dtWall * 1.75)) {
+      resetAudioEngine();
+      try { onBroken && onBroken(); } catch { }
+    }
+  }, 550);
+}
+window.resetAudioEngine = resetAudioEngine;
+window.acForPlayback = acForPlayback;
+window.watchPlaybackClock = watchPlaybackClock;
+
+// Audio session + device-change recovery so playback stays clean after mic use or sleep
 (() => {
   const md = navigator.mediaDevices;
-  if (!md?.getUserMedia || !navigator.audioSession) return;
+  if (!md) return;
+  try { md.addEventListener?.('devicechange', () => { AC_NEEDS_RESET = true; }); } catch { }
+  if (!md.getUserMedia) return;
   const live = new Set();
   const gum = md.getUserMedia.bind(md);
   md.getUserMedia = async c => {
@@ -176,26 +219,39 @@ function ac() {
     try { s = await gum(c); }
     catch (e) {
       if (!c?.audio || !/AudioSession|category/i.test(e?.message || '')) throw e;
-      try { navigator.audioSession.type = 'play-and-record'; } catch { }
+      try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch { }
       s = await gum(c);
     }
     s.getAudioTracks().forEach(t => live.add(t));
-    if (AC && AC.state !== 'running') AC.resume().catch(() => { });
+    AC_LIVE_MICS = live.size;
+    if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });
     return s;
   };
   const stop = MediaStreamTrack.prototype.stop;
   MediaStreamTrack.prototype.stop = function () {
     stop.call(this);
-    if (live.delete(this) && ![...live].some(t => t.readyState === 'live')) {
-      live.clear();
-      setTimeout(() => {
-        if (live.size) return;
-        if (IS_IOS) audioSession('playback');
-        else try { if (navigator.audioSession.type !== 'auto') navigator.audioSession.type = 'auto'; } catch { }
-      }, 50);
+    if (live.delete(this)) {
+      AC_LIVE_MICS = live.size;
+      if (![...live].some(t => t.readyState === 'live')) {
+        live.clear(); AC_LIVE_MICS = 0;
+        AC_NEEDS_RESET = true;
+        setTimeout(() => {
+          if (live.size) return;
+          if (IS_IOS) audioSession('playback');
+          else try { if (navigator.audioSession && navigator.audioSession.type !== 'auto') navigator.audioSession.type = 'auto'; } catch { }
+          if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });
+        }, 50);
+      }
     }
   };
 })();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { AC_HIDDEN_AT = Date.now(); return; }
+  if (AC_HIDDEN_AT && Date.now() - AC_HIDDEN_AT > 15000) AC_NEEDS_RESET = true;
+  if (!AC_LIVE_MICS) audioSession('playback');
+  if (AC && AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => { });
+});
 
 document.addEventListener('pointerdown', () => audioSession(
   document.hidden ? 'auto' : (navigator.audioSession?.type === 'play-and-record' ? 'play-and-record' : 'playback')
