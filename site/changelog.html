@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Changelog &amp; Release Notes — Rehearsal</title>
-<meta name="description" content="Release history and updates for Rehearsal for Mac, Windows, and Web.">
+<title>Changelog — Rehearsal</title>
+<meta name="description" content="Release notes for Rehearsal for Mac, Windows, and Web.">
 <meta property="og:title" content="Rehearsal Changelog">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://rehearsalmusic.com/changelog.html">
+<meta property="og:url" content="https://rehearsalmusic.com/changelog">
 <meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
 <link rel="icon" href="img/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="img/icon-180.png">
@@ -17,20 +17,19 @@
   <header class="site-header">
     <div class="nav-bar">
       <a class="brand-link" href="index.html">
-        <img src="img/icon-192.png" alt="Rehearsal app icon" width="32" height="32">
+        <img src="img/icon-192.png" alt="Rehearsal" width="30" height="30">
         <span>Rehearsal</span>
       </a>
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
-        <a href="index.html#features">Features</a>
-        <a href="demo.html">Live Demo</a>
-        <a href="homework.html">Online Homework</a>
+        <a href="index.html#tools">Tools</a>
+        <a href="homework.html">Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
-        <a href="download.html">Download</a>
       </nav>
-      <div class="nav-actions">
-        <a class="nav-student" href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
-        <a class="btn primary sm" href="download.html" data-os-cta>Download Free</a>
+      <div class="platform-switch" aria-label="Choose Mac, Windows, or Browser">
+        <a href="download.html#mac" data-os-pill="mac">Mac</a>
+        <a href="download.html#win" data-os-pill="win">Windows</a>
+        <a href="https://app.rehearsalmusic.com/" data-app-href="app" data-os-pill="web">Browser</a>
       </div>
     </div>
   </header>
@@ -38,29 +37,27 @@
   <main>
     <section class="page-hero">
       <div class="wrap">
-        <h1>Release Notes &amp; Changelog</h1>
-        <p>Installed Mac and Windows copies check for signed updates automatically. Web users get each release on their next online visit.</p>
+        <h1>Changelog</h1>
+        <p>Mac and Windows check for signed updates automatically; the web version updates on your next online visit.</p>
       </div>
     </section>
 
     <section class="section">
-      <div class="wrap" style="max-width:860px">
-        <div id="changelog-list" style="display:flex;flex-direction:column;gap:16px">
+      <div class="wrap" style="max-width:820px">
+        <div id="changelog-list" style="display:flex;flex-direction:column;gap:14px">
           <article class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
               <h3 style="margin:0">v1.3.1</h3>
               <span class="tag ok">Latest · 2026-11-22</span>
             </div>
-            <p class="small muted">Hosted the Rehearsal Web App &amp; Student Portal at <code>app.rehearsalmusic.com</code> and Homework API at <code>api.rehearsalmusic.com</code> to avoid school GitHub/workers.dev blocks, simplified sign-in with the 30-day free trial, and added the interactive How It Works &amp; Student Demo page.</p>
-            <p class="small" style="margin-top:10px"><a href="https://github.com/LoganShippee/rehearsal/releases/latest" target="_blank" rel="noopener">View release assets on GitHub →</a></p>
+            <p class="small muted">Hosted the Web App &amp; Student Portal at <code>app.rehearsalmusic.com</code> and Homework API at <code>api.rehearsalmusic.com</code> for school networks, simplified sign-in with the 30-day free trial, and added the interactive Homework walk-through.</p>
           </article>
           <article class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
               <h3 style="margin:0">v1.3.0</h3>
               <span class="tag">2026-11-22</span>
             </div>
-            <p class="small muted">Added optional Online Homework (classes, 6-character join &amp; student codes, Sight Reading, True Sight-Read, Score Practice, Audio-Only, Gradebook with playback &amp; exports), plain-language Privacy &amp; SDPC/IT district docs, and full-app reliability fixes.</p>
-            <p class="small" style="margin-top:10px"><a href="https://github.com/LoganShippee/rehearsal/releases/tag/v1.3.0" target="_blank" rel="noopener">View v1.3.0 on GitHub →</a></p>
+            <p class="small muted">Added optional Online Homework, Gradebook playback &amp; exports, and FERPA/COPPA/SDPC privacy docs.</p>
           </article>
         </div>
       </div>
@@ -68,11 +65,14 @@
   </main>
 
   <footer class="site-footer">
-    <div class="wrap">
-      <div class="footer-bottom" style="border-top:none;padding-top:0">
-        <span>© 2026 Rehearsal · <a href="index.html">Home</a> · <a href="download.html">Download</a> · <a href="schools.html">Schools &amp; IT</a></span>
-        <span>rehearsalmusic.com</span>
-      </div>
+    <div class="wrap footer-row">
+      <span>© 2026 Rehearsal · rehearsalmusic.com</span>
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Web App</a>
+        <a href="schools.html">Schools &amp; Privacy</a>
+      </nav>
     </div>
   </footer>
 

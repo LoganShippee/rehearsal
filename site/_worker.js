@@ -18,6 +18,8 @@ const ALLOWED_DOWNLOADS = {
 const REDIRECTS = {
   '/app': 'https://app.rehearsalmusic.com/',
   '/app/': 'https://app.rehearsalmusic.com/',
+  '/demo': 'https://app.rehearsalmusic.com/',
+  '/demo.html': 'https://app.rehearsalmusic.com/',
   '/hw': 'https://app.rehearsalmusic.com/hw',
   '/hw/': 'https://app.rehearsalmusic.com/hw',
   '/hw/demo': 'https://app.rehearsalmusic.com/hw-demo',

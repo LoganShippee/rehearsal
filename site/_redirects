@@ -1,5 +1,7 @@
 /app https://app.rehearsalmusic.com/ 302
 /app/ https://app.rehearsalmusic.com/ 302
+/demo https://app.rehearsalmusic.com/ 302
+/demo.html https://app.rehearsalmusic.com/ 302
 /hw https://app.rehearsalmusic.com/hw 302
 /hw/ https://app.rehearsalmusic.com/hw 302
 /hw/demo https://app.rehearsalmusic.com/hw-demo 302

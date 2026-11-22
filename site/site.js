@@ -29,19 +29,16 @@
     const os = detectOS();
     const map = {
       mac: {
-        label: 'Download Free for Mac',
-        href: downloadUrl('Rehearsal.zip'),
-        note: 'Universal macOS app (Apple Silicon & Intel)'
+        label: 'Download for Mac',
+        href: 'download.html#mac',
       },
       win: {
-        label: 'Download Free for Windows',
-        href: downloadUrl('Rehearsal-Setup.exe'),
-        note: 'Windows 10 / 11 · No admin password required'
+        label: 'Download for Windows',
+        href: 'download.html#win',
       },
       web: {
-        label: 'Open Web App (No Install)',
-        href: isLocalHost ? '../web/index.html' : 'https://app.rehearsalmusic.com/',
-        note: 'Runs in Chrome, Safari, or Edge · Works offline'
+        label: 'Download Mac / Windows',
+        href: 'download.html',
       }
     };
     const chosen = map[os] || map.mac;
@@ -50,13 +47,16 @@
       el.textContent = chosen.label;
       if (el.tagName === 'A') el.setAttribute('href', chosen.href);
     });
-    document.querySelectorAll('[data-os-note]').forEach(el => {
-      el.textContent = chosen.note;
+
+    document.querySelectorAll('[data-os-pill]').forEach(el => {
+      el.classList.toggle('on', el.getAttribute('data-os-pill') === os);
     });
+
     document.querySelectorAll('[data-dl-file]').forEach(el => {
       const f = el.getAttribute('data-dl-file');
       if (f) el.setAttribute('href', downloadUrl(f));
     });
+
     if (isLocalHost) {
       document.querySelectorAll('[data-app-href]').forEach(el => {
         const target = el.getAttribute('data-app-href');
@@ -67,11 +67,9 @@
       });
     }
 
-    // Highlight matching OS tab on download.html unless user explicitly chose a hash
     const hashTab = (location.hash || '').replace(/^#/, '');
     const initialTab = ['mac', 'win', 'web'].includes(hashTab) ? hashTab : os;
-    const dlTabs = document.querySelector('[data-os-tabs]');
-    if (dlTabs) activateOsTab(initialTab);
+    if (document.querySelector('[data-os-tabs]')) activateOsTab(initialTab);
   }
 
   function activateOsTab(os) {
@@ -84,8 +82,7 @@
       btn.setAttribute('aria-selected', match ? 'true' : 'false');
     });
     panels.forEach(panel => {
-      const match = panel.getAttribute('data-os-panel') === os;
-      panel.hidden = !match;
+      panel.hidden = panel.getAttribute('data-os-panel') !== os;
     });
   }
 
@@ -96,13 +93,17 @@
         if (os) activateOsTab(os);
       });
     });
+    window.addEventListener('hashchange', () => {
+      const hashTab = (location.hash || '').replace(/^#/, '');
+      if (['mac', 'win', 'web'].includes(hashTab)) activateOsTab(hashTab);
+    });
   }
 
-  function setupPreviewTabs() {
-    const tablist = document.querySelector('[data-preview-tablist]');
+  function setupTabGroup(tablistSelector, panelAttr) {
+    const tablist = document.querySelector(tablistSelector);
     if (!tablist) return;
     const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
-    const panels = Array.from(document.querySelectorAll('[data-preview-panel]'));
+    const panels = Array.from(document.querySelectorAll(`[${panelAttr}]`));
 
     function selectTab(id) {
       tabs.forEach(t => {
@@ -123,6 +124,35 @@
         const next = e.key === 'ArrowRight' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
         tabs[next].focus();
         selectTab(tabs[next].getAttribute('aria-controls'));
+      });
+    });
+  }
+
+  function setupLightbox() {
+    const triggers = document.querySelectorAll('[data-zoom-img]');
+    if (!triggers.length) return;
+    const box = document.createElement('div');
+    box.className = 'lightbox';
+    box.hidden = true;
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.innerHTML = '<button type="button" class="lightbox-close" aria-label="Close preview">Close ✕</button><img alt="">';
+    document.body.appendChild(box);
+    const imgEl = box.querySelector('img');
+    const closeBtn = box.querySelector('.lightbox-close');
+
+    function close() { box.hidden = true; }
+    closeBtn.addEventListener('click', close);
+    box.addEventListener('click', e => { if (e.target === box) close(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !box.hidden) close(); });
+
+    triggers.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inner = btn.querySelector('img');
+        if (!inner) return;
+        imgEl.src = inner.src;
+        imgEl.alt = inner.alt || 'Rehearsal app screenshot';
+        box.hidden = false;
       });
     });
   }
@@ -224,7 +254,7 @@
       e.preventDefault();
       const fd = new FormData(form);
       const payload = {
-        kind: String(fd.get('kind') || 'demo'),
+        kind: String(fd.get('kind') || 'po'),
         name: String(fd.get('name') || '').trim(),
         email: String(fd.get('email') || '').trim(),
         school: String(fd.get('school') || '').trim(),
@@ -243,7 +273,7 @@
         const body = encodeURIComponent(
           `Name: ${payload.name}\nEmail: ${payload.email}\nSchool/District: ${payload.school}\nEnsembles/Role: ${payload.role}\nPlatform: ${payload.platform}\n\nNotes:\n${payload.message}`
         );
-        setStatus(true, 'Local preview mode: opening your email client to send this request to privacy@rehearsalmusic.com.');
+        setStatus(true, 'Local preview: opening your email client to send to privacy@rehearsalmusic.com.');
         window.location.href = `mailto:privacy@rehearsalmusic.com?subject=${subject}&body=${body}`;
         return;
       }
@@ -264,7 +294,7 @@
           setStatus(false, data.error || 'Could not send right now. Please email privacy@rehearsalmusic.com directly.');
         }
       } catch {
-        setStatus(false, 'Network error sending request. You can email privacy@rehearsalmusic.com directly.');
+        setStatus(false, 'Network error sending request. Please email privacy@rehearsalmusic.com directly.');
       } finally {
         if (submitBtn) submitBtn.disabled = false;
       }
@@ -274,7 +304,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     setupMobileNav();
     setupOsTabs();
-    setupPreviewTabs();
+    setupTabGroup('[data-tool-tablist]', 'data-tool-panel');
+    setupLightbox();
     applyOsAwareness();
     hydrateReleaseMeta();
     hydrateChangelog();

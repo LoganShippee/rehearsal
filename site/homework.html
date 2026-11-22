@@ -3,12 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Online Homework &amp; Grading — Rehearsal</title>
-<meta name="description" content="Optional Online Homework add-on for Rehearsal: Sight Reading, locked True Sight-Read, Score Practice, and Audio-Only assignments with 6-character student codes (no student emails needed) and 90-day audio auto-deletion.">
-<meta property="og:title" content="Rehearsal Online Homework — Built for School Music Programs">
-<meta property="og:description" content="30-day free trial, then $5/mo or $49/yr per teacher. Zero student emails required and Chromebook Wi-Fi safe.">
+<title>Online Homework — Rehearsal</title>
+<meta name="description" content="Optional Online Homework add-on for Rehearsal: Sight Reading, locked True Sight-Read, Score Practice, and Audio-Only assignments with 6-character student codes.">
+<meta property="og:title" content="Rehearsal Online Homework">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://rehearsalmusic.com/homework.html">
+<meta property="og:url" content="https://rehearsalmusic.com/homework">
 <meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
 <link rel="icon" href="img/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="img/icon-180.png">
@@ -18,20 +17,19 @@
   <header class="site-header">
     <div class="nav-bar">
       <a class="brand-link" href="index.html">
-        <img src="img/icon-192.png" alt="Rehearsal app icon" width="32" height="32">
+        <img src="img/icon-192.png" alt="Rehearsal" width="30" height="30">
         <span>Rehearsal</span>
       </a>
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
-        <a href="index.html#features">Features</a>
-        <a href="demo.html">Live Demo</a>
-        <a href="homework.html" class="active">Online Homework</a>
+        <a href="index.html#tools">Tools</a>
+        <a href="homework.html" class="active">Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
-        <a href="download.html">Download</a>
       </nav>
-      <div class="nav-actions">
-        <a class="nav-student" href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
-        <a class="btn primary sm" href="download.html" data-os-cta>Download Free</a>
+      <div class="platform-switch" aria-label="Choose Mac, Windows, or Browser">
+        <a href="download.html#mac" data-os-pill="mac">Mac</a>
+        <a href="download.html#win" data-os-pill="win">Windows</a>
+        <a href="https://app.rehearsalmusic.com/" data-app-href="app" data-os-pill="web">Browser</a>
       </div>
     </div>
   </header>
@@ -39,89 +37,66 @@
   <main>
     <section class="page-hero">
       <div class="wrap">
-        <span class="tag ok" style="margin-bottom:12px">Optional Teacher Add-On · 30-Day Free Trial</span>
-        <h1>Assign Sight Reading, Score Practice &amp; Playing Tests—Without Per-Student Fees</h1>
-        <p>Keep Rehearsal's classroom app free forever, and add Online Homework only if you want students submitting recordings from home or practice rooms.</p>
+        <span class="tag ok">Optional Add-On · 30-Day Free Trial</span>
+        <h1>Online Homework</h1>
+        <p>Assign Sight Reading, Score Practice, or Audio-Only recordings—without per-student seat fees or student email accounts.</p>
         <div class="page-hero-actions">
-          <a class="btn gold lg" href="https://app.rehearsalmusic.com/hw-demo" data-app-href="hw-demo">Try Student Homework Demo →</a>
-          <a class="btn ghost-dark lg" href="demo.html#request">Request School Purchase Order</a>
+          <a class="btn primary lg" href="https://app.rehearsalmusic.com/hw-demo" data-app-href="hw-demo">See How Homework Works</a>
+          <a class="btn lg" href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
         </div>
       </div>
     </section>
 
     <section class="section">
       <div class="wrap">
-        <div class="grid-2">
-          <div class="card">
-            <span class="tag">For Teachers</span>
-            <h2>Assign &amp; Grade in Minutes</h2>
-            <ul class="check-list">
-              <li><strong>Three assignment types:</strong> Sight Reading (Practice or locked True Sight-Read with study timer), Score Practice (MusicXML with part selection), and Audio-Only recordings.</li>
-              <li><strong>Instant code sheets:</strong> Print cut-out 6-character personal codes for students plus a projector-ready Class Join Code slide.</li>
-              <li><strong>Visual + audio Gradebook:</strong> Hear each student's recording alongside color-coded note marks (green, orange, red, purple), add written feedback, override scores, or click <em>Delete Audio Now</em>.</li>
-              <li><strong>Easy exports:</strong> Export Gradebook CSV for your LMS or complete FERPA Student Data JSON anytime—even if a trial ends.</li>
-            </ul>
-          </div>
-
-          <div class="card">
-            <span class="tag ok">For Students (Chromebook, iPad, Phone)</span>
-            <h2>Friction-Free Student Portal</h2>
-            <ul class="check-list">
-              <li><strong>Short classroom URL:</strong> Students simply go to <code>app.rehearsalmusic.com/hw</code> (or <code>rehearsalmusic.com/hw</code>)—no app install required.</li>
-              <li><strong>Zero-email sign-in:</strong> Enter the Class Code + personal 6-character Student Code (or optional Google Sign-In where approved).</li>
-              <li><strong>Mic or Tap grading:</strong> Perform with a quick 8-tap Audio Sync Check, or use the touchscreen Tap Pad on rhythm tasks.</li>
-              <li><strong>Survives spotty school Wi-Fi:</strong> Takes are saved safely in browser IndexedDB and offer one-click Retry Upload if Wi-Fi drops mid-class.</li>
-            </ul>
+        <div class="tool-layout" style="margin-bottom:32px">
+          <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Student Homework screenshot">
+            <img src="img/screens/homework.png" alt="Rehearsal Student Homework Portal assignment view">
+          </button>
+          <div class="tool-copy">
+            <h3>How it works</h3>
+            <p>Create a class inside Rehearsal, print cut-out 6-character student codes, and assign exercises straight from Sight Reading or Score Practice.</p>
+            <p style="margin-top:10px">Students open <code>app.rehearsalmusic.com/hw</code> on any Chromebook, iPad, or phone, record or tap their take, and see instant note feedback.</p>
           </div>
         </div>
-      </div>
-    </section>
 
-    <section class="section alt">
-      <div class="wrap">
-        <div class="section-head">
-          <span class="eyebrow">Transparent pricing</span>
-          <h2>One flat teacher price. Unlimited students in your classes.</h2>
-          <p>Start using Online Homework free for 30 days right inside the Rehearsal app (Setup → Homework).</p>
-        </div>
         <div class="grid-3">
           <div class="card">
-            <span class="tag ok">Try It Free</span>
-            <h3>30-Day Full Trial</h3>
-            <div class="price-num">$0</div>
-            <p class="small muted">Every Online Homework feature unlocked immediately when you sign in with your school email inside Rehearsal.</p>
-          </div>
-          <div class="card featured">
-            <span class="tag">Individual Teacher</span>
-            <h3>Monthly or Annual</h3>
-            <div class="price-num">$5<span>/mo</span> · $49<span>/yr</span></div>
-            <p class="small muted">Flat price per teacher (not per student). Online card checkout is opening soon; your 30-day trial works today and local classroom features stay free even in Read-Only Mode.</p>
+            <h3>For Teachers</h3>
+            <ul class="check-list">
+              <li>Sight Reading, True Sight-Read, Score Practice, and Audio-Only</li>
+              <li>Gradebook with audio playback, note marks &amp; overrides</li>
+              <li>Export CSV or FERPA JSON anytime</li>
+            </ul>
           </div>
           <div class="card">
-            <span class="tag">Schools &amp; Districts</span>
-            <h3>Purchase Orders (PO)</h3>
-            <div class="price-num">Custom</div>
-            <p class="small muted">Live now! Request a quote, W-9, and multi-teacher PO activation (up to 600+ students/school). <a href="demo.html#request">Request a PO quote →</a></p>
+            <h3>For Students</h3>
+            <ul class="check-list">
+              <li>Sign in with 6-character codes (zero student emails)</li>
+              <li>Mic grading or Space/touch Tap mode</li>
+              <li>Saves takes locally if school Wi-Fi drops</li>
+            </ul>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section compact">
-      <div class="wrap">
-        <div class="callout ok">
-          <strong>Student Privacy Guarantee:</strong> All student homework audio automatically expires and deletes after <strong>90 days</strong>. Zero ads, zero cross-site trackers, zero biometric voiceprints or AI training. Read the <a href="privacy.html">Privacy Policy</a> or print the <a href="privacy-sdpc.html">1-Page SDPC Summary</a>.
+          <div class="card">
+            <h3>Simple Pricing</h3>
+            <div class="price-num">$5<span>/mo</span> · $49<span>/yr</span></div>
+            <p class="small muted">Flat price per teacher after a 30-day free trial. School &amp; district Purchase Orders available via <a href="schools.html#contact">Schools &amp; Privacy</a>.</p>
+          </div>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="site-footer">
-    <div class="wrap">
-      <div class="footer-bottom" style="border-top:none;padding-top:0">
-        <span>© 2026 Rehearsal · <a href="index.html">Home</a> · <a href="demo.html">Live Demo</a> · <a href="schools.html">Schools &amp; IT</a> · <a href="privacy.html">Privacy</a></span>
-        <span>rehearsalmusic.com</span>
-      </div>
+    <div class="wrap footer-row">
+      <span>© 2026 Rehearsal · rehearsalmusic.com</span>
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Web App</a>
+        <a href="schools.html">Schools &amp; Privacy</a>
+        <a href="privacy.html">Privacy Policy</a>
+      </nav>
     </div>
   </footer>
 
