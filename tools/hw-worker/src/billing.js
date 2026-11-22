@@ -184,8 +184,8 @@ export async function handleBillingCheckout(request, env, teacher) {
     : String(env?.STRIPE_PRICE_ID_MONTHLY || '').trim();
   if (!priceId) return errResponse('Billing plan price is not configured yet.', 503, 'BILLING_UNCONFIGURED', request, env);
 
-  const successUrl = cleanText(body.data.successUrl, 500) || 'https://loganshippee.github.io/Rehearsal/?billing=success';
-  const cancelUrl = cleanText(body.data.cancelUrl, 500) || 'https://loganshippee.github.io/Rehearsal/?billing=canceled';
+  const successUrl = cleanText(body.data.successUrl, 500) || 'https://loganshippee.github.io/rehearsal/?billing=success';
+  const cancelUrl = cleanText(body.data.cancelUrl, 500) || 'https://loganshippee.github.io/rehearsal/?billing=canceled';
 
   const params = {
     mode: 'subscription',
@@ -211,7 +211,7 @@ export async function handleBillingPortal(request, env, teacher) {
   }
   const body = await readJsonBody(request);
   if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
-  const returnUrl = cleanText(body.data.returnUrl, 500) || 'https://loganshippee.github.io/Rehearsal/';
+  const returnUrl = cleanText(body.data.returnUrl, 500) || 'https://loganshippee.github.io/rehearsal/';
 
   const out = await stripeRequest(env, '/billing_portal/sessions', {
     customer: teacher.stripe_customer_id,

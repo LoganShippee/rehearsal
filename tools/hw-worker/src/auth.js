@@ -151,7 +151,7 @@ async function sendTeacherCodeEmail(env, email, code) {
   }
   const apiKey = String(env?.RESEND_API_KEY || '').trim();
   if (!apiKey) return { ok: false, error: 'Email delivery is not configured on this server.' };
-  const from = String(env?.FROM_EMAIL || 'Rehearsal <noreply@rehearsalapp.com>').trim();
+  const from = String(env?.FROM_EMAIL || 'Rehearsal <noreply@rehearsalmusic.com>').trim();
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',

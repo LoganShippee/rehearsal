@@ -33,9 +33,9 @@ Rehearsal Online Homework requests **no** Google Drive, Gmail, Contacts, or Goog
 | Host / Origin | Port / Protocol | Purpose |
 | --- | --- | --- |
 | `https://loganshippee.github.io/rehearsal/` (or custom school domain) | TCP 443 (HTTPS) | Rehearsal Web App & Student Homework Portal (`hw.html`) |
-| Deployed Cloudflare Worker URL (`https://<your-worker>.workers.dev`) | TCP 443 (HTTPS) | Online Homework API & R2 media uploads/streaming |
+| Deployed Cloudflare Worker URL (`https://rehearsal-hw.logan-shippee.workers.dev`) | TCP 443 (HTTPS) | Online Homework API & R2 media uploads/streaming |
 | `https://accounts.google.com`, `https://apis.google.com` | TCP 443 (HTTPS) | Optional Google Identity Services Sign-In |
-| Email sender: `noreply@rehearsalapp.com` (or configured `FROM_EMAIL`) | Email allowlist | Delivers 6-digit teacher sign-in codes |
+| Email sender: `noreply@rehearsalmusic.com` (or configured `FROM_EMAIL`) | Email allowlist | Delivers 6-digit teacher sign-in codes |
 
 ---
 

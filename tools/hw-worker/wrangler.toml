@@ -23,7 +23,7 @@ compatibility_date = "2026-01-01"
 [vars]
 DEV_MODE = "false"
 APP_ORIGINS = "https://loganshippee.github.io,http://localhost:*,http://127.0.0.1:*"
-FROM_EMAIL = "Rehearsal <noreply@rehearsalapp.com>"
+FROM_EMAIL = "Rehearsal <noreply@rehearsalmusic.com>"
 STRIPE_PRICE_ID_MONTHLY = ""
 STRIPE_PRICE_ID_ANNUAL = ""
 PRIVACY_URL = "https://loganshippee.github.io/rehearsal/privacy.html"
