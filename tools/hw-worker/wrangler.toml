@@ -22,7 +22,7 @@ compatibility_date = "2026-01-01"
 
 [vars]
 DEV_MODE = "false"
-APP_ORIGINS = "https://loganshippee.github.io,http://localhost:8765,http://127.0.0.1:8765,http://localhost:8766,http://127.0.0.1:8766"
+APP_ORIGINS = "https://loganshippee.github.io,http://localhost:*,http://127.0.0.1:*"
 FROM_EMAIL = "Rehearsal <noreply@rehearsalapp.com>"
 STRIPE_PRICE_ID_MONTHLY = ""
 STRIPE_PRICE_ID_ANNUAL = ""
@@ -31,7 +31,7 @@ PRIVACY_URL = "https://loganshippee.github.io/rehearsal/privacy.html"
 [[d1_databases]]
 binding = "DB"
 database_name = "rehearsal-hw"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "795b1819-c643-4e3a-9cd5-682fc874a37e"
 
 [[r2_buckets]]
 binding = "BUCKET"

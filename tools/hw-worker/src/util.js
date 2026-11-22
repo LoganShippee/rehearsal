@@ -42,13 +42,23 @@ export function makeId(prefix = '') {
   return prefix ? `${prefix}_${hex}` : hex;
 }
 
+function originAllowed(origin, list) {
+  if (!origin) return false;
+  for (const entry of list) {
+    if (entry === origin) return true;
+    if (entry === 'http://localhost:*' && /^http:\/\/localhost(:\d+)?$/i.test(origin)) return true;
+    if (entry === 'http://127.0.0.1:*' && /^http:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin)) return true;
+  }
+  return false;
+}
+
 export function corsHeaders(request, env) {
   const origin = request?.headers?.get('origin') || '';
   const allowedRaw = String(env?.APP_ORIGINS || '*').trim();
   let allowOrigin = '*';
   if (allowedRaw !== '*') {
     const list = allowedRaw.split(',').map(s => s.trim()).filter(Boolean);
-    if (origin && list.includes(origin)) allowOrigin = origin;
+    if (originAllowed(origin, list)) allowOrigin = origin;
     else allowOrigin = list[0] || '';
   } else if (origin) {
     allowOrigin = origin;

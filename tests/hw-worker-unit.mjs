@@ -551,6 +551,30 @@ async function main() {
     assertEq(optRes.status, 204, 'OPTIONS returns 204');
     assertEq(optRes.headers.get('access-control-allow-origin'), 'https://loganshippee.github.io', 'CORS allows configured origin');
 
+    const corsEnv = { APP_ORIGINS: 'https://loganshippee.github.io,http://localhost:*,http://127.0.0.1:*' };
+    for (const okOrigin of ['https://loganshippee.github.io', 'http://localhost:54321', 'http://127.0.0.1:61234']) {
+      const r = await indexMod.default.fetch(
+        new Request('https://hw.example.com/api/classes', {
+          method: 'OPTIONS',
+          headers: { origin: okOrigin },
+        }),
+        corsEnv,
+        {}
+      );
+      assertEq(r.headers.get('access-control-allow-origin'), okOrigin, `CORS allows ${okOrigin}`);
+    }
+    for (const badOrigin of ['http://localhost.evil.com', 'https://evil.example']) {
+      const r = await indexMod.default.fetch(
+        new Request('https://hw.example.com/api/classes', {
+          method: 'OPTIONS',
+          headers: { origin: badOrigin },
+        }),
+        corsEnv,
+        {}
+      );
+      assertEq(r.headers.get('access-control-allow-origin'), 'https://loganshippee.github.io', `CORS rejects ${badOrigin}`);
+    }
+
     const privRes = await indexMod.default.fetch(
       new Request('https://hw.example.com/privacy', { method: 'GET' }),
       { PRIVACY_URL: 'https://loganshippee.github.io/Rehearsal/privacy.html' },
@@ -558,6 +582,14 @@ async function main() {
     );
     assertEq(privRes.status, 302, 'GET /privacy returns 302');
     assertEq(privRes.headers.get('location'), 'https://loganshippee.github.io/Rehearsal/privacy.html', 'GET /privacy redirects to PRIVACY_URL');
+
+    const privDefaultRes = await indexMod.default.fetch(
+      new Request('https://hw.example.com/privacy', { method: 'GET' }),
+      {},
+      {}
+    );
+    assertEq(privDefaultRes.status, 302, 'GET /privacy default returns 302');
+    assertEq(privDefaultRes.headers.get('location'), 'https://loganshippee.github.io/rehearsal/privacy.html', 'GET /privacy defaults to lowercase /rehearsal/privacy.html');
   }
 
   // --- SHA-256 & HMAC-SHA256 RFC vector sanity check (verifies polyfill accuracy)

@@ -101,7 +101,7 @@ async function route(request, env) {
   }
 
   if (method === 'GET' && path === '/privacy') {
-    const target = String(env?.PRIVACY_URL || 'https://loganshippee.github.io/Rehearsal/privacy.html').trim();
+    const target = String(env?.PRIVACY_URL || 'https://loganshippee.github.io/rehearsal/privacy.html').trim();
     return new Response(null, {
       status: 302,
       headers: {

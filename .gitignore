@@ -6,3 +6,7 @@ backups-*/
 windows/bin/
 windows/obj/
 dist/
+node_modules/
+.wrangler/
+.dev.vars
+tools/hw-worker/package-lock.json
