@@ -1,0 +1,46 @@
+name = "rehearsal-hw"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Rehearsal Online Homework Backend (Cloudflare Workers + D1 + R2)
+#
+# One-time setup:
+#   1. npx wrangler d1 create rehearsal-hw
+#      -> paste database_id below
+#   2. npx wrangler r2 bucket create rehearsal-hw-media
+#      -> add an R2 Object Lifecycle Rule on prefix "audio/" to expire objects after 90 days
+#         (the daily cron below also scrubs audio_r2_key in D1 and deletes expired objects)
+#   3. npx wrangler d1 execute rehearsal-hw --file=./schema.sql
+#   4. Set secrets with `npx wrangler secret put <NAME>`:
+#        SESSION_PEPPER         (required in prod: 32+ random bytes hex)
+#        GOOGLE_CLIENT_ID       (Google OAuth Web Client ID, scopes: openid email profile)
+#        GOOGLE_CLIENT_SECRET   (only needed if using OAuth auth-code exchange)
+#        RESEND_API_KEY         (for teacher 6-digit login email codes)
+#        STRIPE_SECRET_KEY      (Stripe secret key for Checkout & Customer Portal)
+#        STRIPE_WEBHOOK_SECRET  (Stripe webhook signing secret `whsec_...`)
+#        ADMIN_SECRET           (for school/district Purchase Order license grants)
+
+[vars]
+DEV_MODE = "false"
+APP_ORIGINS = "https://loganshippee.github.io,http://localhost:8765,http://127.0.0.1:8765"
+FROM_EMAIL = "Rehearsal <noreply@rehearsalapp.com>"
+STRIPE_PRICE_ID_MONTHLY = ""
+STRIPE_PRICE_ID_ANNUAL = ""
+PRIVACY_URL = "https://loganshippee.github.io/Rehearsal/privacy.html"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rehearsal-hw"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "rehearsal-hw-media"
+
+[triggers]
+# Daily at 07:00 UTC: purge expired 90-day student audio objects & stale auth tokens
+crons = ["0 7 * * *"]
+
+[env.dev.vars]
+DEV_MODE = "true"
+APP_ORIGINS = "*"

@@ -1,0 +1,17 @@
+{
+  "name": "rehearsal-hw-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + D1 + R2 backend for Rehearsal Online Homework",
+  "scripts": {
+    "dev": "wrangler dev --env dev --local",
+    "migrate:local": "wrangler d1 execute rehearsal-hw --local --file=./schema.sql",
+    "migrate:remote": "wrangler d1 execute rehearsal-hw --remote --file=./schema.sql",
+    "deploy": "wrangler deploy",
+    "test:api": "node ../../tests/hw-api-test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}
