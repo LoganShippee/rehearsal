@@ -31,22 +31,65 @@ function toast(msg, ms = 2800) {
 }
 
 // Minimal in-memory state stubs expected by sight.js / score.js / grade.js
-const S = {
-  classes: [],
-  files: {},
-  settings: {
+// Automatically carries over saved Sight Reading presets, rhythm system, and grading strictness
+// from Rehearsal's localStorage ('rehearsal') + hw-local storage without mutating classroom classes.
+const HW_SETTINGS_KEY = 'rehearsal-hw-teacher-prefs';
+function hwLoadCarriedSettings() {
+  const out = {
     avDelay: null,
     saveGradeRecordings: false,
     srPresets: [],
     srBar: null,
     spBar: null,
     lastScore: null,
-  },
+    rhythmSystem: 'numbers',
+    gradeStrictness: 50,
+    solMinor: 'do',
+  };
+  try {
+    const main = JSON.parse(localStorage.getItem('rehearsal') || 'null');
+    const ms = main?.settings || {};
+    if (Array.isArray(ms.srPresets)) out.srPresets = ms.srPresets.slice();
+    if (ms.rhythmSystem) out.rhythmSystem = ms.rhythmSystem;
+    if (ms.gradeStrictness != null && isFinite(+ms.gradeStrictness)) out.gradeStrictness = +ms.gradeStrictness;
+    if (ms.solMinor) out.solMinor = ms.solMinor;
+  } catch { }
+  try {
+    const hw = JSON.parse(localStorage.getItem(HW_SETTINGS_KEY) || 'null');
+    if (hw) {
+      if (Array.isArray(hw.srPresets) && hw.srPresets.length) {
+        const seen = new Set(out.srPresets.map(p => p.id || p.name));
+        for (const p of hw.srPresets) {
+          const k = p.id || p.name;
+          if (!seen.has(k)) { out.srPresets.push(p); seen.add(k); }
+        }
+      }
+      if (hw.rhythmSystem) out.rhythmSystem = hw.rhythmSystem;
+      if (hw.gradeStrictness != null && isFinite(+hw.gradeStrictness)) out.gradeStrictness = +hw.gradeStrictness;
+      if (hw.solMinor) out.solMinor = hw.solMinor;
+    }
+  } catch { }
+  return out;
+}
+
+const S = {
+  classes: [],
+  files: {},
+  settings: hwLoadCarriedSettings(),
 };
 const P = {};
 const WIN = { key: null, sig: '' };
 
-function save() { /* student portal persists takes in IndexedDB, not classroom S */ }
+function save() {
+  try {
+    localStorage.setItem(HW_SETTINGS_KEY, JSON.stringify({
+      srPresets: S.settings.srPresets || [],
+      rhythmSystem: S.settings.rhythmSystem || 'numbers',
+      gradeStrictness: S.settings.gradeStrictness ?? 50,
+      solMinor: S.settings.solMinor || 'do',
+    }));
+  } catch { }
+}
 function tick() { }
 function render() { }
 function mountSightHosts() { }

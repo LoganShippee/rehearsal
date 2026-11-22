@@ -2101,6 +2101,7 @@ function mountScore(host, st, onChange0, key) {
       <label>+<input type="number" min="1" max="25" data-spk="speedStep" value="${st.speed.step}">% per loop</label></span>
     </div>
     <div data-ctl="mixer">${metVolSlider()}</div>
+    <div data-ctl="strictness">${typeof grStrictnessSlider === 'function' ? grStrictnessSlider(st.tempo || 80) : ''}</div>
     <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
     <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
     <div class="sp-note" data-ctl="help">Speed-up starts at that percentage of the tempo slider and adds the step each time the loop repeats, until it reaches the full tempo. Repeat signs and 1st / 2nd endings are followed (D.C. / D.S. / Coda are not yet).</div>`;

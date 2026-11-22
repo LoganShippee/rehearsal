@@ -167,12 +167,78 @@ function grTapDetect(taps, q, T0, end) {
 }
 
 // Pure analysis: frames = [{t (seconds), rms, f (Hz or -1)}] from the microphone.
+// Grading strictness / forgivingness (0 = Very Forgiving, 50 = Standard [exact default], 100 = Very Strict).
+// Controls rushing/dragging timing leeway and pitch variance leeway, and shows teachers the exact margins.
+function grStrictnessSpec(level = 50, tempo = 80) {
+  const lv = Math.max(0, Math.min(100, Number(level ?? 50)));
+  const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
+  const q = 60 / bpm;
+  // Piecewise-linear through exact Standard (50) defaults: rhythmMul=1.0, minTolSec=0.06, pitchSemitones=0.75
+  const rhythmMul = lv <= 50 ? 1.45 - (lv / 50) * 0.45 : 1.0 - ((lv - 50) / 50) * 0.45;
+  const minTolSec = lv <= 50 ? 0.09 - (lv / 50) * 0.03 : 0.06 - ((lv - 50) / 50) * 0.025;
+  const pitchSemitones = lv <= 50 ? 0.95 - (lv / 50) * 0.20 : 0.75 - ((lv - 50) / 50) * 0.35;
+  const label = lv <= 15 ? 'Very Forgiving' : lv <= 38 ? 'Forgiving' : lv <= 62 ? 'Standard' : lv <= 85 ? 'Strict' : 'Very Strict';
+  const beatPct = Math.round(25 * rhythmMul);
+  const rhythmMs = Math.round(Math.max(minTolSec, 0.25 * rhythmMul * q) * 1000);
+  const pitchCents = Math.round(pitchSemitones * 100);
+  return { level: Math.round(lv), label, rhythmMul, minTolSec, pitchSemitones, beatPct, rhythmMs, pitchCents };
+}
+function grStrictnessValue() {
+  if (typeof S !== 'undefined' && S?.settings?.gradeStrictness != null && isFinite(+S.settings.gradeStrictness)) {
+    return Math.max(0, Math.min(100, +S.settings.gradeStrictness));
+  }
+  return 50;
+}
+function grStrictnessSummary(level = grStrictnessValue(), tempo = 80) {
+  const sp = grStrictnessSpec(level, tempo);
+  return `Rushing/dragging: ±${sp.rhythmMs} ms (±${sp.beatPct}% beat at ${Math.round(Number(tempo) || 80)} BPM) · Pitch: ±${sp.pitchCents}¢`;
+}
+function setGrStrictness(v) {
+  const lv = Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  if (typeof S !== 'undefined' && S?.settings) { S.settings.gradeStrictness = lv; if (typeof save === 'function') save(); }
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('.gr-strict-wrap').forEach(wrap => {
+      const inp = wrap.querySelector('input[data-gr-strict]');
+      if (inp && +inp.value !== lv) inp.value = lv;
+      const tempo = Number(wrap.dataset.tempo) || 80;
+      const sp = grStrictnessSpec(lv, tempo);
+      const lbl = wrap.querySelector('.gr-strict-lbl');
+      if (lbl) lbl.textContent = sp.label;
+      const info = wrap.querySelector('.gr-strict-info');
+      if (info) info.textContent = grStrictnessSummary(lv, tempo);
+    });
+  }
+  return lv;
+}
+function grStrictnessSlider(tempo = 80, label = 'Grading strictness') {
+  const lv = grStrictnessValue();
+  const sp = grStrictnessSpec(lv, tempo);
+  return `<div class="gr-strict-wrap" data-tempo="${Math.round(Number(tempo) || 80)}" style="display:flex;flex-direction:column;gap:3px;width:100%">
+    <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${label}
+      <span class="small muted">Forgiving</span>
+      <input type="range" min="0" max="100" step="5" value="${lv}" data-gr-strict style="flex:1;min-width:120px;max-width:220px">
+      <span class="small muted">Strict</span>
+      <b class="gr-strict-lbl">${sp.label}</b>
+    </label>
+    <div class="small muted gr-strict-info">${grStrictnessSummary(lv, tempo)}</div>
+  </div>`;
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('input', e => {
+    if (e.target.matches?.('input[data-gr-strict]')) {
+      e.stopPropagation();
+      setGrStrictness(e.target.value);
+    }
+  }, true);
+}
+
 // Returns the rhythm and pitch results, one entry per expected note, and the notes played that were not written.
 // lat (seconds, optional): the expected delay between a written beat and hearing it sung on time
 // (speaker delay + the Sound / playhead sync setting). Without it, any steady lateness is forgiven.
 // taps (optional): space-bar tap times instead of microphone frames (rhythm only).
-function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null) {
+function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null, strictness = null) {
   if (taps) gradePitch = false;
+  const spec = grStrictnessSpec(strictness ?? grStrictnessValue(), q > 0 ? 60 / q : 80);
   const { late, env, floor, peak, thr, det } = taps ? grTapDetect(taps, q, T0, end) : grDetect(frames.filter(fr => fr.t >= T0 - 0.1 && fr.t <= end), q, end);
   const mid = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
   // 3. timing offset: median gap between each written note and the nearest heard onset
@@ -194,11 +260,12 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
   const offset = heardOffset, latUsed = false;
   // 4. match each written note to one heard onset, closest first, within a window
   const used = new Set(); const notes = [];
+  const noteTol = e => Math.max(spec.minTolSec, Math.min(0.25 * spec.rhythmMul * q, 0.4 * spec.rhythmMul * e.len * q));
   for (let i = 0; i < exp.length; i++) {
-    const e = exp[i], target = T0 + e.t * q + offset, tol = Math.max(0.06, Math.min(0.25 * q, 0.4 * e.len * q));
+    const e = exp[i], target = T0 + e.t * q + offset, tol = noteTol(e);
     const win = Math.max(tol, 0.5 * e.len * q, 0.25 * q);
     const nextE = exp[i + 1], nextTarget = nextE ? T0 + nextE.t * q + offset : Infinity;
-    const nextWin = nextE ? Math.max(0.06, Math.min(0.25 * q, 0.4 * nextE.len * q), 0.5 * nextE.len * q, 0.25 * q) : 0;
+    const nextWin = nextE ? Math.max(noteTol(nextE), 0.5 * nextE.len * q, 0.25 * q) : 0;
     let bj = -1, bd = Infinity;
     det.forEach((d, j) => {
       if (used.has(j)) return;
@@ -227,7 +294,7 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
       // the note before it, closer to where this note is written, is the better match
       if ((n.match && n.status !== 'timing') || i === 0 || exp[i].midi == null || exp[i - 1].midi == null) return;
       const p = notes[i - 1].match; if (!p || p.midi == null || p === n.match) return;
-      const e = exp[i], target = T0 + e.t * q + offset, tol = Math.max(0.06, Math.min(0.25 * q, 0.4 * e.len * q));
+      const e = exp[i], target = T0 + e.t * q + offset, tol = noteTol(e);
       // search up to the next sung note that matched a written one (leftover sounds don't stop it)
       const matchedLater = new Set(notes.slice(i + 1).map(x => x.match).filter(Boolean));
       const win = Math.max(tol, 0.5 * e.len * q, 0.25 * q), nextOn = det.find(d => d.t > p.t + 1e-6 && matchedLater.has(d))?.t ?? end;
@@ -367,7 +434,7 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
       n.sungAs = grName(n.match.midi - shift - ref);                  // the note heard, in the written key
       n.octave = Math.round((r - rf) / 12);
       const ignoreOct = typeof S !== 'undefined' && !!S?.settings?.grIgnoreOctave;
-      n.pitch = Math.abs(rf - ref) > 0.75 ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // a wrong note is ~100¢ off; within 75¢ it's the right note, maybe out of tune (shown on the card)
+      n.pitch = Math.abs(rf - ref) > spec.pitchSemitones ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // pitch leeway set by grading strictness (default ±75¢)
       if (n.pitch !== 'wrong') { okR.push(rf); if (okR.length >= 3) ref = med(okR.slice(-3)); }   // one note can't move it
       if (n.status === 'ok' && n.pitch !== 'ok') n.status = 'pitch';
     });
@@ -383,6 +450,7 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
     pitchPct: gradePitch ? Math.round(100 * pitchOk / N) : null,
     offsetMs: Math.round((latUsed ? heardOffset - lat : offset) * 1000), latUsed, extra, notes, total: N, driftCents: gradePitch ? driftCents : null,
     input: taps ? 'tap' : 'mic', T0, q, offsetSec: offset,
+    strictness: { level: spec.level, label: spec.label, rhythmMs: spec.rhythmMs, beatPct: spec.beatPct, pitchCents: spec.pitchCents },
     det, diag: { frames: taps ? taps.length : frames.length, span: span.toFixed(1), peak: peak.toFixed(3), floor: floor.toFixed(4), thr: thr.toFixed(3), heard: det.length }
   };
 }

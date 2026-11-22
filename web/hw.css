@@ -282,10 +282,45 @@ body.hw-page {
   background: #ffffff;
 }
 
+/* When Teacher Setup is open, expand stage so full Rehearsal Settings panels fit comfortably */
+.hw-teacher-mode .hw-stage {
+  height: 680px;
+  min-height: 540px;
+}
+
 .hw-stage .sr-host,
 .hw-stage .score-host {
   position: absolute;
   inset: 0;
+}
+
+.hw-submit-banner {
+  padding: 11px 18px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #bbf7d0;
+  color: #166534;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.hw-submit-banner.draft {
+  background: #eff6ff;
+  border-bottom-color: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.hw-pill.submitted {
+  background: #15803d;
+  color: #ffffff;
+}
+
+.hw-pill.draft {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 /* STUDENT VIEW: hide teacher-only authoring & classroom toolbars inside mounted engines */

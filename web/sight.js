@@ -707,6 +707,50 @@ function srDraw(el, st) {
     }
     geo.measures.push({ t0: mStart, t1: t, y0: stave0.getYForLine(0) - 18, y1: sLast.getYForLine(4) + 18, knots, slopes, x0: stave0.getX(), x1: stave0.getX() + stave0.getWidth() });
   }
+  // Stitch measures on the same horizontal staff row so the playhead glides smoothly across barlines
+  // (no stall before the barline and no +40px teleport onto beat 1 of the next measure).
+  {
+    const rows = [];
+    for (const mm of geo.measures) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && Math.abs(lastRow[0].y0 - mm.y0) < 5) lastRow.push(mm);
+      else rows.push([mm]);
+    }
+    for (const row of rows) {
+      for (let r = 0; r < row.length - 1; r++) {
+        const cur = row[r], nxt = row[r + 1];
+        if (cur.knots.length && nxt.knots.length) cur.knots[cur.knots.length - 1][1] = nxt.knots[0][1];
+      }
+      // Build one continuous knot sequence across the whole row to compute C1-smooth Fritsch-Carlson tangents
+      const seq = [];
+      const refs = []; // [measure, knotIdx]
+      row.forEach((mm, ri) => {
+        const startK = ri === 0 ? 0 : 1; // boundary knot is shared with previous measure's end knot
+        if (ri > 0 && mm.knots.length) refs.push({ mm, ki: 0, si: seq.length - 1 });
+        for (let ki = startK; ki < mm.knots.length; ki++) {
+          seq.push(mm.knots[ki]);
+          refs.push({ mm, ki, si: seq.length - 1 });
+        }
+      });
+      const n = seq.length;
+      if (n >= 2) {
+        const ds = [], sl = new Array(n).fill(0);
+        for (let j = 0; j < n - 1; j++) {
+          const dt = seq[j + 1][0] - seq[j][0];
+          ds.push(dt > 1e-6 ? Math.max(0, (seq[j + 1][1] - seq[j][1]) / dt) : 0);
+        }
+        sl[0] = ds[0]; sl[n - 1] = ds[n - 2];
+        for (let j = 1; j < n - 1; j++) sl[j] = (ds[j - 1] > 0 && ds[j] > 0) ? (ds[j - 1] + ds[j]) / 2 : 0;
+        for (let j = 0; j < n - 1; j++) {
+          if (ds[j] <= 1e-6) { sl[j] = 0; sl[j + 1] = 0; continue; }
+          const a = sl[j] / ds[j], b = sl[j + 1] / ds[j], h = Math.hypot(a, b);
+          if (h > 3) { const sc = 3 / h; sl[j] = sc * a * ds[j]; sl[j + 1] = sc * b * ds[j]; }
+        }
+        for (const mm of row) mm.slopes = new Array(mm.knots.length).fill(0);
+        for (const { mm, ki, si } of refs) mm.slopes[ki] = sl[si];
+      }
+    }
+  }
   for (const tl of tieList) {
     try {
       if (tl.rowA === tl.rowB) new VF.StaveTie({ first_note: tl.a, last_note: tl.b, first_indices: [0], last_indices: [0] }).setContext(ctx).draw();
@@ -1041,7 +1085,7 @@ function srAnimate(host, st, getTimeline, clock) {
     if (mode === 'off') { bar.style.display = 'none'; staff.querySelectorAll('.sr-cur').forEach(e => e.classList.remove('sr-cur')); lastEl = null; requestAnimationFrame(frame); return; }
     bar.classList.toggle('glide', mode === 'notes');
     const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect();
-    const k = sr.width / geo.W, ox = sr.left - fr.left, oy = sr.top - fr.top + staff.scrollTop;
+    const k = sr.width / geo.W, ox = sr.left - fr.left + staff.scrollLeft, oy = sr.top - fr.top + staff.scrollTop;
     const tq = clock.pos(nowT);                     // quarter-notes since bar 1
     if (!bar.firstChild) bar.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
     // Steady playhead: one short mark above and one below, outside the staff and clear of every
@@ -1182,6 +1226,7 @@ function srSettingsHTML(st, host = null) {
         ${m === 'solfege' ? `<label>Count-in pitch <select data-k="countPitch">${[['none', 'Clicks only'], ['do', 'do'], ['start', 'Starting note'], ['chord', 'do–mi–sol']].map(([v, l]) => opt(v, o.countPitch ?? 'do', l)).join('')}</select></label>
           <label title="Treble clef only: the starting pitch and the note names on the report are moved to this octave (bass clef is already at a bass's pitch)">Voice / octave for grading <select data-k="gradeVoice">${GR_VOICES.map(([v, l]) => opt(v, o.gradeVoice ?? 'written', l)).join('')}</select></label>` : ''}
         ${metVolSlider()}
+        ${typeof grStrictnessSlider === 'function' ? grStrictnessSlider(o.tempo) : ''}
         <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
       </div>
     </div>`;
