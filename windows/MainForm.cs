@@ -143,9 +143,6 @@ internal sealed class MainForm : Form
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
-    [DllImport("user32.dll")]
-    private static extern bool IsWindow(IntPtr hWnd);
-
     private static readonly IntPtr HWND_TOP = IntPtr.Zero;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;

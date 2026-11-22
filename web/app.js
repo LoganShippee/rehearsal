@@ -6350,17 +6350,23 @@ window.__bugReportOpen = data => {
 // ---------- What's New & Bug Report Welcome Pop-up (shown once on the first opening after each update)
 // For each future release, bump `id` to the new version and update `featured` / `items` with what's new.
 const WHATS_NEW = {
-  id: '1.1.7',
+  id: '1.1.8',
   title: 'Welcome to Rehearsal',
   intro: 'Thanks for updating Rehearsal! Here is what is new in this release.',
   featured: [
     { icon: 'ico:sight', title: 'Sight Reading with Live Grading', body: 'Generate custom rhythm or solfege exercises at any difficulty and grade students live using a microphone or the space bar.' },
     { icon: 'ico:score', title: 'Score Playback, Vocal Recording & Grading', body: 'Play back MusicXML or MuseScore files with per-part mixing, record sung vocal tracks with custom headphone backing, and grade any voice part live.' },
   ],
-  items: [
-    { icon: 'ico:folder', title: 'Files Tab & Built-In Viewer', body: 'Pin your Files library as a class tab, open PDFs, images, audio, and scores right inside it, or delete old files anytime.' },
-    { icon: 'ico:timer', title: 'Moveable & Resizable Timers', body: 'Drag timers anywhere on screen, resize from the corner, or expand a timer to fill the workspace.' },
-    { icon: 'ico:sliders', title: 'Classroom Tools & Custom Toolbar', body: 'Includes Tuner, Metronome, Piano, Recorder, Annotate, Whiteboard, Bell Schedules, and a toolbar you can arrange however you like.' },
+  more: [
+    'Files tab & built-in viewer',
+    'Moveable & resizable timers',
+    'Bell schedules & daily routines',
+    'Pinned class tabs & folders',
+    'Tuner, Metronome & Piano',
+    'Voice Recorder & Solfege Board',
+    'Annotate & Whiteboard',
+    'Quick Edit & custom toolbar',
+    'Step-by-step Tutorials tab',
   ],
 };
 function openWhatsNewModal(force = false) {
@@ -6382,7 +6388,7 @@ function openWhatsNewModal(force = false) {
     </div>
     <p class="wn-intro">${esc(WHATS_NEW.intro)}</p>
     ${WHATS_NEW.featured?.length ? `<div class="wn-sec">Featured Highlights</div><ul class="wn-list wn-featured">${WHATS_NEW.featured.map(rowHTML).join('')}</ul>` : ''}
-    ${WHATS_NEW.items?.length ? `<div class="wn-sec">More Features</div><ul class="wn-list">${WHATS_NEW.items.map(rowHTML).join('')}</ul>` : ''}
+    ${WHATS_NEW.more?.length ? `<div class="wn-sec">More Features</div><ul class="wn-compact">${WHATS_NEW.more.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <p class="wn-more">Want to learn more? You can explore on your own, or check out the step-by-step walkthroughs anytime in <b>Setup → Tutorials</b>.</p>
     <div class="wn-bug">
       <span class="wn-ic">${IC('ico:warn')}</span>
