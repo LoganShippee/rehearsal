@@ -12,8 +12,10 @@ Both Antigravity and Claude Code work on this repo on `main`. Follow these hando
 
 1. **Check git state first.** Before editing, run `git status` and `git log -n 5 --oneline` to see recent commits or any uncommitted changes left by the other assistant. Do not overwrite or discard uncommitted changes without asking the user.
 2. **Keep commits clean and descriptive.** Write clear commit messages explaining *what* changed and *why* (plus any follow-up notes) so the next assistant can pick up context immediately from `git log`. Never force-push or rewrite shared history on `main`.
-3. **Verify before handing off.**
-   - After editing `web/*.js`, syntax-check the edited files with `jsc` (`new Function(readFile('...'))`) and run `tests/run.sh`.
+3. **Verify before handing off (mandatory regression & diff guard).**
+   - Run `tests/run.sh` — verifies syntax for all `web/*.js`, `index.html` ↔ `sw.js` parity, zoom/scrolling/stacking/ID invariants (`tests/invariants-test.js`), and the grader tests.
+   - Run `tests/check-diff.sh` — audits every changed file and feature section against `HEAD` and fails if any Protected Zone (`tests/protected-zones.json`, including PDF/Sight Reading/Score Practice/Piano zoom & scrolling, unified pinch-zoom, Present stacking, persistent IDs, iPad shell, grader core) was touched without explicit user approval (`--allow <zone>`).
+   - Never edit a Protected Zone when working on an unrelated feature without explaining why and getting the user's approval first.
    - After editing `native/*.swift`, run `./build.sh` to verify the universal macOS app compiles cleanly.
    - If you add static files needed offline in the web version, add them to `FILES` in `web/sw.js`.
    - If you add files that must ship inside the `.app` bundle, check the diff list in `release.sh`.

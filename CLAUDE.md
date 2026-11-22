@@ -18,9 +18,15 @@ There is no package manager, bundler or Node: the web code is plain browser Java
 ```bash
 ./build.sh                 # build build/Rehearsal.app (universal: compiles native/*.swift with swiftc, copies web/)
 ./build.sh --install       # build and copy into /Applications
-tests/run.sh               # grader tests (all of them)
+tests/run.sh               # invariants (JS syntax, SW cache, zoom/scroll, stacking, IDs) + grader tests
+tests/check-diff.sh        # audit every touched file/section and fail if a Protected Zone changed unapproved
 ./release.sh "Notes"       # publish to everyone (see Releases); --minor / --major for bigger bumps
 ```
+
+### Guarding against accidental regressions (mandatory before every commit)
+1. **Run `tests/run.sh`** — runs `tests/invariants-test.js` (syntax-checks all `web/*.js`, checks `index.html` ↔ `sw.js` parity, and enforces zoom/scrolling, stacking z-index, persistent ID, and iPad shell contracts) plus the grader tests. (`release.sh` runs this automatically.)
+2. **Run `tests/check-diff.sh`** — lists every file and feature section touched in your diff and **fails** if any Protected Zone in `tests/protected-zones.json` (PDF zoom/scroll, unified pinch-zoom, Sight Reading/Score Practice/Piano zoom & scrollbars, Present stacking, persistent IDs, iPad shell, grader core) was edited without explicit approval (`--allow <zone>`). Never modify a Protected Zone while working on an unrelated feature without telling the user first and getting approval.
+3. **Keep new features modular** — when building large new features (e.g., paid features), put new code in dedicated `web/*.js` files (and register them in `web/index.html` and `web/sw.js`) instead of weaving large blocks into fragile sections of `web/app.js` or `web/styles.css`.
 
 Run a single test (each test gets the modules it needs passed after `--`, plus its own name):
 ```bash

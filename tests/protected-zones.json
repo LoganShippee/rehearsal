@@ -1,0 +1,185 @@
+{
+  "description": "Protected feature zones in Rehearsal. Any diff touching these zones is flagged by tests/check-diff.sh so unrelated edits cannot silently alter zoom, scrolling, stacking, or persistent identifiers.",
+  "zones": [
+    {
+      "id": "pdf-zoom-scroll",
+      "label": "PDF viewer zoom & 2D scrolling",
+      "reason": "Smooth 60fps CSS resize + scroll-anchor math + sharp re-render + 2D scrolling when zoomed.",
+      "rules": [
+        {
+          "file": "web/pdfview.js",
+          "startPattern": "const reRenderSharp = \\(\\) => \\{",
+          "endPattern": "host\\.addEventListener\\('gestureend'",
+          "padBefore": 2,
+          "padAfter": 3
+        },
+        {
+          "file": "web/pdfview.js",
+          "matchLines": [
+            "view\\.style\\.overflow",
+            "dataset\\.baseW",
+            "dataset\\.baseH"
+          ]
+        },
+        {
+          "file": "web/styles.css",
+          "matchLines": [
+            "^\\.pdf-host\\b",
+            "^\\.pdfv,\\s*\\.pdfv-view\\b",
+            "^\\.pdfv-view\\b",
+            "^\\.pdfv-pages\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "unified-pinch-zoom",
+      "label": "Unified pinch-zoom & pan router (app.js)",
+      "reason": "Routes trackpad/touch pinch zoom to Score Practice, Sight Reading, Piano, PDF, floating windows, and stage without double-scaling.",
+      "rules": [
+        {
+          "file": "web/app.js",
+          "startPattern": "// ---------- pinch zoom:",
+          "endPattern": "// ---------- bookmarks",
+          "padBefore": 0,
+          "padAfter": 0
+        }
+      ]
+    },
+    {
+      "id": "sight-zoom-scroll",
+      "label": "Sight Reading zoom & isolated staff scrollbar",
+      "reason": "Keeps Sight Reading vector zoom (__zoom, not CSS zoom) and isolated .sr-staff scrolling intact.",
+      "rules": [
+        {
+          "file": "web/sight.js",
+          "startPattern": "const applyLiveZoom =",
+          "endPattern": "host\\.addEventListener\\('gestureend'",
+          "padBefore": 2,
+          "padAfter": 3
+        },
+        {
+          "file": "web/styles.css",
+          "matchLines": [
+            "^\\.sr-host\\b",
+            "^\\.sr\\s*\\{",
+            "^\\.sr-staff\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "score-zoom-scroll",
+      "label": "Score Practice zoom & scroll",
+      "reason": "Keeps OSMD zoom-around-cursor and .sp-score scrolling intact.",
+      "rules": [
+        {
+          "file": "web/score.js",
+          "startPattern": "ctl\\.zoomBy =",
+          "endPattern": "sc\\.addEventListener\\('gestureend'",
+          "padBefore": 1,
+          "padAfter": 3
+        },
+        {
+          "file": "web/styles.css",
+          "matchLines": [
+            "^\\.sp-score\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "piano-zoom-scroll",
+      "label": "Piano warm-up staff zoom & scroll",
+      "reason": "Keeps resizable warm-up staff scrolling and pinch-zoom handler intact.",
+      "rules": [
+        {
+          "file": "web/tools.js",
+          "startPattern": "const applyPianoZoom =",
+          "endPattern": "wrap\\.addEventListener\\('wheel'",
+          "padBefore": 1,
+          "padAfter": 6
+        },
+        {
+          "file": "web/styles.css",
+          "matchLines": [
+            "^\\.pq-staff-wrap\\b",
+            "^\\.pq-staff\\b",
+            "^\\.pq-resize\\b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "present-stacking",
+      "label": "Present screen stacking & Annotate pass-through",
+      "reason": "Header/toolbar (z:50), ink canvas (z:20), floating windows (z:6), INK_UI pass-through, and placeInkBar.",
+      "rules": [
+        {
+          "file": "web/styles.css",
+          "matchLines": [
+            "^\\.p-head\\s*\\{",
+            "^\\.p-dock\\s*\\{",
+            "^\\.ink\\s*\\{",
+            "^\\.p-wins\\s*\\{"
+          ]
+        },
+        {
+          "file": "web/app.js",
+          "matchLines": [
+            "^const INK_UI =",
+            "^function placeInkBar\\("
+          ]
+        }
+      ]
+    },
+    {
+      "id": "persistent-ids",
+      "label": "Persistent bundle ID, data folder, and localStorage keys",
+      "reason": "Renaming these breaks macOS permissions, updates, and teachers' saved data.",
+      "rules": [
+        {
+          "file": "build.sh",
+          "matchLines": [
+            "CFBundleIdentifier",
+            "local\\.rehearsal\\.app"
+          ]
+        },
+        {
+          "file": "web/app.js",
+          "matchLines": [
+            "localStorage\\.getItem\\('rehearsal'\\)",
+            "localStorage\\.setItem\\('rehearsal'",
+            "indexedDB\\.open\\('rehearsal-files'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ipad-shell",
+      "label": "iPad / web safe-area dark shell",
+      "reason": "Prevents white top status-bar seam and rubber-band overscroll on iPad.",
+      "rules": [
+        {
+          "file": "web/index.html",
+          "matchLines": [
+            "viewport-fit=cover",
+            "apple-mobile-web-app-status-bar-style",
+            "html\\.web"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grader-core",
+      "label": "Sight-reading & rhythm grading engine",
+      "reason": "Pitch/onset/tap grading algorithms are tuned against recorded fixtures.",
+      "rules": [
+        {
+          "file": "web/grade.js",
+          "wholeFile": true
+        }
+      ]
+    }
+  ]
+}
