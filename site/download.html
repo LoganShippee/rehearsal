@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Rehearsal — Mac, Windows &amp; Web</title>
+<meta name="description" content="Download Rehearsal free for macOS (Universal), Windows 10/11 (no administrator password required), or open the offline-ready Web App for Chromebook and iPad.">
+<meta property="og:title" content="Download Rehearsal — Free for Mac, Windows &amp; Web">
+<meta property="og:description" content="Includes step-by-step first-launch guides for macOS Gatekeeper and Windows SmartScreen (no admin rights required).">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rehearsalmusic.com/download.html">
+<meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
+<link rel="icon" href="img/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="img/icon-180.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-bar">
+      <a class="brand-link" href="index.html">
+        <img src="img/icon-192.png" alt="Rehearsal app icon" width="32" height="32">
+        <span>Rehearsal</span>
+      </a>
+      <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav class="nav-links" id="site-nav" aria-label="Main navigation">
+        <a href="index.html#features">Features</a>
+        <a href="demo.html">Live Demo</a>
+        <a href="homework.html">Online Homework</a>
+        <a href="schools.html">Schools &amp; Privacy</a>
+        <a href="download.html" class="active">Download</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="nav-student" href="/app/hw.html" data-app-href="hw">Student Sign-In</a>
+        <a class="btn primary sm" href="#platforms" data-os-cta>Download Free</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="wrap">
+        <div class="hero-badge">
+          <span class="dot" aria-hidden="true"></span>
+          <span>Latest Release: <strong data-release-version>v1.3.0</strong> <span data-release-date></span> · Free &amp; Signed Updates</span>
+        </div>
+        <h1>Download Rehearsal for Your Classroom</h1>
+        <p>Served directly from <code>rehearsalmusic.com</code> so school networks can download installers reliably even when GitHub is filtered.</p>
+        <div class="page-hero-actions">
+          <a class="btn gold lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip" data-os-cta>Download Free</a>
+          <a class="btn ghost-dark lg" href="/app/" data-app-href="app">Open Web App Instead</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="platforms">
+      <div class="wrap">
+        <div class="os-tabs" role="tablist" aria-label="Choose your platform" data-os-tabs>
+          <button type="button" class="os-tab active" role="tab" data-os-tab="mac" aria-selected="true">macOS (Apple Silicon &amp; Intel)</button>
+          <button type="button" class="os-tab" role="tab" data-os-tab="win" aria-selected="false">Windows 10 / 11 (No Admin Needed)</button>
+          <button type="button" class="os-tab" role="tab" data-os-tab="web" aria-selected="false">Chromebook, iPad &amp; Web</button>
+        </div>
+
+        <div class="os-panel card" data-os-panel="mac" role="tabpanel">
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--line)">
+            <div>
+              <span class="tag">macOS · Universal Binary</span>
+              <h2>Rehearsal for Mac (<span data-release-version>v1.3.0</span>)</h2>
+              <p class="small muted">Works on Apple Silicon (M1–M4) and Intel Macs. Includes MuseScore conversion, Google Drive browser, and live window mirroring.</p>
+            </div>
+            <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip" data-dl-file="Rehearsal.zip">Download Rehearsal.zip</a>
+          </div>
+          <h3 style="margin-top:18px">First-Launch Guide (Takes 20 Seconds, One Time Only)</h3>
+          <ol class="step-list">
+            <li>Double-click <strong>Rehearsal.zip</strong> in your Downloads folder, then <strong>drag Rehearsal into Applications</strong>. <em>Important:</em> open it from Applications, not Downloads—macOS locks apps left in Downloads, which can block the microphone and automatic updates.</li>
+            <li>Double-click <strong>Rehearsal</strong> in Applications. Because the app isn't notarized with a paid Apple Developer ID yet, macOS will say it cannot verify the developer—click <strong>Done</strong>.</li>
+            <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down, and click <strong>Open Anyway</strong>. You only ever need to do this once.</li>
+          </ol>
+          <div class="callout ok" style="margin-top:18px">
+            <strong>Automatic signed updates:</strong> Rehearsal checks for updates automatically, verifies every update with a cryptographic signature, and never touches your classes or files.
+          </div>
+        </div>
+
+        <div class="os-panel card" data-os-panel="win" role="tabpanel" hidden>
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--line)">
+            <div>
+              <span class="tag ok">No Administrator Password Required</span>
+              <h2>Rehearsal for Windows 10 / 11 (<span data-release-version>v1.3.0</span>)</h2>
+              <p class="small muted">Installs strictly for your teacher user account (<code>%LOCALAPPDATA%\Programs\Rehearsal</code>)—ideal for locked-down school PCs.</p>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Setup.exe" data-dl-file="Rehearsal-Setup.exe">Download Installer (.exe)</a>
+              <a class="btn lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Windows.zip" data-dl-file="Rehearsal-Windows.zip">Portable .zip</a>
+            </div>
+          </div>
+          <h3 style="margin-top:18px">First-Launch Guide (One Time Only)</h3>
+          <ol class="step-list">
+            <li>Run <strong>Rehearsal-Setup.exe</strong> (no school IT admin password needed).</li>
+            <li>If Windows Defender SmartScreen shows <em>"Windows protected your PC"</em> (because the app isn't EV code-signed yet), click <strong>More info → Run anyway</strong>.</li>
+            <li>Rehearsal adds a Start Menu shortcut and stores your classes and 30-day automatic backups safely in <code>%LOCALAPPDATA%\Rehearsal\</code>.</li>
+          </ol>
+          <div class="callout ok" style="margin-top:18px">
+            <strong>Built-in WebView2 &amp; Google Drive:</strong> Works right on Windows 10 and 11, including MuseScore <code>.mscz</code> conversion, full-browser windows, and automatic signed updates.
+          </div>
+        </div>
+
+        <div class="os-panel card" data-os-panel="web" role="tabpanel" hidden>
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--line)">
+            <div>
+              <span class="tag">Zero Install · Works Offline</span>
+              <h2>Rehearsal Web App &amp; iPad / Chromebook PWA</h2>
+              <p class="small muted">Runs in Chrome, Safari, Edge, or Firefox on any Chromebook, iPad, Mac, or PC—and stays cached offline after your first visit.</p>
+            </div>
+            <a class="btn primary lg" href="/app/" data-app-href="app">Open Rehearsal Web App →</a>
+          </div>
+          <h3 style="margin-top:18px">Install It Like a Native App</h3>
+          <ol class="step-list">
+            <li><strong>Chrome / Edge (Chromebook, Mac, Windows):</strong> Open the Web App, then click <strong>Install Rehearsal</strong> in the address bar (or the <strong>⋮</strong> menu → <em>Cast, save, and share → Install page as app</em>).</li>
+            <li><strong>iPad / iPhone (Safari):</strong> Tap <strong>Share → Add to Home Screen</strong>, then launch Rehearsal from your Home Screen for full-screen display without browser bars.</li>
+            <li><strong>Moving devices?</strong> The browser version keeps classes in that browser's local storage. Use <strong>Setup → Settings → Export backup</strong> anytime to move your setup to another computer.</li>
+          </ol>
+          <div class="callout warn" style="margin-top:18px">
+            <strong>Need Student Homework instead?</strong> Students don't download an app—they open <a href="/app/hw.html" data-app-href="hw">rehearsalmusic.com/hw</a> directly in Chrome or Safari.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt compact">
+      <div class="wrap">
+        <div class="grid-3">
+          <div class="card">
+            <h3>Automatic Backups</h3>
+            <p class="small muted">Mac and Windows save a dated backup once a day (newest 30 kept) with one-click Restore inside Settings.</p>
+          </div>
+          <div class="card">
+            <h3>Signed Releases</h3>
+            <p class="small muted">Every update manifest is signed with Rehearsal's release key; the app rejects any tampered download.</p>
+          </div>
+          <div class="card">
+            <h3>Release History</h3>
+            <p class="small muted">See what shipped in every version on our <a href="changelog.html">Changelog</a> or directly on <a href="https://github.com/LoganShippee/rehearsal/releases" target="_blank" rel="noopener">GitHub Releases</a>.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-bottom" style="border-top:none;padding-top:0">
+        <span>© 2026 Rehearsal · <a href="index.html">Home</a> · <a href="demo.html">Live Demo</a> · <a href="schools.html">Schools &amp; IT</a> · <a href="privacy.html">Privacy</a></span>
+        <span>rehearsalmusic.com</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>

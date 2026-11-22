@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rehearsal — IT Admin Google Workspace &amp; Network Whitelisting Guide</title>
+<meta name="description" content="School IT firewall allowlist, Google Workspace OAuth whitelisting, and Chromebook/Windows deployment guide for Rehearsal.">
+<link rel="icon" href="img/favicon.ico" sizes="any">
+<style>
+  @page { size: letter; margin: 0.45in; }
+  :root {
+    --bg: #eef2f7;
+    --paper: #ffffff;
+    --ink: #161d29;
+    --muted: #566275;
+    --line: #d0d8e5;
+    --soft: #eef3ff;
+    --ok-bg: #eaf7ef;
+    --ok-ink: #155c34;
+    --accent: #2452d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 13px/1.44 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+  .toolbar {
+    max-width: 8.5in;
+    margin: 12px auto 0;
+    padding: 0 12px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 6px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .sheet {
+    max-width: 8.5in;
+    margin: 10px auto 28px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .head {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .head h1 { margin: 0; font-size: 18px; color: var(--accent); }
+  .head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .banner {
+    background: var(--ok-bg);
+    color: var(--ok-ink);
+    border: 1px solid #b9e3c9;
+    border-radius: 8px;
+    padding: 9px 12px;
+    margin-bottom: 12px;
+    font-size: 12.5px;
+  }
+  .section { margin-bottom: 12px; }
+  .section h2 {
+    margin: 0 0 5px;
+    font-size: 13.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  ol, ul { margin: 4px 0 0; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  th, td {
+    text-align: left;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { background: var(--soft); font-weight: 600; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--soft);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .box { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  @media print {
+    .toolbar { display: none; }
+    body { background: #fff; font-size: 10pt; line-height: 1.35; }
+    .sheet { margin: 0; border: none; border-radius: 0; padding: 0; max-width: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <a class="btn" href="schools.html">Schools &amp; IT</a>
+    <a class="btn" href="privacy.html">Privacy Policy</a>
+    <a class="btn" href="privacy-sdpc.html">1-Page SDPC Summary</a>
+    <button type="button" class="btn primary" onclick="window.print()">Print / Save as PDF</button>
+  </div>
+
+  <main class="sheet">
+    <div class="head">
+      <div>
+        <h1>Rehearsal Online Homework — IT Admin Setup &amp; Google Whitelisting Sheet</h1>
+        <div class="sub">Zero-Friction Classroom Deployment Guide for Google Workspace &amp; School Networks</div>
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);text-align:right"><strong>OAuth Scopes:</strong> <code>openid email profile</code></div>
+    </div>
+
+    <div class="banner">
+      <strong>Works Immediately Without OAuth Whitelisting:</strong> Even before Google Workspace review, teachers sign in via a 6-digit email verification code and students sign in with their <strong>Class Code + Personal 6-Character Code</strong> (no Google SSO required).
+    </div>
+
+    <div class="section">
+      <h2>1. Optional Google Sign-In Whitelisting in Google Admin Console</h2>
+      <p style="margin:0 0 8px"><strong>Current Launch Status:</strong> Google Sign-In is <strong>disabled by default</strong> in the current deployment — teachers use 6-digit email verification codes and students use 6-character Class + Student Codes, so <strong>no Google Admin Console whitelisting is required</strong> right now.</p>
+      <ol>
+        <li>If your district later enables custom Google OAuth, sign in at <strong>admin.google.com</strong> as a Super Administrator.</li>
+        <li>Navigate to <strong>Security → Access and data control → API controls → Manage Third-Party App Access</strong>.</li>
+        <li>Click <strong>Add app → OAuth App Name Or Client ID</strong>, then enter your deployment's verified Google OAuth Web Client ID.</li>
+        <li>Select <strong>Trusted</strong> (recommended for assigned student/music OUs) or <strong>Limited</strong> so students and teachers on restricted school Google accounts can sign in cleanly.</li>
+      </ol>
+      <p style="margin:6px 0 0"><strong>Non-Sensitive Scopes Requested:</strong> <code>openid</code>, <code>email</code>, <code>profile</code> ONLY. Rehearsal <strong>never</strong> requests Google Drive, Google Classroom, Gmail, or Contacts scopes for Online Homework.</p>
+    </div>
+
+    <div class="section">
+      <h2>2. Network, Firewall &amp; Email Filter Allowlist</h2>
+      <table>
+        <thead>
+          <tr><th>Endpoint / Host</th><th>Protocol</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>https://rehearsalmusic.com</code> (and <code>*.rehearsalmusic.com</code>)</td>
+            <td>HTTPS (443)</td>
+            <td>Rehearsal Website, Live Web App (<code>/app/</code>), Student Homework Portal (<code>/hw</code>), and App Installers (<code>/dl/</code>)</td>
+          </tr>
+          <tr>
+            <td><code>https://api.rehearsalmusic.com</code> (fallback: <code>https://rehearsal-hw.logan-shippee.workers.dev</code>)</td>
+            <td>HTTPS (443)</td>
+            <td>Online Homework API: assignment fetch, server-verified grading, R2 audio uploads &amp; Gradebook streaming</td>
+          </tr>
+          <tr>
+            <td><code>https://loganshippee.github.io/rehearsal/</code> *(optional legacy fallback)*</td>
+            <td>HTTPS (443)</td>
+            <td>Legacy GitHub Pages mirror if teachers already pinned the GitHub Pages URL</td>
+          </tr>
+          <tr>
+            <td><code>https://accounts.google.com</code>, <code>https://apis.google.com</code> *(optional)*</td>
+            <td>HTTPS (443)</td>
+            <td>Only needed if optional Google Identity Services sign-in is enabled</td>
+          </tr>
+          <tr>
+            <td>Sender: <code>noreply@rehearsalmusic.com</code></td>
+            <td>Email / SPF/DKIM</td>
+            <td>Teacher 6-digit sign-in verification codes (allowlist against aggressive spam quarantines)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid2">
+      <div class="box">
+        <h2>3. Chromebook, iPad &amp; Desktop Readiness</h2>
+        <ul>
+          <li><strong>Zero External CDNs:</strong> <code>rehearsalmusic.com</code> loads zero Google Fonts, third-party scripts, or ad networks.</li>
+          <li><strong>Windows No-Admin Install:</strong> Installs per-user in <code>%LOCALAPPDATA%\Programs\Rehearsal</code> without administrator privileges.</li>
+          <li><strong>Microphone &amp; Wi-Fi Drops:</strong> Student Portal uses standard browser <code>getUserMedia</code> and queues recordings locally in IndexedDB during temporary Wi-Fi drops.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h2>4. Data Governance Summary for IT</h2>
+        <ul>
+          <li><strong>90-Day Media Expiry:</strong> Student audio blobs expire automatically in 90 days (R2 lifecycle + daily cron).</li>
+          <li><strong>FERPA Export &amp; Purge:</strong> One-click student JSON export, Gradebook CSV, and cascading deletion available to teachers anytime.</li>
+          <li><strong>Full Privacy Docs:</strong> <code>rehearsalmusic.com/privacy</code> &amp; 1-page SDPC brief <code>rehearsalmusic.com/sdpc</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
