@@ -351,10 +351,11 @@ function spInjectVoiceGradeCSS() {
     .sp-sel i.start::after { bottom: 0; left: -3px; }
     .sp-sel i.end::before { top: 0; right: -3px; }
     .sp-sel i.end::after { bottom: 0; right: -3px; }
-    .sp-sel.off i { background: rgba(31,111,209,.10) !important; }
+    .sp-sel.off i { background: rgba(31,111,209,.11) !important; }
     .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
-    .sp-sel.off i.end { border-right-color: #1f6fd1 !important; }
-    .sp-sel.off i.start::before, .sp-sel.off i.start::after, .sp-sel.off i.end::before, .sp-sel.off i.end::after { background: #1f6fd1; }
+    .sp-sel.off i.end { border-right: 0 !important; background: linear-gradient(90deg, rgba(31,111,209,.13) 0%, rgba(31,111,209,.06) 55%, rgba(31,111,209,0) 100%) !important; }
+    .sp-sel.off i.end::before, .sp-sel.off i.end::after { display: none !important; }
+    .sp-sel.off i.start::before, .sp-sel.off i.start::after { background: #1f6fd1; }
     .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
     .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: -3px !important;
       font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
