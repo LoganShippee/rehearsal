@@ -1,15 +1,19 @@
 'use strict';
 /* Rehearsal Online Homework — Student Portal & Milestone 1 Engine-Reuse Spike.
    Reuses web/sight.js, web/score.js, web/grade.js, and web/music.js verbatim:
-     1. Sight Reading (Practice Mode OR True Sight-Read with 15–60s study countdown + auto-record)
-     2. Score Practice (built-in sample MusicXML or any picked .mxl/.musicxml file)
-     3. Audio-Only Recording (MediaRecorder Opus/MP4 + automatic 16 kHz mono WAV fallback)
-   Every completed take is saved immediately to IndexedDB (rehearsal-hw-takes) with
-   compressed audio, recomputed scores, per-note results, and integrity check metrics. */
+     - Mandatory Session Audio Sync Test (8-click tap calibration per session)
+     - Clean Student-Facing UI (hides teacher toolbars; Teacher Setup drawer toggles for preview)
+     - Sight Reading: Practice Mode OR True Sight-Read (15–60s study countdown, tonic chord /
+       scale / starting pitch buttons during study, automatic mic for pitch & automatic
+       spacebar/tap for rhythm-only with zero popup menus or infinite wait)
+     - Score Practice: MusicXML (.mxl / .musicxml) student view
+     - Audio-Only: scales/warmups with MediaRecorder + 16 kHz mono WAV fallback
+     - IndexedDB offline-safe take storage ("Saved on this device — Ready to upload") */
 
 const HW_MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 const HW_DB_NAME = 'rehearsal-hw-takes';
 const HW_STORE = 'takes';
+const HW_SYNC_SESSION_KEY = 'rehearsal-hw-sync-ok';
 
 // ---------- Audio codec detection & 16 kHz mono WAV fallback
 function hwPickAudioMime() {
@@ -23,9 +27,7 @@ function hwPickAudioMime() {
     'audio/ogg',
   ];
   for (const m of candidates) {
-    try {
-      if (MediaRecorder.isTypeSupported(m)) return m;
-    } catch { }
+    try { if (MediaRecorder.isTypeSupported(m)) return m; } catch { }
   }
   return '';
 }
@@ -63,7 +65,7 @@ function hwDownsampleTo16kWav(chunks, srcSr) {
   return new Blob([buf], { type: 'audio/wav' });
 }
 
-// ---------- IndexedDB offline take store ("Saved on this device — Retry Upload")
+// ---------- IndexedDB offline take store
 function hwIdbOpen() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(HW_DB_NAME, 1);
@@ -76,7 +78,6 @@ function hwIdbOpen() {
     req.onerror = () => reject(req.error);
   });
 }
-
 async function hwIdbPut(take) {
   const db = await hwIdbOpen();
   return new Promise((resolve, reject) => {
@@ -86,7 +87,6 @@ async function hwIdbPut(take) {
     tx.onerror = () => reject(tx.error);
   });
 }
-
 async function hwIdbAll() {
   const db = await hwIdbOpen();
   return new Promise((resolve, reject) => {
@@ -96,7 +96,6 @@ async function hwIdbAll() {
     req.onerror = () => reject(req.error);
   });
 }
-
 async function hwIdbDelete(id) {
   const db = await hwIdbOpen();
   return new Promise((resolve, reject) => {
@@ -106,7 +105,6 @@ async function hwIdbDelete(id) {
     tx.onerror = () => reject(tx.error);
   });
 }
-
 async function hwIdbClear() {
   const db = await hwIdbOpen();
   return new Promise((resolve, reject) => {
@@ -116,6 +114,217 @@ async function hwIdbClear() {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+// ---------- Warm pitch-reference playback helpers (Starting Pitch, Tonic Chord, Full Scale, Tempo)
+function hwPlayMidi(c, time, midi, dur, gain = 0.9) {
+  if (typeof grTone === 'function') {
+    grTone(c, time, midi, dur, gain);
+    return;
+  }
+  const f = 440 * Math.pow(2, (midi - 69) / 12);
+  tone(f, Math.max(0, time - c.currentTime), dur, 'triangle', 0.25 * gain);
+}
+
+function hwMidiLabel(midi) {
+  const names = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+  return `${names[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+}
+
+function hwSightPitchInfo(st) {
+  const o = st?.solfege || {};
+  const firstDeg = st?.ex?.solfege?.pitches?.[0] ?? st?.ex?.solfege?.parts?.[0]?.pitches?.[0] ?? 0;
+  const shift = typeof grVoiceShift === 'function' ? grVoiceShift(st) : 0;
+  const sp = d => srSpell(o.key || 'C', o.scale || 'major', d, o.clef || 'treble');
+  const start = sp(firstDeg);
+  const startMidi = start.midi + shift;
+  const tonic = sp(0);
+  const tonicMidi = tonic.midi + shift;
+  return {
+    sp,
+    shift,
+    startSyl: start.syl,
+    startMidi,
+    startName: hwMidiLabel(startMidi),
+    tonicMidi,
+    tonicName: hwMidiLabel(tonicMidi),
+  };
+}
+
+async function hwPlayStartingPitch(st) {
+  const c = ac(); await c.resume();
+  const info = hwSightPitchInfo(st);
+  hwPlayMidi(c, c.currentTime + 0.04, info.startMidi, 1.2, 0.95);
+}
+
+async function hwPlayTonicChord(st) {
+  const c = ac(); await c.resume();
+  const info = hwSightPitchInfo(st);
+  const t0 = c.currentTime + 0.04;
+  // Arpeggiate Do-Mi-Sol-Do', then sound the chord together
+  [0, 2, 4, 7].forEach((d, i) => {
+    hwPlayMidi(c, t0 + i * 0.14, info.sp(d).midi + info.shift, 1.15 - i * 0.1, 0.72);
+  });
+}
+
+async function hwPlayScale(st) {
+  const c = ac(); await c.resume();
+  const info = hwSightPitchInfo(st);
+  const t0 = c.currentTime + 0.04;
+  [0, 1, 2, 3, 4, 5, 6, 7].forEach((d, i) => {
+    hwPlayMidi(c, t0 + i * 0.24, info.sp(d).midi + info.shift, i === 7 ? 0.65 : 0.26, 0.8);
+  });
+}
+
+async function hwPlayTempoPulse(bpm = 84) {
+  const c = ac(); await c.resume();
+  const beat = 60 / clamp(Number(bpm) || 84, 30, 200);
+  const t0 = c.currentTime + 0.05;
+  for (let i = 0; i < 4; i++) {
+    if (typeof grClick === 'function') grClick(c, t0 + i * beat, i === 0, 0.85);
+    else tone(i === 0 ? 1100 : 780, 0.05 + i * beat, 0.05, 'triangle', 0.22 * metVol());
+  }
+}
+
+// ---------- Mandatory Session Audio Sync Check (runs once every browser session)
+const HW_SYNC = {
+  running: false,
+  timers: [],
+  keyHandler: null,
+  mandatory: true,
+};
+
+function hwSyncIsDone() {
+  try { return sessionStorage.getItem(HW_SYNC_SESSION_KEY) === '1'; } catch { return false; }
+}
+
+function hwClearSyncTimers() {
+  HW_SYNC.timers.forEach(id => clearTimeout(id));
+  HW_SYNC.timers = [];
+  if (HW_SYNC.keyHandler) {
+    document.removeEventListener('keydown', HW_SYNC.keyHandler, true);
+    HW_SYNC.keyHandler = null;
+  }
+  HW_SYNC.running = false;
+}
+
+function hwOpenSyncModal(mandatory = false) {
+  hwClearSyncTimers();
+  HW_SYNC.mandatory = mandatory;
+  const overlay = $('#hw-sync-overlay');
+  const dotsEl = $('#hw-sync-dots');
+  const padBtn = $('#hw-sync-pad');
+  const statusEl = $('#hw-sync-status');
+  const startBtn = $('#hw-sync-start');
+  const cancelBtn = $('#hw-sync-cancel');
+  if (!overlay) return;
+
+  dotsEl.innerHTML = Array.from({ length: 12 }, (_, i) =>
+    `<span class="hw-sync-dot ${i < 4 ? 'lead' : 'tap'}" data-sdot="${i}"></span>`
+  ).join('');
+  padBtn.disabled = true;
+  startBtn.disabled = false;
+  startBtn.textContent = 'Start 10-Second Sync Check';
+  cancelBtn.hidden = mandatory;
+  statusEl.textContent = mandatory
+    ? 'Required once at the start of each session so timing matches your device.'
+    : `Current sync: ${avDelayMs()} ms. Press Start to recalibrate.`;
+  overlay.hidden = false;
+
+  cancelBtn.onclick = () => {
+    hwClearSyncTimers();
+    overlay.hidden = true;
+  };
+  startBtn.onclick = () => hwRunSyncTest();
+}
+
+async function hwRunSyncTest() {
+  if (HW_SYNC.running) return;
+  hwClearSyncTimers();
+  HW_SYNC.running = true;
+
+  const overlay = $('#hw-sync-overlay');
+  const dots = $$('#hw-sync-dots .hw-sync-dot');
+  const padBtn = $('#hw-sync-pad');
+  const statusEl = $('#hw-sync-status');
+  const startBtn = $('#hw-sync-start');
+
+  dots.forEach(d => d.classList.remove('active', 'done'));
+  startBtn.disabled = true;
+  padBtn.disabled = false;
+
+  const c = ac();
+  await c.resume();
+  const beat = 60 / 90; // 90 BPM steady pulse
+  const t0 = c.currentTime + 0.5;
+  const lead = 4, n = 8;
+  const clicks = [];
+
+  for (let i = 0; i < lead + n; i++) {
+    const t = t0 + i * beat;
+    if (typeof grClick === 'function') grClick(c, t, i % 4 === 0, 1.0);
+    else tone(i % 4 === 0 ? 1100 : 780, t - c.currentTime, 0.05, 'triangle', 0.28 * metVol());
+    if (i >= lead) clicks.push(t);
+    const msUntil = Math.max(0, (t - c.currentTime) * 1000);
+    HW_SYNC.timers.push(setTimeout(() => {
+      dots.forEach(d => d.classList.remove('active'));
+      if (dots[i]) dots[i].classList.add('active');
+      if (i < lead) statusEl.textContent = `Listen & get ready… (${i + 1} / 4)`;
+      else if (i === lead) statusEl.textContent = 'Tap NOW on each click! (Space or circle)';
+    }, msUntil));
+  }
+
+  const diffs = [];
+  const usedClicks = new Set();
+  const recordTap = e => {
+    if (!HW_SYNC.running) return;
+    const t = typeof grTapTime === 'function' ? grTapTime(c, e) : c.currentTime;
+    let bestIdx = -1, bestDist = Infinity;
+    for (let i = 0; i < clicks.length; i++) {
+      const dist = Math.abs(clicks[i] - t);
+      if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+    }
+    if (bestIdx >= 0 && bestDist < beat / 2 && !usedClicks.has(bestIdx)) {
+      usedClicks.add(bestIdx);
+      diffs.push(t - clicks[bestIdx]);
+      if (dots[lead + bestIdx]) dots[lead + bestIdx].classList.add('done');
+    }
+    padBtn.classList.remove('hit'); void padBtn.offsetWidth; padBtn.classList.add('hit');
+    setTimeout(() => padBtn.classList.remove('hit'), 110);
+    statusEl.textContent = `Taps captured: ${diffs.length} of ${n}`;
+  };
+
+  padBtn.onpointerdown = e => { e.preventDefault(); recordTap(e); };
+  HW_SYNC.keyHandler = e => {
+    if (overlay.hidden) return;
+    if (e.code === 'Space' && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); recordTap(e); }
+    if (e.key === 'Escape' && !HW_SYNC.mandatory) { e.preventDefault(); hwClearSyncTimers(); overlay.hidden = true; }
+  };
+  document.addEventListener('keydown', HW_SYNC.keyHandler, true);
+
+  const totalMs = Math.max(0, (t0 + (lead + n) * beat + 0.55 - c.currentTime) * 1000);
+  HW_SYNC.timers.push(setTimeout(() => {
+    hwClearSyncTimers();
+    padBtn.disabled = true;
+    dots.forEach(d => d.classList.remove('active'));
+    if (diffs.length < 5) {
+      statusEl.textContent = `Only ${diffs.length} taps heard (need at least 5). Try again!`;
+      startBtn.disabled = false;
+      startBtn.textContent = 'Try Sync Check Again';
+      return;
+    }
+    const medianSec = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
+    const ms = setAvDelay(medianSec * 1000);
+    try { sessionStorage.setItem(HW_SYNC_SESSION_KEY, '1'); } catch { }
+    hwRenderHeaderChips();
+    statusEl.innerHTML = `Synced: <strong>${ms} ms</strong> on this ${esc(DEVICE)}. You're ready!`;
+    startBtn.disabled = false;
+    startBtn.textContent = 'Continue to Homework';
+    startBtn.onclick = () => { overlay.hidden = true; };
+    toast(`Audio sync calibrated (${ms} ms)`);
+  }, totalMs));
+}
+
+window.openAvCal = () => hwOpenSyncModal(false);
 
 // ---------- Mirror of server-side score recomputation & integrity checks
 function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationSec, expectedSec, meta = {}) {
@@ -161,21 +370,14 @@ function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationS
       inputMode: gradeResult.take?.taps ? 'tap' : (gradeResult.gradePitch ? 'mic_pitch_rhythm' : 'mic_rhythm'),
       noteCount: total,
       notes: notes.map(n => ({
-        bar: n.bar,
-        idx: n.idx,
-        status: n.status,
-        pitch: n.pitch || null,
-        cents: n.cents ?? null,
-        errMs: n.errMs ?? null,
+        bar: n.bar, idx: n.idx, status: n.status, pitch: n.pitch || null, cents: n.cents ?? null, errMs: n.errMs ?? null,
       })),
     };
   } else if (!audioBlob || audioBlob.size === 0) {
     flags.push('missing_audio');
   }
 
-  if (audioBlob && audioBlob.size > HW_MAX_AUDIO_BYTES) {
-    flags.push('audio_over_15mb');
-  }
+  if (audioBlob && audioBlob.size > HW_MAX_AUDIO_BYTES) flags.push('audio_over_15mb');
 
   return {
     id: 'take_' + uid(),
@@ -197,15 +399,8 @@ function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationS
   };
 }
 
-// ---------- Zero-touch MediaRecorder hook around web/grade.js's single mic stream
-const HW_GRADE_CAP = {
-  mr: null,
-  chunks: [],
-  mime: '',
-  startedAt: 0,
-  stoppingPromise: null,
-  activeContext: null, // { type, label, host, getMeta }
-};
+// ---------- Zero-touch MediaRecorder hook around web/grade.js
+const HW_GRADE_CAP = { mr: null, chunks: [], mime: '', startedAt: 0, activeContext: null };
 
 function hwStartParallelRecorder(stream) {
   hwAbortParallelRecorder();
@@ -253,10 +448,7 @@ function hwFinishParallelRecorder(recFallback) {
     const finalize = () => {
       if (HW_GRADE_CAP.chunks.length) {
         const blob = new Blob(HW_GRADE_CAP.chunks, { type: mr.mimeType || mime });
-        if (blob.size > 0) {
-          resolve({ blob, durationSec: elapsed });
-          return;
-        }
+        if (blob.size > 0) { resolve({ blob, durationSec: elapsed }); return; }
       }
       resolve(buildFallbackWav());
     };
@@ -266,7 +458,6 @@ function hwFinishParallelRecorder(recFallback) {
   });
 }
 
-// Wrap grStart, spGradeStart, and grShowCard non-invasively (zero edits to web/grade.js or web/score.js)
 function hwInstallEngineHooks(onTakeSaved) {
   if (window.__hwHooksInstalled) return;
   window.__hwHooksInstalled = true;
@@ -279,23 +470,22 @@ function hwInstallEngineHooks(onTakeSaved) {
       if (!wasRunning && typeof GR !== 'undefined' && GR.on) {
         HW_GRADE_CAP.activeContext = {
           type: 'sight',
-          label: `Sight Reading (${st.mode === 'solfege' ? 'Solfege' : 'Rhythm'})`,
+          label: `Sight Reading (${st.mode === 'solfege' ? 'Solfege · Mic' : 'Rhythm · ' + (input === 'tap' ? 'Spacebar/Tap' : 'Mic')})`,
           host,
           expectedSec: Math.max(0, (GR.end || 0) - (GR.T0 || 0) - 0.8),
           meta: {
             mode: st.mode,
+            input,
             ts: st[st.mode]?.ts,
             tempo: st[st.mode]?.tempo,
             key: st[st.mode]?.key,
             trueSightRead: !!HW_STATE.srTrueMode,
             studySeconds: HW_STATE.srTrueMode ? HW_STATE.srStudySec : 0,
+            syncMs: avDelayMs(),
           },
         };
-        if (input !== 'tap' && GR.mic?.stream) {
-          hwStartParallelRecorder(GR.mic.stream);
-        } else {
-          hwAbortParallelRecorder();
-        }
+        if (input !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
+        else hwAbortParallelRecorder();
       }
       return res;
     };
@@ -313,17 +503,10 @@ function hwInstallEngineHooks(onTakeSaved) {
           label: `Score Practice (${ctl?.st?.name || 'Sample Score'})`,
           host: ctl?.host,
           expectedSec: Math.max(0, (GR.end || 0) - (GR.T0 || 0) - 0.8),
-          meta: {
-            scoreName: ctl?.st?.name || 'Sample Score',
-            gradeMode: mode,
-            tempo: ctl?.st?.tempo || null,
-          },
+          meta: { scoreName: ctl?.st?.name || 'Sample Score', gradeMode: mode, tempo: ctl?.st?.tempo || null, syncMs: avDelayMs() },
         };
-        if (mode !== 'tap' && GR.mic?.stream) {
-          hwStartParallelRecorder(GR.mic.stream);
-        } else {
-          hwAbortParallelRecorder();
-        }
+        if (mode !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
+        else hwAbortParallelRecorder();
       }
       return res;
     };
@@ -344,13 +527,7 @@ function hwInstallEngineHooks(onTakeSaved) {
         const grObj = host.__grResult;
         hwFinishParallelRecorder(grObj.take?.rec).then(async ({ blob, durationSec }) => {
           const take = hwBuildSubmissionSummary(
-            ctx.type,
-            ctx.label,
-            grObj,
-            grObj.take?.taps ? null : blob,
-            durationSec,
-            ctx.expectedSec,
-            ctx.meta
+            ctx.type, ctx.label, grObj, grObj.take?.taps ? null : blob, durationSec, ctx.expectedSec, ctx.meta
           );
           await hwIdbPut(take);
           onTakeSaved(take);
@@ -362,34 +539,30 @@ function hwInstallEngineHooks(onTakeSaved) {
   }
 }
 
-// ---------- Main UI state
+// ---------- App State
 const HW_STATE = {
   tab: 'sight',         // 'sight' | 'score' | 'audio'
-  srTrueMode: false,    // false = Practice, true = True Sight-Read
-  srStudySec: 30,       // 15 | 30 | 45 | 60
+  teacherOpen: false,
+  // Sight Reading assignment config (normally set by teacher)
+  srKind: 'solfege',    // 'solfege' (pitch+rhythm -> mic) | 'rhythm' (rhythm-only -> spacebar/tap)
+  srTrueMode: true,     // Default to True Sight-Read (30s) so teacher can immediately test it
+  srStudySec: 30,
   srStudyLeft: 0,
   srStudyTimer: null,
+  srStudying: false,
   srState: null,
   srHost: null,
+  // Score Practice assignment config
   spFileId: null,
   spState: null,
   spHost: null,
-  // Audio-only recorder state
+  spCtl: null,
+  spGradeMode: 'mic',   // 'mic' | 'rhythm' | 'tap'
+  // Audio-Only config
   aud: {
-    recording: false,
-    stream: null,
-    mr: null,
-    chunks: [],
-    pcmChunks: [],
-    pcmSr: 44100,
-    pcmNode: null,
-    srcNode: null,
-    analyser: null,
-    raf: 0,
-    startedAt: 0,
-    timer: null,
-    countIn: true,
-    bpm: 84,
+    recording: false, stream: null, mr: null, chunks: [], pcmChunks: [], pcmSr: 44100,
+    pcmNode: null, srcNode: null, analyser: null, raf: 0, startedAt: 0, timer: null,
+    countIn: true, bpm: 84,
     prompt: 'Sing a 5-note major scale (do–re–mi–fa–sol–fa–mi–re–do) on "ah", or play your assigned warm-up.',
   },
   takes: [],
@@ -403,34 +576,157 @@ function hwFmtBytes(b) {
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / (1024 * 1024)).toFixed(2)} MB`;
 }
-
 function hwFmtTime(sec) {
   const s = Math.max(0, Math.floor(sec));
   return `${Math.floor(s / 60)}:${pad(s % 60)}`;
 }
 
-// ---------- Diagnostics header
-function hwRenderDiagnostics() {
-  const el = $('#hw-diag');
-  if (!el) return;
-  const mime = hwPickAudioMime();
-  const hasIdb = typeof indexedDB !== 'undefined';
-  const hasMic = !!navigator.mediaDevices?.getUserMedia;
-  const sr = AC ? `${Math.round(AC.sampleRate / 1000)} kHz` : 'Audio ready';
-  el.innerHTML = `
-    <span class="hw-chip">${esc(DEVICE)}</span>
-    <span class="hw-chip ${mime ? 'ok' : 'warn'}" title="Preferred compressed recording format">${mime ? esc(mime.split(';')[0]) : 'WAV fallback'}</span>
-    <span class="hw-chip ${hasMic ? 'ok' : 'warn'}">${hasMic ? 'Mic API OK' : 'No Mic API'}</span>
-    <span class="hw-chip ${hasIdb ? 'ok' : 'warn'}">${hasIdb ? 'IndexedDB OK' : 'No IndexedDB'}</span>
-    <span class="hw-chip">${esc(sr)} · sync ${avDelayMs()}ms</span>`;
+// ---------- Header chips & Teacher Setup drawer
+function hwRenderHeaderChips() {
+  const syncBtn = $('#hw-sync-btn');
+  const devChip = $('#hw-dev-chip');
+  const tBtn = $('#hw-teacher-toggle');
+  if (syncBtn) {
+    const done = hwSyncIsDone();
+    syncBtn.textContent = done ? `Sync: ${avDelayMs()} ms ✓` : 'Audio Sync Needed';
+    syncBtn.classList.toggle('ok', done);
+    syncBtn.classList.toggle('warn', !done);
+  }
+  if (devChip) {
+    const mime = hwPickAudioMime();
+    devChip.textContent = `${DEVICE} · ${mime ? mime.split(';')[0] : 'WAV fallback'}`;
+  }
+  if (tBtn) {
+    tBtn.classList.toggle('on', HW_STATE.teacherOpen);
+    tBtn.textContent = HW_STATE.teacherOpen ? 'Teacher Setup ▴' : 'Teacher Setup ▾';
+  }
 }
 
-// ---------- Sight Reading Runner (Practice + True Sight-Read)
+function hwRenderTeacherOptions() {
+  const box = $('#hw-teacher-opts');
+  if (!box) return;
+  if (HW_STATE.tab === 'sight') {
+    const st = HW_STATE.srState || (HW_STATE.srState = srDefaults());
+    const o = st[HW_STATE.srKind];
+    box.innerHTML = `
+      <label>Exercise type:
+        <select id="hw-t-srkind">
+          <option value="solfege" ${HW_STATE.srKind === 'solfege' ? 'selected' : ''}>Solfege / Pitch (auto-uses Microphone)</option>
+          <option value="rhythm" ${HW_STATE.srKind === 'rhythm' ? 'selected' : ''}>Rhythm Only (auto-uses Spacebar / Tap)</option>
+        </select>
+      </label>
+      <label>Mode:
+        <select id="hw-t-srmode">
+          <option value="true" ${HW_STATE.srTrueMode ? 'selected' : ''}>True Sight-Read (timed study + auto-record)</option>
+          <option value="practice" ${!HW_STATE.srTrueMode ? 'selected' : ''}>Practice Mode (rehearse then record)</option>
+        </select>
+      </label>
+      ${HW_STATE.srTrueMode ? `<label>Study time:
+        <select id="hw-t-srsec">
+          ${[15, 30, 45, 60].map(s => `<option value="${s}" ${HW_STATE.srStudySec === s ? 'selected' : ''}>${s}s</option>`).join('')}
+        </select>
+      </label>` : ''}
+      ${HW_STATE.srKind === 'solfege' ? `
+        <label>Key:
+          <select id="hw-t-srkey">
+            ${['C', 'G', 'D', 'A', 'F', 'Bb', 'Eb'].map(k => `<option value="${k}" ${o.key === k ? 'selected' : ''}>${k.replace('b', '♭')}</option>`).join('')}
+          </select>
+        </label>
+        <label>Clef:
+          <select id="hw-t-srclef">
+            <option value="treble" ${o.clef === 'treble' ? 'selected' : ''}>Treble</option>
+            <option value="bass" ${o.clef === 'bass' ? 'selected' : ''}>Bass</option>
+          </select>
+        </label>
+      ` : ''}
+      <label>Meter:
+        <select id="hw-t-srts">
+          ${['4/4', '3/4', '2/4', '6/8'].map(m => `<option value="${m}" ${o.ts === m ? 'selected' : ''}>${m}</option>`).join('')}
+        </select>
+      </label>
+      <label>Tempo:
+        <input type="number" id="hw-t-srtempo" min="40" max="180" value="${o.tempo || 80}" style="width:66px">
+      </label>
+      <button type="button" class="hw-btn" id="hw-t-srnew">New Excerpt</button>`;
+
+    $('#hw-t-srkind').onchange = e => { HW_STATE.srKind = e.target.value; HW_STATE.srState.mode = HW_STATE.srKind; hwRenderTeacherOptions(); hwMountSightRunner(); };
+    $('#hw-t-srmode').onchange = e => { HW_STATE.srTrueMode = e.target.value === 'true'; hwRenderTeacherOptions(); hwMountSightRunner(); };
+    if ($('#hw-t-srsec')) $('#hw-t-srsec').onchange = e => { HW_STATE.srStudySec = Number(e.target.value) || 30; hwMountSightRunner(); };
+    if ($('#hw-t-srkey')) $('#hw-t-srkey').onchange = e => { o.key = e.target.value; HW_STATE.srState.ex.solfege = srGenParts(o); hwMountSightRunner(); };
+    if ($('#hw-t-srclef')) $('#hw-t-srclef').onchange = e => { o.clef = e.target.value; HW_STATE.srState.ex.solfege = srGenParts(o); hwMountSightRunner(); };
+    $('#hw-t-srts').onchange = e => {
+      o.ts = e.target.value;
+      HW_STATE.srState.ex[HW_STATE.srKind] = HW_STATE.srKind === 'rhythm' ? { rhythm: srGenRhythm(o.ts, o.measures, o.cells, o.ties) } : srGenParts(o);
+      hwMountSightRunner();
+    };
+    $('#hw-t-srtempo').onchange = e => { o.tempo = clamp(Number(e.target.value) || 80, 40, 180); hwMountSightRunner(); };
+    $('#hw-t-srnew').onclick = () => {
+      HW_STATE.srState.ex[HW_STATE.srKind] = HW_STATE.srKind === 'rhythm' ? { rhythm: srGenRhythm(o.ts, o.measures, o.cells, o.ties) } : srGenParts(o);
+      hwMountSightRunner();
+    };
+  } else if (HW_STATE.tab === 'score') {
+    box.innerHTML = `
+      <label>Grading method:
+        <select id="hw-t-spmode">
+          <option value="mic" ${HW_STATE.spGradeMode === 'mic' ? 'selected' : ''}>Microphone (Pitch + Rhythm)</option>
+          <option value="rhythm" ${HW_STATE.spGradeMode === 'rhythm' ? 'selected' : ''}>Microphone (Rhythm Only)</option>
+          <option value="tap" ${HW_STATE.spGradeMode === 'tap' ? 'selected' : ''}>Spacebar / Tap (Rhythm Only)</option>
+        </select>
+      </label>
+      <button type="button" class="hw-btn" id="hw-t-sppick">Load .mxl / .musicxml File…</button>
+      <button type="button" class="hw-btn" id="hw-t-spsample">Reset to Sample Score</button>`;
+    $('#hw-t-spmode').onchange = e => { HW_STATE.spGradeMode = e.target.value; if (HW_STATE.spState) HW_STATE.spState.gradeMode = HW_STATE.spGradeMode; hwMountScoreRunner(); };
+    $('#hw-t-sppick').onclick = async () => {
+      const fs = await pickFile('.mxl,.musicxml,.xml', false);
+      if (!fs.length) return;
+      const f = fs[0];
+      const id = await storeFile(f);
+      HW_STATE.spState = { fileId: id, name: f.name.replace(/\.(mxl|musicxml|xml)$/i, ''), gradeMode: HW_STATE.spGradeMode };
+      hwMountScoreRunner();
+      toast(`Loaded ${f.name}`);
+    };
+    $('#hw-t-spsample').onclick = () => {
+      HW_STATE.spState = { fileId: HW_STATE.spFileId, name: 'Sample Vocal Check-In', gradeMode: HW_STATE.spGradeMode };
+      hwMountScoreRunner();
+    };
+  } else {
+    const a = HW_STATE.aud;
+    box.innerHTML = `
+      <label style="flex:1;min-width:260px">Prompt:
+        <input type="text" id="hw-t-audprompt" value="${esc(a.prompt)}" style="flex:1;min-width:200px">
+      </label>
+      <label><input type="checkbox" id="hw-t-audci" ${a.countIn ? 'checked' : ''}> 4-beat count-in</label>
+      <label>BPM: <input type="number" id="hw-t-audbpm" min="40" max="208" value="${a.bpm}" style="width:66px"></label>`;
+    $('#hw-t-audprompt').onchange = e => { a.prompt = e.target.value; hwMountAudioRunner(); };
+    $('#hw-t-audci').onchange = e => { a.countIn = e.target.checked; hwMountAudioRunner(); };
+    $('#hw-t-audbpm').onchange = e => { a.bpm = clamp(Number(e.target.value) || 84, 40, 208); hwMountAudioRunner(); };
+  }
+}
+
+// ---------- Sight Reading Student Runner
 function hwStopStudyTimer() {
   if (HW_STATE.srStudyTimer) {
     clearInterval(HW_STATE.srStudyTimer);
     HW_STATE.srStudyTimer = null;
   }
+  HW_STATE.srStudying = false;
+}
+
+function hwSightViewState(st) {
+  return {
+    ...st,
+    show: false,
+    showCounts: false,
+    playhead: st.playhead ?? 'beat',
+  };
+}
+
+function hwStartSightGradingDirect(host, st, actionBtn, inputMode) {
+  if (typeof grStart !== 'function') return toast('Grading engine not loaded.');
+  const tl = host?.__timeline;
+  if (!tl || !tl.length) return toast('Notation is still loading — try again.');
+  // Directly launch grading with explicit 'mic' or 'tap' — NEVER open .sr-grmenu!
+  grStart(host, hwSightViewState(st), tl, actionBtn, inputMode);
 }
 
 function hwMountSightRunner() {
@@ -438,98 +734,205 @@ function hwMountSightRunner() {
   const body = $('#hw-runner-body');
   if (!HW_STATE.srState) {
     HW_STATE.srState = srDefaults();
-    HW_STATE.srState.mode = 'solfege';
   }
+  const st = HW_STATE.srState;
+  st.mode = HW_STATE.srKind;
+  st.show = false;
+  st.showCounts = false;
+  if (st[st.mode]) st[st.mode].showCounts = false;
+
+  const isPitch = HW_STATE.srKind === 'solfege';
+  const autoInput = isPitch ? 'mic' : 'tap';
   const trueMode = HW_STATE.srTrueMode;
+  const o = st[st.mode];
+  const pitchInfo = isPitch ? hwSightPitchInfo(st) : null;
+  const metaDesc = isPitch
+    ? `${o.key.replace('b', '♭')} ${o.scale} · ${o.clef === 'bass' ? 'Bass' : 'Treble'} clef · ${o.ts} · ${o.tempo} BPM · Microphone (Pitch + Rhythm)`
+    : `Rhythm only · ${o.ts} · ${o.tempo} BPM · Spacebar / Touch Tap`;
 
   body.innerHTML = `
     <div class="hw-card">
       <div class="hw-card-head">
-        <h2>1. Sight Reading Runner <span class="muted small">(reusing web/sight.js + web/grade.js verbatim)</span></h2>
+        <div>
+          <h2>${trueMode ? 'True Sight-Reading Check' : 'Sight-Reading Practice Assignment'}</h2>
+          <div class="hw-submeta">${esc(metaDesc)}</div>
+        </div>
         <div class="hw-controls">
-          <label>Mode:
-            <select id="hw-sr-mode">
-              <option value="practice" ${!trueMode ? 'selected' : ''}>Practice Mode (unlimited replay)</option>
-              <option value="true" ${trueMode ? 'selected' : ''}>True Sight-Read (study countdown + auto-record)</option>
-            </select>
-          </label>
-          ${trueMode ? `<label>Study timer:
-            <select id="hw-sr-study-sec">
-              ${[15, 30, 45, 60].map(s => `<option value="${s}" ${HW_STATE.srStudySec === s ? 'selected' : ''}>${s}s</option>`).join('')}
-            </select>
-          </label>` : ''}
+          <span class="hw-zoom-pill" title="Adjust sheet music size">
+            <button type="button" id="hw-sr-zout">−</button>
+            <button type="button" id="hw-sr-zreset">${Math.round((st.zoom || 1) * 100)}%</button>
+            <button type="button" id="hw-sr-zin">+</button>
+          </span>
         </div>
       </div>
-      ${trueMode ? `<div class="hw-study-bar" id="hw-study-bar">
-        <span><strong>True Sight-Read:</strong> Press <em>Reveal &amp; Start Countdown</em> to inspect a fresh excerpt. Recording begins automatically when the timer reaches 0:00.</span>
-        <span class="hw-study-timer" id="hw-study-timer">${hwFmtTime(HW_STATE.srStudySec)}</span>
-      </div>` : ''}
+
+      ${trueMode ? `
+        <div class="hw-study-bar" id="hw-study-bar" hidden>
+          <div class="hw-study-left">
+            <span class="hw-study-timer" id="hw-study-timer">${hwFmtTime(HW_STATE.srStudySec)}</span>
+            <span id="hw-study-msg"><strong>Study silently!</strong> ${isPitch ? 'Recording begins automatically on your microphone at 0:00.' : 'Rhythm tapping (Spacebar / Tap) begins automatically at 0:00.'}</span>
+          </div>
+          <div class="hw-study-pitches" id="hw-study-pitches">
+            ${isPitch ? `
+              <button type="button" class="hw-btn pitch" id="hw-pitch-start">Starting Pitch (${esc(pitchInfo.startSyl)} · ${esc(pitchInfo.startName)})</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-chord">Tonic Chord</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-scale">Scale</button>
+            ` : `
+              <button type="button" class="hw-btn pitch" id="hw-tempo-pulse">Hear Tempo (${o.tempo} BPM)</button>
+            `}
+            <button type="button" class="hw-btn danger" id="hw-study-now">${isPitch ? 'Start Recording Now' : 'Start Tapping Now'}</button>
+          </div>
+        </div>
+      ` : `
+        <div class="hw-student-bar">
+          <div class="hw-student-actions">
+            ${isPitch ? `
+              <button type="button" class="hw-btn pitch" id="hw-pitch-start">Starting Pitch (${esc(pitchInfo.startSyl)} · ${esc(pitchInfo.startName)})</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-chord">Tonic Chord</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-scale">Scale</button>
+            ` : `
+              <button type="button" class="hw-btn pitch" id="hw-tempo-pulse">Hear Tempo (${o.tempo} BPM)</button>
+            `}
+            <button type="button" class="hw-btn" id="hw-sr-hear">Hear Example</button>
+          </div>
+          <div class="hw-student-actions">
+            <button type="button" class="hw-btn primary" id="hw-sr-record">${isPitch ? 'Record Graded Take (Mic)' : 'Start Rhythm Take (Space / Tap)'}</button>
+          </div>
+        </div>
+      `}
+
       <div class="hw-stage" id="hw-sr-stage">
         <div class="sr-host" id="hw-sr-host"></div>
-        ${trueMode ? `<div class="hw-study-cover" id="hw-study-cover">
-          <h3>Ready for True Sight-Read?</h3>
-          <p>A fresh sight-reading excerpt will be generated when you start. You will have <strong>${HW_STATE.srStudySec} seconds</strong> to silently study it before grading begins automatically.</p>
-          <button class="hw-btn primary" id="hw-study-begin">Reveal &amp; Start ${HW_STATE.srStudySec}s Study Countdown</button>
-        </div>` : ''}
+        ${trueMode ? `
+          <div class="hw-study-cover" id="hw-study-cover">
+            <h3>Ready for your ${HW_STATE.srStudySec}-Second True Sight-Read?</h3>
+            <p>
+              When you press start, a fresh excerpt will appear for <strong>${HW_STATE.srStudySec} seconds</strong>.
+              ${isPitch
+                ? 'During study time you can hear your <strong>Starting Pitch, Tonic Chord, and Scale</strong>. At 0:00, your <strong>microphone will automatically count in and record</strong>.'
+                : 'During study time you can hear the <strong>tempo pulse</strong>. At 0:00, <strong>Spacebar / Tap rhythm grading will start automatically</strong>.'}
+            </p>
+            <button type="button" class="hw-btn primary" id="hw-study-begin" style="padding:11px 20px;font-size:15px">
+              Reveal Excerpt &amp; Start ${HW_STATE.srStudySec}s Study Timer
+            </button>
+          </div>
+        ` : ''}
       </div>
     </div>`;
 
   const host = $('#hw-sr-host');
   HW_STATE.srHost = host;
   window.__spaceTarget = 'sr';
-  mountSight(host, HW_STATE.srState, () => { });
+  mountSight(host, st, () => { });
 
-  $('#hw-sr-mode').onchange = e => {
-    HW_STATE.srTrueMode = e.target.value === 'true';
-    hwMountSightRunner();
+  // Clean zoom controls wired directly to sight.js's vector zoom
+  const updateZoomLabel = () => {
+    const zEl = $('#hw-sr-zreset');
+    if (zEl) zEl.textContent = `${Math.round((st.zoom || 1) * 100)}%`;
   };
-  const secSel = $('#hw-sr-study-sec');
-  if (secSel) {
-    secSel.onchange = e => {
-      HW_STATE.srStudySec = Number(e.target.value) || 30;
-      hwMountSightRunner();
+  $('#hw-sr-zout').onclick = () => { host.__zoomBy?.(0.9); updateZoomLabel(); };
+  $('#hw-sr-zin').onclick = () => { host.__zoomBy?.(1.1); updateZoomLabel(); };
+  $('#hw-sr-zreset').onclick = () => { host.__zoomReset?.(); updateZoomLabel(); };
+
+  const wirePitchButtons = () => {
+    const pBtn = $('#hw-pitch-start');
+    const cBtn = $('#hw-pitch-chord');
+    const sBtn = $('#hw-pitch-scale');
+    const tBtn = $('#hw-tempo-pulse');
+    if (pBtn) pBtn.onclick = () => hwPlayStartingPitch(st);
+    if (cBtn) cBtn.onclick = () => hwPlayTonicChord(st);
+    if (sBtn) sBtn.onclick = () => hwPlayScale(st);
+    if (tBtn) tBtn.onclick = () => hwPlayTempoPulse(o.tempo);
+  };
+  wirePitchButtons();
+
+  // Practice mode buttons
+  const hearBtn = $('#hw-sr-hear');
+  if (hearBtn) {
+    hearBtn.onclick = () => {
+      const innerPlay = host.querySelector('[data-sr="play"]');
+      if (innerPlay) innerPlay.click();
     };
   }
+  const recBtn = $('#hw-sr-record');
+  if (recBtn) {
+    recBtn.onclick = () => hwStartSightGradingDirect(host, st, recBtn, autoInput);
+  }
+
+  // True Sight-Read flow: pre-warm mic on click -> reveal fresh excerpt -> play tonic -> 30s countdown -> auto-start grading!
   const beginBtn = $('#hw-study-begin');
   if (beginBtn) {
-    beginBtn.onclick = () => {
-      // Unlock AudioContext on this user gesture so auto-record at 0:00 succeeds cleanly
-      try { ac().resume(); } catch { }
-      // Generate a fresh excerpt via Sight Reading's real New button
-      host.querySelector('[data-sr="new"]')?.click();
+    beginBtn.onclick = async () => {
+      beginBtn.disabled = true;
+      beginBtn.textContent = isPitch ? 'Checking microphone…' : 'Preparing excerpt…';
+      try {
+        await ac().resume();
+        // Pre-warm mic BEFORE the 30s countdown so no permission popup interrupts 0:00!
+        if (isPitch && typeof grMic === 'function') {
+          const mic = await grMic();
+          await grMicReady(mic, null);
+        }
+      } catch (err) {
+        beginBtn.disabled = false;
+        beginBtn.textContent = `Reveal Excerpt & Start ${HW_STATE.srStudySec}s Study Timer`;
+        toast(`Microphone required for pitch grading: ${err?.message || 'permission denied'}`);
+        return;
+      }
+
+      // Generate fresh unseen excerpt and re-mount cleanly
+      st.ex[st.mode] = isPitch ? srGenParts(o) : { rhythm: srGenRhythm(o.ts, o.measures, o.cells, o.ties) };
+      mountSight(host, st, () => { });
+
+      // Update starting pitch label for the newly generated excerpt
+      if (isPitch) {
+        const freshInfo = hwSightPitchInfo(st);
+        const pBtn = $('#hw-pitch-start');
+        if (pBtn) pBtn.textContent = `Starting Pitch (${freshInfo.startSyl} · ${freshInfo.startName})`;
+        hwPlayTonicChord(st);
+      }
+
       $('#hw-study-cover')?.remove();
-      HW_STATE.srStudyLeft = HW_STATE.srStudySec;
-      const timerEl = $('#hw-study-timer');
       const barEl = $('#hw-study-bar');
+      const timerEl = $('#hw-study-timer');
+      const msgEl = $('#hw-study-msg');
+      const nowBtn = $('#hw-study-now');
+      if (barEl) barEl.hidden = false;
+
+      HW_STATE.srStudyLeft = HW_STATE.srStudySec;
+      HW_STATE.srStudying = true;
       if (timerEl) timerEl.textContent = hwFmtTime(HW_STATE.srStudyLeft);
-      hwStopStudyTimer();
+
+      const triggerAutoGrade = () => {
+        if (!HW_STATE.srStudying) return;
+        hwStopStudyTimer();
+        if (barEl) barEl.classList.add('live');
+        if (timerEl) timerEl.textContent = 'LIVE';
+        if (msgEl) {
+          msgEl.innerHTML = isPitch
+            ? '<strong>Recording live!</strong> Sing after the count-in.'
+            : '<strong>Tap live!</strong> Press <strong>Space</strong> (or tap the on-screen button) after the count-in.';
+        }
+        // Hide study pitch buttons once recording begins
+        const pWrap = $('#hw-study-pitches');
+        if (pWrap) {
+          pWrap.innerHTML = `<button type="button" class="hw-btn danger" id="hw-study-stop">Stop &amp; Finish</button>`;
+          $('#hw-study-stop').onclick = () => { if (typeof grStop === 'function') grStop(true); };
+        }
+        hwStartSightGradingDirect(host, st, $('#hw-study-stop'), autoInput);
+      };
+
+      if (nowBtn) nowBtn.onclick = triggerAutoGrade;
+
       HW_STATE.srStudyTimer = setInterval(() => {
         HW_STATE.srStudyLeft -= 1;
         if (timerEl) timerEl.textContent = hwFmtTime(HW_STATE.srStudyLeft);
-        if (HW_STATE.srStudyLeft <= 0) {
-          hwStopStudyTimer();
-          if (barEl) barEl.innerHTML = '<span><strong>Recording started automatically!</strong> Perform after the count-in.</span><span class="hw-study-timer">LIVE</span>';
-          // Trigger Sight Reading's real Grade button automatically
-          const gBtn = host.querySelector('[data-sr="grade"]');
-          if (gBtn) {
-            if (HW_STATE.srState.mode === 'rhythm') {
-              // Rhythm opens a menu on click; invoke grStart directly with mic
-              gBtn.click();
-              setTimeout(() => {
-                const micChoice = document.querySelector('.sr-grmenu button[data-gm="mic"]');
-                if (micChoice) micChoice.click();
-              }, 30);
-            } else {
-              gBtn.click();
-            }
-          }
-        }
+        if (HW_STATE.srStudyLeft <= 0) triggerAutoGrade();
       }, 1000);
     };
   }
 }
 
-// ---------- Score Practice Runner (built-in sample + pick any .mxl / .musicxml)
+// ---------- Score Practice Student Runner
 function hwMountScoreRunner() {
   hwStopStudyTimer();
   const body = $('#hw-runner-body');
@@ -541,17 +944,41 @@ function hwMountScoreRunner() {
     HW_STATE.spState = {
       fileId: HW_STATE.spFileId,
       name: S.files[HW_STATE.spFileId]?.name || 'Sample Vocal Check-In',
-      gradeMode: 'mic',
+      gradeMode: HW_STATE.spGradeMode,
     };
   }
+  HW_STATE.spState.gradeMode = HW_STATE.spGradeMode;
+  const modeLabel = HW_STATE.spGradeMode === 'tap'
+    ? 'Spacebar / Tap (Rhythm Only)'
+    : HW_STATE.spGradeMode === 'rhythm'
+      ? 'Microphone (Rhythm Only)'
+      : 'Microphone (Pitch + Rhythm)';
 
   body.innerHTML = `
     <div class="hw-card">
       <div class="hw-card-head">
-        <h2>2. Score Practice Runner <span class="muted small">(reusing web/score.js + OSMD + web/grade.js verbatim)</span></h2>
+        <div>
+          <h2>Score Check-In: ${esc(HW_STATE.spState.name)}</h2>
+          <div class="hw-submeta">${esc(modeLabel)} · Click any measure to start from there, or record from bar 1.</div>
+        </div>
         <div class="hw-controls">
-          <button class="hw-btn" id="hw-sp-pick">Load .mxl / .musicxml File…</button>
-          <button class="hw-btn" id="hw-sp-sample">Reset to Sample Score</button>
+          <span class="hw-zoom-pill">
+            <button type="button" id="hw-sp-zout">−</button>
+            <button type="button" id="hw-sp-zreset">${Math.round((HW_STATE.spState.zoom || 0.8) * 100)}%</button>
+            <button type="button" id="hw-sp-zin">+</button>
+          </span>
+        </div>
+      </div>
+      <div class="hw-student-bar">
+        <div class="hw-student-actions">
+          <label class="small" style="display:inline-flex;align-items:center;gap:6px">Part:
+            <select id="hw-sp-part" style="border:1px solid #cbd5e1;border-radius:8px;padding:5px 8px;background:#fff"></select>
+          </label>
+          <button type="button" class="hw-btn pitch" id="hw-sp-pitch">Starting Pitch</button>
+          <button type="button" class="hw-btn" id="hw-sp-play">Practice Playback</button>
+        </div>
+        <div class="hw-student-actions">
+          <button type="button" class="hw-btn primary" id="hw-sp-grade">${HW_STATE.spGradeMode === 'tap' ? 'Start Rhythm Take (Space / Tap)' : 'Record Graded Take (Mic)'}</button>
         </div>
       </div>
       <div class="hw-stage">
@@ -562,24 +989,55 @@ function hwMountScoreRunner() {
   const host = $('#hw-sp-host');
   HW_STATE.spHost = host;
   window.__spaceTarget = 'sp';
-  mountScore(host, HW_STATE.spState, () => { }, 'hw-sp-' + HW_STATE.spState.fileId);
+  const ctl = mountScore(host, HW_STATE.spState, () => { }, 'hw-sp-' + HW_STATE.spState.fileId);
+  HW_STATE.spCtl = ctl;
 
-  $('#hw-sp-pick').onclick = async () => {
-    const fs = await pickFile('.mxl,.musicxml,.xml', false);
-    if (!fs.length) return;
-    const f = fs[0];
-    const id = await storeFile(f);
-    HW_STATE.spState = { fileId: id, name: f.name.replace(/\.(mxl|musicxml|xml)$/i, ''), gradeMode: 'mic' };
-    hwMountScoreRunner();
-    toast(`Loaded ${f.name}`);
+  // Populate parts dropdown once OSMD finishes parsing
+  const populateParts = () => {
+    const sel = $('#hw-sp-part');
+    if (!sel || !ctl?.sc?.lines?.length) return false;
+    sel.innerHTML = ctl.sc.lines.map((l, i) => `<option value="${i}" ${(HW_STATE.spState.focus ?? 0) === i ? 'selected' : ''}>${esc(l.name || `Part ${i + 1}`)}</option>`).join('');
+    sel.onchange = () => {
+      HW_STATE.spState.focus = Number(sel.value);
+      ctl.updateBar?.();
+    };
+    return true;
   };
-  $('#hw-sp-sample').onclick = () => {
-    HW_STATE.spState = { fileId: HW_STATE.spFileId, name: 'Sample Vocal Check-In', gradeMode: 'mic' };
-    hwMountScoreRunner();
+  let tries = 0;
+  const partPoll = setInterval(() => {
+    if (populateParts() || ++tries > 40) clearInterval(partPoll);
+  }, 150);
+
+  const setSpZoom = next => {
+    HW_STATE.spState.zoom = clamp(Math.round(next * 100) / 100, 0.4, 2.2);
+    if (ctl.osmd) { ctl.osmd.zoom = HW_STATE.spState.zoom; ctl.lastW = 0; ctl.relayout(); }
+    const zEl = $('#hw-sp-zreset');
+    if (zEl) zEl.textContent = `${Math.round(HW_STATE.spState.zoom * 100)}%`;
   };
+  $('#hw-sp-zout').onclick = () => setSpZoom((HW_STATE.spState.zoom || 0.8) - 0.1);
+  $('#hw-sp-zin').onclick = () => setSpZoom((HW_STATE.spState.zoom || 0.8) + 0.1);
+  $('#hw-sp-zreset').onclick = () => setSpZoom(1);
+
+  $('#hw-sp-pitch').onclick = async () => {
+    if (!ctl?.sc) return;
+    const c = ac(); await c.resume();
+    const li = typeof spGradeLine === 'function' ? spGradeLine(ctl) : 0;
+    const R = typeof spGradeRange === 'function' ? spGradeRange(ctl) : { a: 0, b: 999 };
+    const first = ctl.sc.events?.find(e => e.line === li && e.q >= R.a - 1e-6 && e.midi != null);
+    if (first) hwPlayMidi(c, c.currentTime + 0.04, first.midi, 1.2, 0.95);
+    else toast('No starting pitch found for this part.');
+  };
+
+  $('#hw-sp-play').onclick = () => {
+    if (!ctl?.sc) return;
+    if (ctl.playing) spStop(); else spPlay(ctl);
+  };
+
+  const gBtn = $('#hw-sp-grade');
+  gBtn.onclick = () => spGradeStart(ctl, gBtn, HW_STATE.spGradeMode);
 }
 
-// ---------- Audio-Only Recorder Runner (MediaRecorder + 16 kHz mono WAV fallback)
+// ---------- Audio-Only Recorder Runner
 function hwCleanupAudioOnly() {
   const a = HW_STATE.aud;
   if (a.raf) { cancelAnimationFrame(a.raf); a.raf = 0; }
@@ -599,15 +1057,14 @@ function hwMountAudioRunner() {
   body.innerHTML = `
     <div class="hw-card">
       <div class="hw-card-head">
-        <h2>3. Audio-Only Recording Runner <span class="muted small">(scales, warm-ups &amp; check-ins)</span></h2>
-        <div class="hw-controls">
-          <label><input type="checkbox" id="hw-aud-ci" ${a.countIn ? 'checked' : ''}> 4-beat count-in</label>
-          <label>BPM: <input type="number" id="hw-aud-bpm" min="40" max="208" value="${a.bpm}" style="width:68px"></label>
+        <div>
+          <h2>Audio Check-In Assignment</h2>
+          <div class="hw-submeta">${a.countIn ? `Includes 4-beat count-in at ${a.bpm} BPM` : 'Starts recording immediately'}</div>
         </div>
       </div>
       <div class="hw-audio-body">
         <div class="hw-audio-prompt">
-          <strong>Assignment prompt:</strong> ${esc(a.prompt)}
+          <strong>Instructions:</strong> ${esc(a.prompt)}
         </div>
         <div class="hw-wave-box">
           <canvas id="hw-aud-canvas" width="900" height="130"></canvas>
@@ -616,101 +1073,66 @@ function hwMountAudioRunner() {
         <div class="hw-level-wrap">
           <span>Mic level</span>
           <div class="hw-level-bar"><div class="hw-level-fill" id="hw-aud-lvl"></div></div>
-          <span class="muted">Codec: ${mime ? esc(mime) : '16 kHz mono WAV fallback'}</span>
+          <span class="muted">${mime ? esc(mime.split(';')[0]) : '16 kHz WAV fallback'}</span>
         </div>
         <div class="row">
           <button class="hw-btn danger" id="hw-aud-rec">${a.recording ? 'Stop & Save Take' : 'Start Recording'}</button>
-          <span class="muted small" id="hw-aud-status">Ready. Takes are saved locally in IndexedDB immediately when stopped.</span>
+          <span class="muted small" id="hw-aud-status">Ready. Takes save immediately on this device before uploading.</span>
         </div>
       </div>
     </div>`;
 
-  $('#hw-aud-ci').onchange = e => { a.countIn = e.target.checked; };
-  $('#hw-aud-bpm').onchange = e => { a.bpm = clamp(Number(e.target.value) || 84, 40, 208); };
   $('#hw-aud-rec').onclick = () => {
-    if (a.recording) hwStopAudioOnly();
-    else hwStartAudioOnly();
+    if (a.recording) hwStopAudioOnly(); else hwStartAudioOnly();
   };
 }
 
 async function hwStartAudioOnly() {
   const a = HW_STATE.aud;
-  const btn = $('#hw-aud-rec');
-  const statusEl = $('#hw-aud-status');
-  const timeEl = $('#hw-aud-time');
-  const lvlEl = $('#hw-aud-lvl');
-  const canvas = $('#hw-aud-canvas');
+  const btn = $('#hw-aud-rec'), statusEl = $('#hw-aud-status'), timeEl = $('#hw-aud-time'), lvlEl = $('#hw-aud-lvl'), canvas = $('#hw-aud-canvas');
   if (a.recording) return;
 
   try {
-    const c = ac();
-    await c.resume();
-    hwRenderDiagnostics();
+    const c = ac(); await c.resume();
     if (statusEl) statusEl.textContent = 'Requesting microphone…';
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
-    a.stream = stream;
-    a.recording = true;
-    a.chunks = [];
-    a.pcmChunks = [];
-    a.pcmSr = c.sampleRate || 44100;
-
+    a.stream = stream; a.recording = true; a.chunks = []; a.pcmChunks = []; a.pcmSr = c.sampleRate || 44100;
     if (btn) btn.textContent = 'Stop & Save Take';
 
-    // Optional 4-beat count-in before recording starts
     if (a.countIn) {
       const beatSec = 60 / a.bpm;
       if (statusEl) statusEl.textContent = `Count-in (${a.bpm} BPM)…`;
-      for (let b = 0; b < 4; b++) {
-        tone(b === 0 ? 1100 : 780, b * beatSec, 0.06, 'triangle', 0.25 * metVol());
-      }
+      for (let b = 0; b < 4; b++) tone(b === 0 ? 1100 : 780, b * beatSec, 0.06, 'triangle', 0.25 * metVol());
       await new Promise(r => setTimeout(r, Math.round(4 * beatSec * 1000)));
       if (!a.recording) return;
     }
 
-    // Analyser for live waveform & mic level + PCM fallback capture
     const src = c.createMediaStreamSource(stream);
-    const analyser = c.createAnalyser();
-    analyser.fftSize = 1024;
-    src.connect(analyser);
-    a.srcNode = src;
-    a.analyser = analyser;
+    const analyser = c.createAnalyser(); analyser.fftSize = 1024;
+    src.connect(analyser); a.srcNode = src; a.analyser = analyser;
 
     const mime = hwPickAudioMime();
     if (mime) {
       try {
         const mr = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 48000 });
         mr.ondataavailable = e => { if (e.data && e.data.size > 0) a.chunks.push(e.data); };
-        mr.start(250);
-        a.mr = mr;
-      } catch (err) {
-        console.warn('Audio-only MediaRecorder threw, switching to WAV fallback:', err);
-        a.mr = null;
-      }
+        mr.start(250); a.mr = mr;
+      } catch { a.mr = null; }
     }
-
-    // Always attach lightweight PCM fallback if MediaRecorder wasn't started
     if (!a.mr && typeof c.createScriptProcessor === 'function') {
       const sp = c.createScriptProcessor(4096, 1, 1);
-      const silent = c.createGain();
-      silent.gain.value = 0;
-      sp.onaudioprocess = ev => {
-        if (!a.recording) return;
-        a.pcmChunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
-      };
-      src.connect(sp);
-      sp.connect(silent).connect(c.destination);
-      a.pcmNode = sp;
+      const silent = c.createGain(); silent.gain.value = 0;
+      sp.onaudioprocess = ev => { if (a.recording) a.pcmChunks.push(new Float32Array(ev.inputBuffer.getChannelData(0))); };
+      src.connect(sp); sp.connect(silent).connect(c.destination); a.pcmNode = sp;
     }
 
     a.startedAt = performance.now();
-    if (statusEl) statusEl.textContent = a.mr ? `Recording (${a.mr.mimeType || mime})…` : 'Recording (16 kHz mono WAV fallback)…';
-
+    if (statusEl) statusEl.textContent = 'Recording…';
     a.timer = setInterval(() => {
       if (!a.recording) return;
-      const elapsed = (performance.now() - a.startedAt) / 1000;
-      if (timeEl) timeEl.innerHTML = `<span class="hw-rec-dot"></span>${hwFmtTime(elapsed)}`;
+      if (timeEl) timeEl.innerHTML = `<span class="hw-rec-dot"></span>${hwFmtTime((performance.now() - a.startedAt) / 1000)}`;
     }, 200);
 
     const buf = new Uint8Array(analyser.fftSize);
@@ -720,24 +1142,15 @@ async function hwStartAudioOnly() {
       a.raf = requestAnimationFrame(drawWave);
       a.analyser.getByteTimeDomainData(buf);
       let sumSq = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
-        sumSq += v * v;
-      }
+      for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sumSq += v * v; }
       const rms = Math.sqrt(sumSq / buf.length);
       if (lvlEl) lvlEl.style.width = `${clamp(Math.round(rms * 320), 0, 100)}%`;
       if (ctx2d && canvas) {
         const W = canvas.width, H = canvas.height;
-        ctx2d.fillStyle = '#0f172a';
-        ctx2d.fillRect(0, 0, W, H);
-        ctx2d.strokeStyle = '#38bdf8';
-        ctx2d.lineWidth = 2.5;
-        ctx2d.beginPath();
+        ctx2d.fillStyle = '#0f172a'; ctx2d.fillRect(0, 0, W, H);
+        ctx2d.strokeStyle = '#38bdf8'; ctx2d.lineWidth = 2.5; ctx2d.beginPath();
         const step = W / buf.length;
-        for (let i = 0; i < buf.length; i++) {
-          const y = (buf[i] / 255) * H;
-          if (i === 0) ctx2d.moveTo(0, y); else ctx2d.lineTo(i * step, y);
-        }
+        for (let i = 0; i < buf.length; i++) { const y = (buf[i] / 255) * H; if (i === 0) ctx2d.moveTo(0, y); else ctx2d.lineTo(i * step, y); }
         ctx2d.stroke();
       }
     };
@@ -745,7 +1158,7 @@ async function hwStartAudioOnly() {
   } catch (err) {
     hwCleanupAudioOnly();
     if (btn) btn.textContent = 'Start Recording';
-    if (statusEl) statusEl.textContent = `Microphone error: ${err?.message || err}. Check browser mic permission for this site.`;
+    if (statusEl) statusEl.textContent = `Microphone error: ${err?.message || err}`;
     toast('Could not access microphone.');
   }
 }
@@ -754,28 +1167,20 @@ function hwStopAudioOnly() {
   const a = HW_STATE.aud;
   if (!a.recording) return;
   const elapsed = a.startedAt ? (performance.now() - a.startedAt) / 1000 : 0;
-  const mr = a.mr;
-  const pcmChunks = a.pcmChunks.slice();
-  const pcmSr = a.pcmSr;
-
+  const mr = a.mr, pcmChunks = a.pcmChunks.slice(), pcmSr = a.pcmSr;
   const saveBlob = async blob => {
     hwCleanupAudioOnly();
-    const take = hwBuildSubmissionSummary('audio', 'Audio-Only Recording', null, blob, elapsed, 0, {
-      prompt: a.prompt,
-      countIn: a.countIn,
-      bpm: a.bpm,
+    const take = hwBuildSubmissionSummary('audio', 'Audio Check-In', null, blob, elapsed, 0, {
+      prompt: a.prompt, countIn: a.countIn, bpm: a.bpm, syncMs: avDelayMs(),
     });
     await hwIdbPut(take);
     await hwRefreshTakes();
     hwMountAudioRunner();
     toast(`Audio take saved locally (${hwFmtBytes(take.audioBytes)})`);
   };
-
   if (mr && mr.state !== 'inactive') {
     mr.addEventListener('stop', () => {
-      const blob = a.chunks.length
-        ? new Blob(a.chunks, { type: mr.mimeType || 'audio/webm' })
-        : hwDownsampleTo16kWav(pcmChunks, pcmSr);
+      const blob = a.chunks.length ? new Blob(a.chunks, { type: mr.mimeType || 'audio/webm' }) : hwDownsampleTo16kWav(pcmChunks, pcmSr);
       saveBlob(blob);
     }, { once: true });
     try { mr.stop(); } catch { saveBlob(hwDownsampleTo16kWav(pcmChunks, pcmSr)); }
@@ -784,14 +1189,9 @@ function hwStopAudioOnly() {
   }
 }
 
-// ---------- Saved Takes Drawer (IndexedDB Offline Queue)
+// ---------- Saved Takes Drawer
 async function hwRefreshTakes() {
-  try {
-    HW_STATE.takes = await hwIdbAll();
-  } catch (err) {
-    console.error('IndexedDB load failed:', err);
-    HW_STATE.takes = [];
-  }
+  try { HW_STATE.takes = await hwIdbAll(); } catch { HW_STATE.takes = []; }
   hwRenderTakes();
 }
 
@@ -800,9 +1200,8 @@ function hwRenderTakes() {
   const countEl = $('#hw-takes-count');
   if (!host) return;
   if (countEl) countEl.textContent = `${HW_STATE.takes.length} saved locally`;
-
   if (!HW_STATE.takes.length) {
-    host.innerHTML = `<div class="hw-empty">No takes recorded yet. Record a Sight Reading, Score Practice, or Audio-Only take above — it will persist here in IndexedDB even if you refresh the page offline.</div>`;
+    host.innerHTML = `<div class="hw-empty">No takes recorded yet. Completed takes stay saved on this device even if Wi-Fi drops.</div>`;
     return;
   }
 
@@ -815,34 +1214,22 @@ function hwRenderTakes() {
     const when = new Date(t.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
     const showJson = HW_STATE.expandedJson.has(t.id);
     const packetPreview = {
-      id: t.id,
-      type: t.type,
-      overall_pct: t.overallPct,
-      rhythm_pct: t.rhythmPct,
-      pitch_pct: t.pitchPct,
-      audio_mime: t.audioMime,
-      audio_bytes: t.audioBytes,
-      audio_duration_sec: t.durationSec,
-      expected_sec: t.expectedSec,
-      integrity_flags: t.integrityFlags,
-      results_json: t.resultsJson,
-      meta: t.meta,
+      id: t.id, type: t.type, overall_pct: t.overallPct, rhythm_pct: t.rhythmPct, pitch_pct: t.pitchPct,
+      audio_mime: t.audioMime, audio_bytes: t.audioBytes, audio_duration_sec: t.durationSec, expected_sec: t.expectedSec,
+      integrity_flags: t.integrityFlags, results_json: t.resultsJson, meta: t.meta,
     };
 
     return `<div class="hw-take-item" data-take="${esc(t.id)}">
       <div class="hw-take-top">
-        <div>
-          <strong>${esc(t.label)}</strong>
-          <span class="muted small"> · ${esc(when)}</span>
-        </div>
+        <div><strong>${esc(t.label)}</strong> <span class="muted small">· ${esc(when)}</span></div>
         <div class="hw-take-meta">
           ${t.overallPct != null ? `<span class="hw-pill score">Overall ${t.overallPct}% (R ${t.rhythmPct}%${t.pitchPct != null ? ` · P ${t.pitchPct}%` : ''})</span>` : ''}
           ${t.integrityFlags?.length ? `<span class="hw-pill flag">Flags: ${esc(t.integrityFlags.join(', '))}</span>` : ''}
-          <span class="hw-pill offline">Saved on this ${esc(DEVICE)} — Ready to upload</span>
+          <span class="hw-pill offline">Saved on this ${esc(DEVICE)}</span>
         </div>
       </div>
       <div class="hw-take-meta">
-        <span>Audio: ${t.audioBytes ? `${esc(t.audioMime || 'audio')} · ${hwFmtBytes(t.audioBytes)} · ${t.durationSec}s` : 'None (tap mode)'}</span>
+        <span>Audio: ${t.audioBytes ? `${esc(t.audioMime || 'audio')} · ${hwFmtBytes(t.audioBytes)} · ${t.durationSec}s` : 'None (Spacebar / Tap rhythm)'}</span>
         ${t.resultsJson?.offsetMs != null ? `<span>· Offset ${t.resultsJson.offsetMs}ms</span>` : ''}
         ${t.resultsJson?.rmsPeak != null ? `<span>· Peak RMS ${t.resultsJson.rmsPeak}</span>` : ''}
       </div>
@@ -859,8 +1246,7 @@ function hwRenderTakes() {
   host.querySelectorAll('[data-hw-json]').forEach(b => {
     b.onclick = () => {
       const id = b.dataset.hwJson;
-      if (HW_STATE.expandedJson.has(id)) HW_STATE.expandedJson.delete(id);
-      else HW_STATE.expandedJson.add(id);
+      if (HW_STATE.expandedJson.has(id)) HW_STATE.expandedJson.delete(id); else HW_STATE.expandedJson.add(id);
       hwRenderTakes();
     };
   });
@@ -875,20 +1261,31 @@ function hwRenderTakes() {
   });
 }
 
-// ---------- Tab switcher & boot
+// ---------- Tab switch & Boot
 function hwSwitchTab(tab) {
   if (HW_STATE.aud.recording) hwCleanupAudioOnly();
   if (typeof GR !== 'undefined' && GR.on) try { grStop(false); } catch { }
   HW_STATE.tab = tab;
   document.querySelectorAll('.hw-tab').forEach(b => b.classList.toggle('on', b.dataset.hwTab === tab));
+  hwRenderTeacherOptions();
   if (tab === 'sight') hwMountSightRunner();
   else if (tab === 'score') hwMountScoreRunner();
   else hwMountAudioRunner();
 }
 
 function hwBoot() {
-  hwRenderDiagnostics();
+  hwRenderHeaderChips();
   hwInstallEngineHooks(() => hwRefreshTakes());
+
+  $('#hw-sync-btn').onclick = () => hwOpenSyncModal(false);
+  const toggleTeacher = () => {
+    HW_STATE.teacherOpen = !HW_STATE.teacherOpen;
+    $('#hw-teacher-drawer').hidden = !HW_STATE.teacherOpen;
+    hwRenderHeaderChips();
+    if (HW_STATE.teacherOpen) hwRenderTeacherOptions();
+  };
+  $('#hw-teacher-toggle').onclick = toggleTeacher;
+  $('#hw-teacher-close').onclick = toggleTeacher;
 
   document.querySelectorAll('.hw-tab').forEach(b => {
     b.onclick = () => hwSwitchTab(b.dataset.hwTab);
@@ -904,6 +1301,11 @@ function hwBoot() {
 
   hwSwitchTab('sight');
   hwRefreshTakes();
+
+  // Mandatory Audio Sync Check at the start of every new session
+  if (!hwSyncIsDone()) {
+    hwOpenSyncModal(true);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', hwBoot);

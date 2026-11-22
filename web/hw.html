@@ -15,29 +15,40 @@
   <header class="hw-header">
     <div class="hw-brand">
       <img src="icon-192.png" alt="Rehearsal">
-      <h1>Rehearsal Online Homework</h1>
-      <span class="hw-badge">Milestone 1 · Engine Spike</span>
+      <h1>Rehearsal Homework</h1>
+      <span class="hw-badge">Student Portal</span>
     </div>
-    <div class="hw-diag" id="hw-diag"></div>
+    <div class="hw-header-right">
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-sync-btn" title="Re-run the audio sync check for this device">Sync: -- ms</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-teacher-toggle" title="Preview & configure assignment settings (Teacher preview only)">Teacher Setup ▾</button>
+      <span class="hw-chip" id="hw-dev-chip"></span>
+    </div>
   </header>
 
   <main class="hw-main">
-    <div class="hw-banner">
-      <span><strong>Engine-Reuse Verification Mode:</strong> Loads Rehearsal's real Sight Reading, Score Practice, and Grading engines verbatim in a standard browser with zero classroom-app edits. Record takes on Mac, iPad, or Chromebook to verify audio capture, grading accuracy, and IndexedDB persistence.</span>
-      <span class="muted small">Zero analytics · Zero third-party scripts</span>
-    </div>
+    <!-- Collapsible Teacher Assignment Configurator (for testing all assignment types & modes) -->
+    <section class="hw-teacher-drawer" id="hw-teacher-drawer" hidden>
+      <div class="hw-teacher-drawer-title">
+        <span>Teacher Assignment Setup (Preview Only — Students Never See This)</span>
+        <button type="button" class="hw-btn" id="hw-teacher-close" style="padding:4px 10px;font-size:12px">Hide Setup</button>
+      </div>
+      <div class="hw-tabs" aria-label="Assignment type preview">
+        <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading</button>
+        <button class="hw-tab" data-hw-tab="score">2. Score Practice</button>
+        <button class="hw-tab" data-hw-tab="audio">3. Audio-Only</button>
+      </div>
+      <div class="hw-controls" id="hw-teacher-opts"></div>
+    </section>
 
-    <nav class="hw-tabs" aria-label="Assignment types">
-      <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading (Practice &amp; True Sight-Read)</button>
-      <button class="hw-tab" data-hw-tab="score">2. Score Practice (MusicXML)</button>
-      <button class="hw-tab" data-hw-tab="audio">3. Audio-Only Recording</button>
-    </nav>
+    <!-- Student-Facing Assignment Runner -->
+    <section id="hw-runner-body" class="hw-student-view"></section>
 
-    <section id="hw-runner-body"></section>
-
+    <!-- Offline-Safe Saved Takes Queue -->
     <section class="hw-card">
       <div class="hw-card-head">
-        <h2>Saved Takes on This Device <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+        <div>
+          <h2>My Recorded Takes <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+        </div>
         <div class="hw-controls">
           <button class="hw-btn" id="hw-clear-takes">Clear Local Takes</button>
         </div>
@@ -45,6 +56,24 @@
       <div class="hw-takes-list" id="hw-takes-list"></div>
     </section>
   </main>
+
+  <!-- Mandatory Session Audio Sync Check Modal -->
+  <div class="hw-sync-overlay" id="hw-sync-overlay" hidden>
+    <div class="hw-sync-card" role="dialog" aria-modal="true" aria-labelledby="hw-sync-title">
+      <h2 id="hw-sync-title">Quick Audio Sync Check</h2>
+      <p>Every device and pair of headphones has a slightly different audio delay. Tap along with 8 steady clicks so your rhythm grading is fair and accurate.</p>
+      <div class="hw-sync-dots" id="hw-sync-dots"></div>
+      <button type="button" class="hw-sync-pad" id="hw-sync-pad" disabled>
+        <span>Tap</span>
+        <small>or press Space</small>
+      </button>
+      <div class="hw-sync-status" id="hw-sync-status">Press Start when you can hear your speakers or headphones.</div>
+      <div class="row" style="justify-content:center;gap:10px">
+        <button type="button" class="hw-btn primary" id="hw-sync-start">Start 10-Second Sync Check</button>
+        <button type="button" class="hw-btn" id="hw-sync-cancel" hidden>Close</button>
+      </div>
+    </div>
+  </div>
 
   <div id="print-area"></div>
 
