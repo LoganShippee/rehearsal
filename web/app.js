@@ -2753,7 +2753,7 @@ window.__pinch = (x, y, mag, phase) => {
   const pnHost = hit?.closest('.pn-seq') && hit?.closest('.wg-host');
   if (pnHost?.__pianoZoomBy) { if (phase === 'toggle') pnHost.__pianoZoomBy(1, true); else pnHost.__pianoZoomBy(1 + mag); return; }
   const pdfHost = hit?.closest('.pdf-host');
-  if (pdfHost?.__zoomBy) { if (phase === 'toggle') pdfHost.__zoomToggle?.(); else pdfHost.__zoomBy(1 + mag); return; }
+  if (pdfHost?.__zoomBy) { if (phase === 'toggle') pdfHost.__zoomToggle?.(x, y); else pdfHost.__zoomBy(1 + mag, x, y); return; }
   const winEl = hit?.closest('.win'), stageEl = hit?.closest('#stage-content');
   let st, box, after, nat = false;
   if (winEl) { const w = findWin(winEl.dataset.win); if (!w) return; st = w; box = winEl.querySelector('.win-body'); nat = winIsNative(w); after = () => { applyZoom(w); save(); }; }

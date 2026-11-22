@@ -651,8 +651,8 @@ body.dock-dragging iframe { pointer-events: none; }
 /* ---------- PDF viewer ---------- */
 .pdf-host { position: absolute; inset: 0; background: #3c3f44; overflow: hidden; }
 .pdfv, .pdfv-view { position: absolute; inset: 0; }
-.pdfv-view { overflow: hidden; }
-.pdfv-pages { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 8px; box-sizing: border-box; }
+.pdfv-view { overflow: auto; -webkit-overflow-scrolling: touch; }
+.pdfv-pages { min-height: 100%; min-width: 100%; width: max-content; display: flex; align-items: center; justify-content: center; padding: 8px; box-sizing: border-box; }
 .pdfv-pages.scroll { flex-direction: column; justify-content: flex-start; gap: 12px; }
 .pdfv-page { background: #fff; display: block; }
 .pdfv-pw { position: relative; flex: none; box-shadow: 0 4px 18px rgba(0,0,0,.4); background: #fff; }
@@ -909,11 +909,6 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .sr-staff { position: relative; }
 .sr-staff svg { cursor: pointer; }
 .sr-from { position: absolute; pointer-events: none; width: 0; background: transparent; border: 0; border-left: 3px solid #1f6fd1; border-radius: 0; }
-.sr-from::before, .sr-from::after {
-  content: ""; position: absolute; width: 11px; height: 3px; left: -3px; background: #1f6fd1; border-radius: 0; pointer-events: none;
-}
-.sr-from::before { top: 0; }
-.sr-from::after { bottom: 0; }
 .sr-from b { position: absolute; left: -3px; bottom: calc(100% + 4px); font: 700 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: #1f6fd1; padding: 3px 7px; border-radius: 999px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
 
 /* sight reading: ✏️ Build */

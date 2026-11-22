@@ -100,16 +100,21 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     const base = page.getViewport({ scale: 1 });
     const cols = st.two ? 2 : 1, gap = st.two ? 12 : 0;
     const fitW = (W - 16 - gap) / cols / base.width, fitP = Math.min(fitW, (H - 16) / base.height);
-    const scale = (st.mode === 'page' && st.fit === 'page' ? fitP : fitW) * (st.zoom || 1);
+    const z = st.zoom || 1;
+    const baseScale = st.mode === 'page' && st.fit === 'page' ? fitP : fitW;
+    const scale = baseScale * z;
     const vp = page.getViewport({ scale: scale * dpr * res });
     const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
     const cw = Math.floor(base.width * scale), ch = Math.floor(base.height * scale);
     c.style.width = cw + 'px'; c.style.height = ch + 'px'; c.className = 'pdfv-page';
     await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (my !== token) return;
+    w.dataset.baseW = String(base.width * baseScale);
+    w.dataset.baseH = String(base.height * baseScale);
     w.style.width = cw + 'px'; w.style.height = ch + 'px';
-    w.innerHTML = '';
-    w.appendChild(c);
-    if (canInk) {
+    const oldCanvas = w.querySelector('canvas.pdfv-page');
+    if (oldCanvas) oldCanvas.replaceWith(c);
+    else w.prepend(c);
+    if (canInk && !w.querySelector('svg.pdfv-ink')) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('class', 'pdfv-ink'); svg.setAttribute('viewBox', `0 0 ${base.width} ${base.height}`); svg.setAttribute('preserveAspectRatio', 'none');
       svg.dataset.w = base.width; svg.dataset.h = base.height;
@@ -124,7 +129,7 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     if (st.two && st.mode === 'page') st.page = pairStart(st.page);
     pages.classList.toggle('scroll', st.mode !== 'page');
     pages.classList.toggle('two', !!st.two);
-    view.style.overflowY = 'auto';
+    view.style.overflow = 'auto';
     if (st.mode === 'page') {
       const list = st.two ? [st.page, st.page + 1].filter(n => n <= doc.numPages) : [st.page];
       const frag = document.createDocumentFragment();
@@ -139,11 +144,13 @@ function mountPdf(host, src, st, onChange, opts = {}) {
       const p1 = await doc.getPage(Math.min(st.page, doc.numPages)); if (my !== token) return;
       const base1 = p1.getViewport({ scale: 1 });
       const cols = st.two ? 2 : 1, gap = st.two ? 12 : 0;
-      const estScale = (W - 16 - gap) / cols / base1.width;
-      const estW = Math.floor(base1.width * estScale), estH = Math.floor(base1.height * estScale);
+      const estBaseScale = (W - 16 - gap) / cols / base1.width;
+      const estBaseW = base1.width * estBaseScale, estBaseH = base1.height * estBaseScale;
+      const estW = Math.floor(estBaseW * (st.zoom || 1)), estH = Math.floor(estBaseH * (st.zoom || 1));
       const frag = document.createDocumentFragment();
       for (let n = 1; n <= doc.numPages; n++) {
         const w = document.createElement('div'); w.className = 'pdfv-pw'; w.dataset.pg = n;
+        w.dataset.baseW = String(estBaseW); w.dataset.baseH = String(estBaseH);
         w.style.width = estW + 'px'; w.style.height = estH + 'px';
         frag.appendChild(w);
       }
@@ -256,24 +263,55 @@ function mountPdf(host, src, st, onChange, opts = {}) {
   });
   host.addEventListener('pointerdown', () => { PDF_ACTIVE = ctl; });
   let zoomTimer = null;
-  const applyPdfZoom = next => {
-    const nz = Math.max(0.5, Math.min(3, Math.round(next * 20) / 20));
-    if (Math.abs(nz - (st.zoom || 1)) < 0.005) return;
-    st.zoom = nz; onChange(); bar();
-    clearTimeout(zoomTimer); zoomTimer = setTimeout(() => draw(), 80);
+  const reRenderSharp = () => {
+    if (!doc) return;
+    const my = ++token, W = view.clientWidth, H = view.clientHeight; if (!W || !H) return;
+    const dpr = window.devicePixelRatio || 1;
+    const vr = view.getBoundingClientRect();
+    for (const w of pages.querySelectorAll('.pdfv-pw')) {
+      const wr = w.getBoundingClientRect();
+      if (st.mode === 'page' || (wr.bottom >= vr.top - 500 && wr.top <= vr.bottom + 500)) {
+        renderOnePageInto(w, +w.dataset.pg, my, W, H, dpr);
+      }
+    }
   };
-  host.__zoomBy = factor => applyPdfZoom((st.zoom || 1) * factor);
-  host.__zoomToggle = () => applyPdfZoom(Math.abs((st.zoom || 1) - 1) > 0.05 ? 1 : 1.6);
+  const applyPdfZoom = (next, clientX, clientY) => {
+    const oldZ = st.zoom || 1;
+    const nz = Math.max(0.5, Math.min(3, Math.round(next * 100) / 100));
+    if (Math.abs(nz - oldZ) < 0.002) return;
+    const vr = view.getBoundingClientRect();
+    const px = clientX != null ? (clientX - vr.left) : vr.width / 2;
+    const py = clientY != null ? (clientY - vr.top) : vr.height / 2;
+    const contentX = view.scrollLeft + px, contentY = view.scrollTop + py;
+    const ratio = nz / oldZ;
+    st.zoom = nz; onChange(); bar();
+    // Instant 60fps CSS resize of existing pages so zooming feels silky-smooth with zero flash
+    for (const w of pages.querySelectorAll('.pdfv-pw')) {
+      const bw = parseFloat(w.dataset.baseW), bh = parseFloat(w.dataset.baseH);
+      if (bw > 0 && bh > 0) {
+        const cw = Math.floor(bw * nz), ch = Math.floor(bh * nz);
+        w.style.width = cw + 'px'; w.style.height = ch + 'px';
+        const c = w.querySelector('canvas.pdfv-page');
+        if (c) { c.style.width = cw + 'px'; c.style.height = ch + 'px'; }
+      }
+    }
+    view.scrollLeft = Math.max(0, contentX * ratio - px);
+    view.scrollTop = Math.max(0, contentY * ratio - py);
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(reRenderSharp, 160);
+  };
+  host.__zoomBy = (factor, x, y) => applyPdfZoom((st.zoom || 1) * factor, x, y);
+  host.__zoomToggle = (x, y) => applyPdfZoom(Math.abs((st.zoom || 1) - 1) > 0.05 ? 1 : 1.6, x, y);
   if (!host.__pdfPinchWired) {
     host.__pdfPinchWired = true;
     host.addEventListener('wheel', e => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault(); e.stopPropagation();
-      host.__zoomBy(Math.exp(-e.deltaY * 0.01));
+      host.__zoomBy(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
     }, { passive: false });
     let gs = 1;
     host.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
-    host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs); gs = e.scale; });
+    host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs, e.clientX, e.clientY); gs = e.scale; });
     host.addEventListener('gestureend', e => e.preventDefault());
   }
   // drawing on a page
