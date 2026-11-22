@@ -1454,7 +1454,8 @@ internal sealed class MainForm : Form
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != "https")
                 throw new InvalidOperationException("Invalid endpoint");
 
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
             using var form = new MultipartFormDataContent();
             var firstLine = (desc.Split('\n')[0]).Trim();
             if (firstLine.Length > 72) firstLine = firstLine[..72];
@@ -1478,8 +1479,8 @@ internal sealed class MainForm : Form
             }
 
             using var req = new HttpRequestMessage(HttpMethod.Post, uri) { Content = form };
-            req.Headers.TryAddWithoutValidation("Origin", "https://rehearsal.app");
-            req.Headers.TryAddWithoutValidation("Referer", "https://rehearsal.app/");
+            req.Headers.TryAddWithoutValidation("Origin", "https://github.com");
+            req.Headers.TryAddWithoutValidation("Referer", "https://github.com/loganshippee/Rehearsal");
             req.Headers.TryAddWithoutValidation("Accept", "application/json");
             req.Headers.TryAddWithoutValidation("User-Agent", $"Rehearsal-Desktop/{version}");
 

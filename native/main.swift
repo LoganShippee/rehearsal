@@ -632,8 +632,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             req.httpMethod = "POST"
             req.timeoutInterval = 20
             req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            req.setValue("https://rehearsal.app", forHTTPHeaderField: "Origin")
-            req.setValue("https://rehearsal.app/", forHTTPHeaderField: "Referer")
+            req.setValue("https://github.com", forHTTPHeaderField: "Origin")
+            req.setValue("https://github.com/loganshippee/Rehearsal", forHTTPHeaderField: "Referer")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             req.setValue("Rehearsal-Desktop/\(version)", forHTTPHeaderField: "User-Agent")
 
@@ -664,7 +664,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             data.append("--\(boundary)--\r\n".data(using: .utf8)!)
             req.httpBody = data
 
-            URLSession.shared.dataTask(with: req) { _, resp, err in
+            // Don't follow 302 redirects after POST (FormSubmit redirects to Referer/thanks after accepting)
+            final class NoRedirect: NSObject, URLSessionTaskDelegate {
+                func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+                    completionHandler(nil)
+                }
+            }
+            let delegate = NoRedirect()
+            let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+            session.dataTask(with: req) { _, resp, err in
+                defer { session.finishTasksAndInvalidate() }
                 if let err {
                     replyJS(["ok": false, "error": err.localizedDescription, "savedPath": savedPath])
                     return
