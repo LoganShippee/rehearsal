@@ -200,9 +200,9 @@ function grStrictnessSpec(level = null, tempo = 80) {
   const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
   const q = 60 / bpm;
   // Piecewise-linear through exact Standard (50) defaults: rhythmMul=1.0, minTolSec=0.06, pitchSemitones=0.75
-  // Above 50, scales down tightly to concert-strict tolerances: rhythm ±3% beat (min 15ms) and pitch ±5¢.
-  const rhythmMul = rLv <= 50 ? 1.45 - (rLv / 50) * 0.45 : 1.0 - ((rLv - 50) / 50) * 0.88;
-  const minTolSec = rLv <= 50 ? 0.09 - (rLv / 50) * 0.03 : 0.06 - ((rLv - 50) / 50) * 0.045;
+  // Above 50, scales down tightly to concert-strict tolerances: rhythm ±2% beat (min 10ms, ~15ms at 80 BPM) and pitch ±5¢.
+  const rhythmMul = rLv <= 50 ? 1.45 - (rLv / 50) * 0.45 : 1.0 - ((rLv - 50) / 50) * 0.92;
+  const minTolSec = rLv <= 50 ? 0.09 - (rLv / 50) * 0.03 : 0.06 - ((rLv - 50) / 50) * 0.050;
   const pitchSemitones = pLv <= 50 ? 0.95 - (pLv / 50) * 0.20 : 0.75 - ((pLv - 50) / 50) * 0.70;
   const rhythmLabel = grStrictLabel(rLv);
   const pitchLabel = grStrictLabel(pLv);
