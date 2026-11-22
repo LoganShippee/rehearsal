@@ -1105,7 +1105,7 @@ function srAnimate(host, st, getTimeline, clock) {
     }
     place(m, x, top, bot);
     // each note lights up as it sounds, with a soft ring on the notehead
-    if (prevTq == null || tq < prevTq - 0.05) prevTq = tq - 1e-3;   // first frame, or a jump back
+    if (prevTq == null || tq < prevTq - 0.05) prevTq = Math.min(tq, clock.start || 0) - 0.05;   // first frame (include first note!), or a jump back
     for (const ev of tl) {
       if (ev.rest || ev.tiedFrom || ev.t > tq + 1e-6 || ev.t <= prevTq + 1e-6) continue;
       const mm = geo.measures.find(q => ev.t >= q.t0 - 1e-6 && ev.t < q.t1 - 1e-6), kn = mm?.knots.find(kk => Math.abs(kk[0] - ev.t) < 1e-6);
@@ -1941,7 +1941,7 @@ function mountSight(host, st, onChange) {
     f.className = 'sr-from';
     f.innerHTML = `<b>m. ${i + 1}</b>`;
     const topY = oy + (m0.y0 + 6) * k, h = Math.max(24, (m0.y1 - m0.y0 - 12) * k);
-    Object.assign(f.style, { left: ox + m0.x0 * k - 2 + 'px', top: topY + 'px', height: h + 'px' });
+    Object.assign(f.style, { left: ox + m0.x0 * k - 1 + 'px', top: topY + 'px', height: h + 'px' });
     staff.appendChild(f);
     // Hide the printed measure number right where the start bracket sits
     const startNum = String(i + 1);

@@ -351,9 +351,9 @@ function spInjectVoiceGradeCSS() {
     .sp-sel i.start::after { bottom: 0; left: -3px; }
     .sp-sel i.end::before { top: 0; right: -3px; }
     .sp-sel i.end::after { bottom: 0; right: -3px; }
-    .sp-sel.off i { background: rgba(31,111,209,.11) !important; }
+    .sp-sel.off i { background: rgba(31,111,209,.12) !important; }
     .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
-    .sp-sel.off i.end { border-right: 0 !important; background: linear-gradient(90deg, rgba(31,111,209,.13) 0%, rgba(31,111,209,.06) 55%, rgba(31,111,209,0) 100%) !important; }
+    .sp-sel.off i.end { border-right: 0 !important; background: linear-gradient(90deg, rgba(31,111,209,.12) 0%, rgba(31,111,209,.12) 72%, rgba(31,111,209,0) 100%) !important; }
     .sp-sel.off i.end::before, .sp-sel.off i.end::after { display: none !important; }
     .sp-sel.off i.start::before, .sp-sel.off i.start::after { background: #1f6fd1; }
     .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
@@ -2083,7 +2083,7 @@ function mountScore(host, st, onChange0, key) {
       const hintEl = $q('.sp-hint');
       if (hintEl) {
         if (!st.loop.on && la !== lb) {
-          hintEl.innerHTML = `Selected m. ${esc(mNum(la))}–${esc(mNum(lb))} <button type="button" class="sp-hint-btn" data-sp="loop-sel">Loop m. ${esc(mNum(la))}–${esc(mNum(lb))}</button>`;
+          hintEl.textContent = `Selected m. ${mNum(la)}–${mNum(lb)}`;
         } else if (st.loop.on && la === lb) {
           hintEl.textContent = 'Drag across measures or type measure numbers above to expand your loop.';
         } else {
@@ -2189,7 +2189,7 @@ function mountScore(host, st, onChange0, key) {
       const d = document.createElement('i');
       d.className = (g.first === a ? 'start ' : '') + (g.last === b ? 'end' : '');
       const topY = g.top - pad, h = Math.max(24, (g.bot - g.top) + pad * 2);
-      Object.assign(d.style, { left: g.left - 3 + 'px', top: topY + 'px', width: g.right - g.left + 6 + 'px', height: h + 'px' });
+      Object.assign(d.style, { left: g.left - 1 + 'px', top: topY + 'px', width: g.right - g.left + 2 + 'px', height: h + 'px' });
       if (k === 0) {
         const t = document.createElement('b');
         t.textContent = labelTxt;
