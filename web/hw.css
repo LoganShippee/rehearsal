@@ -389,6 +389,16 @@ body.hw-page {
   color: #991b1b;
 }
 
+.hw-study-bar.done {
+  background: #f0fdf4;
+  border-bottom-color: #bbf7d0;
+  color: #166534;
+}
+
+.hw-study-bar.done .hw-study-timer {
+  color: #15803d;
+}
+
 .hw-study-left {
   display: flex;
   align-items: center;

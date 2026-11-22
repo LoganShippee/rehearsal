@@ -200,9 +200,10 @@ function grStrictnessSpec(level = null, tempo = 80) {
   const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
   const q = 60 / bpm;
   // Piecewise-linear through exact Standard (50) defaults: rhythmMul=1.0, minTolSec=0.06, pitchSemitones=0.75
-  const rhythmMul = rLv <= 50 ? 1.45 - (rLv / 50) * 0.45 : 1.0 - ((rLv - 50) / 50) * 0.45;
-  const minTolSec = rLv <= 50 ? 0.09 - (rLv / 50) * 0.03 : 0.06 - ((rLv - 50) / 50) * 0.025;
-  const pitchSemitones = pLv <= 50 ? 0.95 - (pLv / 50) * 0.20 : 0.75 - ((pLv - 50) / 50) * 0.35;
+  // Above 50, scales down tightly to concert-strict tolerances: rhythm ±3% beat (min 15ms) and pitch ±5¢.
+  const rhythmMul = rLv <= 50 ? 1.45 - (rLv / 50) * 0.45 : 1.0 - ((rLv - 50) / 50) * 0.88;
+  const minTolSec = rLv <= 50 ? 0.09 - (rLv / 50) * 0.03 : 0.06 - ((rLv - 50) / 50) * 0.045;
+  const pitchSemitones = pLv <= 50 ? 0.95 - (pLv / 50) * 0.20 : 0.75 - ((pLv - 50) / 50) * 0.70;
   const rhythmLabel = grStrictLabel(rLv);
   const pitchLabel = grStrictLabel(pLv);
   const label = rhythmLabel === pitchLabel ? rhythmLabel : `R: ${rhythmLabel} · P: ${pitchLabel}`;
@@ -275,7 +276,7 @@ function grStrictnessSlider(tempo = 80) {
     <div style="display:flex;flex-direction:column;gap:2px">
       <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>Rhythm strictness</strong>
         <span class="small muted">Forgiving</span>
-        <input type="range" min="0" max="100" step="5" value="${sp.rhythmLevel}" data-gr-strict="rhythm" style="flex:1;min-width:110px;max-width:210px">
+        <input type="range" min="0" max="100" step="1" value="${sp.rhythmLevel}" data-gr-strict="rhythm" style="flex:1;min-width:110px;max-width:210px">
         <span class="small muted">Strict</span>
         <b class="gr-strict-lbl gr-strict-rlbl">${sp.rhythmLabel}</b>
       </label>
@@ -284,7 +285,7 @@ function grStrictnessSlider(tempo = 80) {
     <div style="display:flex;flex-direction:column;gap:2px">
       <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>Pitch strictness</strong>
         <span class="small muted">Forgiving</span>
-        <input type="range" min="0" max="100" step="5" value="${sp.pitchLevel}" data-gr-strict="pitch" style="flex:1;min-width:110px;max-width:210px">
+        <input type="range" min="0" max="100" step="1" value="${sp.pitchLevel}" data-gr-strict="pitch" style="flex:1;min-width:110px;max-width:210px">
         <span class="small muted">Strict</span>
         <b class="gr-strict-lbl gr-strict-plbl">${sp.pitchLabel}</b>
       </label>
@@ -504,8 +505,8 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null,
       n.sungAs = grName(n.match.midi - shift - ref);                  // the note heard, in the written key
       n.octave = Math.round((r - rf) / 12);
       const ignoreOct = typeof S !== 'undefined' && !!S?.settings?.grIgnoreOctave;
-      n.pitch = Math.abs(rf - ref) > spec.pitchSemitones ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // pitch leeway set by grading strictness (default ±75¢)
-      if (n.pitch !== 'wrong') { okR.push(rf); if (okR.length >= 3) ref = med(okR.slice(-3)); }   // one note can't move it
+      n.pitch = Math.abs(rf - ref) > spec.pitchSemitones ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // pitch leeway set by grading strictness (default ±75¢, strict down to ±5¢)
+      if (n.pitch !== 'wrong') { okR.push(rf); if (spec.pitchSemitones > 0.15 && okR.length >= 3) ref = med(okR.slice(-3)); }   // allow gentle drift tracking except at ultra-strict concert pitch (<= ±15¢)
       if (n.status === 'ok' && n.pitch !== 'ok') n.status = 'pitch';
     });
     var driftCents = okR.length >= 4 ? Math.round((med(okR.slice(-3)) - med(okR.slice(0, 3))) * 100) : null;
@@ -870,10 +871,13 @@ function grStop(show = true) {
   GR.out = null;
   const stopTime = GR.c ? GR.c.currentTime : GR.end;
   if (GR.mic) { clearTimeout(GR.mic.idle); GR.mic.idle = setTimeout(grMicClose, GR_MIC_IDLE); }
-  const frames = GR.frames, rawExp = GR.exp, btn = GR.host?.querySelector('[data-sr="grade"]') || GR.btn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish, trimEarly = !!GR.trimEarlyStop;
+  const frames = GR.frames, rawExp = GR.exp, hostBtn = GR.host?.querySelector('[data-sr="grade"]'), btn = (GR.btn && GR.btn.isConnected) ? GR.btn : hostBtn, rec = GR.rec, tap = GR.input === 'tap', taps = GR.taps, onFinish = GR.onFinish, trimEarly = !!GR.trimEarlyStop;
   GR.on = false; GR.frames = []; GR.an = null; GR.rec = null; GR.taps = null; GR.onFinish = null; GR.trimEarlyStop = false;
   GR.quietUntil = performance.now() + 1500;                   // a last tap just after the end doesn't start playback
-  if (btn) { btn.innerHTML = GR.idleHTML || (IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade')); btn.classList.remove('on'); }
+  const resetHTML = GR.idleHTML || (IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade'));
+  if (btn) { btn.innerHTML = resetHTML; btn.classList.remove('on'); }
+  if (hostBtn && hostBtn !== btn) { hostBtn.innerHTML = IC('ico:mic') + (GR.gradeLabelMenu ? ' Grade ▾' : ' Grade'); hostBtn.classList.remove('on'); }
+  GR.btn = null;
   GR.idleHTML = null;
   if (typeof onFinish === 'function') try { onFinish(show); } catch { }
   if (!show || !rawExp || !rawExp.length) return;

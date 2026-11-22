@@ -438,6 +438,22 @@ function hwInstallEngineHooks(onTakeSaved) {
           autoSubmit: false, expectedSec: 0, meta: {},
         };
         HW_GRADE_CAP.activeContext = null;
+        // Immediately clear any active Stop & Grade button / LIVE bar once the take completes
+        const studyBar = $('#hw-study-bar');
+        if (studyBar && ctx.autoSubmit) {
+          studyBar.classList.remove('live');
+          studyBar.classList.add('done');
+          const timerEl = $('#hw-study-timer');
+          if (timerEl) timerEl.textContent = 'DONE';
+          const msgEl = $('#hw-study-msg');
+          if (msgEl) msgEl.innerHTML = '<strong>Completed!</strong> Your True Sight-Read take has been auto-submitted.';
+          const pWrap = $('#hw-study-pitches');
+          if (pWrap) {
+            pWrap.innerHTML = `<span class="hw-pill submitted">✓ Auto-Submitted</span><button type="button" class="hw-btn" id="hw-study-again">New Excerpt (Preview)</button>`;
+            const again = $('#hw-study-again');
+            if (again) again.onclick = () => hwMountSightRunner();
+          }
+        }
         const grObj = host.__grResult;
         hwFinishParallelRecorder(grObj.take?.rec).then(async ({ blob, durationSec }) => {
           const take = hwBuildSubmissionSummary(
