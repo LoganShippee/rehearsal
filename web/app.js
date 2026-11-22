@@ -238,6 +238,7 @@ async function storeFile(file) {
 function pdfInkOpts(fid, where) {
   return {
     key: fid,
+    name: S.files[fid]?.name || 'PDF',
     ink: () => ((S.pdfInk ||= {})[fid] ||= {}),
     saveInk: () => { const m = S.pdfInk?.[fid]; if (m) for (const p of Object.keys(m)) if (!m[p]?.length) delete m[p]; if (m && !Object.keys(m).length) delete S.pdfInk[fid]; save(); },
     saveCopy: async blob => {
@@ -248,6 +249,9 @@ function pdfInkOpts(fid, where) {
         const cls = S.classes.find(c => c.resources.includes(where.res));
         if (cls) { const r = { ...JSON.parse(JSON.stringify(where.res)), id: uid(), fileId: id, title: (where.res.title || base) + ' (annotated)', pdf: {} }; cls.resources.splice(cls.resources.indexOf(where.res) + 1, 0, r); P.stageKey = ''; }
         toast(`Saved “${name}” to the Library and added it as a tab next to the original.`, 4500);
+      } else if (where.inFiles) {
+        toast(`Saved “${name}” to your Files library.`, 4000);
+        if (where.onSaved) where.onSaved(id);
       } else { addWindow({ kind: 'file', fileId: id }); toast(`Saved “${name}” to the Library and opened it.`, 4000); }
       save();
     },
@@ -534,7 +538,7 @@ function fire(a, cls) {
 }
 function runAutomations(t) {
   const day = dateKey(t), ms = t.getTime();
-  const due = (key, at) => { const dt = ms - at; if (dt >= 0 && dt < 4000 && !P.fired.has(key)) { P.fired.add(key); return true; } return false; };
+  const due = (key, at) => { const dt = ms - at; if (dt >= 0 && dt < 30000 && !P.fired.has(key)) { P.fired.add(key); return true; } return false; };
   for (const p of periodsFor(t)) {
     if (!p.cls) continue;
     for (const a of p.cls.automations) {
@@ -570,17 +574,17 @@ const clockOff = () => now().getTime() - Date.now();
 const onClockSecond = ms => { const o = clockOff(); return Math.round((ms + o) / 1000) * 1000 - o; };
 function timerLeft(tm) { return tm.pausedLeft != null ? tm.pausedLeft : tm.endAt - Date.now(); }
 function tickTimers() {
+  let changed = false;
   for (const tm of P.timers) {
     if (!tm.doneAt && tm.pausedLeft == null && timerLeft(tm) <= 0) {
       tm.doneAt = Date.now();
+      changed = true;
       if (!tm.muted) playSound(tm.sound);
       if (tm.stopMusic) stopMusic();
       if (tm.endMessage) queueMessage(tm.endMessage, 8);
     }
   }
-  const before = P.timers.length;
-  P.timers = P.timers.filter(tm => !tm.doneAt || Date.now() - tm.doneAt < 6000);
-  if (before !== P.timers.length) renderTimers(); else updateTimers();
+  if (changed) renderTimers(); else updateTimers();
 }
 function ringSVG(frac) {
   const r = 26, c = 2 * Math.PI * r;
@@ -614,9 +618,12 @@ function renderTimers() {
         <div class="tv"></div>
       </div>
       <div class="tm-ctrls">
-        <button data-action="timer-pause" data-id="${tm.id}" class="${paused ? 'on' : ''}" title="${paused ? 'Resume timer' : 'Pause timer'}" aria-label="${paused ? 'Resume timer' : 'Pause timer'}">${IC(paused ? 'ico:play' : 'ico:pause')}${isFull ? `<span>${paused ? 'Resume' : 'Pause'}</span>` : ''}</button>
-        <button data-action="timer-add" data-id="${tm.id}" title="Add a minute">${isFull ? '+1 min' : '+1'}</button>
-        <button data-action="timer-mute" data-id="${tm.id}" class="${muted ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}" aria-label="Toggle timer sound">${IC(muted ? 'ico:mute' : 'ico:bell')}${isFull ? `<span>${muted ? 'Muted' : 'Sound'}</span>` : ''}</button>
+        ${tm.doneAt
+          ? `<button data-action="timer-x" data-id="${tm.id}" class="on" title="Dismiss finished timer">${IC('ico:check')} Dismiss</button>
+             <button data-action="timer-add" data-id="${tm.id}" title="Add a minute">${isFull ? '+1 min' : '+1'}</button>`
+          : `<button data-action="timer-pause" data-id="${tm.id}" class="${paused ? 'on' : ''}" title="${paused ? 'Resume timer' : 'Pause timer'}" aria-label="${paused ? 'Resume timer' : 'Pause timer'}">${IC(paused ? 'ico:play' : 'ico:pause')}${isFull ? `<span>${paused ? 'Resume' : 'Pause'}</span>` : ''}</button>
+             <button data-action="timer-add" data-id="${tm.id}" title="Add a minute">${isFull ? '+1 min' : '+1'}</button>
+             <button data-action="timer-mute" data-id="${tm.id}" class="${muted ? 'on' : ''}" title="${tm.muted ? 'Sound off: click to turn the end sound back on' : 'Mute the end sound'}" aria-label="Toggle timer sound">${IC(muted ? 'ico:mute' : 'ico:bell')}${isFull ? `<span>${muted ? 'Muted' : 'Sound'}</span>` : ''}</button>`}
       </div>
       ${isFull ? '' : `<div class="tm-rs" data-tresize="${tm.id}" title="Drag corner to resize timer"></div>`}
     </div>`;
@@ -775,7 +782,7 @@ function stopMusicHosts() {
   if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
 }
 function go(view) {
-  if (view !== 'present') undockStageApp(false);
+  if (VIEW === 'present' && view !== 'present') { saveInk(); undockStageApp(false); fbStopAudio(); }
   VIEW = view; P.dockNear = Date.now(); P.winMenu = false; P.webModeMenu = null; $('#web-mode-menu')?.remove(); P.clipOpen = false; $('#clip-panel')?.remove(); P.iconsOpen = false; $('#icons-panel')?.remove();
   if (view === 'present') { P.layoutKey = P.sideKey = P.stageKey = ''; } else stopMusicHosts();
   render();
@@ -891,6 +898,7 @@ function renderDock() {
     return btn(id, it);
   });
   if (P.music) parts.push(btn('music', { icon: 'ico:stop', label: 'Music', act: 'music-stop' }));
+  if (FB_AUDIO) parts.push(btn('fb-audio', { icon: 'ico:stop', label: 'Preview', act: 'fb-audio-stop' }));
   d.innerHTML = `<span class="dock-idle-ic" aria-hidden="true">${IC('ico:menu')}</span><span class="dock-grip" title="Drag to move the toolbar">⋮⋮</span>${parts.join('').replace(/^(<span class="sep"><\/span>)+|(<span class="sep"><\/span>)+$/g, '')}
     <button data-action="dock-more" class="dock-more ${P.dockCustom || P.dockMore ? 'on' : ''}" title="More tools and toolbar settings" aria-label="More tools and toolbar settings">⋯</button>`;
   d.classList.toggle('nolabels', !cfg.labels);
@@ -1026,13 +1034,13 @@ function renderDockCustom() {
   const cfg = dockCfg();
   const panel = document.createElement('div'); panel.id = 'dock-custom'; panel.className = 'dock-custom';
   panel.innerHTML = `<div class="dc-head"><b>Toolbar</b><span class="grow"></span><button data-action="dock-custom">Done</button></div>
-    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>＋ Open</b>, in <b>⋯</b>, or <b>Off</b>. Drag ≡ to reorder.</div>
+    <div class="dc-note">Choose where each button goes: on the <b>Bar</b>, in <b>Open menu</b>, in <b>More (⋯)</b>, or <b>Hidden</b>. Drag ≡ to reorder.</div>
     <div class="dc-list">${cfg.order.filter(id => DOCK_ITEMS[id]).map(id => { const it = DOCK_ITEMS[id];
       const inOpen = (cfg.inOpen || []).includes(id);
       const launcher = DOCK_LAUNCHERS.includes(id);
       const place = cfg.hidden.includes(id) ? 'off' : inOpen ? 'open' : cfg.menu.includes(id) ? (launcher ? 'off' : 'menu') : 'bar';
       const canOpen = !it.locked && !it.sep && !launcher && id !== 'window' && !it.special;
-      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', '＋ Open']] : it.sep ? [['bar', 'Bar'], ['off', 'Off']] : canOpen ? [['bar', 'Bar'], ['open', '＋'], ['menu', '⋯'], ['off', 'Off']] : [['bar', 'Bar'], ['menu', '⋯'], ['off', 'Off']];
+      const opts = it.locked ? [['bar', 'Bar']] : launcher ? [['bar', 'Bar'], ['off', 'Open menu']] : it.sep ? [['bar', 'Bar'], ['off', 'Hidden']] : canOpen ? [['bar', 'Bar'], ['open', 'Open menu'], ['menu', 'More'], ['off', 'Hidden']] : [['bar', 'Bar'], ['menu', 'More'], ['off', 'Hidden']];
       return `<div class="dc-row ${it.sep ? 'sep' : ''} ${place === 'off' && !launcher ? 'is-off' : ''}" draggable="true" data-id="${id}">
       <span class="dc-grip">≡</span>
       <span class="dc-ico">${it.sep ? '' : dockIcon(id, it) || ''}</span>
@@ -1160,10 +1168,11 @@ function renderCompanionBar(ctx, t) {
     leftTxt = `in ${fmtDur(ctx.next.startAt - t)}`;
   }
   const timers = P.timers.filter(x => !x.doneAt).slice(0, 2).map((tm, idx) => {
-    const rem = timerLeft(tm);
-    return `<span class="comp-timer ${idx > 0 ? 'extra' : ''}">⏱ ${fmtDur(rem)}</span>`;
+    const rem = timerLeft(tm), paused = tm.pausedLeft != null;
+    return `<button type="button" class="comp-timer ${idx > 0 ? 'extra' : ''} ${paused ? 'paused' : ''}" data-action="timer-pause" data-id="${tm.id}" title="${paused ? 'Click to resume timer' : 'Click to pause timer'}">${paused ? '⏸' : '⏱'} ${fmtDur(rem)}</button>`;
   }).join('');
-  const sig = P.signal ? `<span class="comp-sig" style="background:${P.signal.color}">${esc(P.signal.text)}</span>` : '';
+  const quickTimerBtn = !P.timers.some(x => !x.doneAt) ? `<button type="button" class="comp-timer-add" data-action="comp-quick-timer" title="Start a quick 2-minute timer">+2m</button>` : '';
+  const sig = P.signal ? `<button type="button" class="comp-sig" data-action="signal-clear" style="background:${P.signal.color}" title="Click to clear signal">${esc(P.signal.text)} ×</button>` : '';
   const pins = pinnedApps();
   const hasAgendaNav = ctx.mode === 'class' && (ctx.cls?.agenda?.length || 0) > 1;
   const agendaHTML = agItems.length
@@ -1177,7 +1186,7 @@ function renderCompanionBar(ctx, t) {
       <button class="comp-back" data-action="companion-exit" title="Return to Rehearsal">↩ <span class="comp-back-full">Rehearsal</span><span class="comp-back-short">Back</span></button>
       <button class="comp-apps-btn" data-action="comp-apps-toggle" title="Switch or pin External Apps">${IC('ico:app')}<span class="comp-apps-lbl">Apps</span>${pins.length ? `<span class="comp-cnt">${pins.length}</span>` : ''}</button>
       <span class="comp-cls" title="${esc(clsName)}">${esc(clsName)}</span>
-      <div class="comp-meta">${timers}${sig}<span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div>
+      <div class="comp-meta">${timers}${quickTimerBtn}${sig}<span class="comp-clock">${fmtClock(t)}</span>${leftTxt ? `<span class="comp-left-t">${esc(leftTxt)}</span>` : ''}</div>
     </div>
     <div class="comp-agenda">
       <div class="comp-agenda-list">${agendaHTML}</div>
@@ -1203,12 +1212,15 @@ function tick() {
   // header
   const tmplName = ctx.template ? esc(ctx.template.name) : '';
   const testChip = S.settings.sim.on ? '<span class="chip test">TEST TIME</span>' : '';
+  const hasSchedule = S.templates.some(x => x.periods?.length);
+  const pinChip = ctx.pinned && hasSchedule && P.tour == null
+    ? `<button type="button" class="chip pin-chip" data-action="unpin-schedule" title="Bell schedule switching is paused while pinned — click to follow your bell schedule">Pinned · Follow schedule</button>` : '';
   let title = '', left = '', frac = 0;
   if (ctx.mode === 'class' && P.editMode) {
     title = ieTitle(ctx, tmplName, testChip);
     if (ctx.period) { left = `Ends in ${fmtDur(ctx.period.endAt - t)}`; frac = (t - ctx.period.startAt) / (ctx.period.endAt - ctx.period.startAt); }
   } else if (ctx.mode === 'class') {
-    title = `<div class="t1">${esc(ctx.cls.name)}</div><div class="t2">${ctx.cls.subtitle ? esc(ctx.cls.subtitle) : ''}${testChip}</div>`;
+    title = `<div class="t1">${esc(ctx.cls.name)}</div><div class="t2">${ctx.cls.subtitle ? esc(ctx.cls.subtitle) : ''}${pinChip}${testChip}</div>`;
     if (ctx.period) {
       left = `Ends in ${fmtDur(ctx.period.endAt - t)}`;
       frac = (t - ctx.period.startAt) / (ctx.period.endAt - ctx.period.startAt);
@@ -1242,10 +1254,22 @@ function tick() {
   const anyTool = Object.keys(P.tools).length || P.ink.on || P.winMenu || WIN.drag || P.dockCustom || P.dockMore || DOCKDRAG || P.editMode || P.iconsOpen || P.tour != null;
   $('#p-dock').classList.toggle('hidden', hideAfter > 0 && Date.now() - (P.dockNear || 0) > hideAfter * 1000 && !anyTool);
   root.classList.toggle('hide-cursor', since > 3000 && !anyTool);
-  if (!!P.music !== !!$('#p-dock [data-action="music-stop"]')) renderDock();
+  if (!!P.music !== !!$('#p-dock [data-action="music-stop"]') || !!FB_AUDIO !== !!$('#p-dock [data-action="fb-audio-stop"]')) renderDock();
 }
 function setHTML(sel, html) { const el = $(sel); if (el && el._h !== html) { el.innerHTML = html; el._h = html; } }
 
+function desiredInkKey(ctx = context(now())) {
+  const base = ctx?.key || 'screen';
+  if (P.ink.blank) return `${base}:board:${S.settings.boardPaper || 'staff'}`;
+  const tab = P.stageSel[base] || 'warmup';
+  return `${base}:annot:${tab}`;
+}
+function switchInkKey(nextKey = desiredInkKey()) {
+  if (!inkCanvas) return;
+  if (inkLoaded && P.inkKey && P.inkKey !== nextKey) saveInk();
+  P.inkKey = nextKey;
+  restoreInk();
+}
 function buildLayout(ctx) {
   const body = $('#p-body');
   if (ctx.mode === 'class') {
@@ -1258,7 +1282,7 @@ function buildLayout(ctx) {
     body.className = 'p-body full'; body.style.gridTemplateColumns = '';
     body.innerHTML = `<div class="p-stage" id="p-stage" style="background:transparent;border:none"><div class="center-screen" id="center" style="flex:1"></div></div>`;
   }
-  saveInk(); P.inkKey = ctx.key; restoreInk();
+  switchInkKey(desiredInkKey(ctx));
 }
 
 // the class's Progress tracker as a small card in the side panel (click to open the full tracker)
@@ -1272,9 +1296,10 @@ function sideProgCard(cls) {
 function updateClassBody(ctx, t) {
   const cls = ctx.cls, step = agendaStep(ctx, t);
   const evs = eventsOn(t, ctx.cls);
-  const pubNote = (cls.screenNotes || {})[dateKey(t)]?.trim() || '';
+  const sn = cls.screenNotes || {};
+  const pubNote = (sn[dateKey(t)] || sn._sticky || '').trim();
   const progSide = cls.sideProgress ? [!!cls.sideProgOpen, (cls.progress || []).map(i => [i.title, i.status, (i.steps || []).map(x => [x.text, !!x.done])])] : null;
-  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, cls.name, pubNote, progSide, cls.progLabels]);
+  const sideKey = JSON.stringify([step, cls.agenda, evs.map(e => e.id), ctx.next?.id, S.settings.use24h, !!P.editMode, !!P.showPrivNotes, cls.name, pubNote, !!sn._sticky, progSide, cls.progLabels]);
   if (sideKey !== P.sideKey && !ieFocused('#p-side') && !AGDRAG) {
     P.sideKey = sideKey;
     const agenda = cls.agenda.length ? `<ol class="agenda">${cls.agenda.map((a, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span class="n">${i + 1}</span><span>${esc(a.text)}</span>${a.min ? `<span class="m">${a.min}m</span>` : ''}</li>`).join('')}</ol>` : '<div style="opacity:.7">No agenda yet.</div>';
@@ -1304,9 +1329,11 @@ function updateClassBody(ctx, t) {
     P.stageKey = stageKey;
     if (prevStageId && prevStageId !== sel) {
       stopMusicHosts();
+      fbStopAudio();
       if (typeof prevStageId === 'string' && prevStageId.startsWith('app:') && !activeExtApp) {
         undockStageApp(true);
       }
+      if (!P.ink.blank) switchInkKey(desiredInkKey(ctx));
     }
     const nat = res && res.url ? isNativeWeb(res) : false;
     const isSlides = res && res.url && resKind(res) === 'slides';
@@ -1389,11 +1416,14 @@ function updateClassBody(ctx, t) {
       const drawBtn = IS_NATIVE
         ? `<button class="mode ${drawingOn ? 'on' : ''}" data-action="web-markup-toggle" data-target="stage" data-id="${res.id}" title="${drawingOn ? 'Exit drawing mode and return to crisp Full browser' : 'Switch to annotation mode so you can draw on top of this page'}">${IC('ico:pen')} ${drawingOn ? 'Done drawing' : 'Draw on page'}</button>`
         : '';
-      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${drawBtn}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
+      const modeBtn = IS_NATIVE
+        ? `<button class="mode ${P.webModeMenu?.target === 'stage' && P.webModeMenu?.id === res.id ? 'on' : ''}" data-action="web-mode-menu" data-target="stage" data-id="${res.id}" title="Switch between Embedded frame and Full browser">${nat ? 'Full browser ▾' : 'Embedded ▾'}</button>`
+        : `<span class="swb-hint" title="Some sites block embedded frames in browser mode">Blocked? Use ↗</span>`;
+      const actsHTML = `${isSlides ? `<button class="mode" data-action="stage-slideshow" title="Play Google Slides as a live slideshow inside Rehearsal">Slideshow</button>` : ''}${modeBtn}${drawBtn}<button data-action="stage-reload" title="Reload">${IC('ico:reload')}</button>${isGoogle(res) && IS_NATIVE ? `<button data-action="open-drive" data-url="${esc(res.url)}" title="Open in the Google Drive window">Drive window</button>` : ''}<button data-action="open-external" data-url="${esc(res.url)}" title="Open in your web browser">${IC('ico:external')}</button>`;
       const inp = wb.querySelector('.stage-url');
       if (!inp || inp.dataset.surl !== res.id) {
         wb._h = '';
-        wb.innerHTML = `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button><input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false"><div class="swb-acts">${actsHTML}</div>`;
+        wb.innerHTML = `${IS_NATIVE ? `<button class="swb-nav" data-action="stage-back" ${nav.back ? '' : 'disabled'} title="Back">‹</button><button class="swb-nav" data-action="stage-fwd" ${nav.forward ? '' : 'disabled'} title="Forward">›</button>` : ''}<input class="stage-url" data-surl="${res.id}" placeholder="Search Google or enter a web address…" value="${esc(res.url)}" spellcheck="false"><div class="swb-acts">${actsHTML}</div>`;
         const a = wb.querySelector('.swb-acts'); if (a) a._h = actsHTML;
       } else {
         if (document.activeElement !== inp && inp.value !== res.url) inp.value = res.url;
@@ -1689,7 +1719,7 @@ function ytParse(raw) {
   if (h === 'youtu.be') return { id: u.pathname.slice(1, 12), start };
   if (h !== 'youtube.com' && h !== 'youtube-nocookie.com') return null;
   const v = u.searchParams.get('v'), sh = u.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/), list = u.searchParams.get('list');
-  if (v || sh) return { id: v || sh[1], start };
+  if (v || sh) return { id: v || sh[1], start, ...(list ? { list } : {}) };
   if (list) return { list };
   return null;
 }
@@ -1709,7 +1739,9 @@ function ytRemember(v) {
 function ytPlay(h, v, listId = null) {
   h.__cur = { ...v }; h.__list = listId;
   ytRemember(v);
-  const src = v.id ? `https://www.youtube.com/embed/${v.id}?rel=0&autoplay=1&enablejsapi=1&playsinline=1${v.start ? '&start=' + v.start : ''}` : `https://www.youtube.com/embed/videoseries?list=${v.list}&autoplay=1&enablejsapi=1`;
+  const src = v.id
+    ? `https://www.youtube.com/embed/${v.id}?rel=0&autoplay=1&enablejsapi=1&playsinline=1${v.start ? '&start=' + v.start : ''}${v.list ? '&list=' + encodeURIComponent(v.list) : ''}`
+    : `https://www.youtube.com/embed/videoseries?list=${encodeURIComponent(v.list)}&autoplay=1&enablejsapi=1`;
   const box = h.querySelector('.yt-player');
   if (box) { box.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`; ytListen(box.firstElementChild); }
   renderYtSide(h);
@@ -2293,7 +2325,7 @@ function addWindow(w, size) {
   return w;
 }
 function tileWindows() {
-  const list = winList(); if (!list.length) return toast('No windows open. Use ＋ Window to open one.');
+  const list = winList(); if (!list.length) return toast('No windows open. Use ＋ Open to open one.');
   const n = list.length, cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols), g = 0.01;
   list.forEach((w, i) => {
     const c = i % cols, r = Math.floor(i / cols);
@@ -2370,9 +2402,11 @@ function winHTML(w) {
       ${w.kind === 'web' ? `<input class="win-url" data-wurl="${w.id}" value="${esc(w.url || '')}" placeholder="Search or type a web address" spellcheck="false">` : `<span class="win-title">${esc(winTitle(w))}</span>`}
       ${url || w.kind === 'file' ? `<button data-action="win-reload" data-id="${w.id}" title="Reload">${IC('ico:reload')}</button>` : ''}
       ${isSlides ? `<button class="mode ${slideMode === 'present' ? 'on' : ''}" data-action="win-slideshow" data-id="${w.id}" title="Play Google Slides as a live slideshow inside Rehearsal">${slideMode === 'present' ? 'Exit slideshow' : 'Slideshow'}</button>` : ''}
+      ${canNative && url ? `<button class="mode ${P.webModeMenu?.target === 'win' && P.webModeMenu?.id === w.id ? 'on' : ''}" data-action="web-mode-menu" data-target="win" data-id="${w.id}" title="Switch between Embedded frame and Full browser">${nat ? 'Full browser ▾' : 'Embedded ▾'}</button>` : ''}
+      ${!IS_NATIVE && w.kind === 'web' && url ? `<span class="swb-hint" title="Some sites block embedded frames in browser mode">Blocked? Use ↗</span>` : ''}
       ${canNative ? `<button class="mode ${(winRes(w) || w).markupMode ? 'on' : ''}" data-action="web-markup-toggle" data-target="win" data-id="${w.id}" title="${(winRes(w) || w).markupMode ? 'Exit drawing mode and return to crisp Full browser' : 'Draw on top of this page'}">${IC('ico:pen')} ${(winRes(w) || w).markupMode ? 'Done' : 'Draw'}</button>` : ''}
       ${w.kind === 'web' && w.url ? `<button data-action="bm-star" data-id="${w.id}" title="Bookmark this page">${IC('ico:star')}</button>` : ''}
-      ${pinned ? '' : `<button data-action="win-pin" data-id="${w.id}" title="Save to this class's resources">${IC('ico:pin')}</button>`}
+      ${pinned ? `<span class="win-pinned-tag" title="Saved as a class tab">${IC('ico:pin')} Pinned</span>` : `<button data-action="win-pin" data-id="${w.id}" title="Save to this class's tabs">${IC('ico:pin')}</button>`}
       ${url ? `<button data-action="open-external" data-url="${esc(url)}" title="Open in your web browser">${IC('ico:external')}</button>` : ''}
       <button class="zoom-badge" data-action="win-zoom-reset" data-id="${w.id}" title="Pinch to zoom · click to reset" hidden>100%</button>
       <button data-action="win-snap" data-id="${w.id}" title="Tile this window">${IC('ico:tile')}</button>
@@ -2431,9 +2465,10 @@ function openWebAddress(w, raw) {
   let url;
   if (looksURL) url = /^https?:\/\//i.test(q) ? q : 'https://' + q;
   else { url = 'https://www.google.com/search?q=' + encodeURIComponent(q); if (IS_NATIVE && !w.native) w.native = true; }
-  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); return; }
+  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); toast('Search opened in a new browser tab.'); return; }
   w.url = url; w.title = '';
-  if (w.native) native('webCmd', { id: w.id, action: 'load', url });
+  if (IS_NATIVE && w.native == null) { /* autoNativeWeb(url) decides */ }
+  if (winIsNative(w)) native('webCmd', { id: w.id, action: 'load', url });
   save(); WIN.sig = ''; document.activeElement?.blur(); renderWins(context(now()), true);
 }
 function openStageAddress(resId, raw) {
@@ -2443,7 +2478,7 @@ function openStageAddress(resId, raw) {
   let url;
   if (looksURL) url = /^https?:\/\//i.test(q) ? q : 'https://' + q;
   else { url = 'https://www.google.com/search?q=' + encodeURIComponent(q); if (IS_NATIVE && !res.native) res.native = true; }
-  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); return; }
+  if (!IS_NATIVE && !looksURL) { native('openExternal', { url }) || window.open(url, '_blank'); toast('Search opened in a new browser tab.'); return; }
   res.url = url;
   if (res.mode === 'present' && resKind(res) !== 'slides') res.mode = 'embed';
   P.forceStageUrl = res.id;
@@ -2831,10 +2866,13 @@ function ieSide(ctx, step, evs) {
         <select data-ie-evwho title="Which classes see it"><option value="this">This class</option><option value="all">All classes</option></select>
         ${repeatSel({}, 'data-ie-evrep')}
         <button data-action="ie-ev-add">Add</button></div></div>
-    <div class="p-card"><h4>${IC('ico:notes')} Notes on screen <span style="opacity:.6;text-transform:none;letter-spacing:0">(students see these, under Today)</span></h4>
-      <textarea class="ie-notes" data-ie-pubnotes rows="3" placeholder="Reminders for students: bring your folder, concert dress, …">${esc((cls.screenNotes || {})[today] || '')}</textarea></div>
-    <div class="p-card"><h4>${IC('ico:notes')} Today's notes <span style="opacity:.6;text-transform:none;letter-spacing:0">(private, only shown while editing)</span></h4>
-      <textarea class="ie-notes" data-ie-notes rows="5" placeholder="What you covered, reminders for next time…">${esc(cls.notes[today] || '')}</textarea></div>`;
+    <div class="p-card"><h4>${IC('ico:notes')} Notes on screen <span style="opacity:.6;text-transform:none;letter-spacing:0">(students see these)</span></h4>
+      <textarea class="ie-notes" data-ie-pubnotes rows="3" placeholder="Reminders for students: bring your folder, concert dress, …">${esc((cls.screenNotes || {})[today] || (cls.screenNotes || {})._sticky || '')}</textarea>
+      <label class="chk small" style="margin-top:6px"><input type="checkbox" data-action-change="ie-sticky-note" ${cls.screenNotes?._sticky != null ? 'checked' : ''}> Keep showing until cleared (don't hide tomorrow)</label></div>
+    <div class="p-card"><h4>${IC('ico:notes')} Private teacher notes <span class="mini-btns"><button type="button" data-action="ie-priv-toggle">${P.showPrivNotes ? 'Hide' : 'Show'}</button></span></h4>
+      ${P.showPrivNotes
+        ? `<textarea class="ie-notes" data-ie-notes rows="5" placeholder="What you covered, reminders for next time…">${esc(cls.notes[today] || '')}</textarea>`
+        : `<div class="ie-tip" style="opacity:.75">Hidden so private notes don't appear on a projector. Click <b>Show</b> (or edit in Setup → Notes).</div>`}</div>`;
 }
 function ieTitle(ctx, tmplName, testChip) {
   const cls = ctx.cls, p = ctx.period;
@@ -2916,7 +2954,7 @@ document.addEventListener('input', e => {
   if (e.target.dataset?.iePubnotes == null) return;
   const c = ieClass(); if (!c) return;
   const k = dateKey(now()), v = e.target.value;
-  clearTimeout(iePubT); iePubT = setTimeout(() => { const n = (c.cls.screenNotes ||= {}); if (v.trim()) n[k] = v; else delete n[k]; save(); }, 400);
+  clearTimeout(iePubT); iePubT = setTimeout(() => { const n = (c.cls.screenNotes ||= {}); if (v.trim()) { n[k] = v; if (n._sticky != null) n._sticky = v; } else { delete n[k]; if (n._sticky != null) n._sticky = ''; } save(); }, 400);
 });
 document.addEventListener('input', e => {
   if (e.target.dataset?.ieNotes == null) return;
@@ -3566,7 +3604,7 @@ document.addEventListener('dblclick', e => {
 });
 
 // ============================================================ annotation (ink)
-let inkCanvas = null, inkCtx = null, inkDrawing = null, inkUndo = [];
+let inkCanvas = null, inkCtx = null, inkDrawing = null, inkUndo = [], inkLoaded = false;
 function inkPushUndo() {
   if (!inkCanvas || !inkCanvas.width || !inkCanvas.height) return;
   const c = document.createElement('canvas'); c.width = inkCanvas.width; c.height = inkCanvas.height;
@@ -3655,7 +3693,7 @@ function setupInk() {
   const host = $('#ink'); if (!host) return;
   document.querySelectorAll('#ink-bar').forEach(b => b.remove());   // a moved (floating) bar from the last screen
   host.innerHTML = `<canvas></canvas><div class="ink-cursor" id="ink-cursor" hidden></div><div class="ink-bar" id="ink-bar"></div>`;
-  inkPrev = null; inkPrevCtx = null;
+  inkPrev = null; inkPrevCtx = null; inkLoaded = false;
   inkCanvas = host.querySelector('canvas'); inkCtx = inkCanvas.getContext('2d');
   const ro = new ResizeObserver(() => resizeInk()); ro.observe(host);
   inkCanvas.addEventListener('pointerdown', inkDown);
@@ -3695,6 +3733,15 @@ function boardPaper(kind) {
   const sp = 18;                                              // space between staff lines
   const tiled = url => `${url} 0 0 / auto repeat content-box, #ffffff`;
   if (kind === 'staff') return tiled(svg(10, 4 * sp + 96, lines([0, 1, 2, 3, 4].map(i => 40 + i * sp))));
+  if (kind === 'treble' || kind === 'bass') {
+    const a = [0, 1, 2, 3, 4].map(i => 40 + i * sp), H = 4 * sp + 96, W = 6000, L = 20, s = sp / 360, ink = '#3d4452';
+    const bar = `<rect x='${L}' y='${a[0]}' width='2' height='${a[4] - a[0] + 1.6}' fill='${ink}'/>`;
+    const clef = kind === 'treble'
+      ? `<path fill='${ink}' transform='translate(${L + 12} ${a[3] + 0.8}) scale(${s})' d='${CLEF_G}'/>`
+      : `<path fill='${ink}' transform='translate(${L + 12} ${a[1] + 0.8}) scale(${s})' d='${CLEF_F}'/>`;
+    const staffLines = a.map(y => `<rect x='${L}' y='${y}' width='${W - L}' height='1.6' fill='#6b7385'/>`).join('');
+    return `${svg(W, H, staffLines + bar + clef)} 0 0 / auto repeat-y content-box, #ffffff`;
+  }
   if (kind === 'grand') {
     // One wide tile repeated downward only (the right side is clipped at the paper's edge), so the
     // brace and clefs stay inside the paper and never peek out above the first system.
@@ -3733,21 +3780,29 @@ function updateInkUI() {
   host.style.background = !P.ink.blank ? 'transparent' : paper || '#ffffff';
   host.classList.toggle('papered', P.ink.blank && paperKind !== 'blank');
   const colors = [['#e63946', 'Red'], ['#1d3557', 'Navy'], ['#2a9d8f', 'Teal'], ['#f4a261', 'Orange'], ['#7b2cbf', 'Purple'], ['#111111', 'Black'], ['#ffffff', 'White'], ['#ffd60a', 'Yellow']];
-  const tb = (t, label) => `<button class="${P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}">${label}</button>`;
+  const drawingActive = !P.ink.interact;
+  const tb = (t, label) => `<button class="${drawingActive && P.ink.tool === t ? 'on' : ''}" data-action="ink-tool" data-t="${t}" style="${drawingActive ? '' : 'opacity:.5'}">${label}</button>`;
   $('#ink-bar').innerHTML = `<span class="ink-grip" title="Drag to move this toolbar">⋮⋮</span>
+    ${P.ink.blank ? '' : `<span class="ink-mode-seg" role="group" aria-label="Drawing mode"><button class="${drawingActive ? 'on' : ''}" data-action="ink-mode" data-m="draw" title="Draw on top of the screen">${IC('ico:pen')} Draw</button><button class="${!drawingActive ? 'on' : ''}" data-action="ink-mode" data-m="interact" title="Interact with slides/tools underneath (drawings stay visible)">${IC('ico:pointer')} Interact</button></span>`}
     ${tb('pen', `${IC('ico:pen')} Pen`)}${tb('hl', `${IC('ico:highlight')} Highlight`)}${tb('line', `${IC('ico:line')} Line`)}${tb('arrow', `${IC('ico:arrow')} Arrow`)}${tb('rect', `${IC('ico:box')} Box`)}${tb('circle', `${IC('ico:circle')} Circle`)}${tb('text', 'T Text')}${tb('erase', `${IC('ico:erase')} Erase`)}
     <span style="width:6px"></span>
     ${colors.map(([c, nm]) => `<button class="dot ${P.ink.color === c ? 'on' : ''}" style="background:${c}" data-action="ink-color" data-c="${c}" title="${nm}" aria-label="${nm}"></button>`).join('')}
     <select data-action-change="ink-size" aria-label="Brush size" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">
       ${[2, 4, 8, 14].map(s => `<option value="${s}" ${P.ink.size === s ? 'selected' : ''} style="color:#000">${s}px</option>`).join('')}</select>
-    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${paperKind === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
-    ${P.ink.blank ? '' : `<button class="${P.ink.interact ? 'on' : ''}" data-action="ink-interact" title="Click through to the slide underneath; drawings stay visible">${IC('ico:pointer')} Click slides</button>`}
+    ${P.ink.blank ? `<select data-action-change="board-paper" title="Paper" aria-label="Board paper" style="background:transparent;color:#fff;border:1px solid #555;border-radius:6px;padding:2px">${[['blank', 'Blank'], ['staff', 'Music staff'], ['treble', 'Treble staff'], ['bass', 'Bass staff'], ['grand', 'Grand staff'], ['grid', 'Grid']].map(([v, l]) => `<option value="${v}" ${paperKind === v ? 'selected' : ''} style="color:#000">${l}</option>`).join('')}</select>` : ''}
+    ${!P.ink.blank && P.ink.interact ? `<span class="ink-paused-pill">Drawing paused</span>` : ''}
     <button data-action="ink-undo" title="Undo (⌘Z)" ${inkUndo.length ? '' : 'disabled'}>${IC('ico:undo')} Undo</button>
     <button data-action="ink-clear" title="Clear board (can be undone)">${IC('ico:trash')} Clear</button>
     <button data-action="ink-close" title="Close drawing (Esc)" aria-label="Close drawing">${IC('ico:close')}</button>`;
   placeInkBar();
   inkPaperTop();
 }
+window.closeGlobalAnnotate = () => {
+  if (!P.ink.on) return;
+  saveInk();
+  P.ink.on = false; P.ink.interact = false;
+  updateInkUI(); renderDock();
+};
 // Same behaviour as the main toolbar: drag the grip anywhere; near a side it stands up; drop it at
 // the top middle to put it back. Remembered.
 function placeInkBar() {
@@ -3934,12 +3989,13 @@ function inkText(p) {
   inp.addEventListener('blur', commit);
 }
 function saveInk() {
-  if (!inkCanvas || !P.inkKey || !inkCanvas.width) return;
+  if (!inkCanvas || !P.inkKey || !inkCanvas.width || !inkLoaded) return;
   const dpr = window.devicePixelRatio || 1;
   P.inkStore[P.inkKey] = { d: inkCanvas.toDataURL(), w: inkCanvas.width / dpr, h: inkCanvas.height / dpr };
 }
 function restoreInk() {
   if (!inkCanvas) return;
+  inkLoaded = true;
   inkUndo = [];
   const ub = $('#ink-bar [data-action="ink-undo"]'); if (ub) ub.disabled = true;
   inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore();
@@ -3980,8 +4036,17 @@ function placeTool(n, fresh) {
   P.tools[n] = p; el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
 }
 function rerenderTool(name) { const el = $(`[data-toolwin="${name}"] .tool-body`); if (el) el.innerHTML = toolBody(name); }
-const R = { last: '', used: new Set(), groups: null, groupN: 4 };
-const NOISE = { stream: null, analyser: null, level: 0, limit: 60, warnAt: 0, beep: true };
+const R_MAP = {};
+let R_TIMER = 0;
+function randState(cls) {
+  const k = cls?.id || '_';
+  return (R_MAP[k] ||= { last: '', used: new Set(), groups: null, groupN: 4, noRepeat: false });
+}
+const NOISE = { stream: null, analyser: null, level: 0, limit: 60, warnAt: 0, holdUntil: 0, beep: true };
+function noiseLimit() { return S?.settings?.noiseLimit ?? NOISE.limit; }
+function noiseBeep() { return S?.settings?.noiseBeep ?? NOISE.beep; }
+let SIG_COLOR = '#3b6cf6';
+const SIG_COLORS = ['#3b6cf6', '#e63946', '#2a9d8f', '#e76f51', '#7b2cbf', '#1d3557'];
 function toolBody(name) {
   const cls = currentClass();
   switch (name) {
@@ -3990,34 +4055,43 @@ function toolBody(name) {
       return `<div class="tt">
       <div class="tt-presets">${[0.5, 1, 2, 3, 5, 10, 15].map(m => `<button data-action="quick-timer" data-m="${m}"><b>${m < 1 ? '30' : m}</b><small>${m < 1 ? 'sec' : 'min'}</small></button>`).join('')}</div>
       <div class="tt-custom">
-        <div class="tt-step"><button data-action="tt-step" data-d="-1" title="1 minute less" aria-label="1 minute less">${IC('ico:minus')}</button><label><input id="tt-min" type="number" min="0.1" step="0.5" value="${T.min}" data-action-input="tt-field" data-k="min"><span>min</span></label><button data-action="tt-step" data-d="1" title="1 minute more" aria-label="1 minute more">${IC('ico:plus')}</button></div>
-        <input id="tt-label" placeholder="Label" value="${esc(T.label)}" data-action-input="tt-field" data-k="label">
+        <div class="tt-step"><button data-action="tt-step" data-d="-0.5" title="30 seconds less" aria-label="30 seconds less">${IC('ico:minus')}</button><label><input id="tt-min" type="number" min="0.5" step="0.5" value="${T.min}" data-action-input="tt-field" data-k="min"><span>min</span></label><button data-action="tt-step" data-d="0.5" title="30 seconds more" aria-label="30 seconds more">${IC('ico:plus')}</button></div>
+        <input id="tt-label" placeholder="Label (optional)" value="${esc(T.label)}" data-action-input="tt-field" data-k="label">
         <div class="tt-row"><button class="tt-snd ${T.sound === 'none' ? 'off' : ''}" data-action="tt-mute" title="${T.sound === 'none' ? 'Sound off: click to turn on' : 'Click for no sound at the end'}">${IC(T.sound === 'none' ? 'ico:mute' : 'ico:bell')}</button><select id="tt-sound" data-action-change="tt-sound">${soundOptions(T.sound === 'none' ? (T.lastSound || 'bell') : T.sound)}</select></div>
         <button class="tt-go" data-action="custom-timer">${IC('ico:play')} Start</button>
       </div></div>`;
     }
     case 'points': {
       if (!cls) return '<div class="muted">Points are kept per class. Show a class first.</div>';
-      return cls.points.map((t, i) => `<div class="team"><input value="${esc(t.name)}" data-bind="${clsPath(cls)}.points.${i}.name"><button class="btn ic-btn" data-action="pt" data-i="${i}" data-d="-1" aria-label="Subtract point">${IC('ico:minus')}</button><span class="score">${t.score}</span><button class="btn primary ic-btn" data-action="pt" data-i="${i}" data-d="1" aria-label="Add point">${IC('ico:plus')}</button></div>`).join('') +
-        `<div class="row"><button class="btn small ic-btn" data-action="pt-add">${IC('ico:plus')} Team</button><button class="btn small" data-action="pt-reset">Reset scores</button>${cls.points.length > 1 ? `<button class="btn small ic-btn" data-action="pt-del">${IC('ico:minus')} Team</button>` : ''}</div>`;
+      return cls.points.map((t, i) => `<div class="team"><input value="${esc(t.name)}" data-bind="${clsPath(cls)}.points.${i}.name"><button class="btn ic-btn" data-action="pt" data-i="${i}" data-d="-1" aria-label="Subtract point">${IC('ico:minus')}</button><span class="score">${t.score}</span><button class="btn primary ic-btn" data-action="pt" data-i="${i}" data-d="1" aria-label="Add point">${IC('ico:plus')}</button>${cls.points.length > 1 ? `<button class="iconbtn" data-action="pt-del-row" data-i="${i}" title="Remove ${esc(t.name)}" aria-label="Remove team">${IC('ico:close')}</button>` : ''}</div>`).join('') +
+        `<div class="row"><button class="btn small ic-btn" data-action="pt-add">${IC('ico:plus')} Team</button><button class="btn small" data-action="pt-reset">Reset scores</button></div>`;
     }
-    case 'noise': return `<div class="meter" id="nm"><div></div><span class="lim" style="left:${NOISE.limit}%"></span></div>
+    case 'noise': {
+      const lim = noiseLimit(), beepOn = noiseBeep();
+      return `<div class="meter" id="nm"><div></div><span class="lim" style="left:${lim}%"></span></div>
       ${S.settings.noiseDyn ? `<div class="dyn-scale">${DYNAMICS.map(d => `<span>${d}</span>`).join('')}</div>` : ''}
       <div class="meter-label" id="nm-label">${NOISE.stream ? '…' : 'Microphone off'}</div>
-      <label class="fld"><span>Too-loud limit${S.settings.noiseDyn ? ` <b class="dyn" id="nm-limdyn">${dynOf(NOISE.limit)}</b>` : ''}</span><input type="range" min="10" max="100" value="${NOISE.limit}" data-action-input="noise-limit"></label>
+      <label class="fld"><span>Too-loud limit${S.settings.noiseDyn ? ` <b class="dyn" id="nm-limdyn">${dynOf(lim)}</b>` : ''}</span><input type="range" min="10" max="100" value="${lim}" data-action-input="noise-limit"></label>
       <label class="chk"><input type="checkbox" ${S.settings.noiseDyn ? 'checked' : ''} data-action-change="noise-dyn"> Show as dynamics (pp p mp mf f ff)</label>
-      <label class="chk"><input type="checkbox" ${NOISE.beep ? 'checked' : ''} data-action-change="noise-beep"> Chime when too loud</label>
+      <label class="chk"><input type="checkbox" ${beepOn ? 'checked' : ''} data-action-change="noise-beep"> Chime when too loud</label>
       ${NOISE.stream ? '<button class="btn" data-action="noise-stop">Stop microphone</button>' : '<button class="btn primary" data-action="noise-start">Start microphone</button>'}`;
+    }
     case 'random': {
       if (!cls) return '<div class="muted">Show a class to use its roster.</div>';
-      if (!cls.roster.length) return '<div class="muted">This class has no roster yet. Add names in Setup → Classes.</div>';
-      return `<div class="rand-out" id="rand-out">${esc(R.last || '—')}</div>
-        <div class="row"><button class="btn primary grow" data-action="rand-pick">Pick a student</button><label class="chk small"><input type="checkbox" id="rand-norep" ${R.noRepeat ? 'checked' : ''} data-action-change="rand-norep"> No repeats</label></div>
-        <div class="row"><span class="small muted">Groups of</span><input type="number" min="2" max="12" value="${R.groupN}" style="width:60px" data-action-input="rand-n"><button class="btn" data-action="rand-groups">Make groups</button></div>
-        ${R.groups ? `<div class="groups">${R.groups.map((g, i) => `<div><b>Group ${i + 1}</b><br>${g.map(esc).join('<br>')}</div>`).join('')}</div>` : ''}`;
+      if (!cls.roster.length) return `<div class="muted" style="margin-bottom:6px">No student names in ${esc(cls.name)} yet. Paste one name per line below:</div>
+        <textarea id="rand-quick-ta" rows="4" placeholder="Alex\nBrianna\nCarlos…"></textarea>
+        <div class="row"><button class="btn primary grow" data-action="rand-quick-add">Add names</button><button class="btn" data-action="rand-open-roster">Open Setup</button></div>`;
+      const rs = randState(cls);
+      const left = cls.roster.filter(n => !rs.used.has(n)).length;
+      return `<div class="rand-out" id="rand-out">${esc(rs.last || '—')}</div>
+        <div class="row"><button class="btn primary grow" data-action="rand-pick">Pick a student</button><label class="chk small"><input type="checkbox" id="rand-norep" ${rs.noRepeat ? 'checked' : ''} data-action-change="rand-norep"> No repeats</label></div>
+        ${rs.noRepeat ? `<div class="row small muted"><span>${left} of ${cls.roster.length} left</span><span class="grow"></span><button class="btn small" data-action="rand-reset">Reset</button></div>` : ''}
+        <div class="row"><span class="small muted">Groups of</span><input type="number" min="2" max="12" value="${rs.groupN}" style="width:60px" data-action-input="rand-n"><button class="btn" data-action="rand-groups">Make groups</button></div>
+        ${rs.groups ? `<div class="groups">${rs.groups.map((g, i) => `<div><b>Group ${i + 1}</b><br>${g.map(esc).join('<br>')}</div>`).join('')}</div>` : ''}`;
     }
-    case 'signal': return `<div class="sig-grid">${SIGNALS.map((s, i) => `<button style="background:${s.color}" data-action="signal" data-i="${i}">${s.text}</button>`).join('')}</div>
-      <div class="row"><input id="sig-custom" class="grow" placeholder="Custom signal…"><button class="btn" data-action="signal-custom">Show</button></div>
+    case 'signal': return `<div class="sig-grid">${SIGNALS.map((s, i) => `<button class="${P.signal?.text === s.text ? 'active' : ''}" style="background:${s.color}" data-action="signal" data-i="${i}">${s.text}</button>`).join('')}</div>
+      <div class="sig-swatches">${SIG_COLORS.map(c => `<button type="button" class="sig-sw ${SIG_COLOR === c ? 'on' : ''}" style="background:${c}" data-action="sig-col" data-c="${c}" aria-label="Signal color"></button>`).join('')}</div>
+      <div class="row"><input id="sig-custom" class="grow" placeholder="Custom signal…" onkeydown="if(event.key==='Enter'){event.preventDefault();A['signal-custom']();}"><button class="btn" data-action="signal-custom">Show</button></div>
       <button class="btn" data-action="signal-clear">Clear signal</button>`;
   }
   return '';
@@ -4029,12 +4103,19 @@ function soundOptions(sel) {
 }
 async function noiseStart() {
   try {
+    const c = ac(); c.resume().catch(() => {});
     NOISE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    const c = ac(); await c.resume();
+    await c.resume();
     const src = c.createMediaStreamSource(NOISE.stream);
     NOISE.analyser = c.createAnalyser(); NOISE.analyser.fftSize = 1024; src.connect(NOISE.analyser);
     NOISE.buf = new Float32Array(NOISE.analyser.fftSize);
-  } catch (e) { toast('Microphone not available: ' + e.message); NOISE.stream = null; }
+  } catch (e) {
+    const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+    const msg = e?.name === 'NotAllowedError'
+      ? (isMac ? 'Microphone blocked — allow Rehearsal in System Settings → Privacy & Security → Microphone.' : 'Microphone blocked — allow microphone access in your browser or system privacy settings.')
+      : 'Microphone unavailable — check your mic connection and permissions.';
+    toast(msg, 4500); NOISE.stream = null;
+  }
   rerenderTool('noise');
 }
 function noiseStop() { NOISE.stream?.getTracks().forEach(t => t.stop()); NOISE.stream = null; NOISE.analyser = null; rerenderTool('noise'); }
@@ -4043,20 +4124,25 @@ const DYNAMICS = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
 const dynOf = L => DYNAMICS[clamp(Math.floor(L / (100 / 6)), 0, 5)];
 function tickNoise() {
   if (!NOISE.analyser || !P.tools.noise) return;
+  if (Date.now() < NOISE.holdUntil) return; // pause briefly after our own warning chime so it doesn't self-trigger
   NOISE.analyser.getFloatTimeDomainData(NOISE.buf);
   let sum = 0; for (const v of NOISE.buf) sum += v * v;
   const db = 20 * Math.log10(Math.sqrt(sum / NOISE.buf.length) + 1e-6); // ~ -60 (quiet) .. 0 (loud)
   const lvl = clamp((db + 60) / 50 * 100, 0, 100);
   NOISE.level = NOISE.level * 0.7 + lvl * 0.3;
   const bar = $('#nm > div'), lab = $('#nm-label'); if (!bar) return;
-  const L = NOISE.level, lim = NOISE.limit;
+  const L = NOISE.level, lim = noiseLimit();
   bar.style.width = L + '%';
   bar.style.background = L > lim ? '#e63946' : L > lim * 0.75 ? '#f4a261' : '#2a9d8f';
   const html = S.settings.noiseDyn
     ? `<span class="dyn">${dynOf(L)}</span>${L > lim ? ` <span class="dyn-warn">${IC('ico:loud')} Too loud (limit ${dynOf(lim)})</span>` : ''}`
     : L > lim ? IC('ico:loud') + ' Too loud!' : L > lim * 0.75 ? IC('ico:mid') + ' Getting loud' : L > lim * 0.4 ? IC('ico:good') + ' Good' : IC('ico:mute') + ' Quiet';
   if (lab.__h !== html) { lab.__h = html; lab.innerHTML = html; }
-  if (L > lim && NOISE.beep && Date.now() - NOISE.warnAt > 5000) { NOISE.warnAt = Date.now(); playSound('ding'); }
+  if (L > lim && noiseBeep() && Date.now() - NOISE.warnAt > 5000) {
+    NOISE.warnAt = Date.now();
+    NOISE.holdUntil = Date.now() + 1300;
+    playSound('ding');
+  }
 }
 
 // ============================================================ EDITOR
@@ -4187,7 +4273,7 @@ function scheduleTab() {
     <div class="week">${DAYS_SHORT.map((d, i) => `<label class="fld"><span>${d}</span><select data-bind="weekdays.${i}" data-rerender>${opts(S.weekdays[i], `<option value="">No school</option>`)}</select></label>`).join('')}</div></div>
   <div class="card"><div class="card-head"><h2>Special days</h2><span class="grow"></span><button class="btn small" data-action="ov-add">+ Add date</button></div>
     <p class="desc">Early release, assemblies, holidays — swap in a different bell schedule (or no school) for one date.</p>
-    ${ovs.length ? `<table class="tbl"><tr><th>Date</th><th>Schedule</th><th></th></tr>${ovs.map(([k, v]) => `<tr><td>${longDate(parseKey(k))}, ${k.slice(0, 4)}</td><td><select data-bind="overrides.${k}" data-rerender>${opts(v, `<option value="none" ${v === 'none' ? 'selected' : ''}>No school</option>`)}</select></td><td style="width:30px"><button class="iconbtn" data-action="ov-del" data-k="${k}">${IC('ico:close')}</button></td></tr>`).join('')}</table>` : '<div class="empty">No special days.</div>'}
+    ${ovs.length ? `<table class="tbl"><tr><th>Date</th><th>Schedule</th><th></th></tr>${ovs.map(([k, v]) => `<tr><td><input type="date" value="${esc(k)}" data-action-change="ov-date" data-old="${esc(k)}"> <span class="small muted">${longDate(parseKey(k))}</span></td><td><select data-bind="overrides.${k}" data-rerender>${opts(v, `<option value="none" ${v === 'none' ? 'selected' : ''}>No school</option>`)}</select></td><td style="width:30px"><button class="iconbtn" data-action="ov-del" data-k="${k}">${IC('ico:close')}</button></td></tr>`).join('')}</table>` : '<div class="empty">No special days.</div>'}
   </div>
   <div class="card"><h2>Next two weeks</h2>
     <div class="days14">${days.map(d => { const t = templateFor(d); return `<div class="day-cell ${dateKey(d) === dateKey(today) ? 'today' : ''}"><b>${DAYS_SHORT[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}</b>${t ? esc(t.name) : '<span class="muted">—</span>'}</div>`; }).join('')}</div></div>
@@ -4195,9 +4281,12 @@ function scheduleTab() {
     <div class="card-head"><input data-bind="templates.${ti}.name" value="${esc(t.name)}" style="font-weight:700;font-size:15px"><span class="grow"></span>
       <button class="btn small" data-action="tpl-dup" data-k="${ti}">Duplicate</button><button class="btn small danger" data-action="tpl-del" data-k="${ti}">Delete</button></div>
     <table class="tbl"><tr><th>Class</th><th style="width:150px">Starts</th><th style="width:150px">Ends</th><th style="width:30px"></th></tr>
-    ${t.periods.map((p, pi) => `<tr><td><select data-bind="templates.${ti}.periods.${pi}.classId">${S.classes.map(c => `<option value="${c.id}" ${p.classId === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select></td>
-      <td><input type="time" data-bind="templates.${ti}.periods.${pi}.start" value="${p.start}"></td><td><input type="time" data-bind="templates.${ti}.periods.${pi}.end" value="${p.end}"></td>
-      <td><button class="iconbtn" data-action="per-del" data-k="${ti}" data-p="${pi}">${IC('ico:close')}</button></td></tr>`).join('')}</table>
+    ${t.periods.map((p, pi) => {
+      const bad = p.start && p.end && p.start >= p.end;
+      return `<tr class="${bad ? 'per-bad' : ''}"><td><select data-bind="templates.${ti}.periods.${pi}.classId">${S.classes.map(c => `<option value="${c.id}" ${p.classId === c.id ? 'selected' : ''}>${esc(c.name)}${c.subtitle ? ' · ' + esc(c.subtitle) : ''}</option>`).join('')}</select>${bad ? '<div class="per-err">End time must be after start time (check AM/PM)</div>' : ''}</td>
+      <td><input type="time" data-bind="templates.${ti}.periods.${pi}.start" data-rerender value="${p.start}"></td><td><input type="time" data-bind="templates.${ti}.periods.${pi}.end" data-rerender value="${p.end}"></td>
+      <td><button class="iconbtn" data-action="per-del" data-k="${ti}" data-p="${pi}">${IC('ico:close')}</button></td></tr>`;
+    }).join('')}</table>
     <button class="btn small" style="margin-top:8px" data-action="per-add" data-k="${ti}">+ Period</button></div>`).join('')}
   <button class="btn" data-action="tpl-add" style="align-self:flex-start">+ New bell schedule</button>`;
 }
@@ -4318,7 +4407,8 @@ function timelineCard(cls, ci) {
     return `<div class="tl-lane" data-tl-lane="${L.key}" style="height:${8 + rowsN * 30}px"><div class="tl-lane-label">${L.label}</div><div class="tl-track" data-tl-track="${L.key}">${body}</div></div>`;
   }).join('');
 
-  return `<div class="card"><div class="card-head"><h2>Automations timeline</h2><span class="grow"></span><span class="small muted">${fmtMin(D)} period${per.start ? ' · starts ' + fmtHM(per.start) : ''}</span></div>
+  const allOff = cls.automations.length > 0 && cls.automations.every(a => a.enabled === false);
+  return `<div class="card"><div class="card-head"><h2>Automations timeline</h2><span class="grow"></span>${allOff ? `<button class="btn small primary" data-action="tl-enable-all" data-ci="${ci}">All off — Turn all on</button>` : ''}<span class="small muted">${fmtMin(D)} period${per.start ? ' · starts ' + fmtHM(per.start) : ''}</span></div>
     <p class="desc">Drag an event to move it. Drag its right edge to make it longer or shorter. Drag a chip onto the timeline, or double-click a lane, to add one. Click an event to edit it, and press Delete to remove it.</p>
     <div class="tl-palette">${TL_PALETTE.map(([t, l]) => `<span class="tl-chip k-${t}" data-tl-new="${t}">${l}</span>`).join('')}</div>
     <div class="tl" data-tl-class="${ci}" data-tl-d="${D}" style="--tickw:${(step / D * 100).toFixed(4)}%">
@@ -5115,19 +5205,35 @@ const A = {
   // dock / tools
   tool: el => {
     const n = el.dataset.tool;
-    if (P.tools[n]) { delete P.tools[n]; renderTools(); renderDock(); return; }
+    if (P.tools[n]) { delete P.tools[n]; if (n === 'noise') noiseStop(); renderTools(); renderDock(); return; }
     const saved = S.settings.toolPos?.[n];
     P.tools[n] = saved ? { x: saved.x * innerWidth, y: saved.y * innerHeight } : { x: 40, y: 110 };
     renderTools(); placeTool(n, !saved); renderDock();
   },
   'tool-close': el => { const n = el.dataset.tool; delete P.tools[n]; if (n === 'noise') noiseStop(); renderTools(); renderDock(); },
-  'quick-timer': el => { const m = Number(el.dataset.m), T = S.settings.timerTool || {}; startTimer({ label: m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`, minutes: m, sound: T.sound || 'bell' }); },
-  'custom-timer': () => { const T = S.settings.timerTool || {}; startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: T.sound || $('#tt-sound').value }); },
+  'quick-timer': el => {
+    const m = Number(el.dataset.m), T = S.settings.timerTool || {};
+    const typed = $('#tt-label')?.value?.trim();
+    const defLbl = m < 1 ? '30 seconds' : `${m} minute${m > 1 ? 's' : ''}`;
+    const label = typed && typed !== 'Work time' ? typed : defLbl;
+    startTimer({ label, minutes: m, sound: T.sound || 'bell' });
+    if (P.tools.timer) { delete P.tools.timer; renderTools(); renderDock(); }
+  },
+  'custom-timer': () => {
+    const T = S.settings.timerTool || {};
+    startTimer({ label: $('#tt-label').value || 'Timer', minutes: Number($('#tt-min').value) || 1, sound: T.sound || $('#tt-sound').value });
+    if (P.tools.timer) { delete P.tools.timer; renderTools(); renderDock(); }
+  },
+  'comp-quick-timer': () => { startTimer({ label: '2 minutes', minutes: 2, sound: S.settings.timerTool?.sound || 'bell' }); tick(); },
+  'unpin-schedule': () => { P.pinned = null; S.settings.lastPinned = ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); tick(); toast('Following your bell schedule.'); },
+  'fb-audio-stop': () => { fbStopAudio(); renderDock(); },
+  'ie-priv-toggle': () => { P.showPrivNotes = !P.showPrivNotes; P.sideKey = ''; tick(); },
+  'tl-enable-all': el => { const c = S.classes[+el.dataset.ci] || selClass(); if (!c) return; c.automations.forEach(a => a.enabled = true); save(); tlRerender(); toast(`Turned on ${c.automations.length} automations for ${c.name}.`); },
   'tt-step': el => { const T = (S.settings.timerTool ||= {}), i = $('#tt-min'); T.min = Math.max(0.5, Math.round(((Number(i?.value) || 0) + Number(el.dataset.d)) * 2) / 2); if (i) i.value = T.min; save(); },
   'tt-mute': () => { const T = (S.settings.timerTool ||= {}); if (T.sound === 'none') T.sound = T.lastSound || 'bell'; else { T.lastSound = T.sound || 'bell'; T.sound = 'none'; } save(); rerenderTool('timer'); },
   'timer-mute': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; if (tm.sound === 'none') { tm.sound = S.settings.timerTool?.lastSound || 'bell'; tm.muted = false; } else tm.muted = !tm.muted; renderTimers(); },
-  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); updateTimers(); },
-  'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); updateTimers(); },
+  'timer-pause': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm || tm.doneAt) return; if (tm.pausedLeft != null) { tm.endAt = onClockSecond(Date.now() + tm.pausedLeft); tm.pausedLeft = null; } else tm.pausedLeft = tm.endAt - Date.now(); updateTimers(); if (P.companion) tick(); },
+  'timer-add': el => { const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return; tm.doneAt = 0; if (tm.pausedLeft != null) tm.pausedLeft += 60000; else tm.endAt = Math.max(tm.endAt, Date.now()) + 60000; tm.total = Math.max(tm.total, timerLeft(tm)); renderTimers(); },
   'timer-full': el => {
     const tm = P.timers.find(t => t.id === el.dataset.id); if (!tm) return;
     tm.full = !tm.full;
@@ -5143,24 +5249,42 @@ const A = {
   'music-stop-ed': () => stopMusic(true),
   pt: el => { const c = currentClass(); if (!c) return; c.points[el.dataset.i].score += Number(el.dataset.d); save(); rerenderTool('points'); },
   'pt-add': () => { const c = currentClass(); if (!c) return; c.points.push({ name: `Team ${c.points.length + 1}`, score: 0 }); save(); rerenderTool('points'); },
+  'pt-del-row': el => { const c = currentClass(), i = +el.dataset.i; if (!c || c.points.length <= 1 || !c.points[i]) return; const t = c.points[i]; if (t.score && !confirm(`Remove “${t.name}” (${t.score} pts)?`)) return; c.points.splice(i, 1); save(); rerenderTool('points'); },
   'pt-del': () => { const c = currentClass(); if (!c || c.points.length <= 1) return; const last = c.points[c.points.length - 1]; if (last.score && !confirm(`Remove “${last.name}” (${last.score} pts)?`)) return; c.points.pop(); save(); rerenderTool('points'); },
   'pt-reset': () => { const c = currentClass(); if (!c) return; if (c.points.some(p => p.score) && !confirm('Reset all team scores to 0?')) return; c.points.forEach(p => p.score = 0); save(); rerenderTool('points'); },
   'noise-start': () => noiseStart(),
   'noise-stop': () => noiseStop(),
+  'rand-quick-add': () => {
+    const c = currentClass(), raw = $('#rand-quick-ta')?.value || '';
+    if (!c) return;
+    const names = raw.split(/\r?\n|,/).map(x => x.trim()).filter(Boolean);
+    if (!names.length) return toast('Paste at least one student name first.');
+    c.roster.push(...names); save(); rerenderTool('random');
+    toast(`Added ${names.length} student${names.length === 1 ? '' : 's'} to ${c.name}.`);
+  },
+  'rand-open-roster': () => { const c = currentClass(); if (c) SEL_CLASS = c.id; TAB = 'classes'; go('edit'); },
+  'rand-reset': () => { const c = currentClass(); if (!c) return; const rs = randState(c); rs.used.clear(); rerenderTool('random'); },
   'rand-pick': () => {
     const c = currentClass(); if (!c?.roster.length) return;
-    let pool = c.roster; if (R.noRepeat) { pool = c.roster.filter(n => !R.used.has(n)); if (!pool.length) { R.used.clear(); pool = c.roster; } }
+    const rs = randState(c);
+    clearInterval(R_TIMER);
+    let pool = c.roster; if (rs.noRepeat) { pool = c.roster.filter(n => !rs.used.has(n)); if (!pool.length) { rs.used.clear(); pool = c.roster; } }
     const out = $('#rand-out'); let n = 0;
-    const iv = setInterval(() => { out.textContent = c.roster[Math.floor(Math.random() * c.roster.length)]; if (++n > 14) { clearInterval(iv); R.last = pool[Math.floor(Math.random() * pool.length)]; R.used.add(R.last); out.textContent = R.last; playSound('ding'); } }, 70);
+    R_TIMER = setInterval(() => {
+      if (out) out.textContent = c.roster[Math.floor(Math.random() * c.roster.length)];
+      if (++n > 14) { clearInterval(R_TIMER); R_TIMER = 0; rs.last = pool[Math.floor(Math.random() * pool.length)]; rs.used.add(rs.last); rerenderTool('random'); playSound('ding'); }
+    }, 65);
   },
   'rand-groups': () => {
     const c = currentClass(); if (!c?.roster.length) return;
-    const names = [...c.roster].sort(() => Math.random() - 0.5); const n = Math.max(1, Math.ceil(names.length / R.groupN));
-    R.groups = [...Array(n)].map(() => []); names.forEach((x, i) => R.groups[i % n].push(x)); rerenderTool('random');
+    const rs = randState(c);
+    const names = [...c.roster].sort(() => Math.random() - 0.5); const n = Math.max(1, Math.ceil(names.length / rs.groupN));
+    rs.groups = [...Array(n)].map(() => []); names.forEach((x, i) => rs.groups[i % n].push(x)); rerenderTool('random');
   },
-  signal: el => { P.signal = { ...SIGNALS[el.dataset.i] }; },
-  'signal-custom': () => { const v = $('#sig-custom').value.trim(); if (v) P.signal = { text: v, color: '#3b6cf6' }; },
-  'signal-clear': () => { P.signal = null; },
+  'sig-col': el => { SIG_COLOR = el.dataset.c || '#3b6cf6'; rerenderTool('signal'); },
+  signal: el => { P.signal = { ...SIGNALS[el.dataset.i] }; rerenderTool('signal'); },
+  'signal-custom': () => { const v = $('#sig-custom')?.value.trim(); if (v) { P.signal = { text: v, color: SIG_COLOR }; rerenderTool('signal'); } },
+  'signal-clear': () => { P.signal = null; rerenderTool('signal'); if (P.companion) tick(); },
   'agenda-prev': () => { const t = now(), c = context(t); if (c.cls) P.agendaOverride[c.key] = Math.max(0, agendaStep(c, t) - 1); },
   'agenda-next': () => { const t = now(), c = context(t); if (c.cls) P.agendaOverride[c.key] = Math.min(c.cls.agenda.length - 1, agendaStep(c, t) + 1); },
   stage: el => { const c = context(now()); if (c.cls) { if ((P.stageSel[c.key] || 'warmup') !== el.dataset.id) stopMusicHosts(); P.stageSel[c.key] = el.dataset.id; } P.stageKey = ''; if (P.groupMenu) { P.groupMenu = null; renderGroupMenu(); } },
@@ -5191,6 +5315,7 @@ const A = {
       r.markupMode = turningOn;
       if (!turningOn) P.forceStageUrl = r.id;
       if (turningOn) {
+        window.closeAllPdfAnnot?.();
         P.ink.on = true; P.ink.interact = false;
       } else if (P.ink.on) {
         P.ink.on = false; P.ink.interact = false;
@@ -5203,7 +5328,7 @@ const A = {
       const t = winRes(w) || w;
       const turningOn = !t.markupMode;
       t.markupMode = turningOn;
-      if (turningOn) { P.ink.on = true; P.ink.interact = false; }
+      if (turningOn) { window.closeAllPdfAnnot?.(); P.ink.on = true; P.ink.interact = false; }
       else if (P.ink.on) { P.ink.on = false; P.ink.interact = false; }
       save(); WIN.sig = ''; WIN.lastSync = '';
       updateInkUI(); renderDock();
@@ -5282,7 +5407,7 @@ const A = {
   // free windows
   'win-menu': () => { P.winMenu = !P.winMenu; renderWinMenu(); renderDock(); },
   'win-tile': () => { P.winMenu = false; renderWinMenu(); renderDock(); tileWindows(); },
-  'wm-web': () => { const w = addWindow({ kind: 'web', url: '', native: false }); setTimeout(() => $(`[data-wurl="${w.id}"]`)?.focus(), 30); },
+  'wm-web': () => { const w = addWindow({ kind: 'web', url: '' }); setTimeout(() => $(`[data-wurl="${w.id}"]`)?.focus(), 30); },
   'wm-files': () => {
     const ex = winList().find(w => w.kind === 'files');
     if (ex) { P.winMenu = false; renderWinMenu(); renderDock(); bringToFront(ex); setTimeout(() => $(`.win[data-win="${ex.id}"] .fb-search`)?.focus(), 30); return; }
@@ -5292,11 +5417,11 @@ const A = {
   'wm-file': async () => { P.winMenu = false; renderWinMenu(); renderDock(); const fs = await pickFile('application/pdf,image/*,video/*,audio/*,.mxl,.musicxml,.mscz,.mscx', true); for (const f of fs) { const id = await storeFile(f); addWindow(spIsScoreName(f.name) ? { kind: 'score', score: { fileId: id, name: f.name } } : { kind: 'file', fileId: id }); } },
   'wm-score': async () => {
     P.winMenu = false; renderWinMenu(); renderDock();
-    // reopen the score you used last (switch scores from the list inside the widget)
+    // reopen the score you used last, or open Score Practice with its friendly dropzone empty state
     const lib = typeof spLibrary === 'function' ? spLibrary() : [];
     const pick = lib.find(x => x.id === S.settings.lastScore) || lib[0];
     if (pick) { const saved = S.scoreSettings?.[pick.id]; addWindow({ kind: 'score', score: saved ? JSON.parse(JSON.stringify(saved)) : { fileId: pick.id, name: S.files[pick.id]?.name } }); return; }
-    const fs = await pickFile('.mxl,.musicxml,.xml,.mscz,.mscx', true); for (const f of fs) { const id = await storeFile(f); addWindow({ kind: 'score', score: { fileId: id, name: f.name } }); } },
+    addWindow({ kind: 'score', score: { name: 'Score Practice' } }, { w: 0.68, h: 0.8 }); },
   'wm-apps': () => { P.appPick = 'loading'; renderWinMenu(); native('listAppWindows'); },
   'wm-app': el => {
     const a = P.appPick?.windows?.[+el.dataset.i]; if (!a) return;
@@ -5376,6 +5501,7 @@ const A = {
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
     if (closing?.kind === 'rec') { closePlayer(); if (REC.meter) recMeter(false); }
+    if (closing?.kind === 'files' || (closing?.kind === 'res' && winRes(closing)?.filesBrowser)) fbStopAudio();
     if (closing?.kind === 'piano' && typeof pianoSeqStop === 'function') pianoSeqStop();
     if (closing && ['score', 'sight', 'res'].includes(closing.kind)) stopMusicHosts();
     const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
@@ -5418,7 +5544,7 @@ const A = {
     save(); renderDock(); renderDockCustom();
   },
   'dock-home': () => { dockCfg().pos = { mode: 'header' }; save(); renderDock(); renderDockCustom(); },
-  'dock-reset': () => { S.settings.dock = {}; S.settings.hideDockAfter = 0; save(); renderDock(); renderDockCustom(); },
+  'dock-reset': () => { if (!confirm('Reset the toolbar buttons, order, and style back to defaults?')) return; S.settings.dock = {}; S.settings.hideDockAfter = 0; save(); renderDock(); renderDockCustom(); },
   'tab-group': el => { P.groupMenu = P.groupMenu === el.dataset.id ? null : el.dataset.id; renderGroupMenu(); },
   'group-out': el => {
     const c = ieClass(); if (!c) return; const r = c.cls.resources.find(x => x.id === el.dataset.id); if (!r) return;
@@ -5463,7 +5589,7 @@ const A = {
   },
   'edit-mode': () => {
     document.activeElement?.blur?.();
-    P.editMode = !P.editMode; if (!P.editMode) { P.lookOpen = P.autoDrawer = false; renderLook(); renderAutoDrawer(); }
+    P.editMode = !P.editMode; if (!P.editMode) { P.lookOpen = P.autoDrawer = P.showPrivNotes = false; renderLook(); renderAutoDrawer(); }
     P.sideKey = P.stageKey = ''; if ($('#p-title')) $('#p-title')._h = ''; renderDock();
     if (P.editMode && !ieClass()) toast('Show a class (Class picker) to edit its agenda, warm-up and look.');
   },
@@ -5524,14 +5650,43 @@ const A = {
     save(); P.stageKey = ''; renderWins(context(now()), true); toast(`Saved “${r.title}” to ${cls.name}`);
   },
   // ink
-  'ink-toggle': () => { if (P.ink.on && !P.ink.blank) P.ink.on = false; else { P.ink.on = true; P.ink.blank = false; P.ink.interact = false; } updateInkUI(); renderDock(); },
-  'board-toggle': () => { if (P.ink.on && P.ink.blank) P.ink.on = false; else { P.ink.on = true; P.ink.blank = true; P.ink.interact = false; if (P.ink.color === '#ffffff') P.ink.color = '#111111'; } updateInkUI(); renderDock(); },
+  'ink-toggle': () => {
+    if (P.ink.on && !P.ink.blank) { saveInk(); P.ink.on = false; }
+    else {
+      if (typeof window.closeAllPdfAnnot === 'function') window.closeAllPdfAnnot();
+      saveInk(); P.ink.on = true; P.ink.blank = false; P.ink.interact = false;
+      switchInkKey(desiredInkKey());
+    }
+    updateInkUI(); renderDock();
+  },
+  'board-toggle': () => {
+    if (P.ink.on && P.ink.blank) { saveInk(); P.ink.on = false; }
+    else {
+      if (typeof window.closeAllPdfAnnot === 'function') window.closeAllPdfAnnot();
+      saveInk(); P.ink.on = true; P.ink.blank = true; P.ink.interact = false;
+      if (P.ink.color === '#ffffff') P.ink.color = '#111111';
+      switchInkKey(desiredInkKey());
+    }
+    updateInkUI(); renderDock();
+  },
+  'ink-mode': el => { P.ink.interact = el.dataset.m === 'interact'; updateInkUI(); },
   'ink-tool': el => { P.ink.tool = el.dataset.t; P.ink.interact = false; updateInkUI(); },
-  'ink-color': el => { P.ink.color = el.dataset.c; if (P.ink.tool === 'erase') P.ink.tool = 'pen'; updateInkUI(); },
+  'ink-color': el => { P.ink.color = el.dataset.c; if (P.ink.tool === 'erase') P.ink.tool = 'pen'; P.ink.interact = false; updateInkUI(); },
   'ink-interact': () => { P.ink.interact = !P.ink.interact; updateInkUI(); },
   'ink-undo': () => inkDoUndo(),
-  'ink-clear': () => { inkPushUndo(); inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore(); saveInk(); toast('Drawing cleared — press Undo or ⌘Z to restore.'); },
+  'ink-clear': () => {
+    inkPushUndo(); inkCtx.save(); inkCtx.setTransform(1, 0, 0, 1, 0, 0); inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); inkCtx.restore(); saveInk();
+    const t = toast('Drawing cleared.', 4500);
+    const el = $('.toast');
+    if (el) {
+      const b = document.createElement('button');
+      b.textContent = 'Undo'; b.style.cssText = 'margin-left:10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;font-weight:700';
+      b.onclick = () => { inkDoUndo(); el.remove(); };
+      el.appendChild(b);
+    }
+  },
   'ink-close': () => {
+    saveInk();
     P.ink.on = false;
     const sr = stageNativeRes(true);
     if (sr && sr.markupMode) { sr.markupMode = false; P.forceStageUrl = sr.id; P.stageKey = ''; WIN.lastSync = ''; }
@@ -5546,7 +5701,7 @@ const A = {
     if (!confirm(`Delete “${c.name}” and its notes? It will also be removed from bell schedules.`)) return;
     S.classes = S.classes.filter(x => x !== c); S.templates.forEach(t => t.periods = t.periods.filter(p => p.classId !== c.id)); save(); renderEditor();
   },
-  'class-preview': () => { P.pinned = SEL_CLASS; S.settings.lastPinned = P.pinned || ''; save(); go('present'); },
+  'class-preview': () => { P.pinned = SEL_CLASS; go('present'); },
   theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '' }; save(); renderEditor(); },
   'theme-text-reset': () => { const c = selClass(); if (!c) return; delete c.theme.titleText; delete c.theme.clockText; save(); renderEditor(); },
   'theme-image': async () => { const [f] = await pickFile('image/*'); if (!f) return; const id = await storeFile(f); selClass().theme.image = 'file:' + id; save(); renderEditor(); },
@@ -5600,7 +5755,7 @@ const A = {
   },
   // library
   'lib-add': async () => { const fs = await pickFile('audio/*,application/pdf,image/*,video/*', true); for (const f of fs) await storeFile(f); renderEditor(); if (fs.length) toast(`Added ${fs.length} file${fs.length > 1 ? 's' : ''}.`); },
-  'lib-del': el => { const f = S.files[el.dataset.id]; if (!confirm(`Delete “${f.name}” from the library?`)) return; deleteFile(el.dataset.id); renderEditor(); },
+  'lib-del': el => { if (deleteLibraryFile(el.dataset.id)) renderEditor(); },
   // settings
   export: () => { const text = JSON.stringify(S, null, 2), name = `rehearsal-backup-${dateKey(new Date())}.json`; if (!native('saveText', { name, text })) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; a.click(); } },
   import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.classes) throw 0; if (!confirm('Replace all current data with this backup?')) return; S = migrate(d); save(); renderEditor(); toast('Backup imported.'); } catch { alert('That file is not a Rehearsal backup.'); } },
@@ -5679,13 +5834,29 @@ function calibrateSync() {
   timer = setTimeout(() => done(false), (t0 - c.currentTime + (lead + n) * beat + 0.6) * 1000);
 }
 const CHANGE = {
-  'board-paper': el => { S.settings.boardPaper = el.value; save(); updateInkUI(); },
-  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); },
+  'board-paper': el => { saveInk(); S.settings.boardPaper = el.value; save(); switchInkKey(desiredInkKey()); updateInkUI(); },
+  pin: el => { P.pinned = el.value || null; S.settings.lastPinned = P.pinned || ''; save(); P.layoutKey = ''; stopMusicHosts(); renderDock(); if (P.tools.random) rerenderTool('random'); },
   'ink-size': el => { P.ink.size = Number(el.value); },
-  'noise-beep': el => { NOISE.beep = el.checked; },
+  'noise-beep': el => { NOISE.beep = el.checked; S.settings.noiseBeep = el.checked; save(); },
   'noise-dyn': el => { S.settings.noiseDyn = el.checked; save(); rerenderTool('noise'); },
   'tt-sound': el => { const T = (S.settings.timerTool ||= {}); T.sound = el.value; if (el.value !== 'none') T.lastSound = el.value; save(); rerenderTool('timer'); },
-  'rand-norep': el => { R.noRepeat = el.checked; R.used.clear(); },
+  'rand-norep': el => { const rs = randState(currentClass()); rs.noRepeat = el.checked; rs.used.clear(); rerenderTool('random'); },
+  'ov-date': el => {
+    const oldK = el.dataset.old, newK = el.value;
+    if (!newK || oldK === newK) return;
+    if (newK in S.overrides && !confirm(`Replace the existing special day on ${longDate(parseKey(newK))}?`)) { el.value = oldK; return; }
+    const val = S.overrides[oldK]; delete S.overrides[oldK]; S.overrides[newK] = val;
+    save(); renderEditor();
+  },
+  'ie-sticky-note': el => {
+    const c = ieClass(); if (!c) return;
+    const today = dateKey(now());
+    c.cls.screenNotes ||= {};
+    const txt = $('[data-ie-pubnotes]')?.value ?? (c.cls.screenNotes[today] || c.cls.screenNotes._sticky || '');
+    if (el.checked) { c.cls.screenNotes._sticky = txt; }
+    else { delete c.cls.screenNotes._sticky; if (txt.trim()) c.cls.screenNotes[today] = txt; }
+    save(); P.sideKey = '';
+  },
   'note-class': el => { NOTE_CLASS = el.value; renderEditor(); },
   'note-date': el => { if (el.value) { NOTE_DATE = el.value; renderEditor(); } },
   'grlog-toggle': el => {
@@ -5699,8 +5870,8 @@ const CHANGE = {
 const INPUT = {
   'music-vol': el => { setMusicVol(+el.value); el.nextElementSibling.textContent = Math.round(+el.value * 100) + '%'; },
   'av-delay': el => { const ms = setAvDelay(+el.value); el.nextElementSibling.textContent = ms + ' ms'; },
-  'noise-limit': el => { NOISE.limit = Number(el.value); const l = $('#nm .lim'); if (l) l.style.left = NOISE.limit + '%'; const d = $('#nm-limdyn'); if (d) d.textContent = dynOf(NOISE.limit); },
-  'rand-n': el => { R.groupN = clamp(Number(el.value) || 4, 2, 12); },
+  'noise-limit': el => { NOISE.limit = Number(el.value); S.settings.noiseLimit = NOISE.limit; save(); const l = $('#nm .lim'); if (l) l.style.left = NOISE.limit + '%'; const d = $('#nm-limdyn'); if (d) d.textContent = dynOf(NOISE.limit); },
+  'rand-n': el => { randState(currentClass()).groupN = clamp(Number(el.value) || 4, 2, 12); },
   'tt-field': el => { const T = (S.settings.timerTool ||= {}); T[el.dataset.k] = el.dataset.k === 'min' ? (Number(el.value) || T.min) : el.value; save(); },
 };
 let DRIVE_TARGET = null;
@@ -5815,28 +5986,7 @@ document.addEventListener('pointerdown', () => { P.lastMove = Date.now(); if (AC
 
 // ============================================================ boot
 window.__companionState = on => { if (!on && P.companion) { P.companion = null; P.compAppsOpen = false; P.compAppsHover = false; tick(); } };
-let compHoverT = 0;
-document.addEventListener('pointerover', e => {
-  if (!P.companion || P.compAppsOpen) return;
-  if (e.target.closest?.('.comp-apps-btn')) {
-    clearTimeout(compHoverT);
-    compHoverT = setTimeout(() => {
-      if (P.companion && !P.compAppsOpen && $('.comp-apps-btn:hover')) {
-        P.compAppsOpen = true; P.compAppsHover = true; native('listAppWindows'); tick();
-      }
-    }, 240);
-  }
-});
-document.addEventListener('pointerout', e => {
-  if (e.target.closest?.('.comp-apps-btn')) clearTimeout(compHoverT);
-  if (P.companion && P.compAppsOpen && P.compAppsHover && e.target.id === 'p-companion' && !e.relatedTarget) {
-    P.compAppsOpen = false; P.compAppsHover = false; tick();
-  }
-});
-document.addEventListener('mouseleave', () => {
-  clearTimeout(compHoverT);
-  if (P.companion && P.compAppsOpen && P.compAppsHover) { P.compAppsOpen = false; P.compAppsHover = false; tick(); }
-});
+// Apps menu in Companion HUD opens on deliberate click (no accidental 240 ms hover hijack)
 
 const TOUR_STEPS = [
   { sel: '[data-dock-id="editmode"]', fallback: '#p-dock', title: '1. Edit the Page (Quick Edit)', body: 'Click Quick edit to change the class name, warm-up, agenda, or class colors right on the Present screen.' },
@@ -6007,7 +6157,7 @@ function renderTour() {
 // ---------- Searchable Files Window (Audio / PDF / Scores / Images / Video + single-file Pin)
 let FB_AUDIO = null, FB_AUDIO_ID = null;
 function fbStopAudio() {
-  if (FB_AUDIO) { try { FB_AUDIO.pause(); } catch { } FB_AUDIO = null; FB_AUDIO_ID = null; }
+  if (FB_AUDIO) { try { FB_AUDIO.pause(); } catch { } FB_AUDIO = null; FB_AUDIO_ID = null; if (VIEW === 'present') renderDock(); }
 }
 function fbCategoryOf(id, f) {
   if (!f) return 'other';
@@ -6028,7 +6178,7 @@ function fbPinFileToClass(id) {
   if (existing) {
     P.stageSel[context(now()).key] = existing.id;
     P.stageKey = ''; tick();
-    toast(`Switched to pinned tab “${existing.title}”`);
+    toast(`Switched to tab “${existing.title}”`);
     return;
   }
   const cleanTitle = (f.name || 'File').replace(/\.[^.]+$/, '');
@@ -6039,6 +6189,15 @@ function fbPinFileToClass(id) {
   P.stageSel[context(now()).key] = res.id;
   save(); P.stageKey = ''; tick();
   toast(`Pinned “${cleanTitle}” to ${cls.name}`);
+}
+function fbUnpinFileFromClass(id) {
+  const cls = currentClass(); if (!cls) return;
+  const idx = cls.resources.findIndex(r => r.fileId === id || r.score?.fileId === id);
+  if (idx < 0) return;
+  const [removed] = cls.resources.splice(idx, 1);
+  if (P.stageSel[context(now()).key] === removed.id) P.stageSel[context(now()).key] = 'warmup';
+  save(); P.stageKey = ''; tick();
+  toast(`Unpinned “${removed.title}” from ${cls.name}`);
 }
 function fbOpenFileFloating(id) {
   const f = S.files[id]; if (!f) return;
@@ -6051,26 +6210,41 @@ function fbOpenFileFloating(id) {
     addWindow({ kind: 'file', fileId: id }, sz);
   }
 }
-function fbDeleteFile(id) {
+function deleteLibraryFile(id) {
   const f = S.files[id]; if (!f) return false;
-  const used = S.classes.filter(c => c.resources.some(r => r.fileId === id || r.score?.fileId === id)).map(c => c.name);
-  const msg = used.length
-    ? `Delete “${f.name}” from your library?\n\nIt is currently pinned in: ${used.join(', ')}. Removing it will also remove those tabs.`
+  const refs = [];
+  for (const c of S.classes) {
+    const hits = [];
+    if (c.resources.some(r => r.fileId === id || r.score?.fileId === id)) hits.push('tab');
+    if (c.theme?.image === 'file:' + id) hits.push('background');
+    if ((c.automations || []).some(a => a.fileId === id || a.sound === 'file:' + id)) hits.push('automation');
+    if (hits.length) refs.push(`${c.name} (${hits.join(', ')})`);
+  }
+  if ((S.recordings || []).some(r => r.fileId === id)) refs.push('Voice recordings');
+  const msg = refs.length
+    ? `Delete “${f.name}” from your library?\n\nCurrently used in: ${refs.join('; ')}. Deleting it will also remove those references.`
     : `Delete “${f.name}” from your library? This cannot be undone.`;
   if (!confirm(msg)) return false;
   if (FB_AUDIO_ID === id) fbStopAudio();
   for (const c of S.classes) {
     c.resources = c.resources.filter(r => r.fileId !== id && r.score?.fileId !== id);
+    if (c.theme?.image === 'file:' + id) c.theme.image = '';
+    for (const a of c.automations || []) {
+      if (a.fileId === id) a.fileId = '';
+      if (a.sound === 'file:' + id) a.sound = 'chime';
+    }
   }
+  if (S.recordings) S.recordings = S.recordings.filter(r => r.fileId !== id);
   for (const k of Object.keys(S.windows || {})) {
     S.windows[k] = S.windows[k].filter(w => w.fileId !== id && w.score?.fileId !== id);
   }
   deleteFile(id);
   P.stageKey = ''; WIN.sig = '';
   toast(`Deleted “${f.name}”`);
-  tick();
+  if (VIEW === 'present') tick();
   return true;
 }
+function fbDeleteFile(id) { return deleteLibraryFile(id); }
 function fbPinBrowserToClass() {
   const cls = currentClass();
   if (!cls) return toast('Switch to a class first to pin Files as a tab.');
@@ -6078,7 +6252,7 @@ function fbPinBrowserToClass() {
   if (existing) {
     P.stageSel[context(now()).key] = existing.id;
     P.stageKey = ''; tick();
-    toast('Switched to pinned Files tab');
+    toast('Switched to Files tab');
     return;
   }
   const res = { id: uid(), title: 'Files', filesBrowser: true };
@@ -6087,9 +6261,18 @@ function fbPinBrowserToClass() {
   save(); P.stageKey = ''; tick();
   toast(`Pinned Files browser to ${cls.name}`);
 }
+function fbUnpinBrowserFromClass() {
+  const cls = currentClass(); if (!cls) return;
+  const idx = cls.resources.findIndex(r => r.filesBrowser);
+  if (idx < 0) return;
+  const [removed] = cls.resources.splice(idx, 1);
+  if (P.stageSel[context(now()).key] === removed.id) P.stageSel[context(now()).key] = 'warmup';
+  save(); P.stageKey = ''; tick();
+  toast(`Unpinned Files tab from ${cls.name}`);
+}
 function mountFilesBrowser(host) {
   if (!host) return;
-  if (!host._fbState) host._fbState = { q: '', cat: 'all', openId: null, pdfState: {}, scoreState: {} };
+  if (!host._fbState) host._fbState = { q: '', cat: 'all', openId: null, pdfState: {}, scoreState: {}, uploading: '' };
   const st = host._fbState;
   const hostKey = host.dataset.filesWin || 'fb';
   const icoOf = c => c === 'audio' ? 'ico:audio' : c === 'pdf' ? 'ico:file' : c === 'score' ? 'ico:score' : c === 'image' ? 'ico:image' : c === 'video' ? 'ico:video' : 'ico:attach';
@@ -6112,7 +6295,8 @@ function mountFilesBrowser(host) {
         <div class="fb-vbar">
           <button class="fb-back" data-fb="back" title="Return to searchable Files list">${IC('ico:chevleft')} Files</button>
           <span class="fb-vtitle"><span class="fb-vic">${IC(icoOf(c))}</span><b>${esc(f.name)}</b></span>
-          <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin-out" data-id="${id}" title="${pin ? 'Pinned as its own tab — click to jump to it' : 'Pin this single file outside as its own class tab'}">${IC('ico:pin')} <span>${pin ? 'Pinned tab' : 'Pin as own tab'}</span></button>
+          <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin-out" data-id="${id}" title="${pin ? 'Open this file\'s pinned tab' : 'Pin this single file outside as its own class tab'}">${IC('ico:pin')} <span>${pin ? 'Open tab' : 'Pin as own tab'}</span></button>
+          ${pin ? `<button class="fb-btn" data-fb="unpin" data-id="${id}" title="Unpin from ${esc(cls?.name || 'class')}">${IC('ico:close')}</button>` : ''}
           <button class="fb-btn" data-fb="popout" data-id="${id}" title="Open this file in a separate floating window">${IC('ico:external')} <span>Pop out</span></button>
           <button class="fb-btn fb-del" data-fb="del" data-id="${id}" title="Delete this file from your library">${IC('ico:trash')}</button>
         </div>
@@ -6120,7 +6304,7 @@ function mountFilesBrowser(host) {
       </div>`;
       const pdfEl = host.querySelector('[data-fb-pdf]');
       if (pdfEl && typeof mountPdf === 'function') {
-        mountPdf(pdfEl, src, (st.pdfState[id] ||= {}), () => save(), pdfInkOpts(id, {}));
+        mountPdf(pdfEl, src, (st.pdfState[id] ||= {}), () => save(), pdfInkOpts(id, { inFiles: true }));
       }
       const scoreEl = host.querySelector('[data-fb-score]');
       if (scoreEl && typeof mountScore === 'function') {
@@ -6156,12 +6340,12 @@ function mountFilesBrowser(host) {
     host.innerHTML = `<div class="fb-wrap">
       <div class="fb-top">
         <input class="fb-search" placeholder="Search audio, PDFs, scores, images…" value="${esc(st.q)}">
-        ${!inStage ? `<button class="fb-btn ${browserPinned ? 'on' : ''}" data-fb="pin-browser" title="${browserPinned ? 'Files browser is pinned to this class — click to view tab' : 'Pin this Files browser as a tab in the current class'}">${IC('ico:pin')} <span>${browserPinned ? 'Pinned' : 'Pin tab'}</span></button>` : ''}
-        <button class="fb-add" data-fb="add" title="Import new files into your library">${IC('ico:plus')} Add files</button>
+        ${!inStage ? `<button class="fb-btn ${browserPinned ? 'on' : ''}" data-fb="${browserPinned ? 'unpin-browser' : 'pin-browser'}" title="${browserPinned ? 'Click to unpin Files tab from this class' : 'Pin this Files browser as a tab in the current class'}">${IC('ico:pin')} <span>${browserPinned ? 'Unpin tab' : 'Pin tab'}</span></button>` : ''}
+        <button class="fb-add" data-fb="add" title="Import new files into your library">${IC('ico:plus')} ${st.uploading ? esc(st.uploading) : 'Add files'}</button>
       </div>
-      <div class="fb-cats">
+      ${all.length ? `<div class="fb-cats">
         ${cats.map(([k, lbl]) => `<button class="fb-cat ${st.cat === k ? 'on' : ''}" data-fb="cat" data-v="${k}">${lbl} <span>${counts[k] || 0}</span></button>`).join('')}
-      </div>
+      </div>` : ''}
       <div class="fb-list">
         ${list.length ? list.map(([id, f]) => {
           const c = fbCategoryOf(id, f), pin = isPinned(id), playing = FB_AUDIO_ID === id;
@@ -6172,10 +6356,13 @@ function mountFilesBrowser(host) {
               <span class="fb-meta"><b class="fb-name">${esc(f.name)}</b><small>${c.toUpperCase()}${sz ? ' · ' + sz : ''}</small></span>
             </button>
             ${c === 'audio' ? `<button class="fb-btn ${playing ? 'on' : ''}" data-fb="play" data-id="${id}" title="${playing ? 'Stop audio preview' : 'Play audio preview'}">${IC(playing ? 'ico:stop' : 'ico:play')}</button>` : ''}
-            <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin" data-id="${id}" title="${pin ? 'Pinned as its own tab — click to view tab' : 'Pin this single file outside as its own tab'}">${IC('ico:pin')} <span>${pin ? 'Pinned' : 'Pin'}</span></button>
+            <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin" data-id="${id}" title="${pin ? 'Open this pinned tab' : 'Pin this single file outside as its own tab'}">${IC('ico:pin')} <span>${pin ? 'Open tab' : 'Pin'}</span></button>
+            ${pin ? `<button class="fb-btn" data-fb="unpin" data-id="${id}" title="Unpin from ${esc(cls?.name || 'class')}" aria-label="Unpin">${IC('ico:close')}</button>` : ''}
             <button class="fb-btn fb-del" data-fb="del" data-id="${id}" title="Delete ${esc(f.name)} from your library">${IC('ico:trash')}</button>
           </div>`;
-        }).join('') : `<div class="fb-empty">${all.length ? 'No files match your search.' : 'No files in your library yet — click <b>+ Add files</b> or drag &amp; drop files here.'}</div>`}
+        }).join('') : (all.length
+          ? `<div class="fb-empty">No files match your filter. <button type="button" class="fb-btn" data-fb="cat" data-v="all">Show all (${all.length})</button></div>`
+          : `<button type="button" class="fb-empty-drop" data-fb="add"><b>Drop files here or click to add</b><span>Supports PDFs, Audio (MP3/WAV/M4A), MusicXML / MuseScore, Images &amp; Video</span></button>`)}
       </div>
     </div>`;
     const inp = host.querySelector('.fb-search');
@@ -6183,6 +6370,22 @@ function mountFilesBrowser(host) {
       if (hadFocus && prevVal != null) { inp.focus(); if (selStart != null) try { inp.setSelectionRange(selStart, selStart); } catch { } }
       inp.addEventListener('input', () => { st.q = inp.value; render(); });
     }
+  };
+  const importBatch = async fs => {
+    if (!fs.length) return;
+    let added = 0, failed = 0, lastCat = null;
+    for (let i = 0; i < fs.length; i++) {
+      st.uploading = `Adding ${i + 1}/${fs.length}…`; render();
+      try {
+        const id = await storeFile(fs[i]);
+        added++; lastCat = fbCategoryOf(id, S.files[id]);
+      } catch { failed++; }
+    }
+    st.uploading = '';
+    if (added && st.cat !== 'all' && lastCat && st.cat !== lastCat) st.cat = 'all';
+    if (added) toast(`Added ${added} file${added > 1 ? 's' : ''} to library${failed ? ` (${failed} couldn't be saved)` : ''}`);
+    else if (failed) toast('Could not save file — storage may be full.', 4000);
+    render();
   };
   if (!host._fbBound) {
     host._fbBound = true;
@@ -6206,7 +6409,9 @@ function mountFilesBrowser(host) {
         }
       }
       else if (act === 'pin' || act === 'pin-out') { fbPinFileToClass(id); render(); }
+      else if (act === 'unpin') { fbUnpinFileFromClass(id); render(); }
       else if (act === 'pin-browser') { fbPinBrowserToClass(); render(); }
+      else if (act === 'unpin-browser') { fbUnpinBrowserFromClass(); render(); }
       else if (act === 'play') {
         if (FB_AUDIO_ID === id) { fbStopAudio(); render(); return; }
         fbStopAudio();
@@ -6215,21 +6420,19 @@ function mountFilesBrowser(host) {
           FB_AUDIO = a; FB_AUDIO_ID = id;
           a.onended = () => { if (FB_AUDIO === a) { fbStopAudio(); render(); } };
           a.play().catch(() => { });
+          renderDock();
         } catch { }
         render();
       } else if (act === 'add') {
         const fs = await pickFile('application/pdf,image/*,video/*,audio/*,.mxl,.musicxml,.mscz,.mscx', true);
-        for (const f of fs) await storeFile(f);
-        if (fs.length) { toast(`Added ${fs.length} file${fs.length > 1 ? 's' : ''} to library`); render(); }
+        await importBatch(fs);
       }
     });
     host.addEventListener('dragover', e => { e.preventDefault(); host.classList.add('fb-drop'); });
     host.addEventListener('dragleave', () => host.classList.remove('fb-drop'));
     host.addEventListener('drop', async e => {
       e.preventDefault(); host.classList.remove('fb-drop');
-      const fs = [...(e.dataTransfer?.files || [])];
-      for (const f of fs) await storeFile(f);
-      if (fs.length) { toast(`Added ${fs.length} file${fs.length > 1 ? 's' : ''} to library`); render(); }
+      await importBatch([...(e.dataTransfer?.files || [])]);
     });
   }
   render();

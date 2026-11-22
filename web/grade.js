@@ -366,7 +366,8 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
       n.cents = Math.round((rf - ref) * 100);
       n.sungAs = grName(n.match.midi - shift - ref);                  // the note heard, in the written key
       n.octave = Math.round((r - rf) / 12);
-      n.pitch = Math.abs(rf - ref) > 0.75 ? 'wrong' : n.octave ? 'octave' : 'ok';   // a wrong note is ~100¢ off; within 75¢ it's the right note, maybe out of tune (shown on the card)
+      const ignoreOct = typeof S !== 'undefined' && !!S?.settings?.grIgnoreOctave;
+      n.pitch = Math.abs(rf - ref) > 0.75 ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // a wrong note is ~100¢ off; within 75¢ it's the right note, maybe out of tune (shown on the card)
       if (n.pitch !== 'wrong') { okR.push(rf); if (okR.length >= 3) ref = med(okR.slice(-3)); }   // one note can't move it
       if (n.status === 'ok' && n.pitch !== 'ok') n.status = 'pitch';
     });
@@ -390,12 +391,22 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null)
 function grCardHTML(res, gradePitch) {
   const word = ms => ms > 0 ? `${ms} ms late` : ms < 0 ? `${-ms} ms early` : 'on time';
   const d = res.diag, tap = res.input === 'tap';
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
   const rangeBadge = res.rangeLabel ? `<span class="gr-sub" style="margin-top:2px;font-weight:600;color:#1f6fd1">Graded ${res.partName ? `${res.partName} · ` : ''}${res.rangeLabel}</span>` : '';
+  const peakN = parseFloat(d.peak) || 0, floorN = parseFloat(d.floor) || 0;
+  const zeroMicHint = peakN < 0.002
+    ? `Mic heard silence — check if your microphone is muted or pick the right input${isMac ? ' in System Settings → Sound' : ' in your sound settings'}.`
+    : floorN > 0.015
+      ? 'Room noise drowned out individual notes — move closer to the mic or quiet the room.'
+      : `Clap, sing, or play a bit louder, or move closer to the mic${isMac ? ' (check input level in System Settings → Sound)' : ''}.`;
+  const keyHint = gradePitch && res.rhythmPct >= 70 && res.pitchPct != null && res.pitchPct <= 55 && res.notes.length >= 3 && res.notes[0]?.pitch === 'ok'
+    ? `<div class="gr-tip-note">Tip: Pitch key was anchored to note 1 — match the count-in starting pitch, or check your Voice range in Settings.</div>` : '';
+  const showCal = !tap && (d.heard === 0 || Math.abs(res.offsetMs || 0) > 120 || res.rhythmPct < 75);
   const head = d.heard === 0
-    ? (tap ? `<b>No taps heard.</b>${rangeBadge} <span class="gr-sub">After the count-in, press the space bar at the start of each note.</span>`
-      : `<b>No notes heard.</b>${rangeBadge} <span class="gr-sub">Clap or play louder, or move closer to the mic. Check the mic in System Settings → Sound.</span>`)
+    ? (tap ? `<b>No taps heard.</b>${rangeBadge} <span class="gr-sub">After the count-in, tap the Tap pad or press the space bar at the start of each note.</span>`
+      : `<b>No notes heard.</b>${rangeBadge} <span class="gr-sub">${zeroMicHint}</span>`)
     : `<b>Rhythm ${res.rhythmPct}%</b>${gradePitch ? ` · <b>Pitch ${res.pitchPct}%</b>` : ''}${rangeBadge}
-       <span class="gr-sub">${d.heard} ${tap ? 'tap' : 'note'}${d.heard > 1 ? 's' : ''} ${tap ? 'counted' : 'heard'} · ${res.latUsed ? `overall ${word(res.offsetMs).replace(/ms late$/, 'ms behind the beat').replace(/ms early$/, 'ms ahead of the beat')}` : `average timing ${word(res.offsetMs)}`}${res.extra > 0 ? ` · ${res.extra} extra` : ''}${Math.abs(res.driftCents ?? 0) >= 25 ? ` · went ${Math.abs(res.driftCents)}¢ ${res.driftCents < 0 ? 'flat' : 'sharp'} by the end` : ''}</span>`;
+       <span class="gr-sub">${d.heard} ${tap ? 'tap' : 'note'}${d.heard > 1 ? 's' : ''} ${tap ? 'counted' : 'heard'}${res.latUsed ? ` · overall ${word(res.offsetMs).replace(/ms late$/, 'ms behind the beat').replace(/ms early$/, 'ms ahead of the beat')}` : ''}${res.extra > 0 ? ` · ${res.extra} extra` : ''}${Math.abs(res.driftCents ?? 0) >= 25 ? ` · went ${Math.abs(res.driftCents)}¢ ${res.driftCents < 0 ? 'flat' : 'sharp'} by the end` : ''}</span>`;
   const rows = res.notes.map(n => {
     const where = `bar ${n.bar}, note ${n.idx}${gradePitch && n.written != null ? ` (${grName(n.written)})` : ''}`;
     const status = n.joined ? '✓ joined (re-sing it)' : n.status === 'timing' ? (n.errMs < 0 ? 'early' : 'late') : { ok: '✓ on time', missed: tap ? 'no tap' : 'not heard', pitch: 'pitch' }[n.status];
@@ -404,11 +415,13 @@ function grCardHTML(res, gradePitch) {
     return `<tr class="gr-${n.status}"><td>${where}</td><td>${status}</td><td>${timing}</td>${gradePitch ? `<td>${pitch}</td>` : ''}</tr>`;
   }).join('');
   return `<div class="gr-head">${head}</div>
+    ${keyHint}
+    ${showCal && typeof openAvCal === 'function' ? `<div class="gr-cal-row"><span>Playhead or timing feel off?</span><button type="button" class="gr-cal-btn">Calibrate sync…</button></div>` : ''}
     <details class="gr-details"><summary>What was graded</summary>
       <table class="gr-table"><thead><tr><th>Note</th><th>Result</th><th>Timing</th>${gradePitch ? '<th>Pitch</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>
-      ${tap ? `<div class="gr-sub">Space bar: ${d.frames} tap${d.frames === 1 ? '' : 's'} (taps during the count-in are not counted).</div>`
-        : `<div class="gr-sub">Mic check: ${d.frames} readings over ${d.span} s · peak level ${d.peak} · quiet level ${d.floor} · threshold ${d.thr}${res.logId ? ` · saved as ${res.logId}` : ''}</div>`}
-      <div class="gr-sub">Timing is checked against your own steady beat, so a steady delay from the speakers${tap ? '' : ' or mic'} doesn't count against you.</div>
+      ${tap ? `<div class="gr-sub">Tap input: ${d.frames} tap${d.frames === 1 ? '' : 's'} (taps during the count-in are not counted).</div>`
+        : `<div class="gr-sub">Auto-adjusted speaker/mic offset: ${word(res.offsetMs)} · ${d.frames} readings over ${d.span} s · peak ${d.peak} · room noise ${d.floor}${res.logId ? ` · saved as ${res.logId}` : ''}</div>`}
+      <div class="gr-sub">Timing is checked against your own steady beat, so a steady delay from the speakers${tap ? '' : ' or mic'} doesn't count against you.${gradePitch ? ' Starting octave is flexible; melodic octave jumps are checked.' : ''}</div>
     </details>
     <div class="gr-sub">${tap ? 'Tap once at the start of each note (a held or tied note gets one tap). Rests get no tap.' : 'Practice feedback, not a grade. Headphones and a quiet room give the best result.'}</div>`;
 }
@@ -466,15 +479,19 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
   const legend = G && res.diag.heard > 0 ? `<div class="gr-legend"><span class="gr-sub">On the music:</span>
       <span><i class="gr-dot ok"></i>on time</span><span><i class="gr-dot timing"></i>early / late</span><span><i class="gr-dot missed"></i>${res.input === 'tap' ? 'no tap' : 'not heard'}</span>${gradePitch ? '<span><i class="gr-dot pitch"></i>wrong pitch</span>' : ''}<span><i class="gr-dot extra"></i>extra</span>
       <button class="gr-marks">${G.hidden ? 'Show marks' : 'Hide marks'}</button></div>` : '';
+  const savedMix = G?.mix || window.__grLastMix || 'both';
   card.innerHTML = `<button class="gr-x" title="Close (reopen anytime from Report or Recent)" aria-label="Close">${IC('ico:close')}</button>
     ${fromRecent ? `<button type="button" class="gr-back">← Recent attempts</button>` : ''}
     ${grCardHTML(res, gradePitch)}${legend}
     ${G?.take && res.diag.heard > 0 && host.__listen ? `<div class="gr-listen-row"><button class="gr-listen" title="Hear your ${res.input === 'tap' ? 'taps' : 'recording'} lined up with the music, with the playhead and these marks">${IC('ico:play')} Listen back</button>
-      <select class="gr-mix" title="What to hear"><option value="both">with the example</option><option value="rec">${res.input === 'tap' ? 'taps' : 'recording'} only</option></select></div>` : ''}
+      <select class="gr-mix" title="What to hear"><option value="both" ${savedMix === 'both' ? 'selected' : ''}>with the example</option><option value="rec" ${savedMix === 'rec' ? 'selected' : ''}>${res.input === 'tap' ? 'taps' : 'recording'} only</option></select></div>` : ''}
     <div class="gr-again-row"><button class="gr-again">${IC(res.input === 'tap' ? 'ico:keyboard' : 'ico:mic')} Try again</button>${G ? `<button type="button" class="gr-exit" title="Clear grading marks and exit grade mode">${IC('ico:close')} Exit Grade</button>` : ''}${GR_RECENT.length > 1 && !fromRecent ? `<button type="button" class="gr-rec-open">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}${past ? `<span class="gr-sub">Attempts: ${past}</span>` : ''}</div>`;
   card.querySelector('.gr-x').onclick = () => card.remove();
   card.querySelector('.gr-back')?.addEventListener('click', () => grShowRecent(host));
   card.querySelector('.gr-rec-open')?.addEventListener('click', () => grShowRecent(host));
+  card.querySelector('.gr-cal-btn')?.addEventListener('click', () => { card.remove(); if (typeof openAvCal === 'function') openAvCal(); });
+  const mixSel = card.querySelector('.gr-mix');
+  if (mixSel) mixSel.onchange = () => { window.__grLastMix = mixSel.value; if (G) G.mix = mixSel.value; };
   const mk = card.querySelector('.gr-marks');
   if (mk) mk.onclick = () => { G.hidden = !G.hidden; mk.textContent = G.hidden ? 'Show marks' : 'Hide marks'; host.__grRedraw?.(); };
   const ex = card.querySelector('.gr-exit');
@@ -494,9 +511,38 @@ function grShowCard(res, gradePitch, hist = [], host = null, fromRecent = false)
     const fn = G?.retry || GR.retry; if (fn) fn();
   };
   const lb = card.querySelector('.gr-listen');
-  if (lb) lb.onclick = () => grListen(host, card.querySelector('.gr-mix')?.value || 'both', lb);
+  if (lb) lb.onclick = () => {
+    const mv = card.querySelector('.gr-mix')?.value || savedMix || 'both';
+    window.__grLastMix = mv; if (G) G.mix = mv;
+    grListen(host, mv, lb);
+  };
   document.body.appendChild(card);
 }
+
+// Persistent, teacher-friendly inline mic error card with optional one-click Tap fallback
+function grShowMicError(host, err, onTapFallback = null) {
+  document.getElementById('gr-card')?.remove();
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
+  const name = err?.name || '';
+  const msg = name === 'NotAllowedError' || name === 'PermissionDeniedError'
+    ? (isMac ? 'Microphone access is blocked. Allow Rehearsal in System Settings → Privacy & Security → Microphone, then try again.'
+      : 'Microphone access is blocked. Allow microphone access in your browser or system privacy settings, then try again.')
+    : name === 'NotFoundError' || name === 'DevicesNotFoundError'
+      ? 'No microphone was found. Plug in a microphone or check your sound input settings.'
+      : name === 'NotReadableError' || name === 'TrackStartError'
+        ? 'Your microphone is busy in another app. Close that app or pick a different input.'
+        : 'Could not start the microphone. Check your mic connection and permissions.';
+  const card = document.createElement('div');
+  card.id = 'gr-card'; card.className = 'gr-card';
+  card.innerHTML = `<button class="gr-x" title="Close" aria-label="Close">${IC('ico:close')}</button>
+    <div class="gr-head"><b>Microphone unavailable</b><span class="gr-sub">${msg}</span></div>
+    <div class="gr-again-row">${onTapFallback ? `<button type="button" class="gr-tap-fb">${IC('ico:keyboard')} Tap rhythm instead</button>` : ''}<button type="button" class="gr-exit">Close</button></div>`;
+  card.querySelector('.gr-x').onclick = () => card.remove();
+  card.querySelector('.gr-exit').onclick = () => card.remove();
+  card.querySelector('.gr-tap-fb')?.addEventListener('click', () => { card.remove(); onTapFallback(); });
+  document.body.appendChild(card);
+}
+window.grShowMicError = grShowMicError;
 
 // Sounds go through GR.out, so stopping early silences clicks that are already scheduled.
 const grOut = c => GR.out || c.destination;
@@ -509,9 +555,11 @@ function grClick(c, time, accent, gain = 1) {
 }
 
 // A plain sung-reference tone for the count-in cue (same timbre as the playback tone).
-function grTone(c, time, midi, dur) {
+function grTone(c, time, midi, dur, gain = 1) {
   const f = 440 * Math.pow(2, (midi - 69) / 12);
-  for (const [type, mul, amp] of [['triangle', 1, .35], ['sine', 2, .08], ['sine', 3, .03]]) {
+  const gMul = Math.max(0.01, Number(gain) || 1);
+  for (const [type, mul, amp0] of [['triangle', 1, .35], ['sine', 2, .08], ['sine', 3, .03]]) {
+    const amp = amp0 * gMul;
     const os = c.createOscillator(), g = c.createGain();
     os.type = type; os.frequency.value = f * mul;
     g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(amp, time + 0.01);
@@ -607,11 +655,15 @@ function grMicClose() {
 // waits until the mic is really listening, then gives grading its own sound engine
 // (only the first take after opening the mic waits)
 async function grMicReady(m, btn) {
-  if (m.ready) return;
-  if (GR_IOS) { m.ready = true; return; }
+  if (m.ready) return true;
+  if (GR_IOS) { m.ready = true; return true; }
   const until = () => m.liveAt ?? m.openedAt + GR_MIC_MAX_WAIT;
-  if (btn) btn.innerHTML = IC('ico:mic') + ' Mic starting…';
-  while (performance.now() < until()) await new Promise(r => setTimeout(r, 50));
+  if (btn) { btn.innerHTML = IC('ico:stop') + ' Mic starting… (cancel)'; btn.classList.add('on'); }
+  while (performance.now() < until()) {
+    if (GR.cancelStart) return false;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  if (GR.cancelStart) return false;
   try {
     const AC = window.AudioContext || window.webkitAudioContext, c = new AC();
     // a sound engine made outside a click may never be allowed to start: give up after 1.5 s
@@ -623,6 +675,7 @@ async function grMicReady(m, btn) {
     await new Promise(r => setTimeout(r, 400));                 // let the new engine settle
   } catch { /* keep using the app's sound engine */ }
   m.ready = true;
+  return !GR.cancelStart;
 }
 
 // When the user stops a long score grading take early (before reaching the end of the piece),
@@ -665,6 +718,7 @@ function grTrimEarlyExp(frames, exp, q, T0, end, stopTime, taps = null, lat = nu
 function grStop(show = true) {
   if (!GR.on) return;
   clearInterval(GR.timer);
+  grRemoveTapPad();
   try { GR.out?.disconnect(); } catch { }
   GR.out = null;
   const stopTime = GR.c ? GR.c.currentTime : GR.end;
@@ -731,23 +785,31 @@ function grStop(show = true) {
 const grResume = c => Promise.race([c.resume().catch(() => { }), new Promise(r => setTimeout(r, 1500))]);
 async function grStart(host, st, timeline, btn, input = 'mic') {
   if (GR.on) { grStop(true); return; }
-  if (GR.starting) return;                                     // already getting ready (a second press does nothing)
+  if (GR.starting) { GR.cancelStart = true; return; }          // second click while mic is warming up cancels cleanly
   if ((timeline.parts || 1) > 1) return toast('Grading works on one-line examples. Turn off the Harmony or Canon parts first.');
   const exp = grExpected(timeline, grVoiceShift(st));
   if (!exp.length) return toast('There is nothing to grade in this example.');
   const tap = input === 'tap';
-  GR.gradeLabelMenu = st.mode === 'rhythm';                  // the button shows ▾ (a menu) only for rhythm
-  GR.starting = true;
+  GR.gradeLabelMenu = true;
+  GR.starting = true; GR.cancelStart = false;
+  const idleHTML = btn ? btn.innerHTML : null;
   let mic, c0;
   try {
     c0 = ac(); await grResume(c0);
     if (c0.state !== 'running') return toast(`Sound is not running yet. Press ${tap ? 'Tap' : 'Grade'} again.`);
     if (!tap) {
-      try { mic = await grMic(); } catch (e) { return toast('Microphone not available: ' + e.message); }
-      await grMicReady(mic, btn);
+      try { mic = await grMic(); } catch (e) {
+        grShowMicError(host, e, () => grStart(host, st, timeline, btn, 'tap'));
+        return;
+      }
+      const ok = await grMicReady(mic, btn);
+      if (!ok) {
+        if (btn && idleHTML) { btn.innerHTML = idleHTML; btn.classList.remove('on'); }
+        return;
+      }
       await grResume(mic.c);
     }
-  } finally { GR.starting = false; }
+  } finally { GR.starting = false; GR.cancelStart = false; }
   const o = st[st.mode] || {};
   const [beats, kind] = SR_METERS[o.ts] || [4, 'simple'];
   const beatQ = kind === 'compound' ? 1.5 : 1, q = 60 / o.tempo / beatQ, beatSec = q * beatQ;
@@ -762,7 +824,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   const bars = Math.max(1, Number(o.countIn ?? 1) || 0), countBeats = beats * bars;
   for (let b = 0; b < countBeats; b++) grClick(c, t0 + b * beatSec, b % beats === 0);
   // Solfege count-in: the same starting-pitch cue as playback ("hear do · start on …")
-  let cue = null;
+  let cue = tap ? { tap: true } : null;
   if (st.mode === 'solfege' && st.ex?.solfege && !tap) {
     const sp = d => srSpell(o.key, o.scale, d, o.clef);
     const first = sp(st.ex.solfege.pitches[0] ?? 0), barSec = beats * beatSec, shift = grVoiceShift(st);
@@ -792,8 +854,9 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     lat = outLat + avDelayMs() / 1000;
     if (!isFinite(lat)) lat = null;
   } catch { lat = null; }
-  Object.assign(GR, { on: true, input, c, taps: tap ? [] : null, an, rec, meta, buf: new Float32Array(2048), poll: 0, frames: [], host, exp, q, T0, end, btn, lat, gradePitch: !tap && timeline.some(e => e.midi != null), tl: timeline, retry: () => grStart(host, st, timeline, btn, input) });
-  btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade'); btn.classList.add('on');
+  Object.assign(GR, { on: true, input, c, taps: tap ? [] : null, an, rec, meta, buf: new Float32Array(2048), poll: 0, frames: [], host, exp, q, T0, end, btn, lat, gradePitch: !tap && timeline.some(e => e.midi != null), tl: timeline, idleHTML, retry: () => grStart(host, st, timeline, btn, input) });
+  btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade <i class="gr-lvl" aria-hidden="true"></i>'); btn.classList.add('on');
+  if (tap) grMountTapPad(host);
   if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();   // so Space taps, not clicks
   // Show the count-in numbers and the playhead while the student performs (same display as playback).
   // Positions are in quarter-note units from bar 1; the count-in sits at negative positions.
@@ -817,13 +880,17 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
     const rms = Math.sqrt(s / W);
     const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;   // pitch about every 40 ms
+    if (GR.poll % 6 === 0) {
+      const dot = btn?.querySelector('.gr-lvl');
+      if (dot) dot.classList.toggle('hot', rms >= GR_MIN_RMS);
+    }
     GR.frames.push({ t: now, rms, f });
   }, 10);
 }
 
-// ---------- Space-bar tapping (rhythm only)
+// ---------- Space-bar & Touch-pad tapping (rhythm only, works on Mac, Windows, and iPad)
 // A tap's time on the audio clock: the moment of sound that was coming out of the speakers when the
-// key went down, so taps compare with the count-in and metronome clicks the student heard.
+// key or finger went down, so taps compare with the count-in and metronome clicks the student heard.
 function grTapTime(c, e) {
   const nowP = performance.now();
   let p = e && e.timeStamp; if (!(p > nowP - 1000 && p <= nowP + 5)) p = nowP;   // some browsers use another clock
@@ -839,6 +906,45 @@ function grTapFlash() {
   else f.classList.add('corner');
   staff.appendChild(f); setTimeout(() => f.remove(), 450);
 }
+function grRecordTap(e) {
+  if (!GR.on || GR.input !== 'tap' || !GR.taps || !GR.c) return;
+  const t = grTapTime(GR.c, e);
+  const pad = document.getElementById('gr-tappad');
+  if (GR.T0 && t < GR.T0 - Math.min(0.25, (GR.q || 0.5) * 0.4)) {
+    // Ignore early taps during count-in without flashing them as counted hits
+    if (pad) {
+      const sub = pad.querySelector('.gr-tp-sub');
+      if (sub) sub.textContent = 'Wait for beat 1…';
+      pad.classList.add('wait'); setTimeout(() => pad.classList.remove('wait'), 220);
+    }
+    return;
+  }
+  GR.taps.push(t);
+  grTapFlash();
+  if (pad) {
+    pad.classList.add('hit'); setTimeout(() => pad.classList.remove('hit'), 140);
+    const sub = pad.querySelector('.gr-tp-sub');
+    if (sub) sub.textContent = `${GR.taps.length} tap${GR.taps.length === 1 ? '' : 's'} recorded`;
+  }
+}
+function grMountTapPad(host) {
+  grRemoveTapPad();
+  const wrap = host?.querySelector('.sr-staff, .sp-score') || document.body;
+  const pad = document.createElement('button');
+  pad.type = 'button'; pad.id = 'gr-tappad'; pad.className = 'gr-tappad';
+  pad.innerHTML = `<span class="gr-tp-main">TAP RHYTHM HERE</span><span class="gr-tp-sub">Tap with finger or press Space after count-in</span>`;
+  pad.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    grRecordTap(e);
+  });
+  pad.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+  wrap.appendChild(pad);
+}
+function grRemoveTapPad() {
+  document.getElementById('gr-tappad')?.remove();
+}
+window.grMountTapPad = grMountTapPad;
+window.grRemoveTapPad = grRemoveTapPad;
 // While grading (mic or tap) is getting ready or running, and for a moment after it ends, Space never
 // plays the example: it is caught here before the Play / Stop shortcut. During a Tap take it is the tap.
 const grOwnsSpace = () => GR.on || GR.starting || performance.now() < (GR.quietUntil || 0);
@@ -849,7 +955,7 @@ window.addEventListener('keydown', e => {
   e.preventDefault(); e.stopImmediatePropagation();
   if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
   if (!GR.on || GR.input !== 'tap' || e.repeat || !GR.taps) return;
-  GR.taps.push(grTapTime(GR.c, e)); grTapFlash();
+  grRecordTap(e);
 }, true);
 window.addEventListener('keyup', e => {
   if (e.code === 'Space' && grOwnsSpace()) { e.preventDefault(); e.stopImmediatePropagation(); }
@@ -892,7 +998,7 @@ function grDrawMarks(host, tl) {
     const lb = document.createElement('button'); lb.className = 'gr-marks-chip gr-listen'; lb.dataset.grchip = '1';
     const playing = !!SR_PLAY.extra?.length;
     lb.innerHTML = playing ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Listen back'; if (playing) { lb.classList.add('on'); lb.dataset.idle = IC('ico:play') + ' Listen back'; }
-    lb.onclick = e => { e.stopPropagation(); grListen(host, document.querySelector('#gr-card .gr-mix')?.value || 'both', lb); };
+    lb.onclick = e => { e.stopPropagation(); grListen(host, document.querySelector('#gr-card .gr-mix')?.value || G.mix || window.__grLastMix || 'both', lb); };
     chips.appendChild(lb);
   }
   chips.appendChild(chip); staff.appendChild(chips);

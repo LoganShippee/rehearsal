@@ -57,15 +57,35 @@ function muDetectPitch(buf, sr, minRms = 0.012, opts = {}) {
   return { f: sr / T0, rms, clarity };
 }
 
-const MU_TUNER = { stream: null, an: null, buf: null, raf: 0, host: null, id: null, hist: [] };
+function muMicErrMsg(e) {
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+  const name = e?.name || '';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return isMac
+      ? 'Microphone blocked — allow Rehearsal in System Settings → Privacy & Security → Microphone.'
+      : 'Microphone blocked — allow microphone access in your browser or system privacy settings.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No microphone found — plug in a mic or check your sound input settings.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Microphone is busy in another app — close it or pick a different input.';
+  }
+  return 'Could not start the microphone — check your mic connection and permissions.';
+}
+const MU_TUNER = { stream: null, an: null, buf: null, raf: 0, host: null, id: null, hist: [], err: '' };
 async function muTunerStart(host, st, id) {
   muTunerStop();
+  MU_TUNER.err = '';
+  // Resume AudioContext synchronously within the click gesture so Safari/iPad never leaves it suspended
+  const c = muAC();
+  const resP = c.resume().catch(() => {});
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    const c = muAC(); await c.resume();
+    await resP;
     const src = c.createMediaStreamSource(stream), an = c.createAnalyser();
     an.fftSize = 4096; src.connect(an);
-    Object.assign(MU_TUNER, { stream, an, buf: new Float32Array(2048), host, id, hist: [] });
+    Object.assign(MU_TUNER, { stream, an, buf: new Float32Array(2048), host, id, hist: [], err: '' });
     let last = 0;
     const loop = (ts) => {
       if (!MU_TUNER.stream) return;
@@ -76,7 +96,7 @@ async function muTunerStart(host, st, id) {
     };
     MU_TUNER.raf = requestAnimationFrame(loop);
   } catch (e) {
-    (typeof toast === 'function' ? toast : alert)('Microphone not available: ' + e.message);
+    MU_TUNER.err = muMicErrMsg(e);
   }
   muTunerRender(host, st, id);
 }
@@ -87,9 +107,15 @@ function muTunerStop() {
 }
 function muTunerFrame(host, st) {
   const { an, buf } = MU_TUNER; if (!an) return;
+  const view = host.querySelector('.tu-read'); if (!view) return;
+  if (muAC().state === 'suspended') {
+    view.classList.add('idle');
+    const ce = view.querySelector('.tu-cents');
+    if (ce) ce.innerHTML = `<button type="button" class="tu-resume" data-mu="resume">Tap to resume audio</button>`;
+    return;
+  }
   an.getFloatTimeDomainData(buf);
   const { f } = muDetectPitch(buf, muAC().sampleRate, MU_SENS[st.sens || 'normal']);
-  const view = host.querySelector('.tu-read'); if (!view) return;
   const trace = MU_TUNER.trace ||= [];
   const pushTrace = v => { trace.push(v); if (trace.length > 140) trace.shift(); muDrawTrace(host.querySelector('.tu-trace'), trace); };
   if (f <= 0 || f > 2500) { view.classList.add('idle'); MU_TUNER.okSince = 0; delete view.dataset.lock; pushTrace(null); return; }
@@ -97,13 +123,15 @@ function muTunerFrame(host, st) {
   const m = 69 + 12 * Math.log2(f / ref);                       // semitones from the reference A
   MU_TUNER.hist.push(m); if (MU_TUNER.hist.length > 5) MU_TUNER.hist.shift();
   const sorted = [...MU_TUNER.hist].sort((a, b) => a - b), mm = sorted[Math.floor(sorted.length / 2)];
+  const transSemi = MU_TRANSPOSE[st.trans]?.[1] || 0;
   let n = Math.round(mm);
-  if (st.target && st.target !== 'auto') {                      // tune to the chosen note, the nearest octave of it
-    const d = ((+st.target - n) % 12 + 18) % 12 - 6;
+  if (st.target && st.target !== 'auto') {                      // tune to the chosen WRITTEN note (converted to concert pitch)
+    const concertTarget = ((+st.target - transSemi) % 12 + 12) % 12;
+    const d = ((concertTarget - n) % 12 + 18) % 12 - 6;
     n = n + d;
   }
   const exact = (mm - n) * 100, cents = Math.round(exact);
-  const written = n + MU_TRANSPOSE[st.trans][1];
+  const written = n + transSemi;
   view.classList.remove('idle', 'fresh');
   view.querySelector('.tu-note').textContent = MU_NAMES[((written % 12) + 12) % 12];
   view.querySelector('.tu-oct').textContent = Math.floor(written / 12) - 1;
@@ -144,18 +172,24 @@ function muDrawTrace(c, trace) {
   if (on) g.stroke();
 }
 function muTunerControlsHTML(st, id, listening, showSet) {
-  const transLabel = MU_TRANSPOSE[st.trans]?.[0] || '';
+  const transSemi = MU_TRANSPOSE[st.trans]?.[1] || 0;
+  const droneOn = MU_DRONE.owner === st;
+  const drWritten = MU_NAMES[((st.drone.pc + transSemi) % 12 + 12) % 12];
   return `
     <div class="tu-top">
       <select data-mu="trans" title="Your instrument (the note names follow it)">${Object.entries(MU_TRANSPOSE).map(([k, [l]]) => `<option value="${k}" ${st.trans === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      ${st.ens && st.trans !== 'concert' ? `<span class="tu-trans-pill" title="Transposed note names">${esc(transLabel)}</span>` : ''}
       <button data-mu="listen" class="tu-go ${listening ? 'on' : ''}">${listening ? IC('ico:stop') + ' Stop' : IC('ico:mic') + ' Start tuner'}</button>
+      ${st.ens && droneOn ? `<button data-mu="drone" class="tu-go on" title="Stop playing the drone">${IC('ico:stop')} Stop drone · ${MU_NAMES[st.drone.pc]}${transSemi ? ` (written ${drWritten})` : ''}</button>` : ''}
       <span class="grow"></span>
       <button data-mu="ens" class="mu-ic ${st.ens ? 'on' : ''}" title="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}" aria-label="${st.ens ? 'Back to the full tuner' : 'Big view for the whole room'}">${IC('ico:fullscreen')}</button>
       <button data-mu="tset" class="mu-ic ${showSet ? 'on' : ''}" title="Tuner settings" aria-label="Tuner settings">${IC('ico:sliders')}</button></div>
     ${showSet ? `<div class="tu-set">
       <label>A = <select data-mu="ref">${[435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445].map(v => `<option value="${v}" ${(st.refA || 440) === v ? 'selected' : ''}>${v} Hz</option>`).join('')}</select></label>
-      <label>Tune to <select data-mu="target"><option value="auto" ${!st.target || st.target === 'auto' ? 'selected' : ''}>Nearest note</option>${MU_NAMES.map((nm, i) => `<option value="${i}" ${String(st.target) === String(i) ? 'selected' : ''}>${nm}</option>`).join('')}</select></label>
+      <label>Tune to <select data-mu="target"><option value="auto" ${!st.target || st.target === 'auto' ? 'selected' : ''}>Nearest note</option>${MU_NAMES.map((nm, i) => {
+        const conc = MU_NAMES[((i - transSemi) % 12 + 12) % 12];
+        const lbl = transSemi ? `Written ${nm} (concert ${conc})` : nm;
+        return `<option value="${i}" ${String(st.target) === String(i) ? 'selected' : ''}>${lbl}</option>`;
+      }).join('')}</select></label>
       <label>Listens to <select data-mu="sens">${[['quiet', 'Quiet room'], ['normal', 'Normal'], ['noisy', 'Noisy room']].map(([k, l]) => `<option value="${k}" ${(st.sens || 'normal') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>` : ''}`;
 }
@@ -169,7 +203,7 @@ function muTunerRender(host, st, id, keepRead = false) {
     const ctl = document.createElement('div'); ctl.className = 'tu-ctl';
     ctl.innerHTML = muTunerControlsHTML(st, id, listening, showSet);
     panel.prepend(ctl);
-    if (MU_TUNER.trace.length) muDrawTrace(panel.querySelector('.tu-trace'), MU_TUNER.trace);
+    if (MU_TUNER.trace?.length) muDrawTrace(panel.querySelector('.tu-trace'), MU_TUNER.trace);
     return;
   }
   panel.innerHTML = `<div class="tu-ctl">${muTunerControlsHTML(st, id, listening, showSet)}</div>
@@ -184,7 +218,7 @@ function muTunerRender(host, st, id, keepRead = false) {
         <g class="tu-needle"><line x1="0" y1="0" x2="0" y2="-88" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/><circle r="7" fill="var(--accent)"/></g>
       </svg>
       <div class="tu-big"><span class="tu-note">${IC('ico:music', 'tu-wait')}</span><sub class="tu-oct"></sub></div>
-      <div class="tu-cents">${listening ? 'Play a note…' : 'Press “Start tuner”'}</div>
+      <div class="tu-cents">${MU_TUNER.err ? `<span class="tu-err">${esc(MU_TUNER.err)}</span>` : listening ? 'Play a note…' : 'Press “Start tuner”'}</div>
       <div class="tu-hint"></div>
       <canvas class="tu-trace" title="The last few seconds: a flat line in the green band means a steady, in-tune note"></canvas>
       <div class="tu-hz"></div>
@@ -209,7 +243,8 @@ function muDroneStart(d, owner, id) {
   const c = muAC(); c.resume();
   const master = c.createGain(); master.gain.value = 0; master.connect(c.destination);
   master.gain.linearRampToValueAtTime(d.vol * 0.35, c.currentTime + (d.fade || (d.sound === 'strings' ? 0.6 : 0.2)));
-  const root = 440 * Math.pow(2, (12 * (d.oct + 1) + d.pc - 69) / 12);
+  const ref = owner?.refA || 440;
+  const root = ref * Math.pow(2, (12 * (d.oct + 1) + d.pc - 69) / 12);
   const ivs = MU_DRONE_MODES[d.mode][1], voices = [];
   let organ = null;
   for (const iv of ivs) {
@@ -237,8 +272,11 @@ function muPiano(d) {
 }
 function muDroneRender(host, st) {
   const d = st.drone, playing = MU_DRONE.owner === st;
+  const transSemi = MU_TRANSPOSE[st.trans]?.[1] || 0;
+  const written = MU_NAMES[((d.pc + transSemi) % 12 + 12) % 12];
+  const refNote = (st.refA || 440) !== 440 ? ` · A=${st.refA}` : '';
   host.querySelector('.dr-panel').innerHTML = `
-    <div class="mu-h">Drone</div>
+    <div class="mu-h">Drone${refNote}</div>
     ${muPiano(d)}
     <div class="dr-modes">${Object.entries(MU_DRONE_MODES).map(([k, [l]]) => `<button data-mu="dmode" data-v="${k}" class="${d.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="mu-row">
@@ -248,7 +286,7 @@ function muDroneRender(host, st) {
     </div>
     <div class="mu-row"><label class="mu-chk"><input type="checkbox" data-mu="d" data-k="pure" ${d.pure ? 'checked' : ''}> Pure (just) intervals</label>
       <label class="dr-vol">${IC('ico:loud')}<input type="range" min="0.05" max="1" step="0.05" data-mu="d" data-k="vol" value="${d.vol}" title="Volume"></label></div>
-    <button class="dr-play ${playing ? 'on' : ''}" data-mu="drone">${playing ? IC('ico:stop') + ' Stop drone' : IC('ico:play') + ' Start drone'} · concert ${MU_NAMES[d.pc]}${MU_DRONE_MODES[d.mode][1].length > 1 ? ' ' + (MU_DRONE_MODES[d.mode][0].toLowerCase()) : ''}</button>`;
+    <button class="dr-play ${playing ? 'on' : ''}" data-mu="drone">${playing ? IC('ico:stop') + ' Stop drone' : IC('ico:play') + ' Start drone'} · concert ${MU_NAMES[d.pc]}${transSemi ? ` (written ${written})` : ''}${MU_DRONE_MODES[d.mode][1].length > 1 ? ' ' + (MU_DRONE_MODES[d.mode][0].toLowerCase()) : ''}</button>`;
 }
 
 function mountTuner(host, st, onChange, id) {
@@ -259,17 +297,18 @@ function mountTuner(host, st, onChange, id) {
     const b = e.target.closest('[data-mu]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
     e.stopPropagation();
     const k = b.dataset.mu;
+    if (k === 'resume') { muAC().resume().then(() => { const ce = host.querySelector('.tu-cents'); if (ce) ce.textContent = 'Play a note…'; }); return; }
     if (k === 'listen') { if (MU_TUNER.stream && MU_TUNER.id === id) { muTunerStop(); muTunerRender(host, st, id); } else muTunerStart(host, st, id); return; }
-    if (k === 'drone') { MU_DRONE.owner === st ? muDroneStop() : muDroneStart(st.drone, st, id); muDroneRender(host, st); return; }
-    if (k === 'dpc') { st.drone.pc = +b.dataset.v; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muDroneRender(host, st); }
+    if (k === 'drone') { MU_DRONE.owner === st ? muDroneStop() : muDroneStart(st.drone, st, id); muDroneRender(host, st); if (st.ens) muTunerRender(host, st, id, true); return; }
+    if (k === 'dpc') { st.drone.pc = +b.dataset.v; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muDroneRender(host, st); if (st.ens) muTunerRender(host, st, id, true); }
     if (k === 'dmode') { st.drone.mode = b.dataset.v; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muDroneRender(host, st); }
     if (k === 'ens') { st.ens = !st.ens; onChange(); muTunerRender(host, st, id, true); }
     if (k === 'tset') { host.__set = !host.__set; muTunerRender(host, st, id, true); }
   };
   const change = e => {
     const el = e.target; if (!el.dataset.mu) return;
-    if (el.dataset.mu === 'trans') { st.trans = el.value; onChange(); return; }
-    if (el.dataset.mu === 'ref') { st.refA = +el.value; onChange(); return; }
+    if (el.dataset.mu === 'trans') { st.trans = el.value; onChange(); muTunerRender(host, st, id, true); muDroneRender(host, st); return; }
+    if (el.dataset.mu === 'ref') { st.refA = +el.value; if (MU_DRONE.owner === st) muDroneStart(st.drone, st, id); onChange(); muTunerRender(host, st, id, true); muDroneRender(host, st); return; }
     if (el.dataset.mu === 'target') { st.target = el.value; onChange(); return; }
     if (el.dataset.mu === 'sens') { st.sens = el.value; onChange(); return; }
     if (el.dataset.mu === 'd') {
@@ -317,11 +356,17 @@ function metClick(time, kind, sound = 'click') {
 }
 // Count out loud (uses the device's speech voice; silently skipped if none is available)
 function metSay(n) {
-  try { if (!('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(String(n)); u.rate = 1.5; u.volume = 0.8; speechSynthesis.speak(u); } catch (e) {}
+  try {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(n)); u.rate = 1.5; u.volume = 0.8;
+    speechSynthesis.speak(u);
+  } catch (e) {}
 }
-function metStart(host, st, countOff = false, id = MET.id) {
+async function metStart(host, st, countOff = false, id = MET.id) {
   metStop();
-  const c = muAC(); c.resume();
+  const c = muAC();
+  try { await c.resume(); } catch {}
   Object.assign(MET, { on: true, st, host, id, next: c.currentTime + 0.12, beat: 0, sub: 0, beatsPlayed: 0, queue: [], countOff, base: st.tempo });
   MET.timer = setInterval(() => {
     if (!muAlive(MET.id)) { metStop(); return; }
@@ -336,7 +381,7 @@ function metStart(host, st, countOff = false, id = MET.id) {
       const state = metBeatState(st, MET.beat), bar = Math.floor(MET.beatsPlayed / beats);
       // gap-click: play some bars, then stay silent for some (students keep the beat on their own)
       const g = st.gap, gapped = (!MET.countOff || st.thenGo) && g?.on && bar % ((g.play || 2) + (g.mute || 2)) >= (g.play || 2);
-      const kind = MET.sub ? 'sub' : MET.beat === 0 ? 'down' : state === 'accent' ? 'accent' : 'beat';
+      const kind = MET.sub ? 'sub' : state === 'accent' ? (MET.beat === 0 ? 'down' : 'accent') : 'beat';
       // sound is nudged by the sync offset (video/audio lag); the flash stays on the true beat
       const at = Math.max(c.currentTime + 0.001, MET.next + (st.offset || 0) / 1000);
       if (!st.mute && !gapped && state !== 'silent') metClick(at, kind, st.sound || 'click');
@@ -357,7 +402,7 @@ function metStart(host, st, countOff = false, id = MET.id) {
     const now = muAC().currentTime; let cur = null;
     while (MET.queue.length && MET.queue[0].t <= now) cur = MET.queue.shift();
     if (cur && MET.host) metShow(MET.host, st, cur);
-    if (cur && st.voice && cur.sub === 0) metSay(cur.beat + 1);
+    if (cur && st.voice && cur.sub === 0 && !cur.gap && !st.mute && metBeatState(st, cur.beat) !== 'silent') metSay(cur.beat + 1);
     MET.raf = requestAnimationFrame(frame);
   };
   MET.raf = requestAnimationFrame(frame);
@@ -365,6 +410,7 @@ function metStart(host, st, countOff = false, id = MET.id) {
 }
 function metStop() {
   clearInterval(MET.timer); cancelAnimationFrame(MET.raf);
+  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {}
   const was = MET.on; Object.assign(MET, { on: false, queue: [] });
   return was;
 }
@@ -382,15 +428,27 @@ function metShow(host, st, { beat, sub, gap, tempo }) {
 }
 const metMarking = t => t < 60 ? 'Largo' : t < 66 ? 'Larghetto' : t < 76 ? 'Adagio' : t < 108 ? 'Andante' : t < 120 ? 'Moderato' : t < 156 ? 'Allegro' : t < 176 ? 'Vivace' : t < 200 ? 'Presto' : 'Prestissimo';
 const metPresets = () => (typeof S !== 'undefined' && S ? ((S.settings ||= {}).metPresets ||= []) : []);
+function metStatusChips(st) {
+  const chips = [];
+  if (st.mute) chips.push('Muted (flash only)');
+  if (st.gap?.on) chips.push(`Gap-click ${st.gap.play || 2}/${st.gap.mute || 2}`);
+  if (st.trainer?.on) chips.push(`Trainer → ${st.trainer.to || 240}`);
+  else if (st.rampTo) chips.push(`Ramp → ${st.rampTo}`);
+  if (st.voice) chips.push('Count out loud');
+  if (st.offset) chips.push(`Sync ${st.offset > 0 ? '+' : ''}${st.offset}ms`);
+  return chips;
+}
 function metRender(host, st) {
   const running = MET.on && MET.host === host && MET.st === st, more = !!host.__more;
   const subs = [[1, 'Beats'], [2, '8ths'], [3, 'Triplets'], [4, '16ths'], [6, 'Sextuplets']];
   const num = (k, v, attrs) => `<input type="number" data-mu="${k}" value="${v}" ${attrs}>`;
   const tr = st.trainer || {}, gp = st.gap || {};
+  const chips = metStatusChips(st);
   host.querySelector('.me-panel').innerHTML = `
     <div class="me-display">
       <div class="me-big ${running ? '' : 'idle'}" title="${running ? '' : 'Drag up or down to change the tempo'}">${running ? '' : st.tempo}</div>
-      <div class="me-mark">${running ? '' : metMarking(st.tempo) + (st.trainer?.on ? ` · trainer to ${tr.to || 240}` : '')}</div>
+      <div class="me-mark">${running ? '' : metMarking(st.tempo)}</div>
+      ${chips.length ? `<div class="me-chips">${chips.map(c => `<span class="me-chip">${esc(c)}</span>`).join('')}</div>` : ''}
       <div class="me-dots">${Array.from({ length: st.beats }, (_, i) => { const s = metBeatState(st, i); return `<button type="button" class="me-dot ${s === 'accent' ? 'acc' : s === 'silent' ? 'silent' : ''}" data-mu="mark" data-v="${i}" title="Tap: normal → accent → silent" aria-label="Beat ${i + 1}: ${s}">${i + 1}</button>`; }).join('')}</div>
       <div class="me-sub">${st.sub > 1 ? Array.from({ length: st.sub }, () => '<i></i>').join('') : ''}</div>
       <div class="me-tip">Tap a beat number to accent it or make it silent</div>
@@ -400,7 +458,7 @@ function metRender(host, st) {
         <span class="me-seg"><button data-mu="tempo" data-v="-5">−5</button><button data-mu="tempo" data-v="-1">−1</button></span>
         <input type="range" min="30" max="240" value="${st.tempo}" data-mu="bpm" class="me-slider">
         <span class="me-seg"><button data-mu="tempo" data-v="1">+1</button><button data-mu="tempo" data-v="5">+5</button></span>
-        <button data-mu="tap" class="me-tap">Tap</button></div>
+        <button data-mu="tap" class="me-tap" title="Tap in time (or press T)">Tap</button></div>
       <div class="me-presets">${metPresets().map((p, i) => `<span class="me-pre ${p.tempo === st.tempo && p.beats === st.beats ? 'on' : ''}"><button data-mu="preset" data-v="${i}" title="${p.beats} beats · ${p.tempo} BPM">${esc(p.name)} <b>${p.tempo}</b></button><button class="x" data-mu="predel" data-v="${i}" title="Remove">${IC('ico:close')}</button></span>`).join('')}
         <button class="me-presave" data-mu="presave" title="Save these settings for a piece">${IC('ico:bookmark')} Save tempo</button></div>
       <div class="mu-row">
@@ -409,7 +467,7 @@ function metRender(host, st) {
         ${st.sub === 2 ? `<label>Swing <select data-mu="swing">${[[0, 'Straight'], [0.6, 'Light'], [0.667, 'Swing'], [0.75, 'Hard']].map(([v, l]) => `<option value="${v}" ${(st.swing || 0) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
       </div>
       <div class="me-go">
-        <button data-mu="start" class="me-start ${running && !MET.countOff ? 'on' : ''}">${running && !MET.countOff ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Start'}</button>
+        <button data-mu="start" class="me-start ${running && !MET.countOff ? 'on' : ''}" title="Start or stop (Space)">${running && !MET.countOff ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Start'}</button>
         <button data-mu="count" class="me-start ${running && MET.countOff ? 'on' : ''}">${IC('ico:timer')} Count-off</button></div>
       <label class="mu-chk me-then"><input type="checkbox" data-mu="thenGo" ${st.thenGo ? 'checked' : ''}> Keep going after the count-off</label>
       <details class="me-more" ${more ? 'open' : ''}><summary>More options</summary>
@@ -429,27 +487,55 @@ function metRender(host, st) {
   host.querySelector('.me-more')?.addEventListener('toggle', e => { host.__more = e.target.open; });
 }
 function mountMetronome(host, st, onChange, id) {
-  host.innerHTML = `<div class="mu metro"><div class="me-panel"></div></div>`;
+  host.innerHTML = `<div class="mu metro" tabindex="0"><div class="me-panel"></div></div>`;
   if (MET.on && MET.id === id) MET.host = host;           // keep ticking through window re-draws
   metRender(host, st);
   const restart = () => metRender(host, st);   // a running metronome picks the change up on its next click
+  let tapResetT = 0;
+  const doTap = () => {
+    const now = performance.now();
+    if (MET.taps.length && now - MET.taps[MET.taps.length - 1] > 2000) MET.taps = [];
+    MET.taps.push(now); if (MET.taps.length > 5) MET.taps.shift();
+    const tapBtn = host.querySelector('.me-tap');
+    if (tapBtn) {
+      tapBtn.classList.add('tapping');
+      tapBtn.textContent = MET.taps.length === 1 ? 'Tap…' : `${st.tempo}`;
+      clearTimeout(tapResetT);
+      tapResetT = setTimeout(() => { const tb = host.querySelector('.me-tap'); if (tb) { tb.classList.remove('tapping'); tb.textContent = 'Tap'; } }, 1600);
+    }
+    if (MET.taps.length >= 2) {
+      const iv = (MET.taps[MET.taps.length - 1] - MET.taps[0]) / (MET.taps.length - 1);
+      st.tempo = Math.max(30, Math.min(240, Math.round(60000 / iv)));
+      if (tapBtn) tapBtn.textContent = `${st.tempo}`;
+      const big = host.querySelector('.me-big.idle'); if (big) big.textContent = st.tempo;
+      const m = host.querySelector('.me-mark'); if (m && !MET.on) m.textContent = metMarking(st.tempo);
+      const sl = host.querySelector('.me-slider'); if (sl) sl.value = st.tempo;
+      onChange();
+    }
+  };
+  host.onkeydown = e => {
+    if (e.target.closest('input, select, textarea')) return;
+    if (e.code === 'Space') {
+      e.preventDefault(); e.stopPropagation();
+      if (MET.on && MET.id === id) { metStop(); metRender(host, st); } else metStart(host, st, false, id);
+    } else if (e.code === 'KeyT' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault(); e.stopPropagation();
+      doTap();
+    }
+  };
   host.onclick = e => {
     const b = e.target.closest('[data-mu]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
     e.stopPropagation();
     const k = b.dataset.mu;
     if (k === 'start') { if (MET.on && MET.id === id && !MET.countOff) { metStop(); metRender(host, st); } else metStart(host, st, false, id); return; }
     if (k === 'count') { if (MET.on && MET.id === id && MET.countOff) { metStop(); metRender(host, st); } else metStart(host, st, true, id); return; }
+    if (k === 'tap') { doTap(); return; }
     if (k === 'tempo') { st.tempo = Math.max(30, Math.min(240, st.tempo + +b.dataset.v)); }
     if (k === 'sub') { st.sub = +b.dataset.v; }
     if (k === 'mark') {
       const i = +b.dataset.v, cur = metBeatState(st, i);
       st.marks = Array.from({ length: Math.max(1, st.beats) }, (_, j) => metBeatState(st, j));
       st.marks[i] = cur === 'normal' ? 'accent' : cur === 'accent' ? 'silent' : 'normal';
-    }
-    if (k === 'tap') {
-      const now = performance.now(); if (MET.taps.length && now - MET.taps[MET.taps.length - 1] > 2000) MET.taps = [];
-      MET.taps.push(now); if (MET.taps.length > 5) MET.taps.shift();
-      if (MET.taps.length >= 2) { const iv = (MET.taps[MET.taps.length - 1] - MET.taps[0]) / (MET.taps.length - 1); st.tempo = Math.max(30, Math.min(240, Math.round(60000 / iv))); }
     }
     if (k === 'preset') { const p = metPresets()[+b.dataset.v]; if (p) Object.assign(st, { tempo: p.tempo, beats: p.beats, sub: p.sub || 1, swing: p.swing || 0, marks: p.marks ? [...p.marks] : null }); }
     if (k === 'predel') { const list = metPresets(), p = list[+b.dataset.v]; if (p && confirm(`Remove the “${p.name}” tempo?`)) list.splice(+b.dataset.v, 1); }
@@ -473,7 +559,14 @@ function mountMetronome(host, st, onChange, id) {
     const el = e.target, k = el.dataset.mu; if (!k) return;
     const n = (v, lo, hi, d) => Math.max(lo, Math.min(hi, +v || d));
     if (k === 'bpm') st.tempo = +el.value;
-    if (k === 'beats') { st.beats = +el.value; st.marks = null; if (!metGroups(st)) st.pattern = ''; }
+    if (k === 'beats') {
+      const nextBeats = +el.value;
+      if (Array.isArray(st.marks)) {
+        st.marks = Array.from({ length: nextBeats }, (_, j) => st.marks[j] || (j === 0 ? 'accent' : 'normal'));
+      }
+      st.beats = nextBeats;
+      if (!metGroups(st)) st.pattern = '';
+    }
     if (k === 'thenGo') st.thenGo = el.checked;
     if (k === 'sound') st.sound = el.value;
     if (k === 'swing') st.swing = +el.value;

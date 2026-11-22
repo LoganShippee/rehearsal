@@ -68,7 +68,7 @@ async function spGetXml0(st, status) {
   if (st.xmlId && S.files[st.xmlId]) { const b = await tryId(st.xmlId); if (b) return new TextDecoder().decode(b); }
   const name = (S.files[st.fileId]?.name || st.name || '').toLowerCase();
   if (/\.(mscz|mscx)$/.test(name)) {
-    if (!HAS_SERVER) throw new Error('MuseScore files can only be opened in the Rehearsal app');
+    if (!HAS_SERVER) throw new Error('MuseScore (.mscz) files need the Rehearsal desktop app — in a browser, export MusicXML (.mxl) from MuseScore via File → Export.');
     status('Converting with MuseScore… (about 20 seconds, only the first time)');
     const r = await fetch(`/api/convert?id=${st.fileId}&ext=${name.endsWith('.mscx') ? 'mscx' : 'mscz'}`, { headers: { 'X-Token': TOKEN } });
     if (!r.ok) throw new Error((await r.text()) || 'MuseScore could not convert this file');
@@ -334,16 +334,18 @@ function spInjectVoiceGradeCSS() {
   const s = document.createElement('style');
   s.id = 'sp-voice-grade-css';
   s.textContent = `
-    /* Crisp thin playhead cursor & cleanly positioned measure pill above top staff */
-    .sp-ph { width: 2.5px !important; margin-left: -1.25px !important; border-radius: 2px !important;
-      background: var(--accent, #e76f51) !important;
-      box-shadow: 0 0 8px color-mix(in srgb, var(--accent, #e76f51) 65%, transparent) !important; z-index: 6; }
-    .sp-sel.off i.sp-start-line { background: #1f6fd1 !important; border: 0 !important; border-radius: 2px !important;
-      box-shadow: 0 0 6px rgba(31,111,209,.42) !important; }
-    .sp-sel.off i.sp-range-cap { background: transparent !important; border: 0 !important;
-      border-top: 2px dashed rgba(31,111,209,.65) !important; box-shadow: none !important; border-radius: 0 !important; }
+    /* Split playhead matching Sight Reading (marks above & below the system, clear of notes) */
+    .sp-ph { background: none !important; box-shadow: none !important; width: 4px !important; margin-left: -2px !important; z-index: 6; pointer-events: none; }
+    .sp-ph .seg { position: absolute; left: 0; width: 100%; border-radius: 4px; box-shadow: 0 0 10px rgba(231,111,81,.55); }
+    .sp-ph .seg.top { top: 0; background: linear-gradient(to bottom, rgba(231,111,81,0), #e76f51 45%); }
+    .sp-ph .seg.bot { background: linear-gradient(to bottom, #e76f51 55%, rgba(231,111,81,0)); }
+    .sp-ph.pulse { animation: srpulse .5s ease-in-out infinite alternate; }
+    .sp-sel.off i { background: rgba(31,111,209,.12) !important; border: 1.5px solid rgba(31,111,209,.52) !important; border-left-width: 0 !important; border-right-width: 0 !important; }
+    .sp-sel.off i.start { border-left-width: 3px !important; border-top-left-radius: 8px !important; border-bottom-left-radius: 8px !important; }
+    .sp-sel.off i.end { border-right-width: 1.5px !important; border-top-right-radius: 8px !important; border-bottom-right-radius: 8px !important; }
+    .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
     .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: 0 !important;
-      font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 2px 7px !important; z-index: 7; }
+      font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
 
     /* Score Practice Looper Grading: note-by-note OSMD SVG color feedback (overrides part colors) */
     .sp-osmd .gr-n-ok path, .sp-osmd .gr-n-ok rect, .sp-osmd .gr-n-ok polygon,
@@ -373,13 +375,28 @@ function spInjectVoiceGradeCSS() {
     .sp-score .gr-chips-wrap { position: sticky; left: 0; top: 6px; width: 100%; height: 0; z-index: 14; pointer-events: none; display: flex; justify-content: flex-end; padding-right: 10px; box-sizing: border-box; }
     .sp-score .gr-chips { position: static; margin: 0; z-index: 14; display: inline-flex; gap: 5px; flex-wrap: wrap; pointer-events: auto; align-items: center; }
 
-    /* Count-in & live recording/grading banner on the score */
-    .sp-count { position: sticky; top: 14px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); margin: 0 auto; z-index: 15; pointer-events: none;
-      background: rgba(24, 28, 38, 0.9); color: #fff; border: 1.5px solid var(--accent, #e76f51); border-radius: 14px; padding: 8px 18px; text-align: center; box-shadow: 0 10px 28px rgba(0,0,0,.28); }
-    .sp-count-n { font-size: 36px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--accent, #ffd166); }
-    .sp-count.one .sp-count-n { transform: scale(1.08); }
-    .sp-count-cue { font-size: 13px; opacity: .92; margin-top: 2px; }
-    .sp-count.rec-live { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; }
+    /* Count-in card matching Sight Reading (clean bottom-right glass card) & live recording banner */
+    .sp-count-wrap { position: sticky; bottom: 12px; left: 0; width: 100%; height: 0; z-index: 15; pointer-events: none; display: flex; justify-content: flex-end; align-items: flex-end; padding-right: 14px; box-sizing: border-box; }
+    .sp-count { pointer-events: none; text-align: right; padding: 6px 16px 8px; border-radius: 14px;
+      background: rgba(255,255,255,.94); color: rgba(29,35,48,.88); box-shadow: 0 6px 22px rgba(0,0,0,.18); }
+    .sp-count.one { color: #e76f51; }
+    .sp-count-n { font-size: clamp(44px, 8vmin, 96px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+    .sp-count-cue { font-size: clamp(13px, 1.7vmin, 18px); font-weight: 700; color: #1d2330; margin-top: 2px; white-space: nowrap; }
+    .sp-count-cue b { color: #e76f51; }
+    .sp-count.rec-live { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; background: rgba(24,28,38,.92); color: #fff; border: 1.5px solid var(--accent, #e76f51); }
+    .sp-count.rec-live .sp-count-cue { color: #fff; font-size: 13px; margin-top: 0; }
+    .sp-count.rec-live .sp-count-cue b { color: var(--accent, #ffd166); }
+    .sp-empty-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+      margin: 28px auto; max-width: 480px; padding: 34px 24px; text-align: center;
+      border: 2px dashed #c8cedb; border-radius: 16px; background: #f8f9fc; color: #1d2330; }
+    .sp-empty-drop.drag { border-color: #1f6fd1; background: #eef4ff; }
+    .sp-empty-drop h4 { margin: 0; font-size: 16px; }
+    .sp-empty-drop p { margin: 0; font-size: 13px; color: #5b6475; line-height: 1.45; }
+    .sp-empty-drop button { background: #1f6fd1; color: #fff; border: 0; border-radius: 9px; padding: 9px 16px; font-weight: 700; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .sp-vwarn { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: #b45309; background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.4); border-radius: 7px; padding: 2px 7px; }
+    .sp-vwarn button { border: 0; background: #b45309; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .sp-hint-btn { margin-left: 8px; border: 1px solid var(--accent, #1f6fd1); background: color-mix(in srgb, var(--accent, #1f6fd1) 16%, transparent); color: inherit; border-radius: 6px; padding: 1px 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .sp-bpm-inp { width: 44px; text-align: center; font: 700 13px/1 inherit; border: 1px solid var(--accent); border-radius: 4px; background: #fff; color: #1d2330; padding: 2px; }
     .sp-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; display: inline-block; animation: sprecpulse 1s infinite; }
     .sp-beat-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px;
       background: rgba(255,255,255,.16); color: #fff; font-weight: 800; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -683,18 +700,18 @@ async function spStartVocalRec(ctl, lineIdx) {
     if (typeof grMic === 'function') {
       const m = await grMic();
       stream = m.stream;
-      // Wait briefly if the mic was just opened on macOS so the initial audio switch doesn't clip beat 1
-      if (!m.ready && !(typeof GR_IOS !== 'undefined' && GR_IOS)) {
-        const waitUntil = () => m.liveAt ?? (m.openedAt + 1200);
-        while (performance.now() < waitUntil()) await new Promise(r => setTimeout(r, 40));
-        m.ready = true;
+      if (typeof grMicReady === 'function') {
+        const ok = await grMicReady(m, null);
+        if (!ok) { SP_VREC.starting = false; return; }
       }
     } else {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     }
   } catch (e) {
     SP_VREC.starting = false;
-    return toast('Microphone not available: ' + (e.message || e));
+    if (typeof grShowMicError === 'function') grShowMicError(ctl.host, e);
+    else toast('Microphone not available: ' + (e.message || e));
+    return;
   }
   SP_VREC.starting = false;
   const c = ac();
@@ -852,7 +869,8 @@ function spPlay(ctl, playOpts = null) {
   if (playOpts?.noLoop) R.loop = false;
   const factorAt = it => {
     const basePct = Number(playOpts?.tempoPct || st.tempo) || 100;
-    const ramp = (!playOpts?.tempoPct && !playOpts?.recordingLine && st.speed.on)
+    // Speed-up only applies when Loop is actually active
+    const ramp = (!playOpts?.tempoPct && !playOpts?.recordingLine && R.loop && st.speed.on)
       ? Math.min(1, ((Number(st.speed.start) || 70) + (Number(st.speed.step) || 5) * it) / 100)
       : 1;
     return (basePct / 100) * ramp;
@@ -885,6 +903,9 @@ function spPlay(ctl, playOpts = null) {
         firsts.push(...spFirstNotes(sc, li, R));
       });
       [...new Set(firsts)].forEach(mi => spPianoNote(master, t0, mi, nb * beatSec * 0.95, 0.55));
+      if (bars > 0) countMeta = { t0, endT: t0 + bars * nb * beatSec, nb, beatSec, totalBeats: bars * nb, lineName: null, firstNote: firsts.length === 1 ? grName(firsts[0]) : null };
+    } else if (bars > 0) {
+      countMeta = { t0, endT: t0 + bars * nb * beatSec, nb, beatSec, totalBeats: bars * nb, lineName: null, firstNote: null };
     }
     return bars * nb * beatSec;
   };
@@ -1044,16 +1065,22 @@ function spPlay(ctl, playOpts = null) {
   const frame = () => {
     if (SP_PLAY.ctl !== ctl) return;
     const heard = spHeardTime(c);
-    ctl.drawPlayhead(heard);
-    if (countMeta && playOpts?.recordingLine != null) {
-      if (heard < countMeta.endT) {
+    const inCount = !!(countMeta && heard < countMeta.endT);
+    ctl.drawPlayhead(heard, inCount);
+    if (countMeta) {
+      if (inCount) {
         const bi = Math.max(0, Math.floor((heard - countMeta.t0) / countMeta.beatSec + 1e-6));
         const bNum = (bi % countMeta.nb) + 1;
-        ctl.showCountOverlay?.(String(bNum), `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`, bNum === 1);
-      } else {
+        const cue = playOpts?.recordingLine != null
+          ? `Sing <b>${esc(countMeta.lineName)}</b>${countMeta.firstNote ? ` · start on <b>${countMeta.firstNote}</b>` : ''}`
+          : countMeta.firstNote ? `start on <b>${countMeta.firstNote}</b>` : '';
+        ctl.showCountOverlay?.(String(bNum), cue, bNum === 1);
+      } else if (playOpts?.recordingLine != null) {
         const bi = Math.max(0, Math.floor((heard - countMeta.endT) / countMeta.beatSec + 1e-6));
         const bNum = (bi % countMeta.nb) + 1;
         ctl.showRecOverlay?.(`Recording <b>${esc(countMeta.lineName)}</b> · ${st.recHeadphones ? 'Headphones' : 'Silent (pure voice)'}`, bNum, bNum === 1);
+      } else {
+        ctl.hideCountOverlay?.();
       }
     }
     SP_PLAY.raf = requestAnimationFrame(frame);
@@ -1153,7 +1180,7 @@ function spExpectedNotes(ctl, lineIdx, R, shift = 0) {
 async function spGradeStart(ctl, btn, inputOverride = null) {
   if (typeof GR === 'undefined') return toast('Grading engine not loaded.');
   if (GR.on) { grStop(true); return; }
-  if (GR.starting) return;
+  if (GR.starting) { GR.cancelStart = true; return; }
   if (SP_VREC.on) spStopVocalRec(false);
   if (SP_PLAY.ctl) spStop();
   spHoldStop();
@@ -1165,21 +1192,30 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   const shift = (typeof GR_VOICE_SHIFT !== 'undefined' ? GR_VOICE_SHIFT[st.gradeVoice || 'written'] : 0) || 0;
   const exp = spExpectedNotes(ctl, lineIdx, R, shift);
   if (!exp.length) return toast(`No notes found for ${line?.name || 'this part'} in the selected measure range.`);
-  const mode = inputOverride || st.gradeMode || 'mic'; // 'mic' (pitch+rhythm), 'rhythm' (mic rhythm only), 'tap' (spacebar rhythm)
+  const mode = inputOverride || st.gradeMode || 'mic'; // 'mic' (pitch+rhythm), 'rhythm' (mic rhythm only), 'tap' (spacebar/touch rhythm)
   const tap = mode === 'tap';
   const gradePitch = mode === 'mic';
-  GR.starting = true;
+  GR.starting = true; GR.cancelStart = false;
+  const idleBtnHTML = btn ? btn.innerHTML : null;
   let mic = null, c0 = null;
   try {
     c0 = ac();
     await grResume(c0);
     if (c0.state !== 'running') return toast('Sound is not running yet. Press Grade again.');
     if (!tap) {
-      try { mic = await grMic(); } catch (e) { return toast('Microphone not available: ' + e.message); }
-      await grMicReady(mic, btn);
+      try { mic = await grMic(); } catch (e) {
+        if (typeof grShowMicError === 'function') grShowMicError(host, e, () => spGradeStart(ctl, btn, 'tap'));
+        else toast('Microphone not available: ' + e.message);
+        return;
+      }
+      const ok = await grMicReady(mic, btn);
+      if (!ok) {
+        if (btn && idleBtnHTML) { btn.innerHTML = idleBtnHTML; btn.classList.remove('on'); }
+        return;
+      }
       await grResume(mic.c);
     }
-  } finally { GR.starting = false; }
+  } finally { GR.starting = false; GR.cancelStart = false; }
   await spPianoReady(sc.events.map(e => e.midi)).catch(() => {});
   const c = tap ? c0 : mic.c;
   document.getElementById('gr-card')?.remove();
@@ -1291,20 +1327,22 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
     retry: () => spGradeStart(ctl, btn, mode),
   });
   if (btn) {
-    btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade');
+    btn.innerHTML = IC('ico:stop') + (tap ? ' Stop (tapping)' : ' Stop & grade <i class="gr-lvl" aria-hidden="true"></i>');
     btn.classList.add('on');
   }
+  if (tap && typeof grMountTapPad === 'function') grMountTapPad(host);
   if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
 
   const startNoteLbl = firstMidi != null ? grName(firstMidi) : null;
   const animFrame = () => {
     if (!GR.on || GR.host !== host) return;
     const heard = spHeardTime(c);
-    ctl.drawPlayhead(heard);
-    if (heard < T0) {
+    const inCount = heard < T0;
+    ctl.drawPlayhead(heard, inCount);
+    if (inCount) {
       const bi = Math.max(0, Math.floor((heard - t0) / beatSec + 1e-6));
       const bNum = (bi % nb) + 1;
-      ctl.showCountOverlay?.(String(bNum), `Grade <b>${esc(line?.name || 'Part')}</b> (${rangeLabel})${!tap && startNoteLbl ? ` · start on <b>${startNoteLbl}</b>` : tap ? ' · tap Space on each note' : ''}`, bNum === 1);
+      ctl.showCountOverlay?.(String(bNum), `Grade <b>${esc(line?.name || 'Part')}</b> (${rangeLabel})${!tap && startNoteLbl ? ` · start on <b>${startNoteLbl}</b>` : tap ? ' · tap on each note' : ''}`, bNum === 1);
     } else {
       ctl.hideCountOverlay?.();
     }
@@ -1322,6 +1360,10 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
     let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
     const rms = Math.sqrt(s / W);
     const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;
+    if (GR.poll % 6 === 0) {
+      const dot = btn?.querySelector('.gr-lvl');
+      if (dot) dot.classList.toggle('hot', rms >= GR_MIN_RMS);
+    }
     GR.frames.push({ t: now, rms, f });
   }, 10);
 }
@@ -1366,7 +1408,7 @@ function mountScore(host, st, onChange0, key) {
   const BAR = {
     file: () => `<span class="sp-grp" data-ctl="file"><select class="sp-file" data-spk="file" title="Switch score"></select><button data-sp="addscore" title="Add a score file (MusicXML / MuseScore)" aria-label="Add a score file">${IC('ico:plus')}</button></span>`,
     play: () => `<button data-sp="play" data-ctl="play" class="sp-primary">${IC('ico:play')} Play</button>`,
-    tempo: () => `<span class="sp-step" data-ctl="tempo" title="Tempo (beats per minute &amp; percent of original score tempo)"><button data-sp="tempo-step" data-d="-5" title="Slower (-5%)" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm" data-sp="tempo-reset"></output><button data-sp="tempo-step" data-d="5" title="Faster (+5%)" aria-label="Faster">${IC('ico:plus')}</button><button class="sp-treset" data-sp="tempo-reset" title="Reset to 100% original score tempo" aria-label="Reset tempo to 100%" hidden>${IC('ico:reload')}</button></span>`,
+    tempo: () => `<span class="sp-step" data-ctl="tempo" title="Tempo (BPM &amp; percent of original score tempo)"><button data-sp="tempo-step" data-d="-5" title="Slower (-5%)" aria-label="Slower">${IC('ico:minus')}</button><output class="sp-bpm" data-sp="tempo-edit" title="Click to type a BPM"></output><button data-sp="tempo-step" data-d="5" title="Faster (+5%)" aria-label="Faster">${IC('ico:plus')}</button><button class="sp-treset" data-sp="tempo-reset" title="Reset to 100% original score tempo" aria-label="Reset tempo to 100%" hidden>${IC('ico:reload')}</button></span>`,
     metronome: () => `<button data-sp="metro" data-ctl="metronome" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>`,
     loop: () => `<button data-sp="loop" data-ctl="loop" title="Loop the selected measures (click or drag on the music to choose them)">${IC('ico:repeat')} <span class="sp-looplbl">Loop</span></button>`,
     range: () => `<span class="sp-range" data-ctl="range">m. <input type="number" min="1" data-spk="from" title="First measure"> – <input type="number" min="1" data-spk="to" title="Last measure"></span>`,
@@ -1420,6 +1462,8 @@ function mountScore(host, st, onChange0, key) {
   const SP_DEFAULT_HIDDEN = ['help', 'range'];
   ctl.applyCtl = () => {
     const hid = new Set(S.settings.spHidden ?? SP_DEFAULT_HIDDEN);
+    // Always reveal measure range inputs when Loop is ON so teachers can type or inspect the loop bounds
+    if (st.loop?.on) hid.delete('range');
     root.querySelectorAll('[data-ctl]').forEach(el => { el.hidden = hid.has(el.dataset.ctl); });
     const ch = $q('.sp-choir');                                      // hide the choir row if everything in it is hidden
     if (ch && ctl.sc) ch.classList.toggle('sp-empty', ['pitches', 'colour', 'show'].every(k => hid.has(k)));
@@ -1502,9 +1546,15 @@ function mountScore(host, st, onChange0, key) {
     if (typeof WIN !== 'undefined') WIN.sig = '';               // window title follows
   };
   ctl.addScore = async () => {
-    const fs = await pickFile('.mxl,.musicxml,.xml,.mscz,.mscx', true); if (!fs.length) return;
-    let last = null;
-    for (const f of fs) { if (!spIsScoreName(f.name)) continue; last = await storeFile(f); }
+    const accept = HAS_SERVER ? '.mxl,.musicxml,.xml,.mscz,.mscx' : '.mxl,.musicxml,.xml';
+    const fs = await pickFile(accept, true); if (!fs.length) return;
+    let last = null, rejectedMscz = false;
+    for (const f of fs) {
+      if (!HAS_SERVER && /\.(mscz|mscx)$/i.test(f.name)) { rejectedMscz = true; continue; }
+      if (!spIsScoreName(f.name)) continue;
+      last = await storeFile(f);
+    }
+    if (rejectedMscz) toast('MuseScore (.mscz) files need the desktop app — export MusicXML (.mxl) from MuseScore to use in a browser.');
     save(); if (last) ctl.switchTo(last);
   };
   ctl.removeScore = () => {
@@ -1529,6 +1579,11 @@ function mountScore(host, st, onChange0, key) {
       const recRangeLbl = hasRec
         ? `${rec.startMeasure === rec.endMeasure ? 'm.' + mNum(rec.startMeasure) : 'm.' + mNum(rec.startMeasure) + '–' + mNum(rec.endMeasure)} · ${Math.round(rec.recordedBpm)} BPM`
         : '';
+      const curScoreBpm = sc ? spBpmAt(sc, sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0) * ((Number(st.tempo) || 100) / 100) : 0;
+      const tempoMismatch = hasRec && srcMode === 'sung' && (
+        (st.speed?.on && st.loop?.on) ||
+        (curScoreBpm > 0 && Math.abs(curScoreBpm - rec.recordedBpm) / Math.max(1, rec.recordedBpm) > 0.03)
+      );
       const showBell = !p.acc || !hasVocal;
       return `<div class="sp-part ${srcMode === 'sung' ? 'is-sung' : ''} ${isRecThis ? 'is-rec' : ''}" data-partrow="${i}">
         <label class="sp-part-lbl" title="Mute / unmute ${esc(p.name)}">
@@ -1544,6 +1599,7 @@ function mountScore(host, st, onChange0, key) {
           <button type="button" data-sp="vsrc" data-line="${i}" data-src="sung" class="${srcMode === 'sung' ? 'on' : ''}" title="Play recorded Sung voice for ${esc(p.name)} (${esc(recRangeLbl)})">Sung</button>
           <button type="button" data-sp="vsrc" data-line="${i}" data-src="midi" class="${srcMode === 'midi' ? 'on' : ''}" title="Play MIDI piano notes for ${esc(p.name)}">MIDI</button>
         </span><button type="button" class="sp-vdel-btn" data-sp="vdel" data-line="${i}" title="Delete sung recording for ${esc(p.name)} (${esc(recRangeLbl)})" aria-label="Delete sung recording for ${esc(p.name)}">${spSvg('trash')}</button>` : ''}
+        ${tempoMismatch ? `<span class="sp-vwarn" title="Sung recordings shift pitch when tempo changes">Recorded at ${Math.round(rec.recordedBpm)} BPM — pitch shifts <button type="button" data-sp="vsrc" data-line="${i}" data-src="midi">Use MIDI</button></span>` : ''}
       </div>`;
     }).join('');
   };
@@ -1577,12 +1633,14 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.showCountOverlay = (beatStr, cueHTML, isOne) => {
     const scEl = $q('.sp-score'); if (!scEl) return;
-    let cnt = scEl.querySelector('.sp-count');
+    let wrap = scEl.querySelector('.sp-count-wrap');
+    if (!wrap) { wrap = document.createElement('div'); wrap.className = 'sp-count-wrap'; scEl.appendChild(wrap); }
+    let cnt = wrap.querySelector('.sp-count');
     if (!cnt || cnt.classList.contains('rec-live')) {
       cnt?.remove();
       cnt = document.createElement('div');
       cnt.className = 'sp-count';
-      scEl.prepend(cnt);
+      wrap.appendChild(cnt);
     }
     if (cnt.dataset.n !== beatStr) {
       cnt.dataset.n = beatStr;
@@ -1592,17 +1650,19 @@ function mountScore(host, st, onChange0, key) {
   };
   ctl.showRecOverlay = (html, beatNum, isOne) => {
     const scEl = $q('.sp-score'); if (!scEl) return;
-    let cnt = scEl.querySelector('.sp-count');
+    let wrap = scEl.querySelector('.sp-count-wrap');
+    if (!wrap) { wrap = document.createElement('div'); wrap.className = 'sp-count-wrap'; scEl.appendChild(wrap); }
+    let cnt = wrap.querySelector('.sp-count');
     if (!cnt || !cnt.classList.contains('rec-live')) {
       cnt?.remove();
       cnt = document.createElement('div');
       cnt.className = 'sp-count rec-live';
-      scEl.prepend(cnt);
+      wrap.appendChild(cnt);
     }
     const want = `<i class="sp-rec-dot"></i><span class="sp-count-cue">${html}</span>${beatNum ? `<span class="sp-beat-pill ${isOne ? 'one' : ''}">${beatNum}</span>` : ''}`;
     if (cnt.innerHTML !== want) cnt.innerHTML = want;
   };
-  ctl.hideCountOverlay = () => { $q('.sp-score .sp-count')?.remove(); };
+  ctl.hideCountOverlay = () => { $q('.sp-score .sp-count-wrap')?.remove(); };
 
   ctl.closeGradeMenu = () => {
     root.querySelectorAll('.sp-grmenu').forEach(x => x.remove());
@@ -1653,7 +1713,8 @@ function mountScore(host, st, onChange0, key) {
       </div>
       <div class="sp-grm-sec">Start Recording</div>
       <button type="button" class="sp-grm-btn ${!st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="0">${spSvg('mic')}<span><b>Silent Recording (No headphones)</b><small>Pure voice — starting pitch &amp; count-in play first, then all score audio mutes for ${esc(curName)}</small></span></button>
-      <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear selected)</b><small>Hear every checked part &amp; click above in headphones while recording ${esc(curName)}</small></span></button>`;
+      <button type="button" class="sp-grm-btn ${st.recHeadphones ? 'last' : ''}" data-sp="recgo" data-hp="1">${IC('ico:audio')}<span><b>Headphones Recording (Hear selected)</b><small>Hear every checked part &amp; click above in headphones while recording ${esc(curName)}</small></span></button>
+      ${typeof openAvCal === 'function' ? `<button type="button" class="sp-grm-btn" data-sp="sync-check">${IC('ico:sliders')}<span><b>Check recording sync…</b><small>Calibrate speaker/headphone delay (${avDelayMs()} ms)</small></span></button>` : ''}`;
     placePop(m, btn);
     ctl.__grMenuAway = ev => { if (!m.contains(ev.target) && !btn.contains(ev.target)) ctl.closeGradeMenu(); };
     document.addEventListener('pointerdown', ctl.__grMenuAway, true);
@@ -1669,14 +1730,14 @@ function mountScore(host, st, onChange0, key) {
     m.className = 'sp-grmenu';
     m.innerHTML = `
       <div class="sp-grm-sec">Voice / Part to grade</div>
-      <select data-spk="gradeLine">${sc.lines.map((L, i) => `<option value="${i}" ${i === curLi ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}</option>`).join('')}</select>
+      <select data-spk="gradeLine"><option value="" ${st.gradeLine == null ? 'selected' : ''}>Auto (follows Solo / Focus → ${esc(curName)})</option>${sc.lines.map((L, i) => `<option value="${i}" ${st.gradeLine != null && +st.gradeLine === i ? 'selected' : ''}>${esc(L.name)}${L.acc ? ' (Accomp.)' : ''}</option>`).join('')}</select>
       <div class="sp-grm-sec">Voice / Octave shift</div>
       <select data-spk="gradeVoice">${voices.map(([v, l]) => `<option value="${v}" ${(st.gradeVoice || 'written') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Guide backing (use headphones)</label>
+      <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Quiet guide backing (use headphones)</label>
       <div class="sp-grm-sec">Start Grading</div>
       <button type="button" class="sp-grm-btn ${curMode === 'mic' ? 'last' : ''}" data-sp="gradego" data-v="mic">${IC('ico:mic')}<span><b>Microphone (Pitch &amp; Rhythm)</b><small>Sing ${esc(curName)} into the mic</small></span></button>
       <button type="button" class="sp-grm-btn ${curMode === 'rhythm' ? 'last' : ''}" data-sp="gradego" data-v="rhythm">${IC('ico:hand')}<span><b>Microphone (Rhythm only)</b><small>Clap or sing rhythm only</small></span></button>
-      <button type="button" class="sp-grm-btn ${curMode === 'tap' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Space bar (Tap rhythm)</b><small>Tap each note on the Space bar</small></span></button>`;
+      <button type="button" class="sp-grm-btn ${curMode === 'tap' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Tap rhythm (Space / Touch)</b><small>Tap each note on the Space bar or touch pad</small></span></button>`;
     const rr = root.getBoundingClientRect();
     const minL = Math.max(8, rr.left + 8), maxR = Math.min(innerWidth - 8, rr.right - 8);
     const minT = Math.max(8, rr.top + 8), maxB = Math.min(innerHeight - 8, rr.bottom - 8);
@@ -1731,7 +1792,7 @@ function mountScore(host, st, onChange0, key) {
       const playing = !!(typeof GR !== 'undefined' && GR.listenNodes?.length);
       lb.innerHTML = playing ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Listen back';
       if (playing) { lb.classList.add('on'); lb.dataset.idle = IC('ico:play') + ' Listen back'; }
-      lb.onclick = e => { e.stopPropagation(); grListen(ctl.host, document.querySelector('#gr-card .gr-mix')?.value || 'both', lb); };
+      lb.onclick = e => { e.stopPropagation(); grListen(ctl.host, document.querySelector('#gr-card .gr-mix')?.value || G.mix || window.__grLastMix || 'both', lb); };
       chips.appendChild(lb);
     }
 
@@ -1960,17 +2021,19 @@ function mountScore(host, st, onChange0, key) {
     if (document.activeElement !== t) t.value = mNum(Math.max(st.loop.a, st.loop.b));
     const origBpm = ctl.sc ? Math.round(spBpmAt(ctl.sc, ctl.sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0)) : 0;
     const bpm = origBpm ? Math.round(origBpm * st.tempo / 100) : '';
-    const ramp = st.speed.on && ctl.playing ? ` · ${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.iter || 0))}%` : '';
+    const speedArmed = !!(st.speed?.on && st.loop?.on);
+    const rampNow = speedArmed ? `${Math.min(100, (+st.speed.start || 70) + (+st.speed.step || 5) * (ctl.playing ? (ctl.iter || 0) : 0))}%→100%` : '';
+    const ramp = speedArmed ? ` · speed-up ${rampNow}` : '';
     const changed = st.tempo !== 100;
     const bpmEl = $q('.sp-bpm');
-    if (bpmEl) {
+    if (bpmEl && !bpmEl.querySelector('input')) {
       bpmEl.innerHTML = bpm
-        ? `<b>${bpm}</b><small>BPM</small><span class="sp-tpct${changed ? ' mod' : ''}">${st.tempo}%</span>`
+        ? `<b>${bpm}</b><small>BPM</small><span class="sp-tpct${changed ? ' mod' : ''}">${st.tempo}%</span>${speedArmed ? `<span class="sp-tpct mod" title="Speed-up active while looping">${rampNow}</span>` : ''}`
         : `<b>${st.tempo}%</b>`;
       bpmEl.classList.toggle('is-mod', changed);
       bpmEl.title = bpm
-        ? `${bpm} BPM (${st.tempo}% of ${origBpm} BPM original${ramp})${changed ? ' · Click to reset to 100%' : ''}`
-        : `${st.tempo}% of original tempo${ramp}${changed ? ' · Click to reset to 100%' : ''}`;
+        ? `${bpm} BPM (${st.tempo}% of ${origBpm} BPM original${ramp}) · Click to type a BPM`
+        : `${st.tempo}% of original tempo${ramp}`;
     }
     const trBtn = $q('[data-sp="tempo-reset"].sp-treset');
     if (trBtn) {
@@ -1979,11 +2042,30 @@ function mountScore(host, st, onChange0, key) {
     }
     const zEl = $q('.sp-zoom .tb-zpct');
     if (zEl) zEl.textContent = `${Math.round((st.zoom || 1) * 100)}%`;
-    $q('[data-sp="metro"]').classList.toggle('on', !!st.metronome);
+    const anySungMetro = !!(ctl.sc && ctl.sc.lines.some((_, li) => spIsLineSung(ctl, li) && spLineVol(ctl, li) > 0 && ctl.vocalRecs?.[li]?.hadMetro));
+    const mBtn = $q('[data-sp="metro"]');
+    if (mBtn) {
+      mBtn.classList.toggle('on', !!st.metronome || anySungMetro);
+      mBtn.innerHTML = `${IC('ico:metro')} ${anySungMetro ? 'Metronome (rec)' : 'Metronome'}`;
+      mBtn.title = anySungMetro ? 'Click track is coming from your recorded sung voice' : 'Metronome clicks while playing';
+    }
     const open = !!st.settingsOpen; root.classList.toggle('sp-closed', !open); $q('[data-sp="settings"]').classList.toggle('on', open);
     const la = Math.min(st.loop.a, st.loop.b), lb = Math.max(st.loop.a, st.loop.b);
     $q('.sp-looplbl').textContent = st.loop.on ? (la === lb ? `Loop m. ${mNum(la)}` : `Loop m. ${mNum(la)}–${mNum(lb)}`) : 'Loop';
-    if (!ctl.pick && ctl.sc) { status(''); $q('.sp-score').title = 'Click a measure to select it · Shift-click or drag to select more · ' + (st.loop.on ? 'the selection loops' : 'Play starts at the selection; turn on Loop to repeat it'); }
+    ctl.applyCtl?.();
+    if (!ctl.pick && ctl.sc) {
+      const hintEl = $q('.sp-hint');
+      if (hintEl) {
+        if (!st.loop.on && la !== lb) {
+          hintEl.innerHTML = `Selected m. ${esc(mNum(la))}–${esc(mNum(lb))} <button type="button" class="sp-hint-btn" data-sp="loop-sel">Loop m. ${esc(mNum(la))}–${esc(mNum(lb))}</button>`;
+        } else if (st.loop.on && la === lb) {
+          hintEl.textContent = 'Drag across measures or type measure numbers above to expand your loop.';
+        } else {
+          hintEl.textContent = '';
+        }
+      }
+      $q('.sp-score').title = 'Click a measure to select it · Shift-click or drag to select more · ' + (st.loop.on ? 'the selection loops' : 'Play starts at the selection; turn on Loop to repeat it');
+    }
   };
   const settingsHTML = () => {
     const opt = (v, cur, l) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`;
@@ -1993,7 +2075,7 @@ function mountScore(host, st, onChange0, key) {
       <label data-ctl="solminor" title="How minor keys are sung">Minor <select data-spk="solMinor">${opt('do', S.settings.solMinor || 'do', 'do-based (do = tonic)')}${opt('la', S.settings.solMinor || 'do', 'la-based (la = tonic)')}</select></label>
       <label data-ctl="rhysys" title="Syllables used when Counts is turned on">Counts <select data-spk="rhythmSystem">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => opt(v, S.settings.rhythmSystem || 'numbers', l)).join('')}</select></label>
       <label data-ctl="startpitch">Starting pitches <select data-spk="pitches">${opt('none', st.pitches, 'None')}${opt('mine', st.pitches, 'Parts that are playing')}${opt('all', st.pitches, 'All parts (chord)')}</select></label>
-      <span class="sp-grp" data-ctl="speedup"><label class="srchk"><input type="checkbox" data-spk="speedOn" ${st.speed.on ? 'checked' : ''}> Speed up each repeat</label>
+      <span class="sp-grp" data-ctl="speedup"><label class="srchk"><input type="checkbox" data-spk="speedOn" ${st.speed.on ? 'checked' : ''}> Speed up each repeat (requires Loop)</label>
       <label>start at <input type="number" min="30" max="100" step="5" data-spk="speedStart" value="${st.speed.start}">%</label>
       <label>+<input type="number" min="1" max="25" data-spk="speedStep" value="${st.speed.step}">% per loop</label></span>
     </div>
@@ -2051,39 +2133,8 @@ function mountScore(host, st, onChange0, key) {
     sel.classList.toggle('off', !st.loop.on);
     const a = Math.min(st.loop.a, st.loop.b), b = Math.max(st.loop.a, st.loop.b);
     const labelTxt = a === b ? `m. ${mNum(a)}` : `m. ${mNum(a)}–${mNum(b)}`;
-    // When Loop is OFF: draw a crisp thin vertical start-position line (never a wide translucent slab over all staves),
-    // with the measure pill positioned cleanly above the top staff.
-    if (!st.loop.on) {
-      const r = BOX[a]; if (!r) return;
-      const lineX = r.knots?.[0]?.[1] ?? (r.x + 8);
-      const lineH = Math.max(24, r.sysBot - r.sysTop);
-      const pillGap = Math.max(5, Math.round(r.sysTop - r.pillTop));
-      const d = document.createElement('i');
-      d.className = 'sp-start-line';
-      Object.assign(d.style, { left: (lineX - 1.25) + 'px', top: r.sysTop + 'px', width: '2.5px', height: lineH + 'px' });
-      const t = document.createElement('b');
-      t.textContent = labelTxt;
-      t.style.bottom = `calc(100% + ${pillGap}px)`;
-      d.appendChild(t);
-      sel.appendChild(d);
-      if (a !== b) {
-        const groups = [];
-        for (let i = a; i <= b; i++) {
-          const ri = BOX[i]; if (!ri) continue;
-          const g = groups[groups.length - 1];
-          if (g && Math.abs(g.top - ri.sysTop) < 2 && ri.x >= g.right - 2) { g.right = ri.x + ri.w; g.pillTop = Math.min(g.pillTop, ri.pillTop); }
-          else groups.push({ left: ri.x, right: ri.x + ri.w, top: ri.sysTop, pillTop: ri.pillTop });
-        }
-        groups.forEach(g => {
-          const cap = document.createElement('i');
-          cap.className = 'sp-range-cap';
-          Object.assign(cap.style, { left: g.left + 'px', top: (g.pillTop - 2) + 'px', width: Math.max(4, g.right - g.left) + 'px', height: '2px' });
-          sel.appendChild(cap);
-        });
-      }
-      return;
-    }
-    // When Loop is ON: draw clean loop bands tightly aligned to the system's staff lines, with the pill above the top staff.
+    // Draw clean highlight bands in BOTH Loop (accent/coral) and non-Loop (blue) modes,
+    // with the measure pill sitting cleanly above the left edge of the first selected measure.
     const groups = [];
     for (let i = a; i <= b; i++) {
       const r = BOX[i]; if (!r) continue;
@@ -2109,28 +2160,38 @@ function mountScore(host, st, onChange0, key) {
       sel.appendChild(d);
     });
   };
-  ctl.hidePlayhead = () => { $q('.sp-ph').hidden = true; };
-  ctl.drawPlayhead = now => {
+  ctl.hidePlayhead = () => { const ph = $q('.sp-ph'); if (ph) { ph.hidden = true; ph.classList.remove('pulse'); } };
+  ctl.drawPlayhead = (now, inCount = false) => {
     const M = ctl.marks; if (!M.length || !ctl.sc) return;
     let i = M.length - 1; while (i > 0 && M[i].t > now) i--;
     const a = M[i], b = M[i + 1];
     const q = a.hold || !b || b.jump ? a.q : a.q + (b.q - a.q) * Math.max(0, Math.min(1, (now - a.t) / ((b.t - a.t) || 1)));
     const P = ctl.sc.perf, ms = ctl.sc.measures;
     let pi = P.findIndex(m => q >= m.start - 1e-9 && q < m.start + m.len - 1e-9); if (pi < 0) pi = P.length - 1;
-    const mi = P[pi].w, r = BOX[mi], ph = $q('.sp-ph'); if (!r) { ph.hidden = true; return; }
+    const mi = P[pi].w, r = BOX[mi], ph = $q('.sp-ph'); if (!r || !ph) { if (ph) ph.hidden = true; return; }
     const m = ms[mi], dq = q - P[pi].start;
     let x;
     const K = r.knots || [];
     if (K.length) {
-      // glide from note to note: between two drawn notes, and from the last note to the bar line
+      // glide from note to note: slightly to the left of each notehead so notes are never covered
       let j = 0; while (j < K.length - 1 && dq >= K[j + 1][0]) j++;
       const [qa, xa] = K[j], [qb, xb] = K[j + 1] || [m.len, r.x + r.w - 4];
       x = dq <= qa ? xa : xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
     } else { const f = Math.max(0, Math.min(1, dq / (m.len || 1))), pad = Math.min(14, r.w * 0.08); x = r.x + pad + f * (r.w - pad * 1.5); }
-    const phTop = r.sysTop ?? r.y, phH = Math.max(24, (r.sysBot ?? (r.y + r.h)) - phTop);
-    ph.hidden = false; Object.assign(ph.style, { transform: `translate(${x}px, ${phTop}px)`, height: phH + 'px' });
+    x = Math.max(r.x + 2, x - 6);
+    if (!ph.firstChild) ph.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
+    const segLen = 20, gap = 10;
+    const sysTop = r.sysTop ?? r.y, sysBot = r.sysBot ?? (r.y + r.h);
+    const y0 = Math.max(2, sysTop - gap - segLen);
+    const totalH = (sysBot + gap + segLen) - y0;
+    ph.hidden = false;
+    ph.classList.toggle('pulse', !!inCount);
+    Object.assign(ph.style, { transform: `translate(${x}px, ${y0}px)`, height: totalH + 'px' });
+    ph.children[0].style.height = segLen + 'px';
+    ph.children[1].style.top = (totalH - segLen) + 'px';
+    ph.children[1].style.height = segLen + 'px';
     const sc = $q('.sp-score');                                     // keep the playhead in view
-    if (phTop < sc.scrollTop + 10 || phTop + phH > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, phTop - sc.clientHeight * 0.25);
+    if (y0 < sc.scrollTop + 10 || y0 + totalH > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, y0 - sc.clientHeight * 0.25);
     if (x < sc.scrollLeft + 30 || x > sc.scrollLeft + sc.clientWidth - 60) sc.scrollLeft = Math.max(0, x - sc.clientWidth * 0.3);
     if (ctl.lastIter !== ctl.iter) { ctl.lastIter = ctl.iter; ctl.updateBar(); }
   };
@@ -2293,10 +2354,33 @@ function mountScore(host, st, onChange0, key) {
       e.stopPropagation(); SP_ACTIVE = ctl;
       const k = b.dataset.sp;
       if (k === 'play') { if (ctl.playing) spStop(); else if (ctl.sc) spPlay(ctl); }
-      if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); onChange(); }
-      if (k === 'tempo-reset') { if (st.tempo !== 100) { st.tempo = 100; ctl.updateBar(); onChange(); } }
+      if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); ctl.drawVoices(); onChange(); }
+      if (k === 'tempo-reset') { if (st.tempo !== 100) { st.tempo = 100; ctl.updateBar(); ctl.drawVoices(); onChange(); } }
+      if (k === 'tempo-edit') {
+        const bpmEl = $q('.sp-bpm');
+        const origBpm = ctl.sc ? Math.round(spBpmAt(ctl.sc, ctl.sc.measures[Math.min(st.loop.a, st.loop.b)]?.start || 0)) : 0;
+        if (!bpmEl || !origBpm || bpmEl.querySelector('input')) return;
+        const curBpm = Math.round(origBpm * st.tempo / 100);
+        const inp = document.createElement('input');
+        inp.type = 'number'; inp.min = Math.round(origBpm * 0.3); inp.max = Math.round(origBpm * 1.5); inp.value = String(curBpm);
+        inp.className = 'sp-bpm-inp'; inp.title = `Type target BPM (original: ${origBpm} BPM)`;
+        inp.onclick = ev => ev.stopPropagation();
+        const done = commit => {
+          if (commit) {
+            const v = Number(inp.value);
+            if (isFinite(v) && v > 0) { st.tempo = Math.max(30, Math.min(150, Math.round((v / origBpm) * 100))); onChange(); }
+          }
+          bpmEl.innerHTML = ''; ctl.updateBar(); ctl.drawVoices();
+        };
+        inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); done(true); } if (ev.key === 'Escape') { ev.preventDefault(); done(false); } };
+        inp.onblur = () => done(true);
+        bpmEl.innerHTML = ''; bpmEl.appendChild(inp); inp.focus(); inp.select();
+        return;
+      }
+      if (k === 'loop-sel') { st.loop.on = true; onChange(); ctl.updateBar(); ctl.drawSel(); return; }
+      if (k === 'sync-check') { ctl.closeGradeMenu(); if (typeof openAvCal === 'function') openAvCal(); return; }
       if (k === 'metro') { st.metronome = !st.metronome; onChange(); ctl.updateBar(); }
-      if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); }
+      if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); ctl.drawVoices(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'zoom-reset') { st.zoom = 1; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'focus-all') {
@@ -2484,7 +2568,7 @@ function mountScore(host, st, onChange0, key) {
     else if (k === 'speedOn') st.speed.on = el.checked;
     else if (k === 'speedStart') st.speed.start = Math.max(30, Math.min(100, Number(el.value) || 70));
     else if (k === 'speedStep') st.speed.step = Math.max(1, Math.min(25, Number(el.value) || 5));
-    else if (k === 'gradeLine') { st.gradeLine = Number(el.value); onChange(); ctl.updateBar(); return; }
+    else if (k === 'gradeLine') { st.gradeLine = el.value === '' ? null : Number(el.value); onChange(); ctl.updateBar(); return; }
     else if (k === 'gradeVoice') { st.gradeVoice = el.value; onChange(); return; }
     else if (k === 'gradeGuide') { st.gradeGuide = el.checked; onChange(); return; }
     else if (k === 'recLine') {
@@ -2516,8 +2600,41 @@ function mountScore(host, st, onChange0, key) {
   });
   let rt = null;
   new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => ctl.relayout(), 200); }).observe($q('.sp-score'));
+  // ----- empty state & drag-and-drop score loader
+  const showEmptyState = (errMsg = '') => {
+    status('');
+    const scEl = $q('.sp-score'); if (!scEl) return;
+    scEl.innerHTML = `<div class="sp-empty-drop" data-sp-drop="1">
+      <h4>${errMsg ? 'Could not open this score' : 'Open a Music Score'}</h4>
+      <p>${errMsg ? esc(errMsg) : (HAS_SERVER
+        ? 'Drop a MusicXML (.mxl, .musicxml, .xml) or MuseScore (.mscz) file here, or choose one from your computer.'
+        : 'Drop a MusicXML (.mxl, .musicxml, .xml) file here, or choose one from your computer. Using MuseScore? Export via File → Export → MusicXML (.mxl).')}</p>
+      <button type="button" data-sp="addscore">${IC('ico:plus')} Choose score file…</button>
+    </div>`;
+    const dz = scEl.querySelector('.sp-empty-drop');
+    if (dz) {
+      dz.ondragover = ev => { ev.preventDefault(); dz.classList.add('drag'); };
+      dz.ondragleave = () => dz.classList.remove('drag');
+      dz.ondrop = async ev => {
+        ev.preventDefault(); dz.classList.remove('drag');
+        const fs = [...(ev.dataTransfer?.files || [])]; if (!fs.length) return;
+        let last = null, rejectedMscz = false;
+        for (const f of fs) {
+          if (!HAS_SERVER && /\.(mscz|mscx)$/i.test(f.name)) { rejectedMscz = true; continue; }
+          if (!spIsScoreName(f.name)) continue;
+          last = await storeFile(f);
+        }
+        if (rejectedMscz) toast('MuseScore (.mscz) files need the desktop app — export MusicXML (.mxl) from MuseScore to use in a browser.');
+        save(); if (last) ctl.switchTo(last);
+      };
+    }
+  };
   // ----- load
   (async () => {
+    if (!st.fileId || !S.files[st.fileId]) {
+      showEmptyState();
+      return;
+    }
     try {
       status('Opening the score…');
       const xml = await spGetXml(st, status);
@@ -2540,7 +2657,7 @@ function mountScore(host, st, onChange0, key) {
       await spPianoReady(ctl.sc.events.map(e => e.midi));
       ctl.updateBar();
     } catch (err) {
-      status('Error: ' + (err.message || err));
+      showEmptyState(err.message || String(err));
     }
   })();
   ctl.fillFiles(); S.settings.lastScore = st.fileId; ctl.applyCtl();

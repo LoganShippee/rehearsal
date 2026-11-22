@@ -345,12 +345,27 @@ function pianoSeqStop(rerender = false) {
 }
 
 function pianoBuildRoots(st) {
-  const lo = Math.min(st.startMidi, st.peakMidi), hi = Math.max(st.startMidi, st.peakMidi);
-  const up = []; for (let m = lo; m <= hi; m++) up.push(m);
-  if (st.dir === 'up') return up;
-  if (st.dir === 'down') return up.reverse();
-  const dn = []; for (let m = hi - 1; m >= lo; m--) dn.push(m);
-  return [...up, ...dn];
+  const s = st.startMidi, p = st.peakMidi;
+  const seq = (from, to) => {
+    const out = [], step = to >= from ? 1 : -1;
+    for (let m = from; step > 0 ? m <= to : m >= to; m += step) out.push(m);
+    return out;
+  };
+  if (st.dir === 'up') return seq(s, Math.max(s, p));
+  if (st.dir === 'down') return seq(s, Math.min(s, p));
+  const first = seq(s, p);
+  const back = first.length > 1 ? first.slice(0, -1).reverse() : [];
+  return [...first, ...back];
+}
+function pianoRoutePreview(st) {
+  const roots = pianoBuildRoots(st);
+  if (!roots.length) return '';
+  if (roots.length === 1) return toolMidiName(roots[0]);
+  if (st.dir === 'updown' && roots.length > 2) {
+    const mid = roots[Math.floor(roots.length / 2)];
+    return `${toolMidiName(roots[0])} → ${toolMidiName(mid)} → ${toolMidiName(roots[roots.length - 1])}`;
+  }
+  return `${toolMidiName(roots[0])} → ${toolMidiName(roots[roots.length - 1])}`;
 }
 
 function pianoLightKey(host, midi, ms = 380) {
@@ -518,7 +533,7 @@ function renderPiano(h) {
       const boxH = clamp(Number(st.staffH) || 136, 88, 360);
       return `<div class="pn-seq">
       <div class="pq-banner">
-        <div class="pq-meta"><b class="pq-key">${TOOL_KEY_LABELS[((activeRoot % 12) + 12) % 12]} Major</b><span class="pq-cnt">${PIANO_SEQ.playing ? `Key ${PIANO_SEQ.stepIdx + 1} of ${PIANO_SEQ.roots.length}` : (pat.tip || pat.name)}</span></div>
+        <div class="pq-meta"><b class="pq-key">${TOOL_KEY_LABELS[((activeRoot % 12) + 12) % 12]} Major</b><span class="pq-route" title="Warm-up key progression">${pianoRoutePreview(st)}</span><span class="pq-cnt">${PIANO_SEQ.playing ? `Key ${PIANO_SEQ.stepIdx + 1} of ${PIANO_SEQ.roots.length}` : (pat.tip || pat.name)}</span></div>
         <div class="pq-syls">${pat.syl.map(s => `<span class="pq-syl">${s}</span>`).join('')}</div>
         <span class="grow"></span>
         <span class="tb-lbl">Zoom</span>
@@ -534,7 +549,7 @@ function renderPiano(h) {
         ${PIANO_SEQ.playing && !st.autoStep ? `<button data-pn="seq-next" class="pn-primary">Next key ${IC('ico:chevright')}</button>` : ''}
         <label>Pattern <select data-pn-k="pattern">${Object.entries(PIANO_PATTERNS).map(([k, p]) => `<option value="${k}" ${st.pattern === k ? 'selected' : ''}>${p.name}</option>`).join('')}</select></label>
         <label>Start <select data-pn-k="startMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.startMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
-        <label>Peak <select data-pn-k="peakMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.peakMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
+        <label><span class="pq-peak-lbl">${st.dir === 'down' ? 'Low' : st.peakMidi < st.startMidi ? 'Turnaround' : 'Peak'}</span> <select data-pn-k="peakMidi">${keyRangeOpts.map(m => `<option value="${m}" ${st.peakMidi === m ? 'selected' : ''}>${toolMidiName(m)}</option>`).join('')}</select></label>
         <label>Move <select data-pn-k="dir">${[['updown', 'Up & down'], ['up', 'Up only'], ['down', 'Down only']].map(([v, l]) => `<option value="${v}" ${st.dir === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>Clef <select data-pn-k="clef">${[['treble', 'Treble'], ['bass', 'Bass']].map(([v, l]) => `<option value="${v}" ${st.clef === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label>BPM <input type="number" min="50" max="200" step="4" data-pn-k="tempo" value="${st.tempo}"></label>
@@ -694,9 +709,40 @@ function renderPiano(h) {
         st.baseOct = clamp(Math.floor(st.startMidi / 12) - 1, 2, 5);
       }
     }
+    // Auto-nudge Peak when switching to Down only with Peak above Start (or Up only with Peak below Start)
+    if (k === 'dir') {
+      if (st.dir === 'down' && st.peakMidi >= st.startMidi) st.peakMidi = clamp(st.startMidi - 5, 43, 79);
+      else if (st.dir === 'up' && st.peakMidi <= st.startMidi) st.peakMidi = clamp(st.startMidi + 5, 43, 79);
+    }
     save();
-    if (!PIANO_SEQ.playing) renderPiano(h);
-    else if (k === 'showCounts' || k === 'clef') pianoDrawWarmupStaff(h, st, PIANO_SEQ.roots[PIANO_SEQ.stepIdx] ?? st.startMidi);
+    if (!PIANO_SEQ.playing) {
+      renderPiano(h);
+    } else {
+      const rt = h.querySelector('.pq-route'); if (rt) rt.textContent = pianoRoutePreview(st);
+      const pl = h.querySelector('.pq-peak-lbl'); if (pl) pl.textContent = st.dir === 'down' ? 'Low' : st.peakMidi < st.startMidi ? 'Turnaround' : 'Peak';
+      if (k === 'autoStep') {
+        const playBtn = h.querySelector('[data-pn="seq-play"]');
+        let nxt = h.querySelector('[data-pn="seq-next"]');
+        if (!st.autoStep && !nxt && playBtn) {
+          nxt = document.createElement('button');
+          nxt.dataset.pn = 'seq-next'; nxt.className = 'pn-primary';
+          nxt.innerHTML = `Next key ${IC('ico:chevright')}`;
+          playBtn.insertAdjacentElement('afterend', nxt);
+        } else if (st.autoStep && nxt) {
+          nxt.remove();
+        }
+      } else if (k === 'showCounts' || k === 'clef') {
+        pianoDrawWarmupStaff(h, st, PIANO_SEQ.roots[PIANO_SEQ.stepIdx] ?? st.startMidi);
+      } else {
+        const curRoot = PIANO_SEQ.roots[PIANO_SEQ.stepIdx];
+        const nextRoots = pianoBuildRoots(st);
+        const found = nextRoots.indexOf(curRoot);
+        PIANO_SEQ.roots = nextRoots;
+        if (found >= 0) PIANO_SEQ.stepIdx = found;
+        const cEl = h.querySelector('.pq-cnt');
+        if (cEl) cEl.textContent = `Key ${PIANO_SEQ.stepIdx + 1} of ${PIANO_SEQ.roots.length} · applies next key`;
+      }
+    }
   };
   initToolsKeyboard();
 }
@@ -719,12 +765,23 @@ function mountAudioPlayer(host, fileId) {
   if (!meta || !src) { host.innerHTML = '<div class="res-fallback">This audio file is missing.</div>'; return; }
 
   const marks = () => (meta.marks ||= []);
+  const saved = (meta.aud ||= {});
   const st = {
-    speed: 1, loop: false, loopA: null, loopB: null, countIn: false, bpm: 100,
+    speed: Number(saved.speed) || 1,
+    loop: !!saved.loop,
+    loopA: saved.loopA != null ? Number(saved.loopA) : null,
+    loopB: saved.loopB != null ? Number(saved.loopB) : null,
+    countIn: !!saved.countIn,
+    bpm: Number(saved.bpm) || 100,
     peaks: AUD_PEAKS_CACHE[fileId] || null, dur: 0, counting: false, raf: 0, countTimers: [],
+  };
+  const saveAud = () => {
+    Object.assign(saved, { speed: st.speed, loop: st.loop, loopA: st.loopA, loopB: st.loopB, countIn: st.countIn, bpm: st.bpm });
+    save();
   };
   const audio = new Audio(src);
   audio.preload = 'auto';
+  audio.playbackRate = st.speed;
   audio.preservesPitch = true;
   if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
 
@@ -750,21 +807,23 @@ function mountAudioPlayer(host, fileId) {
       <button data-aud="back" title="Back 5 seconds (←)">−5s</button>
       <button data-aud="fwd" title="Forward 5 seconds (→)">+5s</button>
       <button data-aud="loop" title="Toggle A–B loop (L)">${IC('ico:repeat')} Loop</button>
+      <button data-aud="seta" title="Set loop start A to current position">Set A</button>
+      <button data-aud="setb" title="Set loop end B to current position">Set B</button>
       <button data-aud="clrloop" hidden title="Clear A–B loop">Clear loop</button>
       <span class="aud-sp"></span>
-      <span class="aud-speeds" title="Playback speed (keeps pitch)">${[0.5, 0.75, 0.85, 1, 1.1, 1.25].map(v => `<button data-aud="spd" data-v="${v}" class="${v === 1 ? 'on' : ''}">${v}×</button>`).join('')}</span>
+      <span class="aud-speeds" title="Playback speed (keeps pitch)">${[0.5, 0.75, 0.85, 1, 1.1, 1.25].map(v => `<button data-aud="spd" data-v="${v}" class="${v === st.speed ? 'on' : ''}">${v}×</button>`).join('')}</span>
     </div>
     <div class="aud-ctl aud-sub">
-      <label class="aud-chk"><input type="checkbox" data-aud-k="countIn"> Count-in (4 beats)</label>
-      <label class="aud-bpm">at <input type="number" min="40" max="220" step="2" data-aud-k="bpm" value="100"> BPM</label>
+      <label class="aud-chk"><input type="checkbox" data-aud-k="countIn" ${st.countIn ? 'checked' : ''}> Count-in (4 beats)</label>
+      <label class="aud-bpm">at <input type="number" min="40" max="220" step="2" data-aud-k="bpm" value="${st.bpm}"> BPM</label>
       <span class="aud-sp"></span>
-      <span class="aud-hint">Drag waveform to loop · Space = play · M = marker · [ ] = jump</span>
+      <span class="aud-hint">Drag waveform or use Set A / B · Space = play · M = marker · [ ] = jump</span>
     </div>
     <div class="aud-marks-bar">
       <span class="aud-mlbl">${IC('ico:flag')} Markers</span>
       <button data-aud="mprev" title="Previous marker ([)">${IC('ico:chevleft')}</button>
       <button data-aud="mnext" title="Next marker (])">${IC('ico:chevright')}</button>
-      <button data-aud="madd" class="ic-btn" title="Drop a rehearsal marker here (M)">${IC('ico:plus')} Marker</button>
+      <button data-aud="madd" class="ic-btn" title="Drop a rehearsal marker here instantly (M)">${IC('ico:plus')} Marker</button>
       <div class="aud-mlist"></div>
     </div>
   </div>`;
@@ -842,8 +901,8 @@ function mountAudioPlayer(host, fileId) {
   const renderMarks = () => {
     const list = marks().sort((a, b) => a.t - b.t);
     mlistEl.innerHTML = list.length
-      ? list.map(m => `<span class="aud-mk" data-mid="${m.id}"><button data-aud="mgo" data-mid="${m.id}" title="Jump to ${audFmt(m.t)}"><b>${audFmt(m.t)}</b> ${esc(m.label)}</button><button class="x" data-aud="mdel" data-mid="${m.id}" title="Remove marker" aria-label="Remove marker">${IC('ico:close')}</button></span>`).join('')
-      : '<span class="aud-mnone">No markers yet — press + Marker (or M) to tag rehearsal spots.</span>';
+      ? list.map(m => `<span class="aud-mk" data-mid="${m.id}"><button data-aud="mgo" data-mid="${m.id}" title="Jump to ${audFmt(m.t)} · double-click to rename"><b>${audFmt(m.t)}</b> <span class="aud-mname">${esc(m.label)}</span></button><button class="x" data-aud="mren" data-mid="${m.id}" title="Rename marker" aria-label="Rename marker">${IC('ico:edit')}</button><button class="x" data-aud="mdel" data-mid="${m.id}" title="Remove marker" aria-label="Remove marker">${IC('ico:close')}</button></span>`).join('')
+      : '<span class="aud-mnone">No markers yet — press + Marker (or M) to tag rehearsal spots without stopping.</span>';
   };
 
   const syncUI = () => {
@@ -900,11 +959,28 @@ function mountAudioPlayer(host, fileId) {
   const addMarkerHere = () => {
     const t = +(audio.currentTime || 0).toFixed(2);
     const n = marks().length + 1;
-    const label = prompt(`Label for marker at ${audFmt(t)}:`, `Spot ${n}`);
-    if (label == null) return;
-    marks().push({ id: uid(), t, label: label.trim() || `Spot ${n}` });
+    marks().push({ id: uid(), t, label: `Spot ${n}` });
     marks().sort((a, b) => a.t - b.t);
     save(); renderMarks(); drawWaveCanvas();
+  };
+  const startInlineRename = mid => {
+    const m = marks().find(x => x.id === mid); if (!m) return;
+    const chip = mlistEl.querySelector(`.aud-mk[data-mid="${mid}"] .aud-mname`); if (!chip) return;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.value = m.label; inp.className = 'aud-mren-inp';
+    inp.onclick = ev => ev.stopPropagation();
+    const done = commit => {
+      if (commit) { const v = inp.value.trim(); if (v) m.label = v; save(); }
+      renderMarks();
+    };
+    inp.onkeydown = ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); done(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); done(false); }
+    };
+    inp.onblur = () => done(true);
+    chip.replaceWith(inp);
+    inp.focus(); inp.select();
   };
 
   const jumpMarker = dir => {
@@ -964,42 +1040,67 @@ function mountAudioPlayer(host, fileId) {
     if (!wDrag) return;
     const d = wDrag; wDrag = null;
     if (!d.dragged) { audio.currentTime = d.t0; syncUI(); }
-    else if (st.loopB - st.loopA < 0.25) { st.loopA = st.loopB = null; st.loop = false; audio.currentTime = d.t0; syncUI(); }
-    else { audio.currentTime = st.loopA; syncUI(); }
+    else if (st.loopB - st.loopA < 0.25) { st.loopA = st.loopB = null; st.loop = false; audio.currentTime = d.t0; saveAud(); syncUI(); }
+    else { audio.currentTime = st.loopA; saveAud(); syncUI(); }
   };
 
+  host.__audTogglePlay = togglePlay;
+  rootEl.onpointerdown = () => { window.__spaceTarget = 'aud'; window.__audActive = host; };
+  host.ondblclick = e => {
+    const go = e.target.closest('[data-aud="mgo"]');
+    if (go) { e.stopPropagation(); startInlineRename(go.dataset.mid); }
+  };
   host.onclick = e => {
+    window.__spaceTarget = 'aud'; window.__audActive = host;
     const b = e.target.closest('[data-aud]'); if (!b) return;
     e.stopPropagation();
     const act = b.dataset.aud;
     if (act === 'play') togglePlay();
     else if (act === 'back') { audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5); syncUI(); }
     else if (act === 'fwd') { audio.currentTime = Math.min(st.dur || audio.duration || 0, (audio.currentTime || 0) + 5); syncUI(); }
-    else if (act === 'loop') { st.loop = !st.loop; syncUI(); }
-    else if (act === 'clrloop') { st.loopA = st.loopB = null; st.loop = false; syncUI(); }
+    else if (act === 'loop') {
+      st.loop = !st.loop; saveAud(); syncUI();
+      if (st.loop && st.loopA == null && typeof toast === 'function') toast('Looping full track — drag the waveform or click Set A / Set B to loop a section.');
+    }
+    else if (act === 'seta') {
+      const t = +(audio.currentTime || 0).toFixed(2);
+      st.loopA = t;
+      if (st.loopB != null && st.loopB <= st.loopA) st.loopB = null;
+      if (st.loopB != null) st.loop = true;
+      saveAud(); syncUI();
+    }
+    else if (act === 'setb') {
+      const t = +(audio.currentTime || 0).toFixed(2);
+      if (st.loopA == null) st.loopA = 0;
+      if (t <= st.loopA) { st.loopB = st.loopA; st.loopA = t; } else st.loopB = t;
+      st.loop = true; saveAud(); syncUI();
+    }
+    else if (act === 'clrloop') { st.loopA = st.loopB = null; st.loop = false; saveAud(); syncUI(); }
     else if (act === 'spd') {
-      st.speed = Number(b.dataset.v); audio.playbackRate = st.speed;
+      st.speed = Number(b.dataset.v); audio.playbackRate = st.speed; saveAud();
       host.querySelectorAll('[data-aud="spd"]').forEach(x => x.classList.toggle('on', Number(x.dataset.v) === st.speed));
     } else if (act === 'madd') addMarkerHere();
     else if (act === 'mprev') jumpMarker(-1);
     else if (act === 'mnext') jumpMarker(1);
     else if (act === 'mgo') { const m = marks().find(x => x.id === b.dataset.mid); if (m) { audio.currentTime = m.t; syncUI(); } }
+    else if (act === 'mren') { startInlineRename(b.dataset.mid); }
     else if (act === 'mdel') { meta.marks = marks().filter(x => x.id !== b.dataset.mid); save(); renderMarks(); drawWaveCanvas(); }
   };
   host.onchange = e => {
     const el = e.target, k = el.dataset.audK; if (!k) return;
     if (k === 'countIn') st.countIn = el.checked;
     if (k === 'bpm') st.bpm = clamp(Number(el.value) || 100, 40, 220);
+    saveAud();
   };
   rootEl.onkeydown = e => {
     if (e.target.closest('input,select,textarea')) return;
-    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5); syncUI(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); audio.currentTime = Math.min(st.dur || 0, (audio.currentTime || 0) + 5); syncUI(); }
-    else if (e.key.toLowerCase() === 'm') { e.preventDefault(); addMarkerHere(); }
-    else if (e.key.toLowerCase() === 'l') { e.preventDefault(); st.loop = !st.loop; syncUI(); }
-    else if (e.key === '[') { e.preventDefault(); jumpMarker(-1); }
-    else if (e.key === ']') { e.preventDefault(); jumpMarker(1); }
+    if (e.code === 'Space') { e.preventDefault(); e.stopPropagation(); togglePlay(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); audio.currentTime = Math.max(0, (audio.currentTime || 0) - 5); syncUI(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); audio.currentTime = Math.min(st.dur || 0, (audio.currentTime || 0) + 5); syncUI(); }
+    else if (e.key.toLowerCase() === 'm') { e.preventDefault(); e.stopPropagation(); addMarkerHere(); }
+    else if (e.key.toLowerCase() === 'l') { e.preventDefault(); e.stopPropagation(); st.loop = !st.loop; saveAud(); syncUI(); }
+    else if (e.key === '[') { e.preventDefault(); e.stopPropagation(); jumpMarker(-1); }
+    else if (e.key === ']') { e.preventDefault(); e.stopPropagation(); jumpMarker(1); }
   };
 
   renderMarks();
@@ -1120,19 +1221,20 @@ function renderSolBoard(h) {
   toolEnsurePiano(steps.map(s => s.midi));
   const trail = (h.__trail ||= []);
   const mys = h.__mystery || null;
+  const spdMs = { slow: 760, med: 540, fast: 360 }[st.echoSpeed || 'med'] || 540;
   const playSeq = (seq, revealOnPlay = true) => {
     (h.__timers ||= []).forEach(clearTimeout); h.__timers = [];
     seq.forEach((item, idx) => {
       const tid = setTimeout(() => {
         if (!h.isConnected) return;
-        toolPlayNote(item.midi, 0.55, 0.85, st.sound || 'piano');
+        toolPlayNote(item.midi, Math.max(0.32, spdMs * 0.001), 0.85, st.sound || 'piano');
         if (revealOnPlay) {
           const btn = h.querySelector(`.sb-tile[data-semi="${item.semi}"]`);
-          if (btn) { btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), 380); }
+          if (btn) { btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), Math.min(380, spdMs * 0.72)); }
         }
         const chip = h.querySelector(`.sb-echo-item[data-ei="${idx}"]`);
-        if (chip) { chip.classList.add('lit'); setTimeout(() => chip.classList.remove('lit'), 380); }
-      }, idx * 540);
+        if (chip) { chip.classList.add('lit'); setTimeout(() => chip.classList.remove('lit'), Math.min(380, spdMs * 0.72)); }
+      }, idx * spdMs);
       h.__timers.push(tid);
     });
   };
@@ -1167,12 +1269,14 @@ function renderSolBoard(h) {
         <div class="sb-elist">${mys.notes.map((n, i) => `<span class="sb-echo-item ${mys.revealed ? 'rev' : 'hid'}" data-ei="${i}" ${mys.revealed ? tileStyle(n) : ''}>${mys.revealed ? esc(n.syl) : '?'}</span>`).join('')}</div>
         <button data-sb="mys-replay">${IC('ico:play')} Replay</button>
         <button data-sb="mys-reveal" class="sb-primary">${mys.revealed ? 'Hide' : 'Reveal'}</button>
-        <button data-sb="mys-new">New (${st.mysteryLen})</button>
+        <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
+        <button data-sb="mys-new">New</button>
+        <button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button>
         <button data-sb="mys-close" title="Back to echo trail">${IC('ico:close')}</button>
       ` : `
-        <span class="sb-elbl">Echo trail</span>
-        <div class="sb-elist">${trail.length ? trail.map((n, i) => `<span class="sb-echo-item rev" data-ei="${i}" ${tileStyle(n)}>${esc(n.syl)}</span>`).join('') : `<span class="sb-ehint">Tap tiles below (or press ${keyHint}) to build an echo phrase.</span>`}</div>
-        ${trail.length ? `<button data-sb="trail-play">${IC('ico:play')} Replay</button><button data-sb="trail-clear">Clear</button>` : ''}
+        <span class="sb-elbl">Echo trail${trail.length ? ` <small class="sb-ecnt">${trail.length}/12</small>` : ''}</span>
+        <div class="sb-elist">${trail.length ? trail.map((n, i) => `<button type="button" class="sb-echo-item rev" data-sb="trail-rm" data-ei="${i}" title="Click to remove" ${tileStyle(n)}>${esc(n.syl)}</button>`).join('') : `<span class="sb-ehint">Tap tiles below (or press ${keyHint}) to build an echo phrase.</span>`}</div>
+        ${trail.length ? `<button data-sb="trail-play">${IC('ico:play')} Replay</button><button data-sb="echo-spd" title="Replay speed">${({ slow: 'Slow', med: 'Med', fast: 'Fast' })[st.echoSpeed || 'med']}</button><button data-sb="trail-undo" title="Remove last note">⌫</button><button data-sb="trail-clear">Clear</button>` : ''}
         <span class="grow"></span>
         <label class="sb-mlen"><select data-sb-k="mysteryLen" title="Notes in Mystery Echo">${[3, 4, 5].map(n => `<option value="${n}" ${st.mysteryLen === n ? 'selected' : ''}>${n} notes</option>`).join('')}</select></label>
         <button data-sb="mys-new" class="sb-primary">${IC('ico:sparkle')} Mystery echo</button>
@@ -1195,9 +1299,10 @@ function renderSolBoard(h) {
     const btn = h.querySelector(`.sb-tile[data-semi="${s.semi}"]`);
     if (btn) { btn.classList.add('lit'); setTimeout(() => btn.classList.remove('lit'), 320); }
     if (!h.__mystery) {
-      trail.push(s); if (trail.length > 8) trail.shift();
+      trail.push(s); if (trail.length > 12) trail.shift();
       const list = h.querySelector('.sb-elist');
-      if (list) list.innerHTML = trail.map((n, i) => `<span class="sb-echo-item rev" data-ei="${i}" ${tileStyle(n)}>${esc(n.syl)}</span>`).join('');
+      if (list) list.innerHTML = trail.map((n, i) => `<button type="button" class="sb-echo-item rev" data-sb="trail-rm" data-ei="${i}" title="Click to remove" ${tileStyle(n)}>${esc(n.syl)}</button>`).join('');
+      const cnt = h.querySelector('.sb-ecnt'); if (cnt) cnt.textContent = `${trail.length}/12`;
       if (trail.length === 1) renderSolBoard(h); // reveal Replay/Clear buttons
     }
   };
@@ -1214,7 +1319,7 @@ function renderSolBoard(h) {
   };
 
   const makeMystery = () => {
-    const pool = steps.filter(s => !s.alt && s.semi >= 0);
+    const pool = steps.filter(s => !s.alt && (st.range === 'lowsol' ? true : s.semi >= 0));
     const start = pool.find(s => s.semi === 0) || pool[0];
     const notes = [start];
     let curIdx = pool.indexOf(start);
@@ -1239,7 +1344,10 @@ function renderSolBoard(h) {
     else if (act === 'notes') { st.notes = !st.notes; save(); renderSolBoard(h); }
     else if (act === 'colors') { st.colors = !st.colors; save(); renderSolBoard(h); }
     else if (act === 'layout') { st.layout = st.layout === 'ladder' ? 'grid' : 'ladder'; save(); renderSolBoard(h); }
+    else if (act === 'echo-spd') { const o = ['slow', 'med', 'fast']; st.echoSpeed = o[(o.indexOf(st.echoSpeed || 'med') + 1) % o.length]; save(); renderSolBoard(h); }
     else if (act === 'trail-play') { playSeq(trail, true); }
+    else if (act === 'trail-undo') { trail.pop(); renderSolBoard(h); }
+    else if (act === 'trail-rm') { trail.splice(Number(b.dataset.ei), 1); renderSolBoard(h); }
     else if (act === 'trail-clear') { h.__trail = []; renderSolBoard(h); }
     else if (act === 'mys-new') { makeMystery(); }
     else if (act === 'mys-replay' && h.__mystery) { playSeq(h.__mystery.notes, h.__mystery.revealed); }
@@ -1249,7 +1357,16 @@ function renderSolBoard(h) {
   h.onchange = e => {
     const el = e.target, k = el.dataset.sbK; if (!k) return;
     st[k] = ['keyPc', 'mysteryLen'].includes(k) ? Number(el.value) : el.value;
-    h.__trail = []; h.__mystery = null;
+    if (k === 'mode' || k === 'range') {
+      h.__trail = []; h.__mystery = null;
+    } else if (k === 'keyPc') {
+      const nextSteps = solBoardSteps(st);
+      const remap = arr => arr.map(n => nextSteps.find(x => x.semi === n.semi) || n);
+      if (h.__trail?.length) h.__trail = remap(h.__trail);
+      if (h.__mystery?.notes?.length) h.__mystery.notes = remap(h.__mystery.notes);
+    } else if (k === 'mysteryLen' && h.__mystery) {
+      save(); makeMystery(); return;
+    }
     save(); renderSolBoard(h);
   };
   initToolsKeyboard();
@@ -1262,9 +1379,13 @@ function initToolsKeyboard() {
   if (TOOLS_KBD_INIT) return;
   TOOLS_KBD_INIT = true;
   document.addEventListener('keydown', e => {
+    if (e.defaultPrevented) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
     if (e.target.closest('input, select, textarea, [contenteditable="true"]')) return;
     if (document.querySelector('#sr-ws-modal, .modal:not([hidden]), .av-cal')) return;
+    if (e.code === 'Space' && window.__spaceTarget === 'aud' && window.__audActive?.isConnected && window.__audActive.__audTogglePlay) {
+      e.preventDefault(); window.__audActive.__audTogglePlay(); return;
+    }
     // Find all visible Piano & Solfege Board hosts, prioritizing focused or highest-z floating window
     const cands = [...document.querySelectorAll('.wg-host')].filter(h => {
       if (!h.isConnected) return false;
@@ -1282,6 +1403,14 @@ function initToolsKeyboard() {
     };
     cands.sort((a, b) => scoreHost(b) - scoreHost(a));
     const top = cands[0];
+    // Do not hijack keys if another non-Piano/Solfege floating window is sitting above this one
+    const topWin = top.closest('.win');
+    const topZ = topWin ? (parseInt(getComputedStyle(topWin).zIndex, 10) || 0) : -1;
+    const otherHigher = [...document.querySelectorAll('.win')].some(w => {
+      if (w === topWin || !w.offsetWidth) return false;
+      return (parseInt(getComputedStyle(w).zIndex, 10) || 0) > topZ;
+    });
+    if (otherHigher && !(document.activeElement && top.contains(document.activeElement))) return;
     const k = e.key.toLowerCase();
 
     if (top.querySelector('.pn')) {
