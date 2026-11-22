@@ -11,7 +11,7 @@
 <meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
 <link rel="icon" href="img/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="img/icon-180.png">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <header class="site-header">
@@ -23,13 +23,13 @@
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
         <a href="index.html#tools">Tools</a>
+        <a href="index.html#accounts">Accounts</a>
         <a href="homework.html">Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
       </nav>
-      <div class="platform-switch" aria-label="Choose Mac, Windows, or Browser">
-        <a href="download.html#mac" data-os-pill="mac">Mac</a>
-        <a href="download.html#win" data-os-pill="win">Windows</a>
-        <a href="https://app.rehearsalmusic.com/" data-app-href="app" data-os-pill="web">Browser</a>
+      <div class="nav-actions">
+        <a class="btn primary sm" href="download.html">Download</a>
+        <a class="btn sm" href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
       </div>
     </div>
   </header>
@@ -55,7 +55,7 @@
           <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--line)">
             <div>
               <h2>Rehearsal for Mac (<span data-release-version>v1.3.1</span>)</h2>
-              <p class="small muted">Universal app for Apple Silicon and Intel Macs.</p>
+              <p class="small muted">Universal app for Apple Silicon and Intel Macs. Includes MuseScore <code>.mscz</code> conversion, Google Drive browser, and live window mirroring.</p>
             </div>
             <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal.zip" data-dl-file="Rehearsal.zip">Download Rehearsal.zip</a>
           </div>
@@ -71,7 +71,7 @@
             <div>
               <span class="tag ok">No admin password required</span>
               <h2>Rehearsal for Windows 10 / 11 (<span data-release-version>v1.3.1</span>)</h2>
-              <p class="small muted">Installs for your user account (<code>%LOCALAPPDATA%\Programs\Rehearsal</code>).</p>
+              <p class="small muted">Installs for your user account (<code>%LOCALAPPDATA%\Programs\Rehearsal</code>). Includes MuseScore <code>.mscz</code> conversion and Google Drive browser.</p>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:10px">
               <a class="btn primary lg" href="https://github.com/LoganShippee/rehearsal/releases/latest/download/Rehearsal-Setup.exe" data-dl-file="Rehearsal-Setup.exe">Download Installer (.exe)</a>
@@ -108,7 +108,7 @@
       <span>© 2026 Rehearsal · rehearsalmusic.com</span>
       <nav class="footer-links" aria-label="Footer navigation">
         <a href="index.html">Home</a>
-        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Web App</a>
+        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
         <a href="homework.html">Online Homework</a>
         <a href="schools.html">Schools &amp; Privacy</a>
         <a href="changelog.html">Changelog</a>
@@ -116,6 +116,6 @@
     </div>
   </footer>
 
-  <script src="site.js"></script>
+  <script src="site.js?v=3"></script>
 </body>
 </html>

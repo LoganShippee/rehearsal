@@ -301,11 +301,145 @@
     });
   }
 
+  function setupScoreLoopDemo() {
+    const root = document.getElementById('score-loop-demo');
+    if (!root) return;
+
+    const playBtn = root.querySelector('[data-sd-play]');
+    const speedBtn = root.querySelector('[data-sd-speed]');
+    const solBtn = root.querySelector('[data-sd-solfege]');
+    const tempoEl = root.querySelector('[data-sd-tempo]');
+    const countinEl = root.querySelector('[data-sd-countin]');
+    const headTop = root.querySelector('[data-sd-head-top]');
+    const headBot = root.querySelector('[data-sd-head-bot]');
+    const voiceBtns = Array.from(root.querySelectorAll('[data-sd-voice]'));
+    const voiceGroups = Array.from(root.querySelectorAll('[data-voice-part]'));
+    const solfegeGroups = Array.from(root.querySelectorAll('.sd-solfege'));
+
+    const BASE_BPM = 96;
+    const RAMPS = [80, 85, 90, 95, 100];
+    // Loop spans measures 2 and 3 in SVG viewBox coordinates (x=185 to x=495)
+    const X_START = 188;
+    const X_END = 492;
+
+    let playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let speedUp = true;
+    let showSolfege = true;
+    let rampIdx = 0;
+    let progress = 0;
+    let countinMs = 0;
+    let lastTs = 0;
+
+    function updateTempoUI() {
+      const pct = speedUp ? RAMPS[rampIdx] : 100;
+      const bpm = Math.round(BASE_BPM * (pct / 100));
+      if (tempoEl) tempoEl.textContent = `${bpm} BPM (${pct}%)`;
+    }
+
+    function updatePlayBtn() {
+      if (!playBtn) return;
+      playBtn.textContent = playing ? '⏸ Pause' : '▶ Play Loop';
+      playBtn.classList.toggle('on', playing);
+    }
+
+    function setFocus(part) {
+      voiceBtns.forEach(b => b.classList.toggle('on', b.getAttribute('data-sd-voice') === part));
+      voiceGroups.forEach(g => {
+        const p = g.getAttribute('data-voice-part');
+        if (part === 'all') {
+          g.classList.remove('dim', 'focused');
+        } else {
+          g.classList.toggle('focused', p === part);
+          g.classList.toggle('dim', p !== part);
+        }
+      });
+    }
+
+    function setPlayheadX(x) {
+      const val = x.toFixed(1);
+      if (headTop) {
+        headTop.setAttribute('x1', val);
+        headTop.setAttribute('x2', val);
+      }
+      if (headBot) {
+        headBot.setAttribute('x1', val);
+        headBot.setAttribute('x2', val);
+      }
+    }
+
+    if (playBtn) {
+      playBtn.addEventListener('click', () => {
+        playing = !playing;
+        lastTs = 0;
+        updatePlayBtn();
+      });
+    }
+
+    if (speedBtn) {
+      speedBtn.addEventListener('click', () => {
+        speedUp = !speedUp;
+        rampIdx = 0;
+        speedBtn.classList.toggle('on', speedUp);
+        updateTempoUI();
+      });
+    }
+
+    if (solBtn) {
+      solBtn.addEventListener('click', () => {
+        showSolfege = !showSolfege;
+        solBtn.classList.toggle('on', showSolfege);
+        solfegeGroups.forEach(g => g.classList.toggle('hidden', !showSolfege));
+      });
+    }
+
+    voiceBtns.forEach(btn => {
+      btn.addEventListener('click', () => setFocus(btn.getAttribute('data-sd-voice')));
+    });
+
+    setFocus('soprano');
+    updateTempoUI();
+    updatePlayBtn();
+    setPlayheadX(X_START);
+
+    function tick(ts) {
+      if (playing) {
+        if (!lastTs) lastTs = ts;
+        const dt = Math.min(80, ts - lastTs);
+        lastTs = ts;
+
+        if (countinMs > 0) {
+          countinMs = Math.max(0, countinMs - dt);
+          if (countinEl) countinEl.hidden = countinMs <= 0;
+        } else {
+          const pct = speedUp ? RAMPS[rampIdx] : 100;
+          const loopDurationMs = 3800 * (100 / pct);
+          progress += dt / loopDurationMs;
+          if (progress >= 1) {
+            progress = 0;
+            if (speedUp) {
+              rampIdx = (rampIdx + 1) % RAMPS.length;
+              updateTempoUI();
+            }
+            countinMs = 650;
+            if (countinEl) countinEl.hidden = false;
+          }
+          setPlayheadX(X_START + progress * (X_END - X_START));
+        }
+      } else {
+        lastTs = 0;
+      }
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     setupMobileNav();
     setupOsTabs();
     setupTabGroup('[data-tool-tablist]', 'data-tool-panel');
     setupLightbox();
+    setupScoreLoopDemo();
     applyOsAwareness();
     hydrateReleaseMeta();
     hydrateChangelog();
