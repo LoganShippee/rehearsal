@@ -2136,6 +2136,17 @@ function mountScore(host, st, onChange0, key) {
         sysTop: base.y + st0 * U(), sysBot: base.y + sb0 * U(), pillTop: base.y + topClear * U(),
       } : null;
     });
+    // System-wide clear bounds (above highest note/stem, below lowest note/stem/lyric) so the split playhead never overlaps notes
+    const sysGroups = [];
+    for (const r of out) {
+      if (!r) continue;
+      let g = sysGroups.find(s => Math.abs(s.sysTop - r.sysTop) < 4);
+      if (!g) { g = { sysTop: r.sysTop, clearTop: Math.min(r.y, r.pillTop), clearBot: Math.max(r.y + r.h, r.sysBot + 14), items: [] }; sysGroups.push(g); }
+      g.clearTop = Math.min(g.clearTop, r.y, r.pillTop);
+      g.clearBot = Math.max(g.clearBot, r.y + r.h, r.sysBot + 14);
+      g.items.push(r);
+    }
+    for (const g of sysGroups) for (const r of g.items) { r.clearTop = g.clearTop; r.clearBot = g.clearBot; }
     return out;
   };
   let BOX = [];
@@ -2208,15 +2219,19 @@ function mountScore(host, st, onChange0, key) {
     } else { const f = Math.max(0, Math.min(1, dq / (m.len || 1))), pad = Math.min(14, r.w * 0.08); x = r.x + pad + f * (r.w - pad * 1.5); }
     x = Math.max(r.x + 2, x - 6);
     if (!ph.firstChild) ph.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
-    const segLen = 20, gap = 10;
-    const sysTop = r.sysTop ?? r.y, sysBot = r.sysBot ?? (r.y + r.h);
-    const y0 = Math.max(2, sysTop - gap - segLen);
-    const totalH = (sysBot + gap + segLen) - y0;
+    const segLen = 20, gap = 8;
+    const clearTop = r.clearTop ?? Math.min(r.y, r.sysTop ?? r.y);
+    const clearBot = r.clearBot ?? Math.max(r.y + r.h, (r.sysBot ?? (r.y + r.h)) + 14);
+    const topEnd = Math.max(6, clearTop - gap);
+    const y0 = Math.max(0, topEnd - segLen);
+    const topSegH = Math.max(6, topEnd - y0);
+    const botStart = (clearBot + gap) - y0;
+    const totalH = botStart + segLen;
     ph.hidden = false;
     ph.classList.toggle('pulse', !!inCount);
     Object.assign(ph.style, { transform: `translate(${x}px, ${y0}px)`, height: totalH + 'px' });
-    ph.children[0].style.height = segLen + 'px';
-    ph.children[1].style.top = (totalH - segLen) + 'px';
+    ph.children[0].style.height = topSegH + 'px';
+    ph.children[1].style.top = botStart + 'px';
     ph.children[1].style.height = segLen + 'px';
     const sc = $q('.sp-score');                                     // keep the playhead in view
     if (y0 < sc.scrollTop + 10 || y0 + totalH > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, y0 - sc.clientHeight * 0.25);
