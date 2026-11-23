@@ -1239,7 +1239,9 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   const shift = (typeof GR_VOICE_SHIFT !== 'undefined' ? GR_VOICE_SHIFT[st.gradeVoice || 'written'] : 0) || 0;
   const exp = spExpectedNotes(ctl, lineIdx, R, shift);
   if (!exp.length) return toast(`No notes found for ${line?.name || 'this part'} in the selected measure range.`);
-  const mode = inputOverride || st.gradeMode || 'mic'; // 'mic' (pitch+rhythm), 'rhythm' (mic rhythm only), 'tap' (spacebar/touch rhythm)
+  // 'mic' (sing: pitch + rhythm) or 'tap' (Space / touch: rhythm). Rhythm into the mic ('rhythm', from older
+  // settings) is tapped now: clapping was too unreliable to grade.
+  let mode = inputOverride || st.gradeMode || 'mic'; if (mode === 'rhythm') mode = 'tap';
   const tap = mode === 'tap';
   const gradePitch = mode === 'mic';
   GR.starting = true; GR.cancelStart = false;
@@ -1418,8 +1420,8 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
     const W = Math.min(buf.length, Math.round(c.sampleRate * 0.02));
     let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
     const rms = Math.sqrt(s / W);
-    const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;
-    if (GR.poll % 6 === 0) {
+    const f = grPitchDue(now) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;   // see grPitchDue in grade.js
+    if (++GR.poll % 6 === 0) {
       const dot = btn?.querySelector('.gr-lvl');
       if (dot) dot.classList.toggle('hot', rms >= GR_MIN_RMS);
     }
@@ -1804,8 +1806,7 @@ function mountScore(host, st, onChange0, key) {
       <label class="sp-grm-chk"><input type="checkbox" data-spk="gradeGuide" ${st.gradeGuide ? 'checked' : ''}> Quiet guide backing (use headphones)</label>
       <div class="sp-grm-sec">Start Grading</div>
       <button type="button" class="sp-grm-btn ${curMode === 'mic' ? 'last' : ''}" data-sp="gradego" data-v="mic">${IC('ico:mic')}<span><b>Microphone (Pitch &amp; Rhythm)</b><small>Sing ${esc(curName)} into the mic</small></span></button>
-      <button type="button" class="sp-grm-btn ${curMode === 'rhythm' ? 'last' : ''}" data-sp="gradego" data-v="rhythm">${IC('ico:hand')}<span><b>Microphone (Rhythm only)</b><small>Clap or sing rhythm only</small></span></button>
-      <button type="button" class="sp-grm-btn ${curMode === 'tap' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Tap rhythm (Space / Touch)</b><small>Tap each note on the Space bar or touch pad</small></span></button>`;
+      <button type="button" class="sp-grm-btn ${curMode !== 'mic' ? 'last' : ''}" data-sp="gradego" data-v="tap">${IC('ico:keyboard')}<span><b>Tap rhythm (Space / Touch)</b><small>Tap each note on the Space bar or touch pad</small></span></button>`;
     const rr = root.getBoundingClientRect();
     const minL = Math.max(8, rr.left + 8), maxR = Math.min(innerWidth - 8, rr.right - 8);
     const minT = Math.max(8, rr.top + 8), maxB = Math.min(innerHeight - 8, rr.bottom - 8);

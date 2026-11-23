@@ -1960,7 +1960,7 @@ function mountSight(host, st, onChange) {
         <button data-sr="play" class="sr-primary">${SR_PLAY.master && SR_PLAY.host === host ? IC('ico:stop') + ' Stop' : IC('ico:play') + ' Play'}</button>
         <span class="sr-step sr-tempo" title="Tempo (beats per minute): type a number or use − / +"><button type="button" data-sr="step" data-f="tempo" data-d="-5" title="Slower" aria-label="Slower">${IC('ico:minus')}</button><label><input type="number" min="30" max="200" data-k="tempo" value="${st[st.mode].tempo}"><small>BPM</small></label><button type="button" data-sr="step" data-f="tempo" data-d="5" title="Faster" aria-label="Faster">${IC('ico:plus')}</button></span>
         <button data-sr="metro" class="${st[st.mode].metronome ? 'on' : ''}" title="Metronome clicks while playing">${IC('ico:metro')} Metronome</button>
-        <button data-sr="grade" class="${gradingHere ? 'on' : ''}" ${!gradingHere && multiPart ? 'disabled title="Grading works on 1-line examples — switch Parts to 1 line in Settings"' : 'title="Grade a performance of this example: microphone (sing/clap) or tap rhythm (Space / touch)"'}>${gradingHere && typeof grBtnHTML === 'function' ? grBtnHTML(GR.input) : IC('ico:mic') + ' Grade ▾'}</button>
+        <button data-sr="grade" class="${gradingHere ? 'on' : ''}" ${!gradingHere && multiPart ? 'disabled title="Grading works on 1-line examples — switch Parts to 1 line in Settings"' : 'title="Grade a performance of this example: sing into the microphone, or tap the rhythm (Space / touch)"'}>${gradingHere && typeof grBtnHTML === 'function' ? grBtnHTML(GR.input) : IC('ico:mic') + ' Grade ▾'}</button>
         ${typeof GR_RECENT !== 'undefined' && GR_RECENT.length ? `<button data-sr="grrecent" title="View recent grading attempts">${IC('ico:agenda')} Recent (${GR_RECENT.length})</button>` : ''}
         <span class="sr-sp"></span>
         ${typeof currentClass === 'function' ? `<button data-sr="save" title="Save this example to the current class as a tab">${IC('ico:save')} Save</button>` : ''}
@@ -2133,13 +2133,16 @@ function mountSight(host, st, onChange) {
   };
   host.onpointerdown = () => { SR_ACTIVE = host; window.__spaceTarget = 'sr'; };
   // Grade opens a small menu: microphone (rhythm + pitch) or the space bar (rhythm only)
+  const srCanSing = () => timeline.some(e => e.midi != null);   // a rhythm-only example has no pitches
   const closeGradeMenu = () => { host.querySelector('.sr-grmenu')?.remove(); document.removeEventListener('pointerdown', host.__grMenuAway, true); };
   const openGradeMenu = btn => {
     closeGradeMenu();
-    const last = (typeof S !== 'undefined' && S.settings?.gradeInput) || 'mic';
+    // rhythm only is always tapped: clapping into the mic was too unreliable to grade
+    const sing = srCanSing();
+    const last = sing ? ((typeof S !== 'undefined' && S.settings?.gradeInput) || 'mic') : 'tap';
     const r = btn.getBoundingClientRect(), m = document.createElement('div');
     m.className = 'sr-grmenu';
-    m.innerHTML = `<button data-sr="gradego" data-v="mic" class="${last === 'mic' ? 'last' : ''}">${IC('ico:mic')}<span><b>Microphone</b><small>Sing or clap: rhythm${V().mode === 'rhythm' ? '' : ' and pitch'}</small></span></button>
+    m.innerHTML = `${sing ? `<button data-sr="gradego" data-v="mic" class="${last === 'mic' ? 'last' : ''}">${IC('ico:mic')}<span><b>Microphone</b><small>Sing it: rhythm and pitch</small></span></button>` : ''}
       <button data-sr="gradego" data-v="tap" class="${last === 'tap' ? 'last' : ''}">${IC('ico:keyboard')}<span><b>Tap rhythm (Space / Touch)</b><small>Tap each note: rhythm only, no mic needed</small></span></button>
       ${typeof openAvCal === 'function' ? `<button data-sr="gradecal" class="sr-grm-cal">${IC('ico:settings')}<span><b>Check mic / speaker sync…</b><small>Calibrate if timing feels early or late</small></span></button>` : ''}`;
     Object.assign(m.style, { left: Math.max(8, Math.min(r.left, innerWidth - 268)) + 'px', top: r.bottom + 6 + 'px' });
@@ -2281,7 +2284,7 @@ function mountSight(host, st, onChange) {
       host.querySelector('.sr-grmenu') ? closeGradeMenu() : openGradeMenu(b); return;
     }
     else if (k === 'gradego') {                                 // what's on screen (the built example, or rhythm only)
-      const v = b.dataset.v, gb = host.querySelector('[data-sr="grade"]'); closeGradeMenu();
+      const v = srCanSing() ? b.dataset.v : 'tap', gb = host.querySelector('[data-sr="grade"]'); closeGradeMenu();
       if (typeof S !== 'undefined' && S.settings && S.settings.gradeInput !== v) { S.settings.gradeInput = v; save(); }
       if (gb) grStart(host, V(), timeline, gb, v); return;
     }

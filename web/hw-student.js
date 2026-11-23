@@ -469,7 +469,7 @@ function hwInstallEngineHooks(onTakeSaved) {
       const wasRunning = typeof GR !== 'undefined' && (GR.on || GR.starting);
       const res = await origSpGradeStart.call(this, ctl, btn, inputOverride);
       if (!wasRunning && typeof GR !== 'undefined' && GR.on) {
-        const mode = inputOverride || ctl?.st?.gradeMode || 'mic';
+        let mode = inputOverride || ctl?.st?.gradeMode || 'mic'; if (mode === 'rhythm') mode = 'tap';
         HW_GRADE_CAP.activeContext = {
           type: 'score',
           label: `Score Practice (${ctl?.st?.name || HW_STATE.activeAssignment?.title || 'Score Check-In'})`,
@@ -572,7 +572,7 @@ const HW_STATE = {
   spState: null,
   spHost: null,
   spCtl: null,
-  spGradeMode: 'mic',   // 'mic' | 'rhythm' | 'tap'
+  spGradeMode: 'mic',   // 'mic' | 'tap' (older 'rhythm' = clap into the mic, now tapped)
   // Audio-Only config
   aud: {
     recording: false, stream: null, mr: null, chunks: [], pcmChunks: [], pcmSr: 44100,
@@ -1323,6 +1323,7 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
     }
     HW_STATE.spFileId = fid || null;
     HW_STATE.spGradeMode = cfg.gradeMode || cfg.spState?.gradeMode || 'mic';
+    if (HW_STATE.spGradeMode === 'rhythm') HW_STATE.spGradeMode = 'tap';   // older assignments: clapping is tapped now
     HW_STATE.spState = {
       ...(cfg.spState || {}),
       fileId: fid || null,
@@ -1521,7 +1522,6 @@ function hwRenderTeacherOptions() {
       <label>Grading method:
         <select id="hw-t-spmode">
           <option value="mic" ${HW_STATE.spGradeMode === 'mic' ? 'selected' : ''}>Microphone (Pitch + Rhythm)</option>
-          <option value="rhythm" ${HW_STATE.spGradeMode === 'rhythm' ? 'selected' : ''}>Microphone (Rhythm Only)</option>
           <option value="tap" ${HW_STATE.spGradeMode === 'tap' ? 'selected' : ''}>Spacebar / Tap (Rhythm Only)</option>
         </select>
       </label>

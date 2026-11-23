@@ -150,7 +150,15 @@ function grDetect(late, q, end) {
   // (a wobble in the middle of a held note).
   for (let k = det.length - 1; k > 0; k--) {
     const a = det[k - 1], b = det[k];
-    if (!b.pitchOnly || a.midi == null || b.midi == null) continue;
+    if (!b.pitchOnly) continue;
+    // (c) pitch is read only about every 120 ms, so a note's first reading can come more than
+    // 0.1 s after it starts (seen on a held high note). Then the note has no pitch and its readings
+    // became a separate "pitch-only" piece: if that piece starts while the note still sounds, it
+    // is the same note, so the note gets its pitch (otherwise a correct note was marked wrong).
+    if (a.midi == null && !a.pitchOnly && b.midi != null && b.t < a.end && b.t - a.t < 0.25) {
+      a.midi = b.midi; a.end = Math.max(a.end, b.end); det.splice(k, 1); continue;
+    }
+    if (a.midi == null || b.midi == null) continue;
     const scoop = isScoop(b.t - a.t, Math.abs(b.midi - a.midi));
     const wobble = Math.abs(b.midi - a.midi) < 0.4;
     if (scoop || wobble) { if (scoop) a.midi = b.midi; a.end = Math.max(a.end, b.end); det.splice(k, 1); }
@@ -199,11 +207,14 @@ function grStrictnessSpec(level = null, tempo = 80) {
   }
   const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
   const q = 60 / bpm;
-  // Default Standard (50) = ±100 ms rushing/dragging and ±40¢ pitch variance.
-  // Scales smoothly from Very Forgiving (0: ±250 ms / ±95¢) to Very Strict (100: ±15 ms / ±5¢).
-  const rhythmMs = Math.round(rLv <= 50 ? 250 - (rLv / 50) * 150 : 100 - ((rLv - 50) / 50) * 85);
+  // Default Standard (50) = ±100 ms rushing/dragging and ±60¢ pitch variance.
+  // Scales smoothly from Very Forgiving (0: ±250 ms / ±100¢) to Very Strict (100: ±40 ms / ±25¢).
+  // Tuned on real takes (tests/fixtures/takes): correctly sung notes land up to ~60¢ off, real wrong
+  // notes 270¢+. The mic is read about every 29 ms and pitch is only that exact, so tighter than
+  // ±40 ms / ±25¢ marks good singing wrong.
+  const rhythmMs = Math.round(rLv <= 50 ? 250 - (rLv / 50) * 150 : 100 - ((rLv - 50) / 50) * 60);
   const rhythmSec = rhythmMs / 1000;
-  const pitchCents = Math.round(pLv <= 50 ? 95 - (pLv / 50) * 55 : 40 - ((pLv - 50) / 50) * 35);
+  const pitchCents = Math.round(pLv <= 50 ? 100 - (pLv / 50) * 40 : 60 - ((pLv - 50) / 50) * 35);
   const pitchSemitones = pitchCents / 100;
   const rhythmLabel = grStrictLabel(rLv);
   const pitchLabel = grStrictLabel(pLv);
@@ -503,8 +514,8 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null,
       n.sungAs = grName(n.match.midi - shift - ref);                  // the note heard, in the written key
       n.octave = Math.round((r - rf) / 12);
       const ignoreOct = typeof S !== 'undefined' && !!S?.settings?.grIgnoreOctave;
-      n.pitch = Math.abs(rf - ref) > spec.pitchSemitones ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // pitch leeway set by grading strictness (default ±75¢, strict down to ±5¢)
-      if (n.pitch !== 'wrong') { okR.push(rf); if (spec.pitchSemitones > 0.15 && okR.length >= 3) ref = med(okR.slice(-3)); }   // allow gentle drift tracking except at ultra-strict concert pitch (<= ±15¢)
+      n.pitch = Math.abs(rf - ref) > spec.pitchSemitones ? 'wrong' : (n.octave && !ignoreOct) ? 'octave' : 'ok';   // pitch leeway set by grading strictness (Standard ±60¢, Very Strict ±25¢)
+      if (n.pitch !== 'wrong') { okR.push(rf); if (spec.pitchLevel <= 85 && okR.length >= 3) ref = med(okR.slice(-3)); }   // allow gentle drift tracking except on Very Strict (slider above 85), as before
       if (n.status === 'ok' && n.pitch !== 'ok') n.status = 'pitch';
     });
     var driftCents = okR.length >= 4 ? Math.round((med(okR.slice(-3)) - med(okR.slice(0, 3))) * 100) : null;
@@ -1047,8 +1058,8 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     const W = Math.min(buf.length, Math.round(c.sampleRate * 0.02));
     let s = 0; for (let i = buf.length - W; i < buf.length; i++) s += buf[i] * buf[i];
     const rms = Math.sqrt(s / W);
-    const f = (GR.poll++ % 4 === 0) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;   // pitch about every 40 ms
-    if (GR.poll % 4 === 0) {
+    const f = grPitchDue(now) ? muDetectPitch(buf, c.sampleRate, GR_MIN_RMS, GR_PITCH_OPTS).f : -1;
+    if (++GR.poll % 4 === 0) {
       const liveBtn = GR.host?.querySelector('[data-sr="grade"]') || GR.btn;
       const m = liveBtn?.querySelector('.gr-mic-m');
       if (m) {
@@ -1060,6 +1071,16 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     }
     GR.frames.push({ t: now, rms, f });
   }, 10);
+}
+
+// Pitch is read by time (at most every 25 ms), not on every Nth timer tick. The 10 ms timer often
+// runs only every ~30 ms while the playhead draws, and reading on every 4th tick then gave a pitch
+// only every ~120 ms: so few readings per note that one sharp or late reading could turn it red.
+const GR_PITCH_GAP = 0.025;
+function grPitchDue(now) {
+  const last = GR.pitchAt;
+  if (last != null && now >= last && now - last < GR_PITCH_GAP) return false;   // now < last: a new audio clock
+  GR.pitchAt = now; return true;
 }
 
 // ---------- Space-bar & Touch-pad tapping (rhythm only, works on Mac, Windows, and iPad)

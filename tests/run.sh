@@ -13,6 +13,7 @@ echo "== edit-guard-test"; /usr/bin/python3 tests/edit-guard-test.py || exit 1
 for t in grader-test grader-test2 tap-test; do
   echo "== $t"; "$J" tests/$t.js -- web/music.js web/grade.js "$t" || exit 1
 done
+echo "== grader-takes-test"; "$J" tests/grader-takes-test.js -- web/music.js web/grade.js grader-takes-test || exit 1
 echo "== sight-test"; "$J" tests/sight-test.js -- web/sight.js sight-test || exit 1
 echo "== hw-worker-unit"; "$J" -m tests/hw-worker-unit.mjs || exit 1
 echo "== hw-schema-test"; /usr/bin/python3 tests/hw-schema-test.py || exit 1

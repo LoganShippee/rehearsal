@@ -11,7 +11,7 @@ Draft by Claude Code, 2026-11-23, for Logan to correct. Antigravity and Claude C
 ## Registry
 | # | Feature | Code | Correct behavior | Risk | Protection today |
 |---|---|---|---|---|---|
-| 1 | Mic grading (sing/clap) | web/grade.js, web/music.js | Same performance always gets the same scores and the same note marks. | Crash: break-it-all. Drift: quiet | Behavior tests on computer-made performances only (grader-test, grader-test2). No real recorded takes. |
+| 1 | Mic grading (singing) | web/grade.js, web/music.js | Same performance always gets the same scores and the same note marks. | Crash: break-it-all. Drift: quiet | Behavior tests on computer-made performances (grader-test, grader-test2) and on 7 of Logan's real sung takes (grader-takes-test, two-tier rule, baseline in tests/fixtures/takes/takes.json). Rhythm-only grading is tap-only (Logan's call, 2026-11-23): clapping into the mic missed claps (43–63% on perfect takes), so Sight Reading, Score Practice and homework no longer offer it, and older 'rhythm' (mic) settings are tapped. Known issues: a whole-beat-late start scores 100% rhythm. Fixed: a note whose first pitch reading came late lost its pitch; pitch was read only every ~120 ms (the timer runs ~3× slower than asked), now read by time, at most every 25 ms (about 4× more readings per note). Sliders loosened 2026-11-23 (Standard ±100 ms / ±60¢; Very Strict ±40 ms / ±25¢). |
 | 2 | Tap grading | web/grade.js | Taps match the right notes; missed/extra counted right. | Quiet | Behavior tests (tap-test) |
 | 3 | Listen back | web/grade.js, web/sight.js | Take plays back lined up with the example, delay removed. | Quiet | None |
 | 4 | Sight Reading generator | web/sight.js | Measures add up; only chosen notes/rests/key/range; answers match. | Quiet | Behavior tests (sight-test, seeded via srSeed; the app itself is never seeded): measures add up in every meter, only chosen rhythms, pitches in range, starts/ends on do, leap setting kept ("Steps only" = steps everywhere, including endings and repeated patterns), 2–3 parts, 4 pinned exercises. |
@@ -42,7 +42,7 @@ Rows 20–26 came from the outside plan Logan shared on 2026-11-23; please confi
 
 ## Biggest gaps (suggested order)
 1. ~~Add the homework tests to tests/run.sh.~~ Done 2026-11-23 (unit + schema tests; the live-server API test is still manual).
-2. Saved practice takes for grading (teacher-made, never real student audio).
+2. ~~Saved practice takes for grading (teacher-made, never real student audio).~~ Done 2026-11-23: 7 sung takes in tests/fixtures/takes/, re-recorded at the faster pitch-reading rate (raw audio in ~/Rehearsal-Backups/grader-takes/).
 3. ~~Test that the 90-day delete removes old audio and keeps grades.~~ Done 2026-11-23 (tests/hw-cleanup-test.mjs and .py).
 4. ~~Make the Sight Reading generator reproducible (seed), then test measures add up.~~ Done 2026-11-23 (srSeed in web/sight.js, tests/sight-test.js).
 5. Saved-data tests (old data opens after migrate()).

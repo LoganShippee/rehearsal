@@ -99,6 +99,9 @@
     .replace(/'/g, '&#39;');
 
   const clone = obj => (obj == null ? obj : JSON.parse(JSON.stringify(obj)));
+  // Score grading is 'mic' (sing) or 'tap'. Older assignments may say 'rhythm' (clap into the mic),
+  // which is tapped now: clapping was too unreliable to grade.
+  const hwtGradeMode = m => (m === 'tap' || m === 'rhythm') ? 'tap' : 'mic';
 
   function notify(msg) {
     if (typeof toast === 'function') toast(msg);
@@ -1246,7 +1249,7 @@
       }
       const focusVal = D.scoreFocus === '' ? null : Number(D.scoreFocus);
       const tempoPct = Math.max(40, Math.min(200, Math.round(Number(D.scoreTempoPct) || 100)));
-      const gradeMode = ['mic', 'rhythm', 'tap'].includes(D.scoreGradeMode) ? D.scoreGradeMode : 'mic';
+      const gradeMode = hwtGradeMode(D.scoreGradeMode);
       const spState = {
         ...baseSp,
         name: title,
@@ -1788,7 +1791,6 @@
           <span>Grading mode</span>
           <select data-hwt-change="score-gradeMode">
             <option value="mic" ${D.scoreGradeMode === 'mic' ? 'selected' : ''}>Microphone (Pitch + Rhythm)</option>
-            <option value="rhythm" ${D.scoreGradeMode === 'rhythm' ? 'selected' : ''}>Microphone (Rhythm only)</option>
             <option value="tap" ${D.scoreGradeMode === 'tap' ? 'selected' : ''}>Tap Rhythm (Space / Touch)</option>
           </select>
         </label>
@@ -2001,7 +2003,7 @@
     const sc = ctl?.sc || null;
     D.scoreBaseSpState = clone(st);
     D.scoreTempoPct = Math.max(40, Math.min(200, Math.round(Number(st.tempo) || 100)));
-    D.scoreGradeMode = ['mic', 'rhythm', 'tap'].includes(st.gradeMode) ? st.gradeMode : 'mic';
+    D.scoreGradeMode = hwtGradeMode(st.gradeMode);
     D.scoreSolfege = !!st.solfege;
     D.scoreCounts = !!st.counts;
 
@@ -2104,7 +2106,7 @@
       D.scoreBaseSpState = sp;
       D.editHasScoreFile = !!assignment.hasScoreFile;
       D.existingScoreFilename = assignment.scoreFilename || null;
-      D.scoreGradeMode = cfg.gradeMode || sp.gradeMode || 'mic';
+      D.scoreGradeMode = hwtGradeMode(cfg.gradeMode || sp.gradeMode);
       D.scoreTempoPct = Math.max(40, Math.min(200, Math.round(Number(sp.tempo) || 100)));
       D.scoreOrigBpm = Number(sp.origBpm || 0);
       D.scoreSolfege = !!sp.solfege;

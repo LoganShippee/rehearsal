@@ -4990,7 +4990,7 @@ const FEATURE_GUIDES = [
         delay: 90,
         sel: '[data-sr="grade"]', fallback: '.sr-host',
         title: 'Grade & Listen Back',
-        body: 'Click Grade to sing, clap, or tap the space bar along with the example. When finished, use Listen back to review your take.',
+        body: 'Click Grade to sing, or tap the space bar along with the example. When finished, use Listen back to review your take.',
       },
     ],
   },
