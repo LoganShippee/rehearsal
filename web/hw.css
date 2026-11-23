@@ -276,6 +276,12 @@ body.hw-page {
   align-items: center;
   gap: 8px;
 }
+/* numbered steps: 1 listen, 2 sing/tap, 3 submit (appears after a take) */
+.hw-step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  background: #e0e7ff; color: #3730a3; font-size: 13px; font-weight: 800; flex-shrink: 0; }
+.hw-btn.hw-btn-go { font-size: 15px; padding: 10px 24px; }
+.hw-instr { margin: 0; font-size: 15px; color: #1e293b; line-height: 1.45; max-width: 70ch; }
+.hw-part-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #334155; }
 
 .hw-zoom-pill {
   display: inline-flex;
@@ -350,12 +356,31 @@ body.hw-page {
 .hw-student-view .sr-sub,
 .hw-student-view .sr-settings,
 .hw-student-view .sr-build,
-.hw-student-view .sp-top,
 .hw-student-view .sp-sub,
 .hw-student-view .sp-choir,
 .hw-student-view .sp-settings,
 .hw-student-view .sp-spots,
 .hw-student-view .sp-custom {
+  display: none !important;
+}
+/* Score practice for students: Play, Loop, speed, Metronome and every part's on/off, volume and Solo stay.
+   Teacher pieces (switching files, saved spots, the classroom Grade button, Assign, Settings, choir-track
+   recording, colours, which staves show, the extra pitch buttons, per-part Focus) are hidden. */
+.hw-student-view .sp-top [data-ctl="file"],
+.hw-student-view .sp-top .tb-div,
+.hw-student-view .sp-top [data-ctl="spots"],
+.hw-student-view .sp-top [data-ctl="grade"],
+.hw-student-view .sp-top [data-sp="grrecent"],
+.hw-student-view .sp-top [data-sp="assign"],
+.hw-student-view .sp-top [data-sp="settings"],
+.hw-student-view .sp-top [data-sp="voices"],
+.hw-student-view .sp-voices [data-sp="pitch"][data-w],
+.hw-student-view .sp-voices .sp-vbar-sep,
+.hw-student-view .sp-voices [data-sp="metro"],
+.hw-student-view .sp-voices [data-sp="rec-menu"],
+.hw-student-view .sp-voices [data-ctl="colour"],
+.hw-student-view .sp-voices [data-ctl="show"],
+.hw-student-view .sp-voices [data-sp="focus"] {
   display: none !important;
 }
 
@@ -507,22 +532,19 @@ body.hw-page {
 .hw-sync-dot.tap.active { background: #2563eb; transform: scale(1.3); }
 .hw-sync-dot.done { background: #22c55e; }
 
-.hw-sync-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  font-size: 12px;
-  color: var(--muted, #475569);
-}
-.hw-sync-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.hw-dot-sample { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e2e8f0; }
-.hw-dot-sample.lead { background: #fef08a; border: 1px solid #eab308; }
-.hw-dot-sample.tap { background: #cbd5e1; border: 1px solid #94a3b8; }
+/* "Get ready": 1 microphone (allow + level bar), 2 tap with the clicks */
+.hw-sync-step { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; }
+.hw-sync-step-head { display: flex; align-items: center; gap: 8px; align-self: flex-start; font-size: 15px; }
+.hw-sync-meter { width: 100%; height: 12px; border-radius: 6px; background: #e2e8f0; overflow: hidden; }
+.hw-sync-meter-fill { height: 100%; width: 0; background: #94a3b8; border-radius: 6px; transition: width .06s linear; }
+.hw-sync-meter-fill.ok { background: #22c55e; }
+/* the pad looks like a space bar: Space is the main way, tapping is the backup */
+.hw-sync-pad.hw-sync-space { width: 260px; height: 64px; border-radius: 14px; border-width: 3px; }
 
 .hw-sync-pad {
-  width: 148px;
-  height: 148px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   border: 4px solid #2563eb;
   background: #eff6ff;
@@ -859,6 +881,17 @@ body.hw-page {
   gap: 8px;
 }
 
+/* Google is the main way in: its button leads the card, the codes sit below */
+.hw-google-gsi { display: flex; justify-content: center; min-height: 0; }
+.hw-google-gsi:empty { display: none; }
+.hw-btn-google:not([hidden]) { background: #2563eb; border-color: #2563eb; color: #fff; font-size: 15px; padding: 13px 16px; }
+.hw-google-join { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.hw-google-join[hidden], .hw-btn-google[hidden] { display: none; }
+.hw-glink { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 12px; padding: 12px 16px; border-radius: 14px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 14px; }
+.hw-glink[hidden] { display: none; }
+.hw-glink-btns { display: flex; align-items: center; gap: 8px; }
+
 .hw-google-classes {
   display: flex;
   flex-direction: column;
@@ -979,6 +1012,38 @@ body.hw-page {
   white-space: nowrap;
   flex-shrink: 0;
 }
+/* the next one due stands out; done ones step back; long instructions stop at two lines */
+.hw-asgn-card.is-next { border: 2px solid #2563eb; box-shadow: 0 6px 20px rgba(37, 99, 235, .15); }
+.hw-asgn-card.is-done { background: #f8fafc; box-shadow: none; }
+.hw-asgn-card.is-done h3 { color: #475569; }
+.hw-asgn-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hw-btn.hw-btn-next { font-size: 15px; padding: 10px 22px; }
+
+/* two sections on the home screen: Homework (assigned) and Practice (anytime, nothing graded) */
+.hw-section-title { margin: 22px 4px 10px; font-size: 20px; font-weight: 800; color: #0f172a; }
+
+/* practice without an assignment: big, plain buttons */
+.hw-practice { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.hw-practice:empty { display: none; }
+/* same look as the homework cards, so Practice sits quietly under Homework */
+.hw-practice-btn { border: 1px solid #dce2ec; border-radius: 14px; padding: 20px 18px; background: #ffffff; color: #0f172a;
+  font: inherit; font-size: 16px; font-weight: 700; text-align: left; cursor: pointer; box-shadow: 0 2px 10px rgba(15, 23, 42, .05); }
+.hw-practice-btn::after { content: ' →'; color: #2563eb; }
+.hw-practice-btn:hover { border-color: #2563eb; }
+/* free Sight Reading practice: Sight Reading's own toolbar and Settings, minus the teacher tools
+   (building by hand, saving to a class, assigning, printing worksheets) */
+.hw-free [data-sr="mode"][data-v="build"],
+.hw-free [data-sr="save"],
+.hw-free [data-sr="assign"],
+.hw-free [data-sr="print"],
+.hw-free [data-sr="grrecent"],
+.hw-free .gr-strict-wrap { display: none !important; }   /* students always grade at Standard */
+/* Settings opens full height above the music (no small scrolling box); the music keeps a steady size */
+.hw-free-stage { height: auto; min-height: 0; }
+.hw-free-stage .sr-host { position: static; inset: auto; }
+.hw-free .sr { height: auto; max-height: none; overflow: visible; }
+.hw-free .sr-settings { max-height: none; overflow: visible; }
+.hw-free .sr-staff { flex: none; height: max(340px, 52vh); }
 
 .hw-empty-card {
   grid-column: 1 / -1;

@@ -1,15 +1,15 @@
 {
   "about": "Logan's own practice takes (never student audio), recorded 2026-11-23 at 3:00 pm in the Mac app with 'save the last 20 takes' on, after pitch started being read by time (about every 45 ms). Each .json is the app's saved grading log (mic loudness/pitch readings over time). The raw .wav audio is kept outside git in ~/Rehearsal-Backups/grader-takes/ (the earlier set, read at the old ~120 ms rate, is in its old-rate-2026-11-23-1437 folder). All are the same C major scale exercise, 4/4 at 110. Scores are re-graded with the slider settings below, which the logs don't record. No clapping take: rhythm-only grading is tap-only now.",
   "strictness": { "rhythm": 53, "pitch": 14 },
-  "gradingCodeHash": "7a742d16",
-  "approved": "2026-11-23 baseline, approved by Logan = the scores the app showed live. Known-wrong results are marked 'issue' and should change when fixed (with Logan's OK).",
+  "gradingCodeHash": "8e125b17",
+  "approved": "2026-11-23 baseline, approved by Logan = the scores the app showed live, then re-approved the same day after early/late notes got half rhythm credit (and kept pitch credit), matching the homework gradebook: wrong-start 88/75 -> 94/88, cough 75/50 -> 88/75. Known-wrong results are marked 'issue' and should change when fixed (with Logan's OK).",
   "takes": [
     { "file": "sing-perfect-1.json", "note": "Sung perfectly.", "baseline": { "rhythmPct": 100, "pitchPct": 100 } },
     { "file": "sing-perfect-2.json", "note": "Sung perfectly.", "baseline": { "rhythmPct": 100, "pitchPct": 100 } },
     { "file": "sing-perfect-3.json", "note": "Sung perfectly.", "baseline": { "rhythmPct": 100, "pitchPct": 100 } },
     { "file": "sing-beat-late.json", "note": "Started a beat late on purpose.", "baseline": { "rhythmPct": 100, "pitchPct": 100 }, "issue": "A whole-beat-late start (689 ms) still gets 100% rhythm." },
-    { "file": "sing-wrong-start.json", "note": "Started on the wrong note on purpose.", "baseline": { "rhythmPct": 88, "pitchPct": 75 } },
+    { "file": "sing-wrong-start.json", "note": "Started on the wrong note on purpose.", "baseline": { "rhythmPct": 94, "pitchPct": 88 } },
     { "file": "sing-sol-sol-sol-ending.json", "note": "Sang correctly, but the last three notes as sol sol sol on purpose (written la ti do).", "baseline": { "rhythmPct": 100, "pitchPct": 63 } },
-    { "file": "sing-cough.json", "note": "Sung correctly with a cough in the middle.", "baseline": { "rhythmPct": 75, "pitchPct": 50 } }
+    { "file": "sing-cough.json", "note": "Sung correctly with a cough in the middle.", "baseline": { "rhythmPct": 88, "pitchPct": 75 } }
   ]
 }

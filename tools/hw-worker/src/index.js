@@ -8,6 +8,7 @@ import {
   handleOAuthHandoffStart,
   handleStudentCodeLogin,
   handleStudentGoogleLogin,
+  handleStudentLinkGoogle,
   handleStudentLogout,
   handleStudentMe,
   handleTeacherEmailStart,
@@ -103,6 +104,8 @@ async function route(request, env) {
       service: 'rehearsal-hw',
       devMode: isDevMode(env),
       googleSignInEnabled,
+      // the Web client ID is public (Google shows it to every browser); sending it here means it's set in one place
+      googleClientId: googleSignInEnabled ? String(env.GOOGLE_CLIENT_ID).trim() : '',
       billingEnabled,
     }, 200, request, env);
   }
@@ -154,6 +157,9 @@ async function route(request, env) {
   }
   if (method === 'POST' && path === '/api/auth/student/google') {
     return handleStudentGoogleLogin(request, env);
+  }
+  if (method === 'POST' && path === '/api/auth/student/link-google') {
+    return withStudent(request, env, auth => handleStudentLinkGoogle(request, env, auth));
   }
   if (method === 'GET' && path === '/api/auth/student/me') {
     return withStudent(request, env, auth => handleStudentMe(request, env, auth));

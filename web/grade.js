@@ -521,8 +521,11 @@ function grAnalyze(frames, exp, q, T0, end, gradePitch, lat = null, taps = null,
     var driftCents = okR.length >= 4 ? Math.round((med(okR.slice(-3)) - med(okR.slice(0, 3))) * 100) : null;
   }
   const N = exp.length || 1;
-  const rhythmOk = notes.filter(n => n.status === 'ok' || n.status === 'pitch').length;
-  const pitchOk = gradePitch ? notes.filter(n => n.status === 'ok').length : null;
+  // Same scoring as Online Homework's gradebook (Logan's call, 2026-11-23): a note a bit early or late
+  // ('timing') earns half rhythm credit, and keeps its pitch credit when the pitch was right.
+  const rhythmOk = notes.filter(n => n.status === 'ok' || n.status === 'pitch').length
+    + 0.5 * notes.filter(n => n.status === 'timing').length;
+  const pitchOk = gradePitch ? notes.filter(n => n.status === 'ok' || (n.status === 'timing' && n.pitch === 'ok')).length : null;
   const extra = det.length - notes.filter(n => n.match).length;
   const span = taps ? (taps.length ? Math.max(...taps) - Math.min(...taps) : 0) : frames.length ? frames[frames.length - 1].t - frames[0].t : 0;
   return {

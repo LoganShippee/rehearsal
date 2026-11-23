@@ -8,8 +8,8 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="theme-color" content="#142238">
 <title>Rehearsal Online Homework — Student Portal</title>
-<link rel="stylesheet" href="styles.css?v=10">
-<link rel="stylesheet" href="hw.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="hw.css?v=11">
 </head>
 <body class="hw-page">
   <header class="hw-header">
@@ -43,8 +43,23 @@
       <div class="hw-auth-card">
         <div class="hw-auth-head">
           <h2>Sign In to Homework</h2>
-          <p id="hw-auth-sub">Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.</p>
+          <p id="hw-auth-sub">Use your school Google account.</p>
         </div>
+
+        <div class="hw-google-box" id="hw-google-box">
+          <div class="hw-google-gsi" id="hw-google-gsi"></div>
+          <button type="button" class="hw-btn hw-btn-google hw-btn-full" id="hw-google-btn">Sign in with Google</button>
+          <div class="hw-google-join" id="hw-google-join" hidden>
+            <label class="hw-field">
+              <span>First time? Enter the <strong>Class Code</strong> from your teacher</span>
+              <input type="text" class="hw-code-input" id="hw-in-gjoin" placeholder="K7M-4P2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+            <button type="button" class="hw-btn primary hw-btn-full" id="hw-google-join-go">Join Class</button>
+          </div>
+          <div class="hw-google-classes" id="hw-google-classes" hidden></div>
+        </div>
+
+        <div class="hw-divider" id="hw-code-divider"><span>or use your codes</span></div>
 
         <form id="hw-code-form" class="hw-auth-form" autocomplete="off">
           <div class="hw-field-row">
@@ -65,22 +80,18 @@
           <button type="submit" class="hw-btn primary hw-btn-full" id="hw-code-submit">Sign In with Code</button>
         </form>
 
-        <div class="hw-divider"><span>or</span></div>
-
-        <div class="hw-google-box" id="hw-google-box">
-          <button type="button" class="hw-btn hw-btn-google hw-btn-full" id="hw-google-btn">Sign in with Google</button>
-          <div class="small muted" style="text-align:center">If this is your first time joining this class, enter the <strong>Class Code</strong> above first.</div>
-          <div class="hw-google-classes" id="hw-google-classes" hidden></div>
-        </div>
-
         <div class="hw-demo-bar" id="hw-demo-creds" hidden></div>
       </div>
     </section>
 
     <!-- 2. My Assignments List -->
     <section id="hw-list-view" hidden>
+      <div class="hw-glink" id="hw-glink" hidden></div>
       <div class="hw-list-head" id="hw-list-head"></div>
+      <h2 class="hw-section-title">Homework</h2>
       <div class="hw-asgn-grid" id="hw-asgn-grid"></div>
+      <h2 class="hw-section-title">Practice</h2>
+      <div class="hw-practice" id="hw-practice"></div>
     </section>
 
     <!-- 3. Active Assignment Workspace -->
@@ -142,20 +153,23 @@
   <!-- Mandatory Session Audio Sync Check Modal -->
   <div class="hw-sync-overlay" id="hw-sync-overlay" hidden>
     <div class="hw-sync-card" role="dialog" aria-modal="true" aria-labelledby="hw-sync-title">
-      <h2 id="hw-sync-title">Quick Audio Sync Check</h2>
-      <p>Every device and pair of headphones has a slightly different audio delay. Wait for the <strong>4 yellow count-in beats</strong>, then tap along with the <strong>8 steady clicks</strong> so your rhythm grading is fair and accurate.</p>
-      <div class="hw-sync-dots" id="hw-sync-dots"></div>
-      <div class="hw-sync-legend">
-        <span><i class="hw-dot-sample lead"></i> 4-beat count-in</span>
-        <span><i class="hw-dot-sample tap"></i> 8 steady taps</span>
+      <h2 id="hw-sync-title">Get ready</h2>
+      <div class="hw-sync-step">
+        <div class="hw-sync-step-head"><span class="hw-step">1</span><strong>Microphone</strong></div>
+        <p class="hw-sync-mic-msg" id="hw-sync-mic-msg">When Chrome asks, click <strong>Allow while visiting the site</strong>.</p>
+        <div class="hw-sync-meter"><div class="hw-sync-meter-fill" id="hw-sync-meter"></div></div>
       </div>
-      <button type="button" class="hw-sync-pad" id="hw-sync-pad" disabled>
-        <span>Tap</span>
-        <small>or press Space</small>
-      </button>
-      <div class="hw-sync-status" id="hw-sync-status">Press Start when you can hear your speakers or headphones.</div>
+      <div class="hw-sync-step">
+        <div class="hw-sync-step-head"><span class="hw-step">2</span><strong>Press Space with the clicks</strong></div>
+        <div class="hw-sync-dots" id="hw-sync-dots"></div>
+        <button type="button" class="hw-sync-pad hw-sync-space" id="hw-sync-pad" disabled>
+          <span>Space</span>
+          <small>or tap here</small>
+        </button>
+        <div class="hw-sync-status" id="hw-sync-status">Wait for the 4 yellow clicks, then press Space.</div>
+      </div>
       <div class="row" style="justify-content:center;gap:10px;flex-wrap:wrap">
-        <button type="button" class="hw-btn primary" id="hw-sync-start">Start 10-Second Sync Check</button>
+        <button type="button" class="hw-btn primary" id="hw-sync-start">Start</button>
         <button type="button" class="hw-btn" id="hw-sync-cancel" hidden>Close</button>
         <button type="button" class="hw-btn" id="hw-sync-signout" hidden>Sign Out</button>
       </div>
@@ -165,14 +179,14 @@
   <div id="print-area"></div>
 
   <!-- Lightweight standalone shim + API client + Rehearsal's real engines loaded verbatim -->
-  <script src="hw-shim.js?v=10"></script>
-  <script src="hw-api.js?v=10"></script>
-  <script src="icons.js?v=10"></script>
+  <script src="hw-shim.js?v=11"></script>
+  <script src="hw-api.js?v=11"></script>
+  <script src="icons.js?v=11"></script>
   <script src="vendor/vexflow.js"></script>
-  <script src="sight.js?v=10"></script>
-  <script src="music.js?v=10"></script>
-  <script src="grade.js?v=10"></script>
-  <script src="score.js?v=10"></script>
-  <script src="hw-student.js?v=10"></script>
+  <script src="sight.js?v=11"></script>
+  <script src="music.js?v=11"></script>
+  <script src="grade.js?v=11"></script>
+  <script src="score.js?v=11"></script>
+  <script src="hw-student.js?v=11"></script>
 </body>
 </html>

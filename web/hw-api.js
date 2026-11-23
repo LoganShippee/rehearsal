@@ -92,8 +92,15 @@
     return !getApiBase();
   }
 
-  // Shared-Chromebook safety: ALWAYS store student token in sessionStorage only
+  // Students stay signed in on their own (1:1) Chromebook: the token is kept in localStorage, tagged with the
+  // server it belongs to, until Sign Out or the server lets it expire. Each student's Chromebook profile keeps
+  // its own storage. Falls back to the tab-only copy if localStorage is blocked.
+  const KEEP_TOKEN_KEY = 'rehearsal-hw-student-keep';
   function getToken() {
+    try {
+      const kept = JSON.parse(localStorage.getItem(KEEP_TOKEN_KEY) || 'null');
+      if (kept?.token && kept.base === getApiBase()) return kept.token;
+    } catch { }
     try { return sessionStorage.getItem(SESSION_TOKEN_KEY) || ''; } catch { return ''; }
   }
 
@@ -101,6 +108,10 @@
     try {
       if (token) sessionStorage.setItem(SESSION_TOKEN_KEY, token);
       else sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } catch { }
+    try {
+      if (token) localStorage.setItem(KEEP_TOKEN_KEY, JSON.stringify({ base: getApiBase(), token }));
+      else localStorage.removeItem(KEEP_TOKEN_KEY);
     } catch { }
   }
 
@@ -537,9 +548,10 @@
             ok: true,
             devMode: !!res.devMode,
             googleSignInEnabled: !!res.googleSignInEnabled,
+            googleClientId: String(res.googleClientId || ''),
             billingEnabled: !!res.billingEnabled,
           }
-        : { ok: false, devMode: false, googleSignInEnabled: false, billingEnabled: false };
+        : { ok: false, devMode: false, googleSignInEnabled: false, googleClientId: '', billingEnabled: false };
       if (res.ok) capsByBase.set(base, caps);
       return caps;
     },
@@ -644,6 +656,14 @@
         student: { id: student.id, displayName: student.displayName, part: student.part || '' },
         class: { id: db.cls.id, name: db.cls.name, joinCode: db.cls.joinCode },
       };
+    },
+
+    // Signed in with a code: tie this Google account to the same student, so "Sign in with Google" finds them next time.
+    async linkGoogle(idToken) {
+      if (!isDemoMode()) {
+        return liveFetch('/api/auth/student/link-google', { method: 'POST', json: { idToken } });
+      }
+      return { ok: true, linked: true };
     },
 
     async loginWithGoogle({ idToken, joinCode = '', classId = '' }) {

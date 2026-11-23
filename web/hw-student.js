@@ -164,6 +164,8 @@ async function hwPlayTempoPulse(bpm = 84) {
 
 // ---------- Mandatory Session Audio Sync Check
 const HW_SYNC = { running: false, timers: [], keyHandler: null, mandatory: true, gain: null, onComplete: null };
+// a 4-click count-in, then 6 taps; 4 good taps are enough for a steady median
+const HW_SYNC_LEAD = 4, HW_SYNC_TAPS = 6, HW_SYNC_MIN_TAPS = 4;
 function hwSyncSpaceSuppression() {
   try {
     const syncOpen = !$('#hw-sync-overlay')?.hidden;
@@ -172,7 +174,8 @@ function hwSyncSpaceSuppression() {
   } catch { window.__hwSuppressSpace = false; }
 }
 function hwSyncIsDone() {
-  try { return sessionStorage.getItem(HW_SYNC_SESSION_KEY) === '1'; } catch { return false; }
+  // once per Chromebook (the measured delay is already saved per device); Sign Out asks again
+  try { return localStorage.getItem(HW_SYNC_SESSION_KEY) === '1' || sessionStorage.getItem(HW_SYNC_SESSION_KEY) === '1'; } catch { return false; }
 }
 function hwClearSyncTimers() {
   HW_SYNC.timers.forEach(id => clearTimeout(id));
@@ -187,6 +190,7 @@ function hwClearSyncTimers() {
 function hwCloseSyncModal(force = false) {
   const overlay = $('#hw-sync-overlay');
   hwClearSyncTimers();
+  hwSyncMicStop();
   if (overlay) overlay.hidden = true;
   const cb = HW_SYNC.onComplete;
   HW_SYNC.onComplete = null;
@@ -201,10 +205,12 @@ function hwOpenSyncModal(mandatory = false, onComplete = null) {
     statusEl = $('#hw-sync-status'), startBtn = $('#hw-sync-start'), cancelBtn = $('#hw-sync-cancel'),
     outBtn = $('#hw-sync-signout');
   if (!overlay) return;
-  dotsEl.innerHTML = Array.from({ length: 12 }, (_, i) => `<span class="hw-sync-dot ${i < 4 ? 'lead' : 'tap'}" data-sdot="${i}"></span>`).join('');
+  dotsEl.innerHTML = Array.from({ length: HW_SYNC_LEAD + HW_SYNC_TAPS }, (_, i) => `<span class="hw-sync-dot ${i < HW_SYNC_LEAD ? 'lead' : 'tap'}" data-sdot="${i}"></span>`).join('');
   padBtn.disabled = true;
   startBtn.disabled = false;
-  startBtn.textContent = 'Start 10-Second Sync Check';
+  startBtn.textContent = 'Start';
+  startBtn.onclick = () => hwRunSyncTest();
+  hwSyncMicStart();
   cancelBtn.hidden = mandatory;
   if (outBtn) {
     outBtn.hidden = !HW_STATE.session;
@@ -213,9 +219,7 @@ function hwOpenSyncModal(mandatory = false, onComplete = null) {
       await hwSignOut();
     };
   }
-  statusEl.textContent = mandatory
-    ? 'Required once at the start of each session so timing matches your device.'
-    : `Current sync: ${avDelayMs()} ms. Press Start to recalibrate.`;
+  statusEl.textContent = 'Wait for the 4 yellow clicks, then press Space.';
   overlay.hidden = false;
   hwSyncSpaceSuppression();
   cancelBtn.onclick = () => { if (!HW_SYNC.mandatory) hwCloseSyncModal(false); };
@@ -229,7 +233,58 @@ function hwOpenSyncModal(mandatory = false, onComplete = null) {
     }
   };
   document.addEventListener('keydown', HW_SYNC.keyHandler, true);
-  startBtn.onclick = () => hwRunSyncTest();
+}
+
+// Step 1 of "Get ready": turn the mic on right away (so Chrome asks now, not mid-homework) and show a live
+// level bar. Its own short-lived stream, closed with the dialog; grading opens the mic itself later.
+const HW_SYNC_MIC = { stream: null, raf: 0, ctx: null, heard: false };
+async function hwSyncMicStart() {
+  const msg = $('#hw-sync-mic-msg'), fill = $('#hw-sync-meter');
+  if (!msg || !fill || HW_SYNC_MIC.stream) return;
+  HW_SYNC_MIC.heard = false;
+  fill.style.width = '0%'; fill.classList.remove('ok');
+  msg.innerHTML = 'When Chrome asks, click <strong>Allow while visiting the site</strong>.';
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    msg.innerHTML = err?.name === 'NotAllowedError'
+      ? 'Mic is blocked. Click the icon left of the web address, set <strong>Microphone</strong> to <strong>Allow</strong>, then reload.'
+      : 'No microphone found. Plug one in, or ask your teacher.';
+    return;
+  }
+  if ($('#hw-sync-overlay')?.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
+  HW_SYNC_MIC.stream = stream;
+  msg.innerHTML = 'Say <strong>“ah”</strong>. The bar should move.';
+  const c = ac();
+  const resume = () => { try { c.resume(); } catch { } };
+  resume();
+  $('#hw-sync-overlay')?.addEventListener('pointerdown', resume, { once: true });
+  const src = c.createMediaStreamSource(stream), an = c.createAnalyser();
+  an.fftSize = 1024; src.connect(an);
+  HW_SYNC_MIC.ctx = { src, an };
+  const buf = new Float32Array(an.fftSize);
+  const tickMeter = () => {
+    if (!HW_SYNC_MIC.stream) return;
+    an.getFloatTimeDomainData(buf);
+    let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length), pct = Math.min(100, Math.round(rms * 400));
+    fill.style.width = pct + '%';
+    if (!HW_SYNC_MIC.heard && rms > 0.04) {
+      HW_SYNC_MIC.heard = true;
+      fill.classList.add('ok');
+      msg.innerHTML = '✓ Your mic works.';
+    }
+    HW_SYNC_MIC.raf = requestAnimationFrame(tickMeter);
+  };
+  tickMeter();
+}
+function hwSyncMicStop() {
+  cancelAnimationFrame(HW_SYNC_MIC.raf); HW_SYNC_MIC.raf = 0;
+  try { HW_SYNC_MIC.ctx?.src.disconnect(); } catch { }
+  HW_SYNC_MIC.ctx = null;
+  HW_SYNC_MIC.stream?.getTracks().forEach(t => t.stop());
+  HW_SYNC_MIC.stream = null;
 }
 async function hwRunSyncTest() {
   if (HW_SYNC.running) return;
@@ -246,7 +301,7 @@ async function hwRunSyncTest() {
   clickBus.connect(c.destination);
   HW_SYNC.gain = clickBus;
 
-  const beat = 60 / 90, t0 = c.currentTime + 0.5, lead = 4, n = 8, clicks = [];
+  const beat = 60 / 90, t0 = c.currentTime + 0.5, lead = HW_SYNC_LEAD, n = HW_SYNC_TAPS, clicks = [];
   for (let i = 0; i < lead + n; i++) {
     const t = t0 + i * beat;
     const osc = c.createOscillator(), env = c.createGain();
@@ -264,8 +319,8 @@ async function hwRunSyncTest() {
     HW_SYNC.timers.push(setTimeout(() => {
       dots.forEach(d => d.classList.remove('active'));
       if (dots[i]) dots[i].classList.add('active');
-      if (i < lead) statusEl.textContent = `Listen for 4 count-in beats… (${i + 1} / 4)`;
-      else if (i === lead) statusEl.textContent = 'Tap NOW on each of the 8 clicks! (Space or circle)';
+      if (i < lead) statusEl.textContent = `Listen… ${i + 1}`;
+      else if (i === lead) statusEl.textContent = 'Press Space now!';
     }, msUntil));
   }
 
@@ -285,7 +340,7 @@ async function hwRunSyncTest() {
     }
     padBtn.classList.remove('hit'); void padBtn.offsetWidth; padBtn.classList.add('hit');
     setTimeout(() => padBtn.classList.remove('hit'), 110);
-    statusEl.textContent = `Taps captured: ${diffs.length} of ${n}`;
+    statusEl.textContent = `${diffs.length} of ${n}`;
   };
 
   padBtn.onpointerdown = e => { e.preventDefault(); recordTap(e); };
@@ -299,19 +354,19 @@ async function hwRunSyncTest() {
   const totalMs = Math.max(0, (t0 + (lead + n) * beat + 0.55 - c.currentTime) * 1000);
   HW_SYNC.timers.push(setTimeout(() => {
     hwClearSyncTimers(); padBtn.disabled = true; dots.forEach(d => d.classList.remove('active'));
-    if (diffs.length < 5) {
-      statusEl.textContent = `Only ${diffs.length} taps heard (need at least 5). Try again!`;
-      startBtn.disabled = false; startBtn.textContent = 'Try Sync Check Again';
+    if (diffs.length < HW_SYNC_MIN_TAPS) {
+      statusEl.textContent = 'Not enough taps. Try again.';
+      startBtn.disabled = false; startBtn.textContent = 'Try again';
       return;
     }
     const medianSec = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
     const ms = setAvDelay(medianSec * 1000);
-    try { sessionStorage.setItem(HW_SYNC_SESSION_KEY, '1'); } catch { }
+    try { sessionStorage.setItem(HW_SYNC_SESSION_KEY, '1'); localStorage.setItem(HW_SYNC_SESSION_KEY, '1'); } catch { }
     hwRenderHeaderChips();
-    statusEl.innerHTML = `Synced: <strong>${ms} ms</strong> on this ${esc(DEVICE)}. You're ready!`;
-    startBtn.disabled = false; startBtn.textContent = 'Continue to Homework';
+    statusEl.innerHTML = '✓ Done. You’re ready!';
+    statusEl.title = `${ms} ms on this ${DEVICE}`;
+    startBtn.disabled = false; startBtn.textContent = 'Continue';
     startBtn.onclick = () => hwCloseSyncModal(true);
-    toast(`Audio sync calibrated (${ms} ms)`);
   }, totalMs));
 }
 window.openAvCal = () => hwOpenSyncModal(false);
@@ -493,6 +548,7 @@ function hwInstallEngineHooks(onTakeSaved) {
     const origGrShowCard = window.grShowCard;
     window.grShowCard = function (res, gradePitch, hist, host, fromRecent) {
       const out = origGrShowCard.call(this, res, gradePitch, hist, host, fromRecent);
+      if (HW_STATE.freePractice) { HW_GRADE_CAP.activeContext = null; hwAbortParallelRecorder(); return out; }   // just practice: the card is the result, nothing saved
       if (!fromRecent && host?.__grResult) {
         const ctx = HW_GRADE_CAP.activeContext || {
           type: host.classList?.contains('score-host') ? 'score' : 'sight',
@@ -831,9 +887,9 @@ function hwRenderHeaderChips() {
       stuChip.hidden = false;
       stuChip.textContent = `Teacher Sandbox${HW_STATE.previewClass?.name ? ` · ${HW_STATE.previewClass.name}` : ''}`;
     } else if (loggedIn) {
-      const s = HW_STATE.session.student, c = HW_STATE.session.class;
+      const s = HW_STATE.session.student;   // the class name is already at the top of the page
       stuChip.hidden = false;
-      stuChip.textContent = `${s.displayName}${s.part ? ` (${s.part})` : ''} · ${c.name}`;
+      stuChip.textContent = s.displayName;
     } else {
       stuChip.hidden = true;
     }
@@ -843,7 +899,8 @@ function hwRenderHeaderChips() {
   if (syncBtn) {
     syncBtn.hidden = !(loggedIn || preview);
     const done = hwSyncIsDone();
-    syncBtn.textContent = done ? `Sync: ${avDelayMs()} ms ✓` : (preview ? 'Audio Sync (Optional)' : 'Audio Sync Needed');
+    syncBtn.textContent = done ? 'Re-sync' : (preview ? 'Audio Sync (Optional)' : 'Audio Sync Needed');
+    syncBtn.title = done ? `Tap along again if your headphones changed (now ${avDelayMs()} ms)` : 'Run the audio sync check for this device';
     syncBtn.classList.toggle('ok', done);
     syncBtn.classList.toggle('warn', !done && !preview);
   }
@@ -858,7 +915,7 @@ function hwRenderHeaderChips() {
 
   const tBtn = $('#hw-teacher-toggle');
   if (tBtn) {
-    tBtn.hidden = preview || !(demo && loggedIn && HW_STATE.view === 'runner');
+    tBtn.hidden = preview || HW_STATE.freePractice || !(demo && loggedIn && HW_STATE.view === 'runner');
     tBtn.classList.toggle('on', HW_STATE.teacherOpen);
     tBtn.textContent = HW_STATE.teacherOpen ? 'Preview Student View' : 'Teacher Setup ▾';
   }
@@ -887,6 +944,8 @@ function hwCleanupMediaAndMic() {
 function hwSetView(view) {
   if (view !== 'runner') {
     hwCleanupMediaAndMic();
+    document.getElementById('gr-card')?.remove();   // the grade card belongs to the assignment just left
+    HW_STATE.freePractice = false;
     HW_STATE.teacherOpen = false;
     const drawer = $('#hw-teacher-drawer');
     if (drawer) drawer.hidden = true;
@@ -904,6 +963,7 @@ function hwSetView(view) {
 function hwSyncRunnerViewClass() {
   const runner = $('#hw-runner-body');
   if (!runner) return;
+  runner.classList.remove('hw-free');
   runner.classList.toggle('hw-student-view', !HW_STATE.teacherOpen);
   runner.classList.toggle('hw-teacher-mode', HW_STATE.teacherOpen);
 }
@@ -931,6 +991,57 @@ async function hwEnsureGsiLoaded() {
   return hwEnsureGsiLoaded._p;
 }
 
+// The Google Web client ID comes from the homework server (set once there); a link or page can override it.
+function hwGoogleClientId() {
+  return QS.get('googleClientId') || window.HW_GOOGLE_CLIENT_ID || HW_STATE.capabilities?.googleClientId || '';
+}
+
+// Draw Google's own "Sign in with Google" button into slot. It opens a popup, which works even when Chrome
+// hides Google's pop-down prompt (it does after a student closes it a few times). Returns false if unavailable.
+async function hwRenderGoogleButton(slot, onCredential) {
+  const clientId = hwGoogleClientId();
+  if (!slot || !clientId || HW_API.isDemoMode()) return false;
+  if (!(await hwEnsureGsiLoaded())) return false;
+  try {
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: resp => { if (resp?.credential) onCredential(resp.credential); },
+    });
+    slot.innerHTML = '';
+    window.google.accounts.id.renderButton(slot, {
+      type: 'standard', theme: 'filled_blue', size: 'large', shape: 'pill', text: 'signin_with',
+      width: Math.max(240, Math.min(400, slot.clientWidth || 320)),
+    });
+    return true;
+  } catch { return false; }
+}
+
+// Signed in with codes and not linked yet: offer a one-time "Use Google next time".
+function hwRenderGoogleLinkOffer() {
+  const box = $('#hw-glink');
+  if (!box) return;
+  const stu = HW_STATE.session?.student || {};
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('rehearsal-hw-glink-skip-' + stu.id) === '1'; } catch { }
+  const show = !!hwGoogleClientId() && !HW_API.isDemoMode() && HW_STATE.session?.authMethod === 'code' && stu.hasGoogle === false && !dismissed;
+  box.hidden = !show;
+  if (!show) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="hw-glink-text"><strong>Skip the codes next time.</strong> Connect your school Google account.</div>
+    <div class="hw-glink-btns"><div id="hw-glink-gsi"></div><button type="button" class="hw-btn" id="hw-glink-skip">Not now</button></div>`;
+  $('#hw-glink-skip').onclick = () => {
+    try { localStorage.setItem('rehearsal-hw-glink-skip-' + stu.id, '1'); } catch { }
+    box.hidden = true;
+  };
+  hwRenderGoogleButton($('#hw-glink-gsi'), async cred => {
+    const res = await HW_API.linkGoogle(cred);
+    if (!res.ok) { toast(res.error || 'Could not connect Google.'); return; }
+    stu.hasGoogle = true;
+    box.hidden = true;
+    toast('Done! Next time, just click Sign in with Google.');
+  }).then(ok => { if (!ok) box.hidden = true; });
+}
+
 function hwRenderAuthScreen() {
   hwSetView('auth');
   hwShowAuthError('');
@@ -945,14 +1056,24 @@ function hwRenderAuthScreen() {
     scInput.value = hwFormatCodeInputValue(urlStudent);
   }
 
-  const gEnabled = HW_API.isDemoMode() || !!HW_STATE.capabilities?.googleSignInEnabled || !!(QS.get('googleClientId') || window.HW_GOOGLE_CLIENT_ID);
-  const gBox = $('#hw-google-box'), gDiv = $('.hw-divider'), authSub = $('#hw-auth-sub');
+  const gEnabled = HW_API.isDemoMode() || !!hwGoogleClientId();
+  const gBox = $('#hw-google-box'), gDiv = $('#hw-code-divider'), authSub = $('#hw-auth-sub');
   if (gBox) gBox.hidden = !gEnabled;
   if (gDiv) gDiv.hidden = !gEnabled;
+  const gJoin = $('#hw-google-join'); if (gJoin) gJoin.hidden = true;
+  $('#hw-code-submit')?.classList.toggle('primary', !gEnabled);   // one bright button: Google when it's on
   if (authSub) {
     authSub.innerHTML = gEnabled
-      ? 'Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher, or use Google Sign-In.'
-      : 'Enter the <strong>Class Code</strong> and your personal 6-character <strong>Student Code</strong> from your teacher.';
+      ? 'Use your school Google account.'
+      : 'Enter the <strong>Class Code</strong> and your <strong>Student Code</strong> from your teacher.';
+  }
+  // Google's own button (a popup) where Google Sign-In is set up; our plain button in the sandbox
+  const gBtn = $('#hw-google-btn'), gSlot = $('#hw-google-gsi');
+  if (gEnabled && !HW_API.isDemoMode()) {
+    hwRenderGoogleButton(gSlot, cred => hwHandleGoogleSignIn('', cred)).then(ok => { if (gBtn) gBtn.hidden = ok; });
+  } else if (gBtn) {
+    gBtn.hidden = false;
+    if (gSlot) gSlot.innerHTML = '';
   }
 
   const demoBox = $('#hw-demo-creds');
@@ -997,6 +1118,7 @@ function hwRenderAuthScreen() {
 
 async function hwEnterAuthenticated(sessionPayload) {
   HW_STATE.session = {
+    authMethod: sessionPayload.authMethod || sessionPayload.student?.authMethod || '',
     student: sessionPayload.student,
     class: {
       acceptingSubmissions: true,
@@ -1007,6 +1129,7 @@ async function hwEnterAuthenticated(sessionPayload) {
   await hwRefreshAssignments();
   hwRenderAssignmentList();
   hwSetView('list');
+  hwRenderGoogleLinkOffer();
   if (!hwSyncIsDone()) {
     hwOpenSyncModal(true, () => hwRetryQueuedUploads(true));
   } else {
@@ -1034,7 +1157,7 @@ async function hwHandleCodeSubmit(e) {
 
 async function hwHandleGoogleSignIn(chosenClassId = '', cachedIdToken = '') {
   hwShowAuthError('');
-  const joinCode = ($('#hw-in-joincode')?.value || '').trim();
+  const joinCode = ($('#hw-in-gjoin')?.value || $('#hw-in-joincode')?.value || '').trim();
   let idToken = cachedIdToken;
 
   if (!idToken) {
@@ -1075,9 +1198,23 @@ async function hwHandleGoogleSignIn(chosenClassId = '', cachedIdToken = '') {
   if (gBtn) { gBtn.disabled = false; gBtn.textContent = 'Sign in with Google'; }
 
   if (!res.ok) {
+    // First Google sign-in: ask for the Class Code once, then reuse the same Google sign-in (no second popup).
+    if (res.code === 'JOIN_CODE_REQUIRED' || res.code === 'CLASS_NOT_FOUND') {
+      const box = $('#hw-google-join'), inp = $('#hw-in-gjoin'), go = $('#hw-google-join-go');
+      if (box && inp && go) {
+        box.hidden = false;
+        if (res.code === 'CLASS_NOT_FOUND') hwShowAuthError(res.error);
+        inp.focus();
+        const submit = () => { if (inp.value.trim()) hwHandleGoogleSignIn('', idToken); };
+        go.onclick = submit;
+        inp.onkeydown = e => { if (e.key === 'Enter') submit(); };
+        return;
+      }
+    }
     hwShowAuthError(res.error || 'Google Sign-In failed.');
     return;
   }
+  const gj = $('#hw-google-join'); if (gj) gj.hidden = true;
   if (res.selectClass && Array.isArray(res.classes)) {
     const picker = $('#hw-google-classes');
     if (picker) {
@@ -1109,7 +1246,7 @@ async function hwSignOut() {
     }
     HW_STATE.takes = await hwIdbAll();
   } catch { HW_STATE.takes = []; }
-  try { sessionStorage.removeItem(HW_SYNC_SESSION_KEY); } catch { }
+  try { sessionStorage.removeItem(HW_SYNC_SESSION_KEY); localStorage.removeItem(HW_SYNC_SESSION_KEY); } catch { }
   await HW_API.logout();
   HW_STATE.session = null;
   HW_STATE.assignments = [];
@@ -1139,24 +1276,18 @@ function hwRenderAssignmentList() {
   const head = $('#hw-list-head'), grid = $('#hw-asgn-grid');
   if (!head || !grid || !HW_STATE.session) return;
   const cls = HW_STATE.session.class || {};
-  const stu = HW_STATE.session.student || {};
   const readOnly = cls.acceptingSubmissions === false;
 
   head.innerHTML = `
     <div>
       <h2>${esc(cls.name || 'My Class')}</h2>
-      <div class="hw-submeta">
-        ${cls.teacherName ? `Teacher: <strong>${esc(cls.teacherName)}</strong> · ` : ''}
-        Signed in as <strong>${esc(stu.displayName)}</strong>${stu.part ? ` (${esc(stu.part)})` : ''} · Class Code <strong>${esc(cls.joinCode || '')}</strong>
-      </div>
+      ${cls.teacherName ? `<div class="hw-submeta">${esc(cls.teacherName)}</div>` : ''}
       ${readOnly ? `<div class="hw-auth-err" style="margin-top:8px">This class is currently not accepting new submissions. You can still review past scores.</div>` : ''}
-    </div>
-    <div>
-      <span class="hw-pill ${HW_STATE.assignments.length ? 'offline' : ''}">${HW_STATE.assignments.length} Assignment${HW_STATE.assignments.length === 1 ? '' : 's'}</span>
     </div>`;
 
+  hwRenderPracticeButtons();
   if (!HW_STATE.assignments.length) {
-    grid.innerHTML = `<div class="hw-empty hw-empty-card">No homework assigned yet. Check back soon!</div>`;
+    grid.innerHTML = `<div class="hw-empty hw-empty-card">No homework right now.</div>`;
     return;
   }
 
@@ -1168,56 +1299,53 @@ function hwRenderAssignmentList() {
     }
   }
 
-  grid.innerHTML = HW_STATE.assignments.map(a => {
-    const isTrueSr = a.type === 'sight' && a.mode === 'true_sight_read';
-    const typeLabel = isTrueSr
-      ? 'True Sight-Read'
-      : a.type === 'sight'
-        ? 'Sight Reading (Practice)'
-        : a.type === 'score'
-          ? 'Score Practice'
-          : 'Audio Check-In';
-    const typeCls = isTrueSr ? 'truesr' : 'type';
+  // One card per assignment, to-do first (soonest due first), done last. Only the next one due gets the
+  // bright button, so "what do I do now?" is answered at a glance.
+  const rows = HW_STATE.assignments.map((a, i) => {
     const best = a.bestSubmission || a.latestSubmission;
-    const isQueued = queuedByAsgn.has(a.id);
     const usedCount = Math.max(Number(a.attemptsUsed || 0), localSubmittedByAsgn.get(a.id) || 0);
-
-    let statusPill = `<span class="hw-pill draft">Not Started</span>`;
-    if (isQueued) {
-      statusPill = `<span class="hw-pill queued">Saved Offline</span>`;
-    } else if (best) {
-      const shownPct = best.effectivePct != null ? best.effectivePct : best.overallPct;
-      const scoreTxt = shownPct != null ? ` · ${shownPct}%` : '';
-      statusPill = `<span class="hw-pill score">✓ Submitted${scoreTxt}</span>`;
-    }
-
-    const attemptsTxt = a.maxAttempts != null
-      ? `${usedCount} of ${a.maxAttempts} attempt${a.maxAttempts === 1 ? '' : 's'}${a.expiredStartsCount > 0 ? ` (${a.expiredStartsCount} expired)` : ''}`
-      : `${usedCount} submitted · Unlimited`;
-
     const remaining = a.maxAttempts != null ? Math.max(0, Number(a.maxAttempts) - usedCount) : a.attemptsRemaining;
     const exhausted = remaining != null && remaining <= 0;
-    const ctaLabel = exhausted ? 'View Submission' : (usedCount > 0 ? 'Open / Retry →' : 'Open Assignment →');
+    const queued = queuedByAsgn.has(a.id);
+    return { a, i, best, usedCount, remaining, exhausted, queued, done: !!best || queued || exhausted };
+  });
+  const dueKey = r => (r.a.dueAt ? Number(r.a.dueAt) : Infinity);
+  rows.sort((x, y) => (x.done - y.done) || (dueKey(x) - dueKey(y)) || (x.i - y.i));
+  const nextId = rows.find(r => !r.done)?.a.id;
 
-    return `<article class="hw-asgn-card" data-asgn="${esc(a.id)}">
+  grid.innerHTML = rows.map(({ a, best, usedCount, remaining, exhausted, queued }) => {
+    const isTrueSr = a.type === 'sight' && a.mode === 'true_sight_read';
+    const typeLabel = a.type === 'sight' ? 'Sight Reading' : a.type === 'score' ? 'Our Music' : 'Sing It';
+    const isNext = a.id === nextId;
+
+    let statusPill = `<span class="hw-pill draft">To do</span>`;
+    if (queued) {
+      statusPill = `<span class="hw-pill queued">Saved, sending…</span>`;
+    } else if (best) {
+      const shownPct = best.effectivePct != null ? best.effectivePct : best.overallPct;
+      statusPill = `<span class="hw-pill score">Done ✓${shownPct != null ? ` ${shownPct}%` : ''}</span>`;
+    }
+
+    // only what changes what the student does: one try, or how many tries are left
+    const triesTxt = isTrueSr && usedCount === 0 ? 'One try'
+      : (a.maxAttempts != null && a.maxAttempts > 1 && !exhausted ? `${remaining} ${remaining === 1 ? 'try' : 'tries'} left` : '');
+    const ctaLabel = exhausted ? 'View' : (best ? 'Try again' : (isNext ? 'Start →' : 'Open'));
+
+    return `<article class="hw-asgn-card${isNext ? ' is-next' : ''}${best || exhausted ? ' is-done' : ''}" data-asgn="${esc(a.id)}">
       <div style="display:flex;flex-direction:column;gap:8px">
         <div class="hw-asgn-badges">
-          <span class="hw-pill ${typeCls}">${esc(typeLabel)}</span>
+          <span class="hw-pill ${isTrueSr ? 'truesr' : 'type'}">${esc(typeLabel)}</span>
           ${statusPill}
         </div>
         <h3>${esc(a.title)}</h3>
         ${a.instructions ? `<p class="hw-asgn-desc">${esc(a.instructions)}</p>` : ''}
       </div>
-      <div>
+      <div class="hw-asgn-foot">
         <div class="hw-asgn-meta">
-          <span>Due ${esc(hwFmtDue(a.dueAt))}</span>
-          <span class="hw-meta-dot">${esc(attemptsTxt)}</span>
-          ${a.gradePolicy === 'last' && a.maxAttempts !== 1 ? `<span class="hw-meta-dot">Uses last take</span>` : (a.maxAttempts !== 1 ? `<span class="hw-meta-dot">Uses best score</span>` : '')}
+          ${a.dueAt ? `<span>Due ${esc(hwFmtDue(a.dueAt))}</span>` : ''}
+          ${triesTxt ? `<span class="${a.dueAt ? 'hw-meta-dot' : ''}">${esc(triesTxt)}</span>` : ''}
         </div>
-        <div class="hw-asgn-foot" style="margin-top:10px">
-          <span class="small muted hw-asgn-file" title="${isTrueSr && usedCount === 0 ? 'Excerpt hidden until start' : esc(a.scoreFilename || '')}">${isTrueSr && usedCount === 0 ? 'Excerpt hidden until start' : (a.scoreFilename ? esc(a.scoreFilename) : '')}</span>
-          <button type="button" class="hw-btn ${exhausted ? '' : 'primary'}" data-open-asgn="${esc(a.id)}">${esc(ctaLabel)}</button>
-        </div>
+        <button type="button" class="hw-btn ${isNext ? 'primary hw-btn-next' : ''}" data-open-asgn="${esc(a.id)}">${esc(ctaLabel)}</button>
       </div>
     </article>`;
   }).join('');
@@ -1225,6 +1353,107 @@ function hwRenderAssignmentList() {
   grid.querySelectorAll('[data-open-asgn]').forEach(btn => {
     btn.onclick = () => hwOpenAssignment(btn.dataset.openAsgn);
   });
+}
+
+// ---------- Free practice (no assignment): big buttons under the assignments.
+// Sight Reading runs entirely on the Chromebook: new exercises, Hear it, Tap/Sing it with the grade card,
+// and nothing is saved or sent. Practice tracks are the scores a teacher shares for practice (sharing from
+// the teacher side comes next; until then the page says none are shared yet).
+function hwRenderPracticeButtons() {
+  const box = $('#hw-practice');
+  if (!box) return;
+  box.innerHTML = `
+    <button type="button" class="hw-practice-btn" id="hw-practice-sr">Sight reading</button>
+    <button type="button" class="hw-practice-btn" id="hw-practice-tracks">Practice tracks</button>`;
+  $('#hw-practice-sr').onclick = () => hwOpenFreePractice('rhythm');
+  $('#hw-practice-tracks').onclick = () => hwOpenPracticeTracks();
+}
+
+function hwOpenPracticeTracks() {
+  HW_STATE.freePractice = true;
+  HW_STATE.activeAssignment = null;
+  const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
+  hwSetView('runner');
+  hwRenderRunnerHeaderBar();
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Practice tracks';
+  const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
+  const tracks = Array.isArray(HW_STATE.practiceTracks) ? HW_STATE.practiceTracks : [];
+  $('#hw-runner-body').innerHTML = `<div class="hw-card"><div class="hw-empty" style="padding:48px 20px">${tracks.length ? '' : 'Your teacher hasn’t shared any practice tracks yet.'}</div></div>`;
+}
+
+// Free Sight Reading practice uses Sight Reading's own toolbar and Settings (minus teacher tools), starting
+// from the student's last practice settings on this Chromebook. Each Sight Reading assignment in the class
+// shows up as a "Teacher: …" preset, so the teacher's level is one click away.
+const HW_FREE_SR_KEY = 'rehearsal-hw-practice-sr';
+
+async function hwOpenFreePractice(kind) {
+  HW_STATE.freePractice = true;
+  HW_STATE.activeAssignment = null;
+  HW_STATE.activeSubmissions = [];
+  HW_STATE.activeAttemptStart = null;
+  HW_STATE.latestTakeId = null;
+  HW_STATE.srTrueMode = false;
+  HW_STATE.tab = 'sight';
+  const base = srDefaults();
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(HW_FREE_SR_KEY) || 'null'); } catch { }
+  const st = {
+    ...base, ...(saved || {}),
+    rhythm: { ...base.rhythm, ...(saved?.rhythm || {}) },
+    solfege: { ...base.solfege, ...(saved?.solfege || {}) },
+    ex: {}, settingsOpen: false,
+  };
+  if (st.mode !== 'rhythm' && st.mode !== 'solfege') st.mode = kind === 'solfege' ? 'solfege' : 'rhythm';
+  HW_STATE.srState = st;
+  // practice always grades at Standard (the sliders are hidden); assignments set their own when opened
+  S.settings.gradeStrictRhythm = 50; S.settings.gradeStrictPitch = 50; S.settings.gradeStrictness = 50;
+  const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
+  hwSetView('runner');
+  hwRenderRunnerHeaderBar();
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Sight reading';
+  const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
+  hwMountFreeSight();
+  if (await hwLoadTeacherSrPresets() && HW_STATE.freePractice && HW_STATE.srState === st && st.settingsOpen) hwMountFreeSight();
+}
+
+function hwMountFreeSight() {
+  const body = $('#hw-runner-body'), st = HW_STATE.srState;
+  if (!body || !st) return;
+  body.classList.remove('hw-student-view', 'hw-teacher-mode');
+  body.classList.add('hw-free');
+  body.innerHTML = `<div class="hw-card"><div class="hw-stage hw-free-stage"><div class="sr-host" id="hw-sr-host"></div></div></div>`;
+  const host = $('#hw-sr-host');
+  HW_STATE.srHost = host;
+  window.__spaceTarget = 'sr';
+  hwSyncSpaceSuppression();
+  let lastKey = '';
+  mountSight(host, st, () => {
+    // a new exercise or kind: the old grade card no longer matches the music
+    const key = st.mode + '|' + JSON.stringify(st.ex?.[st.mode] || null).slice(0, 200);
+    if (lastKey && key !== lastKey) document.getElementById('gr-card')?.remove();
+    lastKey = key;
+    try {
+      const { ex, settingsOpen, ...keep } = st; void ex; void settingsOpen;
+      localStorage.setItem(HW_FREE_SR_KEY, JSON.stringify(keep));
+    } catch { }
+  });
+}
+
+// One "Teacher: <title>" preset per Sight Reading assignment in this class (settings only, never the excerpt).
+async function hwLoadTeacherSrPresets() {
+  const list = (HW_STATE.assignments || []).filter(a => a.type === 'sight').slice(0, 6);
+  if (!list.length || typeof srSavedPresets !== 'function' || typeof srPresetSnapshot !== 'function') return false;
+  const presets = srSavedPresets();
+  for (let i = presets.length - 1; i >= 0; i--) if (String(presets[i].id).startsWith('teacher-')) presets.splice(i, 1);
+  for (const a of list) {
+    const res = await HW_API.getAssignment(a.id).catch(() => null);
+    const sr = res?.assignment?.config?.srState || res?.assignment?.config;
+    if (!sr) continue;
+    const mode = sr.mode === 'rhythm' ? 'rhythm' : (sr.mode === 'build' ? null : 'solfege');
+    if (!mode || !sr[mode]) continue;
+    presets.push({ id: 'teacher-' + a.id, name: `Teacher: ${String(a.title || 'Sight Reading').slice(0, 30)}`, mode, data: srPresetSnapshot(sr[mode], mode) });
+  }
+  return true;
 }
 
 function hwClosePreviewWindow() {
@@ -1273,7 +1502,15 @@ function hwRenderRunnerHeaderBar() {
   }
 }
 
+// Sight Reading draws ex.rhythm as { rhythm: [measures] }. Rhythm assignments saved before 2026-11-23 stored the
+// bare list, which left students a blank white box, so repair it as it loads.
+function hwFixSrEx(ex) {
+  if (ex && Array.isArray(ex.rhythm)) ex.rhythm = { rhythm: ex.rhythm };
+  return ex;
+}
+
 async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) {
+  HW_STATE.freePractice = false;
   HW_STATE.activeAssignment = a;
   HW_STATE.activeSubmissions = Array.isArray(submissions) ? submissions : [];
   HW_STATE.activeAttemptStart = HW_STATE.previewMode ? null : (a.activeStart || null);
@@ -1300,6 +1537,7 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
       solfege: { ...baseSr.solfege, ...(incomingSr.solfege || {}) },
       ex: incomingSr.ex ? JSON.parse(JSON.stringify(incomingSr.ex)) : {},
     };
+    hwFixSrEx(HW_STATE.srState.ex);
     if (a.excerptLocked && !HW_STATE.previewMode) {
       HW_STATE.srState.ex = {};
     }
@@ -1643,10 +1881,10 @@ function hwMountSightRunner() {
   body.innerHTML = `
     <div class="hw-card">
       <div class="hw-card-head">
-        <div>
-          <h2>${HW_STATE.teacherOpen ? 'Configure Sight-Reading Assignment (All Rehearsal Options)' : esc(asgn?.title || (trueMode ? 'True Sight-Reading Check' : 'Sight-Reading Practice Assignment'))}</h2>
+        ${HW_STATE.teacherOpen ? `<div>
+          <h2>Configure Sight-Reading Assignment (All Rehearsal Options)</h2>
           <div class="hw-submeta">${esc(metaDesc)}${strictDesc ? ` · ${esc(strictDesc)}` : ''}</div>
-        </div>
+        </div>` : hwStudentInstr(asgn)}
         ${!HW_STATE.teacherOpen ? `<div class="hw-controls">
           <span class="hw-zoom-pill" title="Adjust sheet music size">
             <button type="button" id="hw-sr-zout">−</button>
@@ -1678,19 +1916,20 @@ function hwMountSightRunner() {
       ` : `
         <div class="hw-student-bar">
           <div class="hw-student-actions">
+            <span class="hw-step">1</span>
+            <button type="button" class="hw-btn" id="hw-sr-hear">Hear it</button>
             ${isPitch ? `
-              <button type="button" class="hw-btn pitch" id="hw-pitch-start">Starting Pitch (${esc(pitchInfo.startSyl)} · ${esc(pitchInfo.startName)})</button>
-              <button type="button" class="hw-btn pitch" id="hw-pitch-chord">Tonic Chord</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-start" title="${esc(pitchInfo.startSyl)} · ${esc(pitchInfo.startName)}">Starting pitch</button>
+              <button type="button" class="hw-btn pitch" id="hw-pitch-chord">Chord</button>
               <button type="button" class="hw-btn pitch" id="hw-pitch-scale">Scale</button>
             ` : `
-              <button type="button" class="hw-btn pitch" id="hw-tempo-pulse">Hear Tempo (${tempoNow} BPM)</button>
+              <button type="button" class="hw-btn pitch" id="hw-tempo-pulse" title="${tempoNow} beats per minute">Hear the beat</button>
             `}
-            <button type="button" class="hw-btn" id="hw-sr-hear">Hear Example</button>
           </div>
           <div class="hw-student-actions">
             ${lockedByLimit
               ? `<span class="hw-pill score">✓ ${esc(exhaustedMsg)}</span>`
-              : `<button type="button" class="hw-btn primary" id="hw-sr-record">${isPitch ? 'Record Practice Take (Mic)' : 'Tap Practice Take (Space / Tap)'}</button>`}
+              : `<span class="hw-step">2</span><button type="button" class="hw-btn primary hw-btn-go" id="hw-sr-record">${isPitch ? '● Sing it' : 'Tap it'}</button>`}
           </div>
         </div>
       `) : ''}
@@ -1788,7 +2027,7 @@ function hwMountSightRunner() {
         if (asgn) asgn.excerptLocked = false;
         const unlockedSr = startRes.config?.srState || startRes.config;
         if (unlockedSr) {
-          if (unlockedSr.ex && Object.keys(unlockedSr.ex).length) st.ex = JSON.parse(JSON.stringify(unlockedSr.ex));
+          if (unlockedSr.ex && Object.keys(unlockedSr.ex).length) st.ex = hwFixSrEx(JSON.parse(JSON.stringify(unlockedSr.ex)));
           if (unlockedSr.build?.notes) st.build = JSON.parse(JSON.stringify(unlockedSr.build));
         }
         if (startRes.resumed && startRes.attemptStart?.startedAt) {
@@ -1851,6 +2090,13 @@ function hwMountSightRunner() {
   }
 }
 
+// Student view: the title is already in the bar above, so the card opens with the teacher's own instructions
+// (one short line) instead of repeating the title and listing settings.
+function hwStudentInstr(asgn) {
+  const txt = String(asgn?.instructions || '').trim();
+  return txt ? `<p class="hw-instr">${esc(txt)}</p>` : '<div></div>';
+}
+
 // ---------- Score Practice Runner (Student View + Full Teacher Setup View)
 function hwMountScoreRunner() {
   hwStopStudyTimer();
@@ -1893,6 +2139,7 @@ function hwMountScoreRunner() {
     };
   }
   HW_STATE.spState.gradeMode = HW_STATE.spGradeMode;
+  if (!HW_STATE.teacherOpen && HW_STATE.spState.voicesOpen === undefined) HW_STATE.spState.voicesOpen = true;   // every part's on/off, volume, Solo in view
   const tempoNow = HW_STATE.spState.tempo || 84;
   const strictSpec = typeof grStrictnessSpec === 'function' ? grStrictnessSpec(null, tempoNow) : null;
   const modeLabel = HW_STATE.spGradeMode === 'tap'
@@ -1908,10 +2155,10 @@ function hwMountScoreRunner() {
   body.innerHTML = `
     <div class="hw-card">
       <div class="hw-card-head">
-        <div>
-          <h2>${HW_STATE.teacherOpen ? 'Configure Score Practice Assignment (All Rehearsal Options)' : `Score Check-In: ${esc(HW_STATE.spState.name)}`}</h2>
+        ${HW_STATE.teacherOpen ? `<div>
+          <h2>Configure Score Practice Assignment (All Rehearsal Options)</h2>
           <div class="hw-submeta">${esc(modeLabel)}${esc(strictDesc)}</div>
-        </div>
+        </div>` : hwStudentInstr(HW_STATE.activeAssignment)}
         ${!HW_STATE.teacherOpen ? `<div class="hw-controls">
           <span class="hw-zoom-pill">
             <button type="button" id="hw-sp-zout">−</button>
@@ -1925,16 +2172,16 @@ function hwMountScoreRunner() {
 
       ${!HW_STATE.teacherOpen ? `<div class="hw-student-bar">
         <div class="hw-student-actions">
-          <label class="small" style="display:inline-flex;align-items:center;gap:6px">Part:
+          <span class="hw-step">1</span>
+          <label class="hw-part-lbl">My part
             <select id="hw-sp-part" class="hw-part-select"></select>
           </label>
-          <button type="button" class="hw-btn pitch" id="hw-sp-pitch">Starting Pitch</button>
-          <button type="button" class="hw-btn" id="hw-sp-play">Practice Playback</button>
+          <button type="button" class="hw-btn pitch" id="hw-sp-pitch">Starting pitch</button>
         </div>
         <div class="hw-student-actions">
           ${canSub
-            ? `<button type="button" class="hw-btn primary" id="hw-sp-grade">${HW_STATE.spGradeMode === 'tap' ? 'Tap Practice Take (Space / Tap)' : 'Record Practice Take (Mic)'}</button>`
-            : `<span class="hw-pill score">✓ Attempt limit reached</span>`}
+            ? `<span class="hw-step">2</span><button type="button" class="hw-btn primary hw-btn-go" id="hw-sp-grade">${HW_STATE.spGradeMode === 'tap' ? 'Tap it' : '● Sing it'}</button>`
+            : `<span class="hw-pill score">✓ All tries used</span>`}
         </div>
       </div>` : ''}
 
@@ -1980,7 +2227,6 @@ function hwMountScoreRunner() {
     if (first) hwPlayMidi(c, c.currentTime + 0.04, first.midi, 1.2, 0.95);
     else toast('No starting pitch found for this part.');
   };
-  $('#hw-sp-play').onclick = () => { if (!ctl?.sc) return; if (ctl.playing) spStop(); else spPlay(ctl); };
   const gBtn = $('#hw-sp-grade');
   if (gBtn) gBtn.onclick = () => spGradeStart(ctl, gBtn, HW_STATE.spGradeMode);
 }
@@ -2003,15 +2249,9 @@ function hwMountAudioRunner() {
 
   body.innerHTML = `
     <div class="hw-card">
-      <div class="hw-card-head">
-        <div>
-          <h2>${esc(HW_STATE.activeAssignment?.title || 'Audio Check-In Assignment')}</h2>
-          <div class="hw-submeta">${a.countIn ? `Includes 4-beat count-in at ${a.bpm} BPM` : 'Starts recording immediately'} · Record as many practice takes as you like, then click Submit.</div>
-        </div>
-      </div>
       <div id="hw-latest-banner"></div>
       <div class="hw-audio-body">
-        <div class="hw-audio-prompt"><strong>Instructions:</strong> ${esc(a.prompt)}</div>
+        <div class="hw-audio-prompt">${esc(a.prompt)}</div>
         <div class="hw-wave-box">
           <canvas id="hw-aud-canvas" width="900" height="130"></canvas>
           <div class="hw-rec-time" id="hw-aud-time">0:00</div>
@@ -2410,7 +2650,7 @@ async function hwBoot() {
     return;
   }
 
-  // Restore existing session if token exists in sessionStorage
+  // Restore the kept sign-in (localStorage on this Chromebook, or this tab's copy)
   if (HW_API.getToken()) {
     const me = await HW_API.getMe();
     if (me.ok && me.student && me.class) {

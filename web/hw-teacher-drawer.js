@@ -587,10 +587,12 @@
     if (!sr || sr.mode === 'build') return;
     if (sr.mode !== 'rhythm') sr.mode = 'solfege';
     sr.ex ||= {};
+    // Sight Reading draws ex.rhythm as { rhythm: [measures] }; older saves stored the bare list (blank page for students).
+    if (Array.isArray(sr.ex.rhythm)) sr.ex.rhythm = { rhythm: sr.ex.rhythm };
     if (sr.mode === 'rhythm') {
       if (!sr.ex.rhythm && typeof srGenRhythm === 'function') {
         const o = sr.rhythm || {};
-        sr.ex.rhythm = srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties);
+        sr.ex.rhythm = { rhythm: srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties) };
       }
     } else if (!sr.ex.solfege && typeof srGenParts === 'function') {
       sr.ex.solfege = srGenParts(sr.solfege || {});
@@ -604,7 +606,7 @@
     if (sr.mode === 'rhythm') {
       if (typeof srGenRhythm === 'function') {
         const o = sr.rhythm || {};
-        sr.ex.rhythm = srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties);
+        sr.ex.rhythm = { rhythm: srGenRhythm(o.ts || '4/4', o.measures || 4, o.cells || ['q', 'h', 'ee', 'qr'], !!o.ties) };
       } else {
         delete sr.ex.rhythm;
       }

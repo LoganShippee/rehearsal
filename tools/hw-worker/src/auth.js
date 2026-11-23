@@ -22,7 +22,7 @@ const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;          // 10 minutes
 const EMAIL_CODE_MAX_FAILS = 5;
 const TEACHER_SESSION_TTL_MS = 30 * DAY_MS;        // 30 days
 const TEACHER_EPHEMERAL_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours on shared computers
-const STUDENT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;   // 24 hours on shared Chromebooks
+const STUDENT_SESSION_TTL_MS = 30 * DAY_MS;        // 30 days, renewed on each visit (1:1 Chromebooks stay signed in)
 const STUDENT_IP_LIMIT = 20;
 const STUDENT_IP_WINDOW_MS = 15 * 60 * 1000;       // 20 tries / 15 min per IP
 const STUDENT_COOLDOWN_FAILS = 5;
@@ -128,7 +128,7 @@ export async function requireStudent(request, env) {
   const now = nowMs(env);
   const row = await env.DB.prepare(
     `SELECT ss.id AS session_id, ss.auth_method, ss.expires_at,
-            st.id AS student_id, st.class_id, st.display_name, st.email, st.part, st.archived_at AS student_archived,
+            st.id AS student_id, st.class_id, st.display_name, st.email, st.part, st.google_sub, st.archived_at AS student_archived,
             c.name AS class_name, c.join_code, c.teacher_id, c.archived_at AS class_archived
      FROM student_sessions ss
      JOIN students st ON st.id = ss.student_id
@@ -139,7 +139,9 @@ export async function requireStudent(request, env) {
   if (!row || row.student_archived || row.class_archived) {
     return { error: errResponse('Session expired — please sign in again.', 401, 'SESSION_INVALID', request, env) };
   }
-  await env.DB.prepare('UPDATE student_sessions SET last_seen_at = ? WHERE id = ?').bind(now, row.session_id).run();
+  // Each visit pushes the expiry 30 days out, so a student who uses homework at least monthly never re-signs in.
+  await env.DB.prepare('UPDATE student_sessions SET last_seen_at = ?, expires_at = MAX(expires_at, ?) WHERE id = ?')
+    .bind(now, now + STUDENT_SESSION_TTL_MS, row.session_id).run();
   return { student: row, sessionId: row.session_id };
 }
 
@@ -621,6 +623,7 @@ export async function handleStudentCodeLogin(request, env) {
       id: student.id,
       displayName: student.display_name,
       part: student.part || '',
+      hasGoogle: !!student.google_sub,
     },
     class: {
       id: cls.id,
@@ -748,6 +751,7 @@ export async function handleStudentMe(request, env, auth) {
       displayName: auth.student.display_name,
       part: auth.student.part || '',
       authMethod: auth.student.auth_method,
+      hasGoogle: !!auth.student.google_sub,
     },
     class: {
       id: auth.student.class_id,
@@ -757,6 +761,33 @@ export async function handleStudentMe(request, env, auth) {
       acceptingSubmissions: plan.canWrite,
     },
   }, 200, request, env);
+}
+
+// ---------- Link Google to a student who signed in with their code
+// Students added before Google Sign-In was on have no google_sub, so signing in with Google + Class Code would
+// enroll a second, empty student. While signed in with their code, a student links their Google account once;
+// from then on "Sign in with Google" finds this same student (and their submissions).
+export async function handleStudentLinkGoogle(request, env, auth) {
+  const body = await readJsonBody(request);
+  if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
+  const verified = await verifyGoogleIdToken(body.data.idToken, env);
+  if (!verified.ok) return errResponse(verified.error, 401, 'GOOGLE_AUTH_FAILED', request, env);
+
+  const st = auth.student;
+  if (st.google_sub) {
+    if (st.google_sub === verified.sub) return jsonResponse({ ok: true, linked: true }, 200, request, env);
+    return errResponse('This student is already linked to a different Google account. Ask your teacher for help.', 409, 'GOOGLE_ALREADY_LINKED', request, env);
+  }
+  const other = await env.DB.prepare(
+    'SELECT id FROM students WHERE class_id = ? AND google_sub = ? AND id != ?'
+  ).bind(st.class_id, verified.sub, st.student_id).first();
+  if (other) {
+    return errResponse('That Google account is already used by another student in this class. Ask your teacher for help.', 409, 'GOOGLE_IN_USE', request, env);
+  }
+  await env.DB.prepare(
+    'UPDATE students SET google_sub = ?, email = COALESCE(email, ?), updated_at = ? WHERE id = ? AND google_sub IS NULL'
+  ).bind(verified.sub, verified.email || null, nowMs(env), st.student_id).run();
+  return jsonResponse({ ok: true, linked: true }, 200, request, env);
 }
 
 export async function handleStudentLogout(request, env, auth) {
