@@ -77,7 +77,21 @@ function srPresetMatches(o, p) {
   return true;
 }
 
-const srRand = a => a[Math.floor(Math.random() * a.length)];
+// Random source for the exercise generator. In the app it is always Math.random, so every
+// exercise is new. Only tests call srSeed(n): the same number rebuilds the same exercise, so a
+// test can check it note by note. srSeed() with no number goes back to Math.random.
+let srRandom = Math.random;
+function srSeed(n) {
+  if (n == null) { srRandom = Math.random; return; }
+  let s = n >>> 0;
+  srRandom = () => {   // mulberry32: small, fast, same sequence on every browser
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ s >>> 15, s | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const srRand = a => a[Math.floor(srRandom() * a.length)];
 const srCellsFor = ts => SR_METERS[ts][1] === 'compound' ? SR_COMPOUND : SR_SIMPLE;
 
 // ---------- generate rhythm (array of measures; each = array of cells {id, ev})
@@ -112,7 +126,7 @@ function srGenRhythm(ts, measures, allowed, ties) {
   if (ties) for (let m = 0; m < out.length - 1; m++) {
     const a = out[m][out[m].length - 1], b = out[m + 1][0];
     const aLast = a.ev[a.ev.length - 1], bFirst = b.ev[0];
-    if (!aLast[2] && !bFirst[2] && Math.random() < .4) a.tie = true;
+    if (!aLast[2] && !bFirst[2] && srRandom() < .4) a.tie = true;
   }
   return out;
 }
@@ -234,10 +248,10 @@ function srGenMelody(o) {
   if (patterns) {
     for (let start = 0; start < nM; start += phraseLen) {
       const end = Math.min(start + phraseLen, nM) - 1;              // the phrase's last (cadence) measure
-      const seq = style !== 'mixed' || Math.random() < .5;            // mixed: this phrase sequenced or free
-      if (start > 0 && (style !== 'mixed' || Math.random() < .5)) plan[start] = { src: 0, echo: true };   // answer phrase begins like the first
+      const seq = style !== 'mixed' || srRandom() < .5;            // mixed: this phrase sequenced or free
+      if (start > 0 && (style !== 'mixed' || srRandom() < .5)) plan[start] = { src: 0, echo: true };   // answer phrase begins like the first
       if (seq && start + 1 < end) plan[start + 1] = { src: start };
-      if (seq && start + 2 < end && Math.random() < (style === 'mixed' ? .3 : .55)) plan[start + 2] = { src: start };
+      if (seq && start + 2 < end && srRandom() < (style === 'mixed' ? .3 : .55)) plan[start + 2] = { src: start };
     }
     for (let m = 0; m < nM - 1; m++) if (plan[m]) rhythm[m] = clone(rhythm[plan[m].src]);
   }
@@ -245,6 +259,13 @@ function srGenMelody(o) {
   const total = slotsByM.reduce((n, a) => n + a.length, 0);
   const pitches = [], byM = [];
   const halfCadenceAt = patterns && nM >= 8 ? phraseLen - 1 : -1;   // measure that ends the first phrase
+  // "Steps only" means steps everywhere: into a repeated pattern, and at the end. The melody must
+  // be able to walk home to do one step at a time, so never wander farther from do than the notes
+  // left can cover (otherwise the ending had to leap). Other leap settings allow a 3rd at those spots.
+  const stepOnly = maxLeap === 1;
+  const homes = [0, 7].filter(d => d >= lo && d <= hi);
+  const homeDist = d => Math.min(...homes.map(h => Math.abs(h - d)));
+  const endLeap = stepOnly ? 1 : Math.max(maxLeap, 2);
   // one free step of the melody (singable: steps, direction, no wobble, heads home at the end)
   const next = (cur, goal) => {
     const left = total - 1 - pitches.length;
@@ -255,6 +276,7 @@ function srGenMelody(o) {
       if (o.leap === 'triad' && step > 1 && !(triad.has(cur) && triad.has(d))) continue;
       if (step === 0 && pitches.length >= 2 && pitches[pitches.length - 1] === cur && pitches[pitches.length - 2] === cur) continue;
       if (left <= 3 && Math.abs(d) > left + 1 && Math.abs(d - 7) > left + 1) continue;   // head home toward do
+      if (stepOnly && homeDist(d) > left) continue;
       const p2 = pitches.length >= 2 ? pitches[pitches.length - 2] : null, dir = p2 != null ? Math.sign(cur - p2) : 0, mv = Math.sign(d - cur);
       let w = step === 0 ? .5 : step === 1 ? 4 : step === 2 ? 1.8 : .8;
       if (dir && mv === dir && step <= 2) w *= 1.7;
@@ -265,8 +287,8 @@ function srGenMelody(o) {
       if (goal && goal.includes(d)) w *= 6;                             // aiming for a phrase ending
       for (let k = 0; k < Math.max(1, Math.round(w * 4)); k++) cand.push(d);
     }
-    if (left === 0) { cand = [0, 7].filter(d => d >= lo && d <= hi && Math.abs(d - cur) <= Math.max(maxLeap, 2)); if (!cand.length) cand = [0, 7].filter(d => d >= lo && d <= hi).sort((x, y) => Math.abs(x - cur) - Math.abs(y - cur)).slice(0, 1); }
-    if (left === 1) { const pen = [1, -1, 6, 4].filter(d => d >= lo && d <= hi && Math.abs(d - cur) <= Math.max(maxLeap, 2)); if (pen.length) cand = pen; }
+    if (left === 0) { cand = homes.filter(d => Math.abs(d - cur) <= endLeap); if (!cand.length) cand = homes.slice().sort((x, y) => Math.abs(x - cur) - Math.abs(y - cur)).slice(0, 1); }
+    if (left === 1) { const pen = [1, -1, 6, 4].filter(d => d >= lo && d <= hi && Math.abs(d - cur) <= endLeap && (!stepOnly || homeDist(d) <= 1)); if (pen.length) cand = pen; }
     if (!cand.length) cand = [cur > lo ? cur - 1 : cur + 1];
     return srRand(cand);
   };
@@ -280,16 +302,18 @@ function srGenMelody(o) {
       const prevLast = pitches.length ? pitches[pitches.length - 1] : null;
       if (pl.echo) {                                                  // answer phrase: same opening as the first phrase
         const cand = byM[pl.src];
-        if (!cand.some(d => d < lo || d > hi) && (prevLast == null || Math.abs(cand[0] - prevLast) <= Math.max(maxLeap, 2))) mine = cand.slice();
+        if (!cand.some(d => d < lo || d > hi) && (prevLast == null || Math.abs(cand[0] - prevLast) <= endLeap)
+          && !(stepOnly && homeDist(cand[n - 1]) > total - pitches.length - n)) mine = cand.slice();
       } else {
         // sequence: the previous statement moved by a step (keep going the same way if it was already a sequence)
         const ref = plan[m - 1] && !plan[m - 1].echo && plan[m - 1].src === pl.src ? byM[m - 1] : byM[pl.src];
-        const order = lastDelta ? [lastDelta, -lastDelta, 2 * lastDelta] : (Math.random() < .5 ? [1, -1, 2, -2] : [-1, 1, -2, 2]);
+        const order = lastDelta ? [lastDelta, -lastDelta, 2 * lastDelta] : (srRandom() < .5 ? [1, -1, 2, -2] : [-1, 1, -2, 2]);
         for (const delta of order) {
           const cand = ref.map(d => d + delta);
           if (cand.some(d => d < lo || d > hi)) continue;
-          if (prevLast != null && Math.abs(cand[0] - prevLast) > Math.max(maxLeap, 2)) continue;
+          if (prevLast != null && Math.abs(cand[0] - prevLast) > endLeap) continue;   // "Steps only": steps into the pattern too
           if (o.leap === 'triad' && prevLast != null && Math.abs(cand[0] - prevLast) > 1 && !(triad.has(prevLast) && triad.has(cand[0]))) continue;
+          if (stepOnly && homeDist(cand[n - 1]) > total - pitches.length - n) continue;   // still able to step home after it
           mine = cand; lastDelta = delta; break;
         }
       }
@@ -350,7 +374,7 @@ function srGenHarmony(o, P) {
     let best = null;
     for (const n of names) {
       let sc = 0; for (const s of ss) if (SR_CHORDS[n].includes(srMod7(s.a))) sc += s.len * (s.pos === 0 ? 2 : 1);
-      sc += ({ I: .6, V: .5, IV: .4, vi: .2, ii: .1 })[n] + Math.random() * .35;
+      sc += ({ I: .6, V: .5, IV: .4, vi: .2, ii: .1 })[n] + srRandom() * .35;
       if (m === nM - 2 && n === 'V') sc += 1.2;                  // V – I at the end
       if (m > 0 && chords[m - 1] === n) sc -= .5;
       if (!best || sc > best.sc) best = { n, sc };
@@ -411,7 +435,7 @@ function srGenHarmony(o, P) {
           if ((i1 === 0 || i1 === 4) && i1 === i2 && (a !== prev || up !== prevUp) && !bothUni) sc -= 4;
         }
         if (last) sc += srMod7(a) === 0 ? 4 : (isBass ? -10 : chord.includes(srMod7(a)) ? 0 : -5);
-        sc += Math.random() * .5;
+        sc += srRandom() * .5;
         cands.push({ a, sc });
       }
       cands.sort((x, y) => y.sc - x.sc);
@@ -444,7 +468,7 @@ function srGenCanon(o, P) {
     let cand;
     if (i === 0) cand = o.startDo ? [0] : triad.filter(d => [0, 2, 4].includes(d));
     else if (i === notes.length - 1) cand = [0, 7].filter(d => d >= lo && d <= hi);
-    else if (onBeat) cand = triad.filter(d => Math.abs(d - cur) <= (o.leap === 'step' ? 2 : 4) && d !== cur || Math.abs(d - cur) === 0 && Math.random() < .3);
+    else if (onBeat) cand = triad.filter(d => Math.abs(d - cur) <= (o.leap === 'step' ? 2 : 4) && d !== cur || Math.abs(d - cur) === 0 && srRandom() < .3);
     else cand = [cur - 1, cur + 1].filter(d => d >= lo && d <= hi && (!nextOnBeat || triad.some(t => Math.abs(t - d) <= 1)));
     if (!cand || !cand.length) cand = [near(cur)];
     cur = srRand(cand.flatMap(d => Math.abs(d - cur) <= 1 ? [d, d, d] : [d]));
