@@ -247,6 +247,8 @@ code {
   overflow: hidden;
   cursor: zoom-in;
 }
+.screen-frame:has(video) { cursor: default; }
+.screen-frame video,
 .screen-frame img {
   width: 100%;
   height: auto;
@@ -562,6 +564,7 @@ code {
 @media (max-width: 560px) {
   .nav-bar { padding: 10px 14px; gap: 10px; }
   .nav-actions .btn.sm { padding: 6px 10px; font-size: 12.5px; }
+  .nav-actions .btn.sm:not(.primary):last-child { display: none; }
   .hero { padding: 30px 0 36px; }
   .section { padding: 38px 0; }
 }

@@ -6,7 +6,7 @@
 <title>Rehearsal — Already on when your students walk in</title>
 <meta name="description" content="The classroom screen and rehearsal toolkit for your projector. Free in class, no account needed in the Mac and Windows apps, works offline.">
 <link rel="icon" href="img/favicon.ico" sizes="any">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
   <header class="site-header">
@@ -51,7 +51,10 @@
         <p class="trust-line">Free for classroom use · Works offline · Your files stay on your device · No account needed in the Mac and Windows apps</p>
         <div class="hero-shot">
           <button type="button" class="screen-frame" aria-label="Classroom screen">
-            <img src="img/screens/layout.png?v=2" alt="Rehearsal classroom screen showing a class agenda, warm-up question, tabs, toolbar and clock">
+            <video id="hero-tour" autoplay muted loop playsinline controls controlslist="nodownload noremoteplayback" disablepictureinpicture preload="metadata" style="display:block;width:100%;height:auto;aspect-ratio:8/5" poster="img/screens/layout.png?v=2" aria-label="A two-minute tour of Rehearsal: editing the agenda, sight reading with grading, worksheets, score rehearsal, student homework and more" width="1280" height="800">
+              <source src="img/video/rehearsal-tour.mp4" type="video/mp4">
+              <img src="img/screens/layout.png?v=2" alt="Rehearsal classroom screen showing a class agenda, warm-up question, tabs, toolbar and clock">
+            </video>
           </button>
         </div>
         <p class="muted" style="text-align:center;margin-top:12px">On a Chromebook or iPad, use Open web version (it is the full app) and add it to your home screen. <a href="devices.html">Supported devices</a></p>
@@ -214,6 +217,11 @@
         });
       });
     });
+  </script>
+  <script>
+    // Respect "reduce motion": show the still picture instead of the looping tour.
+    (function () { var h = document.getElementById('hero-tour'); if (!h) return; var s = function () { h.playbackRate = 0.75; }; s(); h.addEventListener('loadedmetadata', s); })();
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) { var v = document.getElementById('hero-tour'); if (v) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; } } } catch (e) { }
   </script>
   <script src="site.js?v=7"></script>
 </body>

@@ -1,0 +1,7 @@
+import * as L from '../lib.mjs';
+export const meta = { seconds: 8 };   // advance:false = don't click the agenda › before this scene
+export async function run(R, ctx) {
+  await L.cap(R, 'Caption text', 600);
+  // ...scripted actions using L.click / L.type / L.stage / L.sleep ...
+  await L.cap(R, '', 300);
+}

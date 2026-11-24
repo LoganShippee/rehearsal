@@ -323,13 +323,13 @@
           maxAttempts: null,
           gradePolicy: 'best',
           published: true,
-          scoreFilename: 'Sample Vocal Check-In.musicxml',
+          scoreFilename: 'Ode to Joy.mxl',
           config: {
             gradeMode: 'mic',
             countingSystem: 'numbers',
             strictness: { rhythm: 25, pitch: 25 },
             spState: {
-              name: 'Sample Vocal Check-In',
+              name: 'Ode to Joy',
               gradeMode: 'mic',
               tempo: 84,
               solfege: false,
@@ -942,6 +942,13 @@
       }
       const db = loadDemoDb();
       const a = db.assignments.find(x => x.id === assignmentId);
+      // The demo plays a real .mxl file (Ode to Joy), so teachers see an actual score; the built-in sample is the fallback
+      if (!a?.config?.demoXml) {
+        try {
+          const r = await fetch('demo/ode-to-joy.mxl');
+          if (r.ok) return { ok: true, blob: await r.blob(), filename: 'Ode to Joy.mxl' };
+        } catch {}
+      }
       const xml = a?.config?.demoXml || (typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '');
       const blob = new Blob([xml], { type: 'application/xml' });
       return {

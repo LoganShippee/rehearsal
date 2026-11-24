@@ -1,0 +1,1 @@
+{ "name": "rehearsal-reel", "private": true, "description": "Records the feature-highlight video for the website from the real web app", "dependencies": { "puppeteer-core": "23.11.1" } }
