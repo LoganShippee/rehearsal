@@ -650,7 +650,7 @@
       // Same secure hand-off in the app and on the web: Google's own sign-in opens in a browser tab,
       // then this window finishes signing in by itself.
       googleSection = `
-        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google${nativeApp ? ' (Opens Browser)' : ''}</button>
+        <button type="button" class="btn primary" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google${nativeApp ? ' (Opens Browser)' : ''}</button>
         <div class="small muted">Opens Google sign-in in ${nativeApp ? 'your browser' : 'a new tab'}. When you're done, come back here and your workspace loads by itself.</div>
       `;
     }
@@ -679,7 +679,7 @@
         <div class="hwt-trial-hero">
           <div class="hwt-trial-head">
             <strong>30-Day Free Trial — No Credit Card Required</strong>
-            <span class="hwt-pill ok">Up to 200 students</span>
+            <span class="hwt-pill ok">Up to 300 students</span>
           </div>
           <div class="hwt-trial-points">Try every homework feature right away by entering your school email below. After 30 days, continue for $5/mo or $49/yr (or a School Purchase Order).</div>
         </div>
@@ -690,6 +690,14 @@
 
         ${a.error ? `<div class="hwt-banner readonly">${escHtml(a.error)}</div>` : ''}
         ${a.notice ? `<div class="hwt-banner info">${escHtml(a.notice)}</div>` : ''}
+
+        ${googleSection && !a.emailSent ? `
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+            ${googleSection}
+          </div>
+          ${handoffBox}
+          <div class="hwt-divider">or use an email code</div>
+        ` : handoffBox}
 
         <div class="hwt-auth-grid">
           <label class="fld">
@@ -722,7 +730,7 @@
           </div>
         ` : `
           <div class="row">
-            <button type="button" class="btn primary" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Start Free Trial / Send Sign-In Code'}</button>
+            <button type="button" class="btn ${googleSection ? '' : 'primary'}" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Email me a sign-in code'}</button>
           </div>
           <div class="small muted">New here? Entering your school email automatically starts your free 30-day trial — no password or credit card needed.</div>
         `}
@@ -731,14 +739,6 @@
           <input type="checkbox" data-hwt-change="auth-ephemeral" ${a.ephemeral ? 'checked' : ''}>
           Shared / classroom computer (sign out automatically when browser closes)
         </label>
-
-        ${googleSection ? `
-          <div class="hwt-divider">or</div>
-          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
-            ${googleSection}
-          </div>
-        ` : ''}
-        ${handoffBox}
 
         <div class="hwt-privacy-note">
           <b>Privacy &amp; Data Note:</b> Student login codes are protected like passwords, student audio recordings auto-delete after 90 days (or anytime you click Delete Audio Now), and your classroom setup stays private on this device.

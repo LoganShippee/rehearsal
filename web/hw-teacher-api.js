@@ -19,7 +19,7 @@
   const capsByBase = new Map();
   const MAX_SCORE_BYTES = 10 * 1024 * 1024;
   const AUDIO_RETENTION_DAYS = 90;
-  const DEFAULT_SOFT_CAP = 200;
+  const DEFAULT_SOFT_CAP = 300;
   const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const MUSESCORE_UNSUPPORTED_MSG =
     "MuseScore (.mscz) files aren't supported directly online. In MuseScore, choose File -> Export -> MusicXML (.mxl or .musicxml) and upload that file.";

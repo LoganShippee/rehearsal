@@ -1,7 +1,7 @@
 // Plan lifecycle, read-only grace enforcement, Stripe Billing, and PO license grants.
 //
 // Plan states:
-//   trialing  : auto 30 days on first teacher sign-in, no card required, soft cap 200 students
+//   trialing  : auto 30 days on first teacher sign-in, no card required, soft cap 300 students
 //   active    : active Stripe subscription
 //   po_active : school/district Purchase Order license granted via ADMIN_SECRET
 //   past_due  : 7-day grace window (amber banner linking to Stripe Customer Portal)
@@ -14,7 +14,7 @@ import { checkRateLimit } from './rate-limit.js';
 
 export const TRIAL_DAYS = 30;
 export const GRACE_DAYS = 7;
-export const DEFAULT_STUDENT_SOFT_CAP = 200;
+export const DEFAULT_STUDENT_SOFT_CAP = 300;
 
 export function getServerCapabilities(env) {
   const googleSignInEnabled = Boolean(env?.GOOGLE_CLIENT_ID && String(env.GOOGLE_CLIENT_ID).trim());
