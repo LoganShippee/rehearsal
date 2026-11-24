@@ -16,6 +16,7 @@ routes = [
 #   3. npx wrangler d1 execute rehearsal-hw --file=./schema.sql
 #   4. Set secrets with `npx wrangler secret put <NAME>`:
 #        SESSION_PEPPER         (required in prod: 32+ random bytes hex)
+#        CODE_ENC_KEY           (32+ random bytes hex; lets teachers view student codes)
 #        GOOGLE_CLIENT_ID       (Google OAuth Web Client ID, scopes: openid email profile)
 #        GOOGLE_CLIENT_SECRET   (only needed if using OAuth auth-code exchange)
 #        RESEND_API_KEY         (for teacher 6-digit login email codes)

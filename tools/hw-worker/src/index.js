@@ -36,6 +36,7 @@ import {
   handleExportStudentData,
   handleListClasses,
   handleListStudents,
+  handleListStudentCodes,
   handleOpenTestStudent,
   handleRegenerateClassCodes,
   handleRegenerateStudentCode,
@@ -207,6 +208,12 @@ async function route(request, env) {
     const classId = decodeSeg(m[1]);
     if (method === 'GET') return withTeacher(request, env, auth => handleListStudents(request, env, auth, classId));
     if (method === 'POST') return withTeacher(request, env, auth => handleAddStudents(request, env, auth, classId));
+  }
+
+  // /api/classes/:classId/students/codes (teacher's "Show codes" toggle)
+  if (method === 'GET' && (m = path.match(/^\/api\/classes\/([^/]+)\/students\/codes$/))) {
+    const classId = decodeSeg(m[1]);
+    return withTeacher(request, env, auth => handleListStudentCodes(request, env, auth, classId));
   }
 
   // /api/classes/:classId/test-student/open

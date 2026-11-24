@@ -293,6 +293,15 @@ async function main() {
   const samNewCode = regen.data.code;
   assert(!!samNewCode && samNewCode !== sam.code, 'regenerated code is fresh');
 
+  // Viewable codes: the owning teacher can read back the stored (encrypted) code
+  const codesRes = await req('GET', `/api/classes/${classId}/students/codes`, { token: teacherToken });
+  assertEq(codesRes.status, 200, 'students/codes 200 for the owning teacher');
+  assertEq(codesRes.data?.codes?.[sam.studentId], samNewCode, 'students/codes returns the regenerated code, readable');
+  const listRes = await req('GET', `/api/classes/${classId}/students`, { token: teacherToken });
+  assert(!JSON.stringify(listRes.data).includes(samNewCode.replace('-', '')), 'student list never carries codes');
+  const codesNoAuth = await req('GET', `/api/classes/${classId}/students/codes`);
+  assert(codesNoAuth.status === 401 || codesNoAuth.status === 403, 'students/codes needs a teacher session');
+
   const samOldTry = await req('POST', '/api/auth/student/code', {
     json: { joinCode, studentCode: sam.code },
     headers: { 'X-Forwarded-For': `10.2.0.3` },

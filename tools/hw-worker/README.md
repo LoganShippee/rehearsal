@@ -47,6 +47,7 @@ Set secrets with `npx wrangler secret put <NAME>`:
 | `RESEND_API_KEY` | Prod | Resend API key for teacher 6-digit email sign-in codes |
 | `GOOGLE_CLIENT_ID` | Optional | Google OAuth Web Client ID (`openid email profile`) for teacher & student Google Sign-In |
 | `GOOGLE_CLIENT_SECRET` | Optional | Only needed if exchanging OAuth auth codes server-side |
+| `CODE_ENC_KEY` | Prod | 32+ random bytes hex (`openssl rand -hex 32`). Encrypts student codes so teachers can view them. Separate from `SESSION_PEPPER`. **Never change or lose it once set**: codes already stored can then no longer be shown (students can still sign in; the teacher just generates a new code). If unset, no codes are stored for viewing. |
 | `STRIPE_SECRET_KEY` | Billing | Stripe secret key for Checkout & Customer Portal |
 | `STRIPE_WEBHOOK_SECRET` | Billing | Stripe webhook signing secret (`whsec_...`) |
 | `ADMIN_SECRET` | PO Grants | Shared bearer secret for school/district Purchase Order license grants |

@@ -153,7 +153,7 @@
       <div class="box">
         <h2>No-Email Classroom Mode</h2>
         <ul>
-          <li><strong>Zero Student Emails Required:</strong> Teachers can generate random 6-character personal codes (e.g. <code>H7P-9KM</code>) stored only as salted PBKDF2-SHA256 hashes.</li>
+          <li><strong>Zero Student Emails Required:</strong> Teachers can generate random 6-character personal codes (e.g. <code>H7P-9KM</code>) stored as salted PBKDF2-SHA256 hashes for sign-in, plus an encrypted copy the owning teacher can view.</li>
           <li><strong>No Public Rosters:</strong> Student Portal never exposes student lists or name dropdowns.</li>
           <li><strong>Optional Google SSO:</strong> Uses <code>openid email profile</code> scopes only — never accesses Drive, Classroom, or Gmail.</li>
         </ul>
@@ -171,7 +171,7 @@
       <tbody>
         <tr>
           <td><strong>Student Identity</strong></td>
-          <td>Display name (or alias/initials), optional voice part, salted code hash (or optional Google <code>sub</code> + email).</td>
+          <td>Display name (or alias/initials), optional voice part, salted code hash plus encrypted code copy (or optional Google <code>sub</code> + email).</td>
           <td>Deleted immediately on teacher Delete Student / Delete Class (even in Read-Only Mode).</td>
         </tr>
         <tr>

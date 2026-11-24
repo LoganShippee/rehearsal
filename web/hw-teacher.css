@@ -173,6 +173,14 @@
 }
 
 /* ---------- pills & banners ---------- */
+.hwt-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 14px;
+  user-select: all;
+}
+
 .hwt-pill {
   display: inline-flex;
   align-items: center;

@@ -6,7 +6,7 @@ import {
   nowMs, readJsonBody, safeJsonParse,
 } from './util.js';
 import {
-  generateReadableCode, hashStudentCode, studentCodeLookupKey,
+  decryptStudentCode, encryptStudentCode, generateReadableCode, hashStudentCode, studentCodeLookupKey,
 } from './crypto.js';
 import { assertTeacherWritable } from './billing.js';
 import { createStudentSession } from './auth.js';
@@ -368,6 +368,22 @@ export async function handleListStudents(request, env, auth, classId) {
   return jsonResponse({ ok: true, class: formatClass(cls), students }, 200, request, env);
 }
 
+// Codes for the roster's "Show codes" toggle. Only the class's own teacher can ask.
+// The list endpoint above never carries codes, so they are fetched on demand here.
+// A student with no stored code (made before this existed) comes back as null.
+export async function handleListStudentCodes(request, env, auth, classId) {
+  const cls = await getOwnedClass(env, classId, auth.teacher.id);
+  if (!cls) return errResponse('Class not found', 404, 'CLASS_NOT_FOUND', request, env);
+  const res = await env.DB.prepare(
+    'SELECT id, code_enc FROM students WHERE class_id = ? AND archived_at IS NULL AND is_test = 0'
+  ).bind(classId).all();
+  const codes = {};
+  for (const row of (res?.results || [])) {
+    codes[row.id] = row.code_enc ? await decryptStudentCode(env, row.id, row.code_enc) : null;
+  }
+  return jsonResponse({ ok: true, codes }, 200, request, env);
+}
+
 // Teacher clicks "Open as student": hand back a student session for the class's Test Student.
 // The app puts the token in the URL #fragment, which browsers never send to any server.
 export async function handleOpenTestStudent(request, env, auth, classId) {
@@ -443,13 +459,14 @@ export async function handleAddStudents(request, env, auth, classId) {
         const gen = await generateUniqueStudentCode(env, classId, usedLookups);
         if (!gen) break;
         try {
+          const codeEnc = await encryptStudentCode(env, studentId, gen.code);
           await env.DB.prepare(
             `INSERT INTO students
-               (id, class_id, display_name, email, part, code_lookup, code_hash, code_salt, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+               (id, class_id, display_name, email, part, code_lookup, code_hash, code_salt, code_enc, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             studentId, classId, item.displayName, item.email, item.part,
-            gen.lookup, gen.hash, gen.salt, now, now
+            gen.lookup, gen.hash, gen.salt, codeEnc, now, now
           ).run();
           plainCode = gen.code;
           codeLookup = gen.lookup;
@@ -613,13 +630,14 @@ export async function handleRegenerateStudentCode(request, env, auth, classId, s
     const gen = await generateUniqueStudentCode(env, classId);
     if (!gen) break;
     try {
+      const codeEnc = await encryptStudentCode(env, studentId, gen.code);
       await env.DB.prepare(
         `UPDATE students
-         SET code_lookup = ?, code_hash = ?, code_salt = ?,
+         SET code_lookup = ?, code_hash = ?, code_salt = ?, code_enc = ?,
              failed_code_attempts = 0, code_cooldown_until = NULL, code_hard_locked = 0,
              updated_at = ?
          WHERE id = ? AND class_id = ?`
-      ).bind(gen.lookup, gen.hash, gen.salt, now, studentId, classId).run();
+      ).bind(gen.lookup, gen.hash, gen.salt, codeEnc, now, studentId, classId).run();
       newCode = gen.code;
       break;
     } catch (err) {
@@ -702,13 +720,14 @@ export async function handleRegenerateClassCodes(request, env, auth, classId) {
       const gen = await generateUniqueStudentCode(env, classId, usedLookups);
       if (!gen) break;
       try {
+        const codeEnc = await encryptStudentCode(env, st.id, gen.code);
         await env.DB.prepare(
           `UPDATE students
-           SET code_lookup = ?, code_hash = ?, code_salt = ?,
+           SET code_lookup = ?, code_hash = ?, code_salt = ?, code_enc = ?,
                failed_code_attempts = 0, code_cooldown_until = NULL, code_hard_locked = 0,
                updated_at = ?
            WHERE id = ? AND class_id = ?`
-        ).bind(gen.lookup, gen.hash, gen.salt, now, st.id, classId).run();
+        ).bind(gen.lookup, gen.hash, gen.salt, codeEnc, now, st.id, classId).run();
         newCode = gen.code;
         break;
       } catch (err) {

@@ -2479,6 +2479,15 @@
       return { ok: true, deleted: true, studentId, deletedR2Objects: 0 };
     },
 
+    // Student codes for the roster's "Show codes" toggle: { studentId: 'ABC-123' | null }.
+    // Never cached: codes are only held in memory while the toggle is on.
+    async listStudentCodes(classId) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/classes/${encodeURIComponent(classId)}/students/codes`);
+      }
+      return { ok: true, codes: {} };
+    },
+
     async regenerateStudentCode(classId, studentId, revokeSessions = true) {
       if (!isDemoMode()) {
         return liveFetch(

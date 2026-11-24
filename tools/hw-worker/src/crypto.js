@@ -132,6 +132,48 @@ export async function studentCodeLookupKeys(classId, rawCode, env) {
   return Promise.all(peppers.map(p => hmacSha256Hex(p, `stucode:${classId}:${norm}`)));
 }
 
+// ---- Viewable student codes -------------------------------------------------
+// Teachers can reveal a student's code in the roster, so the code is also kept
+// encrypted (AES-256-GCM). The key is its own secret, CODE_ENC_KEY, never derived
+// from SESSION_PEPPER, so rotating one cannot break the other. The student id is
+// bound in as authenticated data, so a ciphertext copied to another student fails.
+// With no CODE_ENC_KEY set (and not in dev mode) nothing is stored: the roster
+// then simply shows "No code on file" and the teacher can generate a new code.
+async function codeEncKey(env) {
+  const secret = String(env?.CODE_ENC_KEY || '') || (isDevMode(env) ? 'rehearsal-hw-dev-code-enc-key' : '');
+  if (!secret) return null;
+  const raw = await crypto.subtle.digest('SHA-256', enc.encode(`code-enc:${secret}`));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+export async function encryptStudentCode(env, studentId, rawCode) {
+  const key = await codeEncKey(env);
+  if (!key) return null;
+  const iv = randomBytes(12);
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: enc.encode(String(studentId)) },
+    key,
+    enc.encode(formatCode(rawCode))
+  );
+  return `v1.${bytesToHex(iv)}.${bytesToHex(new Uint8Array(ct))}`;
+}
+
+export async function decryptStudentCode(env, studentId, stored) {
+  try {
+    const key = await codeEncKey(env);
+    const parts = String(stored || '').split('.');
+    if (!key || parts.length !== 3 || parts[0] !== 'v1') return null;
+    const pt = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: hexToBytes(parts[1]), additionalData: enc.encode(String(studentId)) },
+      key,
+      hexToBytes(parts[2])
+    );
+    return new TextDecoder().decode(pt);
+  } catch {
+    return null;
+  }
+}
+
 export async function hashStudentCode(rawCode, saltHex = null, iterations = PBKDF2_ITERATIONS) {
   const norm = normalizeCode(rawCode);
   const salt = saltHex || randomHex(16); // 16-byte random salt

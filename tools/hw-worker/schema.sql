@@ -235,3 +235,6 @@ ALTER TABLE teachers ADD COLUMN beta_code TEXT;
 ALTER TABLE students ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_students_test ON students(class_id, is_test);
+
+-- 14. Viewable student codes (same as migrations/0003_student_code_enc.sql)
+ALTER TABLE students ADD COLUMN code_enc TEXT;

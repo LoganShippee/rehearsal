@@ -222,8 +222,8 @@
           </tr>
           <tr>
             <td><strong>Personal Student Codes</strong></td>
-            <td>Salted PBKDF2-SHA256 hash &amp; HMAC lookup key</td>
-            <td>The server <strong>never stores plaintext personal codes</strong>; only one-time print slips generated at creation show them to the teacher.</td>
+            <td>Salted PBKDF2-SHA256 hash &amp; HMAC lookup key for sign-in, plus the code itself encrypted (AES-256-GCM) so the owning teacher can view it</td>
+            <td>The server <strong>never stores plaintext personal codes</strong>. The encrypted copy is decrypted only for the owning teacher, only when they choose &ldquo;Show codes&rdquo;, and is replaced when a code is regenerated.</td>
           </tr>
           <tr>
             <td><strong>Student Homework Submissions</strong></td>

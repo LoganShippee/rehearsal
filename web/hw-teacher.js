@@ -26,6 +26,8 @@
 
     students: [],
     showArchivedStudents: false,
+    showCodes: false, // roster "Show codes" toggle; codes live in memory only
+    codes: {},
 
     assignments: [],
     showArchivedAssignments: false,
@@ -429,6 +431,12 @@
     const errs = [];
     if (stuRes?.ok) S_STATE.students = Array.isArray(stuRes.students) ? stuRes.students : [];
     else { S_STATE.students = []; if (stuRes?.error) errs.push(stuRes.error); }
+
+    S_STATE.codes = {};
+    if (S_STATE.showCodes && stuRes?.ok) {
+      const codeRes = await api.listStudentCodes(classId);
+      if (codeRes?.ok && codeRes.codes) S_STATE.codes = codeRes.codes;
+    }
 
     if (asgnRes?.ok) S_STATE.assignments = Array.isArray(asgnRes.assignments) ? asgnRes.assignments : [];
     else { S_STATE.assignments = []; if (asgnRes?.error) errs.push(asgnRes.error); }
@@ -1015,6 +1023,10 @@
               <h3>Roster (${realStudents().length})</h3>
               <span class="grow"></span>
               <button type="button" class="btn small" data-hwt="export-roster-csv" ${realStudents().length ? '' : 'disabled'}>Export Roster CSV</button>
+              <label class="chk" title="Student codes are stored encrypted. They show only while this is on.">
+                <input type="checkbox" data-hwt-change="toggle-show-codes" ${S_STATE.showCodes ? 'checked' : ''}>
+                Show codes
+              </label>
               <label class="chk">
                 <input type="checkbox" data-hwt-change="toggle-archived-students" ${S_STATE.showArchivedStudents ? 'checked' : ''}>
                 Show archived students
@@ -1029,6 +1041,7 @@
                       <th>Student</th>
                       <th>Part</th>
                       <th>Sign-In</th>
+                      <th>Code</th>
                       <th>Takes</th>
                       <th>Last Active</th>
                       <th>Actions</th>
@@ -1083,6 +1096,15 @@
     `;
   }
 
+  // The Code column: hidden by default; "Show codes" reveals the stored (encrypted) codes.
+  function renderCodeCell(st) {
+    if (!st.hasCode) return '<span class="small muted">No code · use New Code</span>';
+    if (!S_STATE.showCodes) return '<span class="muted" aria-label="Hidden">••••••</span>';
+    const code = S_STATE.codes && S_STATE.codes[st.id];
+    if (code) return `<code class="hwt-code">${escHtml(code)}</code>`;
+    return '<span class="small muted" title="This code was made before codes could be viewed. New Code makes one you can see.">Not on file · use New Code</span>';
+  }
+
   function renderStudentRowHTML(st, writable, online) {
     // The built-in Test Student: a purple row, no sign-in code, no edit/delete/archive.
     if (st.isTest) {
@@ -1094,6 +1116,7 @@
           </td>
           <td><span class="muted">—</span></td>
           <td><span class="small muted">No sign-in code</span></td>
+          <td><span class="muted">—</span></td>
           <td>${Number(st.submissionCount || 0)}</td>
           <td class="small muted">${st.lastActiveAt ? escHtml(formatDateShort(st.lastActiveAt)) : 'Never'}</td>
           <td>
@@ -1119,6 +1142,7 @@
         </td>
         <td>${st.part ? escHtml(st.part) : '<span class="muted">—</span>'}</td>
         <td><div class="row" style="gap:4px">${badges.join('') || '<span class="muted">—</span>'}</div></td>
+        <td>${renderCodeCell(st)}</td>
         <td>${Number(st.submissionCount || 0)}</td>
         <td class="small muted">${st.lastActiveAt ? escHtml(formatDateShort(st.lastActiveAt)) : 'Never'}</td>
         <td>
@@ -2165,6 +2189,16 @@
       case 'toggle-archived-classes':
         S_STATE.showArchivedClasses = !!t.checked;
         await loadClassesAndActiveData();
+        renderAll();
+        break;
+      case 'toggle-show-codes':
+        S_STATE.showCodes = !!t.checked;
+        S_STATE.codes = {};
+        if (S_STATE.showCodes && S_STATE.selectedClassId) {
+          const cr = await api.listStudentCodes(S_STATE.selectedClassId);
+          if (cr?.ok && cr.codes) S_STATE.codes = cr.codes;
+          else { showToast(cr?.error || 'Could not load codes.'); S_STATE.showCodes = false; }
+        }
         renderAll();
         break;
       case 'toggle-archived-students':
