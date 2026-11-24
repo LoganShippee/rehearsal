@@ -344,14 +344,22 @@
     D.scoreBaseSpState = null;
   }
 
-  async function extractScoreFromFileId(fileId, xmlIdHint, fallbackName) {
+  // keepSelection: the drawer was opened from a score that is already on screen, so its chosen
+  // part, loop and measures are right; only (re)read the file and keep them.
+  async function extractScoreFromFileId(fileId, xmlIdHint, fallbackName, keepSelection) {
     if (!D || !fileId) return;
     const filesMap = (typeof S !== 'undefined' && S?.files) ? S.files : {};
     const fileMeta = filesMap[fileId] || {};
     const origName = fileMeta.name || fallbackName || 'Score.musicxml';
     const isMscz = /\.(mscz|mscx)$/i.test(origName);
 
-    resetScoreSelection();
+    if (keepSelection) {
+      D.scoreFile = null;
+      D.scoreLoadError = '';
+      D.msczWarn = false;
+    } else {
+      resetScoreSelection();
+    }
     D.scoreLoading = true;
     render();
 
@@ -2029,7 +2037,7 @@
 
     render();
     if (st.fileId) {
-      extractScoreFromFileId(st.fileId, st.xmlId || null, rawName);
+      extractScoreFromFileId(st.fileId, st.xmlId || null, rawName, true);
     }
     loadTeacherContext();
   }
