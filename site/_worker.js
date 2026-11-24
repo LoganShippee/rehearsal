@@ -22,9 +22,7 @@ const REDIRECTS = {
   '/demo.html': 'https://app.rehearsalmusic.com/',
   '/hw': 'https://app.rehearsalmusic.com/hw',
   '/hw/': 'https://app.rehearsalmusic.com/hw',
-  '/hw/demo': 'https://app.rehearsalmusic.com/hw-demo',
   '/demo/app': 'https://app.rehearsalmusic.com/',
-  '/demo/homework': 'https://app.rehearsalmusic.com/hw-demo',
   '/sdpc': '/privacy-sdpc',
   '/it': '/it-whitelisting',
 };

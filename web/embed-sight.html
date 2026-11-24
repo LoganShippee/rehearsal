@@ -62,7 +62,7 @@
   // The shim reads the real app's saved settings at load; a visitor must start from fresh defaults instead.
   S.settings = {
     avDelay: null, saveGradeRecordings: false, srPresets: [], srBar: null, spBar: null, lastScore: null,
-    rhythmSystem: 'numbers', gradeStrictness: 50, gradeStrictRhythm: 50, gradeStrictPitch: 50, solMinor: 'do',
+    rhythmSystem: 'numbers', gradeStrictness: 25, gradeStrictRhythm: 25, gradeStrictPitch: 25, solMinor: 'do',
   };
   // Never write the real app's keys.
   window.save = function () { };
@@ -75,7 +75,7 @@
     if (isBuildMode()) return;                              // build: no limits at all
     // (settingsOpen, and the Syllables / Counts / Rhythm only display toggles, are left alone: visitors can use those)
     S.settings.rhythmSystem = 'numbers';
-    S.settings.gradeStrictRhythm = 50; S.settings.gradeStrictPitch = 50; S.settings.gradeStrictness = 50;
+    S.settings.gradeStrictRhythm = 25; S.settings.gradeStrictPitch = 25; S.settings.gradeStrictness = 25;
     if (st.mode === 'rhythm') {
       const o = st.rhythm;
       o.ts = '4/4'; o.measures = 4; o.cells = ['q', 'h', 'ee', 'qr', 'w'];

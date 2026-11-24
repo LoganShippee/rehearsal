@@ -160,8 +160,8 @@ export function sanitizeAssignmentConfig(type, mode, rawConfig) {
   const rVal = Number(rawStrict.rhythm);
   const pVal = Number(rawStrict.pitch);
   cfg.strictness = {
-    rhythm: Number.isFinite(rVal) ? clamp(Math.round(rVal), 0, 100) : 50,
-    pitch: Number.isFinite(pVal) ? clamp(Math.round(pVal), 0, 100) : 50,
+    rhythm: Number.isFinite(rVal) ? clamp(Math.round(rVal), 0, 100) : 25,
+    pitch: Number.isFinite(pVal) ? clamp(Math.round(pVal), 0, 100) : 25,
   };
 
   if (mode === 'true_sight_read') {

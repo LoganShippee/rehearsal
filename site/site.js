@@ -62,8 +62,6 @@
         const target = el.getAttribute('data-app-href');
         if (target === 'app') el.setAttribute('href', '../web/index.html');
         if (target === 'hw') el.setAttribute('href', '../web/hw.html');
-        if (target === 'hw-demo') el.setAttribute('href', '../web/hw-demo.html');
-        if (target === 'hw-sandbox') el.setAttribute('href', '../web/hw.html?demo=1');
       });
     }
 

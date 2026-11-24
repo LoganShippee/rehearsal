@@ -117,7 +117,7 @@
       mode: 'solfege',
       show: false,
       settingsOpen: false,
-      playhead: 'beat',
+      playhead: 'off',
       rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, measureNums: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'], showCounts: false },
       solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, measureNums: true, startDo: true, cells: ['q', 'h', 'w'], showCounts: false },
       ex: {},
@@ -136,8 +136,8 @@
     if (typeof grStrictnessSpec === 'function') {
       return grStrictnessSpec({ rhythm: rLv, pitch: pLv }, tempo);
     }
-    const r = Math.max(0, Math.min(100, Number(rLv ?? 50)));
-    const p = Math.max(0, Math.min(100, Number(pLv ?? 50)));
+    const r = Math.max(0, Math.min(100, Number(rLv ?? 25)));
+    const p = Math.max(0, Math.min(100, Number(pLv ?? 25)));
     const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
     const q = 60 / bpm;
     const rhythmMs = Math.round(r <= 50 ? 250 - (r / 50) * 150 : 100 - ((r - 50) / 50) * 85);
@@ -289,7 +289,7 @@
       showSolfege: false,
       showCounts: false,
       countingSystem: rSys,
-      strictness: { rhythm: 50, pitch: 50 },
+      strictness: { rhythm: 25, pitch: 25 },
 
       // Score Practice state
       scoreFile: null, // { blob, filename, size, source }
@@ -712,15 +712,6 @@
       D.auth.code = res.devCode || '';
       if (act === 'auth-resend') notify(`Sent a fresh 6-digit code to ${email}.`);
       render();
-      return;
-    }
-
-    if (act === 'open-demo') {
-      const url = a?.getPublicDocUrl ? a.getPublicDocUrl('hw-demo.html') : (() => { try { return new URL('hw-demo.html', location.href).href; } catch { return 'hw-demo.html'; } })();
-      try {
-        if (typeof native === 'function' && native('openExternal', { url })) return;
-      } catch { }
-      window.open(url, '_blank', 'noopener');
       return;
     }
 
@@ -1286,7 +1277,7 @@
       prompt,
       countIn: !!D.audioCountIn,
       bpm: Math.max(30, Math.min(240, Math.round(Number(D.audioBpm) || 84))),
-      strictness: { rhythm: 50, pitch: 50 },
+      strictness: { rhythm: 25, pitch: 25 },
     };
     return { title, instructions, type: 'audio', mode: 'practice', dueAt, maxAttempts, gradePolicy, published, config };
   }
@@ -1429,9 +1420,7 @@
             <span>Shared / classroom computer (sign out when browser closes)</span>
           </label>
           <div class="row">
-            <button type="button" class="btn primary" data-hwt="auth-send" ${au.busy ? 'disabled' : ''}>${au.busy ? 'Sending code…' : 'Start Free Trial / Send Sign-In Code'}</button>
-            <button type="button" class="btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
-          </div>
+            <button type="button" class="btn primary" data-hwt="auth-send" ${au.busy ? 'disabled' : ''}>${au.busy ? 'Sending code…' : 'Start Free Trial / Send Sign-In Code'}</button>          </div>
         ` : `
           <p class="small" style="margin:0">Enter the 6-digit code sent to <strong>${esc(au.email)}</strong>.</p>
           ${au.devCode ? `
@@ -2083,8 +2072,8 @@
     D.countingSystem = cfg.countingSystem || D.countingSystem;
     if (cfg.strictness) {
       D.strictness = {
-        rhythm: Math.max(0, Math.min(100, Number(cfg.strictness.rhythm ?? 50))),
-        pitch: Math.max(0, Math.min(100, Number(cfg.strictness.pitch ?? 50))),
+        rhythm: Math.max(0, Math.min(100, Number(cfg.strictness.rhythm ?? 25))),
+        pitch: Math.max(0, Math.min(100, Number(cfg.strictness.pitch ?? 25))),
       };
     }
 

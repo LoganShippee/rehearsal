@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | **Student Identity** | Display name (or alias/initials), optional voice part, optional school email (only if Google Sign-In is used) | Deleted immediately when the teacher deletes the student or class (allowed even in Read-Only Mode). |
 | **Personal 6-Char Codes** | Salted 100k-iteration PBKDF2-SHA256 hash & HMAC lookup key (plaintext is never stored) | Overwritten immediately on code regeneration; allows **zero-email student sign-in**. |
-| **Submissions & Grades** | Overall %, rhythm %, pitch %, note breakdown JSON, teacher overrides & comments | Exportable anytime as Gradebook CSV or FERPA Student Data JSON; deleted on cascade. |
+| **Submissions & Grades** | Overall %, rhythm %, pitch %, note breakdown JSON, teacher overrides & comments | Gradebook CSV export anytime; a student's full JSON record is available on request; deleted on cascade. |
 | **Audio Recordings** | Student submission audio in Cloudflare R2 (`audio/` prefix) | **Auto-deleted after 90 days** (R2 Object Lifecycle Rule + daily 07:00 UTC cron) or immediately via **Delete Audio Now**. |
 | **Abuse Prevention** | Short-lived SHA-256 IP rate-limit counters (15-min window) | Auto-expires; prevents code guessing (20/15m IP cap, 5-fail cooldown, 10-fail lock). |
 

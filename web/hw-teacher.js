@@ -715,7 +715,6 @@
         ` : `
           <div class="row">
             <button type="button" class="btn primary" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Start Free Trial / Send Sign-In Code'}</button>
-            <button type="button" class="btn hwt-demo-btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
           </div>
           <div class="small muted">New here? Entering your school email automatically starts your free 30-day trial — no password or credit card needed.</div>
         `}
@@ -803,7 +802,7 @@
     if (plan.readOnly) {
       out.push(`
         <div class="hwt-banner readonly">
-          <div><b>Read-Only Mode:</b> ${escHtml(plan.reason || 'Your Online Homework plan is inactive. Creating or editing classes, assignments, and grades is disabled, while viewing the Gradebook, playing audio, exporting CSV/FERPA JSON data, and deleting records still work.')}</div>
+          <div><b>Read-Only Mode:</b> ${escHtml(plan.reason || 'Your Online Homework plan is inactive. Creating or editing classes, assignments, and grades is disabled, while viewing the Gradebook, playing audio, exporting CSV files, and deleting records still work.')}</div>
           <button type="button" class="btn small primary" data-hwt="goto-account">View Plan / Upgrade</button>
         </div>
       `);
@@ -817,18 +816,9 @@
     } else if (plan.status === 'trialing') {
       out.push(`
         <div class="hwt-banner info">
-          <div><b>Free 30-Day Trial:</b> ${Number(plan.daysLeft || 0)} day${Number(plan.daysLeft || 0) === 1 ? '' : 's'} remaining (up to ${Number(plan.studentSoftCap || 200)} students, no card required).
+          <div><b>Free 30-Day Trial:</b> ${Number(plan.daysLeft || 0)} day${Number(plan.daysLeft || 0) === 1 ? '' : 's'} remaining. Free 30-day trial, no card required.
             ${renderBetaCodeHTML(plan)}</div>
           <button type="button" class="btn small" data-hwt="goto-account">View Plans</button>
-        </div>
-      `);
-    }
-
-    if (S_STATE.me?.overSoftCap) {
-      out.push(`
-        <div class="hwt-banner warn">
-          <div><b>Over Soft Student Cap:</b> You currently have ${Number(S_STATE.me.activeStudentCount || 0)} active students (standard teacher plan soft cap is ${Number(plan.studentSoftCap || 200)}). Nothing is locked — archive finished classes or contact us for a school/district license.</div>
-          <button type="button" class="btn small" data-hwt="goto-account">Account &amp; Plan</button>
         </div>
       `);
     }
@@ -1135,10 +1125,9 @@
           <div class="row" style="gap:5px">
             <button type="button" class="btn small" data-hwt="stu-new-code" data-id="${escHtml(st.id)}" ${writable ? '' : 'disabled'} title="Generate a new 6-char code and unlock account">New Code</button>
             <button type="button" class="btn small" data-hwt="stu-signout" data-id="${escHtml(st.id)}" ${online ? '' : 'disabled'} title="Revoke active student sessions">Sign Out</button>
-            <button type="button" class="btn small" data-hwt="stu-export" data-id="${escHtml(st.id)}" ${online ? '' : 'disabled'} title="Download FERPA/COPPA student data JSON">Export Data</button>
             ${st.archivedAt
               ? `<button type="button" class="btn small" data-hwt="stu-restore" data-id="${escHtml(st.id)}" ${writable ? '' : 'disabled'}>Restore</button>`
-              : `<button type="button" class="btn small" data-hwt="stu-archive" data-id="${escHtml(st.id)}" ${online ? '' : 'disabled'}>Archive</button>`}
+              : `<button type="button" class="btn small" data-hwt="stu-archive" data-id="${escHtml(st.id)}" ${online ? '' : 'disabled'} title="Stops this student signing in but keeps their grades. Restore any time.">Archive</button>`}
             <button type="button" class="btn small danger" data-hwt="stu-delete" data-id="${escHtml(st.id)}" ${online ? '' : 'disabled'}>Delete</button>
           </div>
         </td>
@@ -1377,7 +1366,6 @@
     const isDemo = api.isDemoMode();
     const offline = isOffline();
     const count = Number(S_STATE.me.activeStudentCount || 0);
-    const softCap = Number(plan.studentSoftCap || 200);
     const billingReady = isDemo || !!S_STATE.capabilities?.billingEnabled || !!plan.billingEnabled;
     const isPaidActive = plan.status === 'active' || plan.status === 'po_active';
 
@@ -1389,7 +1377,7 @@
         </div>
         <div class="hwt-metrics" style="margin-bottom:12px">
           <div class="hwt-metric"><span>Teacher</span><strong style="font-size:14px">${escHtml(teacher.name || teacher.email)}</strong></div>
-          <div class="hwt-metric"><span>Active Students</span><strong>${count} / ${softCap}</strong><small>Soft cap (never locks)</small></div>
+          <div class="hwt-metric"><span>Active Students</span><strong>${count}</strong></div>
           <div class="hwt-metric"><span>Status</span><strong style="font-size:14px">${escHtml(badge.label)}</strong></div>
           ${plan.trialEndsAt ? `<div class="hwt-metric"><span>Trial Ends</span><strong style="font-size:14px">${escHtml(formatDateShort(plan.trialEndsAt))}</strong></div>` : ''}
           ${plan.planEndsAt ? `<div class="hwt-metric"><span>Renews / Ends</span><strong style="font-size:14px">${escHtml(formatDateShort(plan.planEndsAt))}</strong></div>` : ''}
@@ -1413,7 +1401,7 @@
         `}
 
         <div class="hwt-privacy-note" style="margin-top:12px">
-          <b>School Purchase Orders (POs):</b> Need a school or district invoice for multiple teachers or more than ${softCap} students? Request a <strong>School Purchase Order</strong> license grant with custom seat caps — no credit card required.
+          <b>School Purchase Orders (POs):</b> Need a school or district invoice for multiple teachers? Request a <strong>School Purchase Order</strong> license grant — no credit card required.
         </div>
       </div>
 
@@ -1453,7 +1441,6 @@
         <h3>How It Works, Privacy &amp; School Resources</h3>
         <p class="desc">Preview what students see or share these plain-language documents with parents, administrators, or district IT teams.</p>
         <div class="row">
-          <button type="button" class="btn small primary" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
           <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</button>
           <button type="button" class="btn small" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</button>
           <button type="button" class="btn small" data-hwt="open-doc" data-href="it-whitelisting.html">IT Admin Info</button>
@@ -2025,7 +2012,6 @@
       <p class="desc">${hasTok ? escHtml(statusLine) + '. ' : 'Start a free 30-day trial (no credit card) to '}manage classes, print student sign-in codes, assign Sight Reading or Score Practice, and review recordings.</p>
       <div class="row">
         <button type="button" class="btn primary" data-hwt="settings-open-hw">${hasTok ? 'Open Online Homework' : 'Start Free 30-Day Trial / Sign In'}</button>
-        <button type="button" class="btn" data-hwt="open-demo">See How It Works &amp; Student Demo ↗</button>
         ${hasTok ? `<button type="button" class="btn" data-hwt="settings-logout">Sign Out</button>` : ''}
       </div>
     `;
@@ -2309,10 +2295,6 @@
         e?.preventDefault?.();
         openDocPage(btn.dataset.href || btn.getAttribute('href') || '');
         break;
-      case 'open-demo':
-        e?.preventDefault?.();
-        openDocPage('hw-demo.html');
-        break;
       case 'auth-save-server':
         stopOAuthHandoff(true);
         api.setApiBase(S_STATE.auth.serverUrl.trim());
@@ -2582,17 +2564,6 @@
         const res = await api.revokeStudentSessions(cls.id, sid);
         if (!res?.ok) { showToast(res?.error || 'Could not sign out student.'); break; }
         showToast('Student signed out on all devices.');
-        break;
-      }
-      case 'stu-export': {
-        const cls = getSelectedClass();
-        const sid = btn.dataset.id;
-        if (!cls || !sid) break;
-        const res = await api.exportStudentData(cls.id, sid);
-        if (!res || res.ok === false) { showToast(res?.error || 'Could not export student data.'); break; }
-        const stuName = (res.student?.displayName || 'student').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || sid;
-        api.triggerDownload(JSON.stringify(res, null, 2), res.filename || `student-data-${stuName}.json`, 'application/json');
-        showToast('Student FERPA JSON exported.');
         break;
       }
       case 'stu-archive':

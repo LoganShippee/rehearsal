@@ -892,6 +892,12 @@ body.hw-page {
 #hw-code-form[hidden] { display: none; }
 /* "Demo what students see": no flash of the sample sign-in screen while it signs in by itself */
 body.hw-auto-demo #hw-auth-view { visibility: hidden; }
+/* in the demo link, hide the sample-codes box and the test chips; a short note says nothing is saved */
+body.hw-auto-demo #hw-demo-creds,
+body.hw-auto-demo #hw-offline-btn,
+body.hw-auto-demo #hw-dev-chip { display: none !important; }
+body.hw-auto-demo #hw-mode-badge { font-size: 0; }
+body.hw-auto-demo #hw-mode-badge::after { content: 'Sample class: nothing is saved'; font-size: 12px; }
 
 /* Google is the main way in: its button leads the card, the codes sit below */
 .hw-google-gsi { display: flex; justify-content: center; min-height: 0; }
@@ -1224,7 +1230,15 @@ body.hw-auto-demo #hw-auth-view { visibility: hidden; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  /* stays at the top (under the page header) while the student scrolls, so the way back is always there */
+  position: sticky;
+  top: var(--hw-hdr-h, 56px);
+  z-index: 30;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .10);
 }
+.hw-back-bar[hidden] { display: none; }
+.hw-back-btn { min-height: 44px; padding: 8px 18px; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.hw-back-arrow { font-size: 22px; line-height: 1; }
 
 .hw-back-title {
   font-size: 15px;
@@ -1239,4 +1253,6 @@ body.hw-auto-demo #hw-auth-view { visibility: hidden; }
   .hw-main { padding: 12px 10px 44px; }
   .hw-stage { height: 400px; }
   .hw-field-row { grid-template-columns: 1fr; }
+  .hw-back-btn { flex: 1 1 auto; justify-content: center; }
+  .hw-back-title { min-width: 100%; order: 3; }
 }

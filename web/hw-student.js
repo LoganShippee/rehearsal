@@ -522,7 +522,7 @@ function hwInstallEngineHooks(onTakeSaved) {
             mode: st.mode, input, ts: st[st.mode]?.ts, tempo: st[st.mode]?.tempo, key: st[st.mode]?.key,
             trueSightRead: !!HW_STATE.srTrueMode, studySeconds: HW_STATE.srTrueMode ? HW_STATE.srStudySec : 0,
             attemptStartId: HW_STATE.activeAttemptStart?.id || null,
-            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
+            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
           },
         };
         if (input !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
@@ -548,7 +548,7 @@ function hwInstallEngineHooks(onTakeSaved) {
           meta: {
             scoreName: ctl?.st?.name || 'Score Check-In', gradeMode: mode, tempo: ctl?.st?.tempo || null,
             attemptStartId: null,
-            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
+            syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
           },
         };
         if (mode !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
@@ -1463,9 +1463,10 @@ async function hwOpenFreePractice(kind) {
     ex: {}, settingsOpen: false,
   };
   if (st.mode !== 'rhythm' && st.mode !== 'solfege') st.mode = kind === 'solfege' ? 'solfege' : 'rhythm';
+  if (st.playhead === 'beat') st.playhead = 'off';   // saved from before the new default
   HW_STATE.srState = st;
   // practice always grades at Standard (the sliders are hidden); assignments set their own when opened
-  S.settings.gradeStrictRhythm = 50; S.settings.gradeStrictPitch = 50; S.settings.gradeStrictness = 50;
+  S.settings.gradeStrictRhythm = 25; S.settings.gradeStrictPitch = 25; S.settings.gradeStrictness = 25;
   const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
   hwSetView('runner');
   hwRenderRunnerHeaderBar();
@@ -1529,7 +1530,14 @@ function hwRenderRunnerHeaderBar() {
     previewBanner = $('#hw-preview-banner'), previewMsg = $('#hw-preview-msg');
 
   if (backBar) backBar.hidden = false;
-  if (backBtn) backBtn.hidden = !!HW_STATE.previewMode;
+  if (backBtn) {
+    backBtn.hidden = false;   // teachers in preview get a clear way back too
+    const lbl = $('#hw-back-label');
+    if (lbl) lbl.textContent = HW_STATE.previewMode ? 'Back to assignment setup' : 'All assignments';
+  }
+  // keep the sticky bar just under the page header, whatever height it wraps to
+  const hdr = document.querySelector('.hw-header');
+  if (hdr) document.documentElement.style.setProperty('--hw-hdr-h', hdr.offsetHeight + 'px');
   if (titleEl) titleEl.textContent = a ? a.title : 'Homework';
 
   if (previewBanner) {
@@ -1579,9 +1587,9 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
 
   const cfg = a.config || {};
   if (cfg.countingSystem) S.settings.rhythmSystem = cfg.countingSystem;
-  const sr = cfg.strictness || { rhythm: 50, pitch: 50 };
-  S.settings.gradeStrictRhythm = clamp(Number(sr.rhythm ?? 50), 0, 100);
-  S.settings.gradeStrictPitch = clamp(Number(sr.pitch ?? 50), 0, 100);
+  const sr = cfg.strictness || { rhythm: 25, pitch: 25 };
+  S.settings.gradeStrictRhythm = clamp(Number(sr.rhythm ?? 25), 0, 100);
+  S.settings.gradeStrictPitch = clamp(Number(sr.pitch ?? 25), 0, 100);
   S.settings.gradeStrictness = Math.round((S.settings.gradeStrictRhythm + S.settings.gradeStrictPitch) / 2);
 
   if (HW_STATE.tab === 'sight') {
@@ -1597,6 +1605,7 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
       ex: incomingSr.ex ? JSON.parse(JSON.stringify(incomingSr.ex)) : {},
     };
     hwFixSrEx(HW_STATE.srState.ex);
+    if (HW_STATE.srState.playhead === 'beat') HW_STATE.srState.playhead = 'off';   // old default; students no longer get the moving playhead
     if (a.excerptLocked && !HW_STATE.previewMode) {
       HW_STATE.srState.ex = {};
     }
@@ -1719,7 +1728,7 @@ function hwSyncTeacherEditsToDemo() {
       ...(a.config || {}),
       studySeconds: HW_STATE.srStudySec,
       countingSystem: S.settings.rhythmSystem || 'numbers',
-      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
+      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
       srState: JSON.parse(JSON.stringify(HW_STATE.srState)),
     };
   } else if (HW_STATE.tab === 'score' && HW_STATE.spState) {
@@ -1729,7 +1738,7 @@ function hwSyncTeacherEditsToDemo() {
       ...(a.config || {}),
       gradeMode: HW_STATE.spGradeMode,
       countingSystem: S.settings.rhythmSystem || 'numbers',
-      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
+      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
       spState: JSON.parse(JSON.stringify(HW_STATE.spState)),
     };
   } else if (HW_STATE.tab === 'audio') {
@@ -1740,7 +1749,7 @@ function hwSyncTeacherEditsToDemo() {
       countIn: HW_STATE.aud.countIn,
       bpm: HW_STATE.aud.bpm,
       prompt: HW_STATE.aud.prompt,
-      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 50, pitch: 50 },
+      strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
     };
   }
   HW_API.upsertDemoAssignment(a);
@@ -1888,11 +1897,11 @@ function hwSightViewState(st) {
   }
   if (st.mode === 'solfege' && st.solRhythm && st.ex?.solfege) {
     return {
-      mode: 'rhythm', show: !!st.show, showCounts, playhead: st.playhead ?? 'beat', startM: st.startM || 0,
+      mode: 'rhythm', show: !!st.show, showCounts, playhead: st.playhead === 'beat' ? 'off' : (st.playhead ?? 'off'), startM: st.startM || 0,
       rhythm: st.solfege, ex: { rhythm: { rhythm: (st.ex.solfege.parts?.[0] || st.ex.solfege).rhythm } },
     };
   }
-  return { ...st, showCounts, playhead: st.playhead ?? 'beat' };
+  return { ...st, showCounts, playhead: st.playhead === 'beat' ? 'off' : (st.playhead ?? 'off') };
 }
 
 function hwStartSightGradingDirect(host, st, actionBtn, inputMode) {
@@ -2675,6 +2684,7 @@ async function hwBoot() {
   $('#hw-retry-all').onclick = () => hwRetryQueuedUploads(false);
   $('#hw-back-list').onclick = async () => {
     hwCleanupMediaAndMic();
+    if (HW_STATE.previewMode) { hwClosePreviewWindow(); return; }   // teacher preview: close it, back to setup
     await hwRefreshAssignments();
     hwRenderAssignmentList();
     hwSetView('list');

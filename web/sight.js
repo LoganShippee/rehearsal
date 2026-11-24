@@ -49,7 +49,7 @@ const SR_LEAPS = { step: 'Steps only', third: 'Steps & 3rds', triad: 'Steps & do
 
 function srDefaults() {
   return {
-    mode: 'solfege', show: false, settingsOpen: false, playhead: 'beat',
+    mode: 'solfege', show: false, settingsOpen: false, playhead: 'off',
     rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, measureNums: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'], showCounts: false },
     solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, measureNums: true, startDo: true, cells: ['q', 'h', 'w'], showCounts: false },
     ex: {},
@@ -1160,7 +1160,7 @@ function srAnimate(host, st, getTimeline, clock) {
           cnt.classList.toggle('one', txt === '1'); cnt.classList.remove('hit'); void cnt.offsetWidth; cnt.classList.add('hit');
         }
       } else if (cnt) cnt.remove();
-      const mode = st.playhead ?? 'beat';
+      const mode = st.playhead ?? 'off';
       if (mode === 'off') { bar.style.display = 'none'; staff.querySelectorAll('.sr-cur').forEach(e => e.classList.remove('sr-cur')); lastEl = null; return true; }
       bar.classList.toggle('glide', mode === 'notes');
       const sr = svg.getBoundingClientRect(), fr = staff.getBoundingClientRect();
@@ -1930,8 +1930,8 @@ function mountSight(host, st, onChange) {
   const V = () => {
     const sc = curShowCounts();
     if (st.mode === 'build') { const bv = srBuildView(st); bv.showCounts = sc; return bv; }
-    if (st.mode === 'solfege' && st.solRhythm && st.ex.solfege) return { mode: 'rhythm', show: st.show, showCounts: sc, playhead: st.playhead ?? 'beat', startM: st.startM || 0, rhythm: st.solfege, ex: { rhythm: { rhythm: (st.ex.solfege.parts?.[0] || st.ex.solfege).rhythm } } };
-    return { ...st, showCounts: sc, playhead: st.playhead ?? 'beat' };
+    if (st.mode === 'solfege' && st.solRhythm && st.ex.solfege) return { mode: 'rhythm', show: st.show, showCounts: sc, playhead: st.playhead ?? 'off', startM: st.startM || 0, rhythm: st.solfege, ex: { rhythm: { rhythm: (st.ex.solfege.parts?.[0] || st.ex.solfege).rhythm } } };
+    return { ...st, showCounts: sc, playhead: st.playhead ?? 'off' };
   };
   const isBuild = () => st.mode === 'build';
   const summaryChip = () => {
@@ -1946,7 +1946,7 @@ function mountSight(host, st, onChange) {
   };
   const render = () => {
     if (isBuild()) st.build ||= srBuildDefaults();
-    if (st.playhead == null) st.playhead = 'beat';
+    if (st.playhead == null) st.playhead = 'off';
     const kindNow = isBuild() ? st.build.kind : st.mode === 'solfege' && st.solRhythm ? 'rhythm' : st.mode;
     const multiPart = st.mode === 'solfege' && !st.solRhythm && (st.solfege?.parts || 1) > 1;
     const zoomPct = Math.round((st.zoom || 1) * 100);
@@ -2046,7 +2046,7 @@ function mountSight(host, st, onChange) {
     host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs); gs = e.scale; });
     host.addEventListener('gestureend', e => e.preventDefault());
   }
-  host.__phMode = () => V().playhead ?? 'beat';    // the Playhead button's current setting (grading reads it live)
+  host.__phMode = () => V().playhead ?? 'off';    // the Playhead button's current setting (grading reads it live)
   // Listen back (from the grade report): the example from bar 1 at the tempo that was performed,
   // with the playhead. Returns the clock so the take can be lined up with it.
   host.__listen = (tempo, opts) => {
@@ -2278,7 +2278,7 @@ function mountSight(host, st, onChange) {
       o[f] = Math.max(lim[0], Math.min(lim[1], (Number(o[f]) || 0) + Number(b.dataset.d)));
       if (f === 'measures') { srStop(); regen(); }
     }
-    else if (k === 'playhead') st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead ?? 'beat'];   // Beat → Note → Off
+    else if (k === 'playhead') st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead ?? 'off'];   // Beat → Note → Off
     else if (k === 'grrecent') { if (typeof grShowRecent === 'function') grShowRecent(host); return; }
     else if (k === 'grade') {                                   // a take running: this stops and grades it
       if (GR.on || GR.starting) { closeGradeMenu(); grStart(host, V(), timeline, b); return; }

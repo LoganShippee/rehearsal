@@ -252,12 +252,12 @@
           config: {
             studySeconds: 30,
             countingSystem: 'numbers',
-            strictness: { rhythm: 50, pitch: 50 },
+            strictness: { rhythm: 25, pitch: 25 },
             srState: {
               mode: 'solfege',
               show: false,
               showCounts: false,
-              playhead: 'beat',
+              playhead: 'off',
               solfege: {
                 key: 'C',
                 scale: 'major',
@@ -292,12 +292,12 @@
           config: {
             studySeconds: 0,
             countingSystem: 'numbers',
-            strictness: { rhythm: 50, pitch: 50 },
+            strictness: { rhythm: 25, pitch: 25 },
             srState: {
               mode: 'rhythm',
               show: true,
               showCounts: true,
-              playhead: 'beat',
+              playhead: 'off',
               rhythm: {
                 ts: '4/4',
                 measures: 4,
@@ -327,7 +327,7 @@
           config: {
             gradeMode: 'mic',
             countingSystem: 'numbers',
-            strictness: { rhythm: 50, pitch: 50 },
+            strictness: { rhythm: 25, pitch: 25 },
             spState: {
               name: 'Sample Vocal Check-In',
               gradeMode: 'mic',
@@ -355,7 +355,7 @@
             countIn: true,
             bpm: 84,
             prompt: 'Sing a 5-note major scale (do–re–mi–fa–sol–fa–mi–re–do) on "ah" with steady breath support.',
-            strictness: { rhythm: 50, pitch: 50 },
+            strictness: { rhythm: 25, pitch: 25 },
           },
         },
       ],

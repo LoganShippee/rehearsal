@@ -43,9 +43,9 @@ function hwLoadCarriedSettings() {
     spBar: null,
     lastScore: null,
     rhythmSystem: 'numbers',
-    gradeStrictness: 50,
-    gradeStrictRhythm: 50,
-    gradeStrictPitch: 50,
+    gradeStrictness: 25,
+    gradeStrictRhythm: 25,
+    gradeStrictPitch: 25,
     solMinor: 'do',
   };
   try {
@@ -93,9 +93,9 @@ function save() {
     localStorage.setItem(HW_SETTINGS_KEY, JSON.stringify({
       srPresets: S.settings.srPresets || [],
       rhythmSystem: S.settings.rhythmSystem || 'numbers',
-      gradeStrictness: S.settings.gradeStrictness ?? 50,
-      gradeStrictRhythm: S.settings.gradeStrictRhythm ?? 50,
-      gradeStrictPitch: S.settings.gradeStrictPitch ?? 50,
+      gradeStrictness: S.settings.gradeStrictness ?? 25,
+      gradeStrictRhythm: S.settings.gradeStrictRhythm ?? 25,
+      gradeStrictPitch: S.settings.gradeStrictPitch ?? 25,
       solMinor: S.settings.solMinor || 'do',
     }));
   } catch { }

@@ -173,6 +173,17 @@ function migrate(d) {
     for (const c of d.classes || []) for (const r of c.resources || []) if (r.icon && EMO.test(r.icon)) delete r.icon;
     d.settings.drawnIcons = true;
   }
+  // grading starts at strictness 25 (a saved overall level is kept for rhythm/pitch)
+  d.settings.gradeStrictness ??= 25;
+  d.settings.gradeStrictRhythm ??= d.settings.gradeStrictness;
+  d.settings.gradeStrictPitch ??= d.settings.gradeStrictness;
+  // the playhead now starts Off: switch saved sight-reading and score states that still have the old default (once)
+  if (!d.settings.playheadOffDefault) {
+    const off = o => { if (o && typeof o === 'object' && o.playhead === 'beat') o.playhead = 'off'; };
+    for (const c of d.classes || []) for (const r of c.resources || []) { off(r.sight); off(r.score); }
+    for (const list of Object.values(d.windows || {})) for (const w of list || []) { off(w.sight); off(w.score); off(w.sr); }
+    d.settings.playheadOffDefault = true;
+  }
   for (const k of ['weekdays', 'overrides', 'files', 'windows', 'calDays']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   if (d.settings.lastPinned && !d.classes.some(c => c.id === d.settings.lastPinned)) d.settings.lastPinned = '';
   for (const c of d.classes) {
