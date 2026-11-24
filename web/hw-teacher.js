@@ -627,7 +627,7 @@
     const a = S_STATE.auth;
     const isDemo = api.isDemoMode();
     const nativeApp = isNativeApp();
-    const gClientId = window.HW_GOOGLE_CLIENT_ID || '';
+    const gClientId = S_STATE.capabilities?.googleClientId || window.HW_GOOGLE_CLIENT_ID || '';
     const googleEnabled = isDemo || !!S_STATE.capabilities?.googleSignInEnabled || !!gClientId;
 
     let googleSection = '';
@@ -638,14 +638,12 @@
           <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Test Desktop Browser Handoff</button>
         </div>
       `;
-    } else if (googleEnabled && nativeApp) {
-      googleSection = `
-        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google (Opens Browser)</button>
-        <div class="small muted">Opens your system browser using a secure 60-second sign-in handoff so school Google accounts work smoothly.</div>
-      `;
     } else if (googleEnabled) {
+      // Same secure hand-off in the app and on the web: Google's own sign-in opens in a browser tab,
+      // then this window finishes signing in by itself.
       googleSection = `
-        <button type="button" class="btn" data-hwt="auth-google" ${a.busy ? 'disabled' : ''}>Sign in with Google</button>
+        <button type="button" class="btn" data-hwt="auth-google-handoff" ${a.busy || a.handoff?.active ? 'disabled' : ''}>Sign in with Google${nativeApp ? ' (Opens Browser)' : ''}</button>
+        <div class="small muted">Opens Google sign-in in ${nativeApp ? 'your browser' : 'a new tab'}. When you're done, come back here and your workspace loads by itself.</div>
       `;
     }
 
@@ -2897,7 +2895,7 @@
     const ttlSec = Number(startRes.expiresInSec || 60);
     const url = api.getOAuthHandoffUrl({
       state: startRes.state,
-      googleClientId: window.HW_GOOGLE_CLIENT_ID || '',
+      googleClientId: S_STATE.capabilities?.googleClientId || window.HW_GOOGLE_CLIENT_ID || '',
     });
 
     const h = S_STATE.auth.handoff;

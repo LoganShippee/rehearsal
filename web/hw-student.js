@@ -1080,6 +1080,17 @@ function hwRenderGoogleLinkOffer() {
   }).then(ok => { if (!ok) box.hidden = true; });
 }
 
+// Show or fold away the student-code form (Google sign-in is the default when it's on).
+function hwApplyCodeOpen(gEnabled) {
+  const form = $('#hw-code-form'), tog = $('#hw-code-toggle'), div = $('#hw-code-divider');
+  const open = !gEnabled || !!HW_STATE.codeOpen;
+  if (form) form.hidden = !open;
+  if (div) div.hidden = !gEnabled;
+  if (tog) {
+    tog.setAttribute('aria-expanded', String(open));
+    tog.textContent = open ? 'Hide student code' : 'Use my student code instead';
+  }
+}
 function hwRenderAuthScreen() {
   hwSetView('auth');
   hwShowAuthError('');
@@ -1100,9 +1111,13 @@ function hwRenderAuthScreen() {
   if (gDiv) gDiv.hidden = !gEnabled;
   const gJoin = $('#hw-google-join'); if (gJoin) gJoin.hidden = true;
   $('#hw-code-submit')?.classList.toggle('primary', !gEnabled);   // one bright button: Google when it's on
+  // Google is the default. The student-code form stays folded away until "Use my student code instead" is clicked,
+  // except when Google isn't set up, in the sandbox, or the page was opened from a printed slip link that has a code.
+  if (HW_STATE.codeOpen == null) HW_STATE.codeOpen = HW_API.isDemoMode() || !!(urlCode || urlStudent);
+  hwApplyCodeOpen(gEnabled);
   if (authSub) {
     authSub.innerHTML = gEnabled
-      ? 'Use your school Google account.'
+      ? 'Use your school Google account, or your student code.'
       : 'Enter the <strong>Class Code</strong> and your <strong>Student Code</strong> from your teacher.';
   }
   // Google's own button (a popup) where Google Sign-In is set up; our plain button in the sandbox
@@ -2643,6 +2658,11 @@ async function hwBoot() {
   });
 
   $('#hw-code-form').onsubmit = hwHandleCodeSubmit;
+  $('#hw-code-toggle').onclick = () => {
+    HW_STATE.codeOpen = !HW_STATE.codeOpen;
+    hwApplyCodeOpen(true);
+    if (HW_STATE.codeOpen) $('#hw-in-joincode')?.focus();
+  };
   $('#hw-google-btn').onclick = () => hwHandleGoogleSignIn();
   $('#hw-signout-btn').onclick = hwSignOut;
   $('#hw-sync-btn').onclick = () => hwOpenSyncModal(false);

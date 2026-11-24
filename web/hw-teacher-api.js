@@ -1813,9 +1813,10 @@
             ok: true,
             devMode: !!res.devMode,
             googleSignInEnabled: !!res.googleSignInEnabled,
+            googleClientId: String(res.googleClientId || ''),
             billingEnabled: !!res.billingEnabled,
           }
-        : { ok: false, devMode: false, googleSignInEnabled: false, billingEnabled: false };
+        : { ok: false, devMode: false, googleSignInEnabled: false, googleClientId: '', billingEnabled: false };
       if (res.ok) capsByBase.set(base, caps);
       return caps;
     },

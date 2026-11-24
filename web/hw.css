@@ -885,6 +885,11 @@ body.hw-page {
   flex-direction: column;
   gap: 8px;
 }
+/* "Use my student code instead": a quiet link between the two lines of the divider */
+.hw-code-toggle { background: none; border: 0; padding: 4px 10px; font: inherit; font-size: 13px; color: #475569; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.hw-code-toggle:hover { color: #1e3a8a; }
+.hw-code-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: 6px; }
+#hw-code-form[hidden] { display: none; }
 
 /* Google is the main way in: its button leads the card, the codes sit below */
 .hw-google-gsi { display: flex; justify-content: center; min-height: 0; }

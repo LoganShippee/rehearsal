@@ -9,9 +9,8 @@ ENDMS=$(( $(date -j -f %Y-%m-%d "$END" +%s 2>/dev/null || date -d "$END" +%s) * 
 NOW=$(( $(date +%s) * 1000 ))
 SQL=""
 for _ in $(seq "$N"); do
-  A=$(LC_ALL=C tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c4)
-  B=$(LC_ALL=C tr -dc 'A-HJ-NP-Z2-9' </dev/urandom | head -c4)
-  CODE="BETA-$A-$B"; echo "$CODE"
+  CODE=$(python3 -c "import secrets as s; a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; print('BETA-'+''.join(s.choice(a) for _ in range(4))+'-'+''.join(s.choice(a) for _ in range(4)))")
+  echo "$CODE"
   SQL+="INSERT INTO beta_codes (code,label,max_uses,uses,plan_ends_at,student_soft_cap,created_at) VALUES ('$CODE','${LABEL//\'/}',$USES,0,$ENDMS,300,$NOW);"
 done
 read -r -p "Add these $N code(s) to the live database? [y/N] " ok
