@@ -106,6 +106,7 @@
     <div class="status" id="oauth-status">Checking sign-in link…</div>
     <div id="gsi-btn-host" hidden></div>
     <div id="oauth-actions" style="display:flex;flex-direction:column;gap:8px"></div>
+    <p class="muted" id="oauth-blocked" style="font-size:12.5px" hidden>Don't see the Google button? Your browser's tracker or ad blocker may be hiding it (Vivaldi, Brave and some school filters do this). Turn the blocker off for this page and reload, open the link in Chrome or Safari, or go back to Rehearsal and use the 6-digit email code.</p>
     <p class="muted" style="font-size:12px">Need privacy details? <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
   </main>
 
@@ -266,11 +267,18 @@
           width: 340,
           text: 'signin_with',
         });
+        // A blocker can leave the button's frame empty. Check it a few seconds later and, if it looks blank, say why.
+        setTimeout(() => {
+          if (completed) return;
+          const el = gsiHost.querySelector('iframe, [role="button"]');
+          const box = el && el.getBoundingClientRect();
+          if (!box || box.height < 20 || box.width < 20) document.getElementById('oauth-blocked').hidden = false;
+        }, 4000);
       } catch {
         setStatus('Google Sign-In failed to initialize.', 'err');
       }
     };
-    s.onerror = () => setStatus('Could not load Google Sign-In script (check network/allowlist).', 'err');
+    s.onerror = () => { setStatus('Could not load Google Sign-In script (check network/allowlist).', 'err'); document.getElementById('oauth-blocked').hidden = false; };
     document.head.appendChild(s);
   } else if (!isDev) {
     setStatus('No Google Client ID configured on this sign-in link. Use the 6-digit email code in Rehearsal instead.', 'err');

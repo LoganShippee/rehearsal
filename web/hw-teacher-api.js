@@ -270,6 +270,9 @@
 
   function triggerDownload(content, filename, mimeType) {
     try {
+      // The Mac and Windows apps can't handle a browser-style download (it fails or closes the app);
+      // ask the app to show its own Save dialog instead.
+      if (typeof content === 'string' && typeof native === 'function' && native('saveText', { name: filename || 'download.csv', text: content })) return true;
       const blob = content instanceof Blob
         ? content
         : new Blob([content], { type: mimeType || 'application/octet-stream' });
