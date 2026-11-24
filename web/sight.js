@@ -2046,6 +2046,7 @@ function mountSight(host, st, onChange) {
     host.addEventListener('gesturechange', e => { e.preventDefault(); host.__zoomBy(e.scale / gs); gs = e.scale; });
     host.addEventListener('gestureend', e => e.preventDefault());
   }
+  host.__phMode = () => V().playhead ?? 'beat';    // the Playhead button's current setting (grading reads it live)
   // Listen back (from the grade report): the example from bar 1 at the tempo that was performed,
   // with the playhead. Returns the clock so the take can be lined up with it.
   host.__listen = (tempo, opts) => {
@@ -2177,7 +2178,7 @@ function mountSight(host, st, onChange) {
     }
     e.stopPropagation();
     const k = b.dataset.sr;
-    if (k !== 'grade' && k !== 'gradego' && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
+    if (k !== 'grade' && k !== 'gradego' && k !== 'playhead' && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
     const B = st.build;
     if (k === 'mode') { srStop(); st.mode = b.dataset.v; st.startM = null; }
     else if (k === 'bkind') { srStop(); B.kind = b.dataset.v; }

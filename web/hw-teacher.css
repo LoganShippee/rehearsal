@@ -1214,54 +1214,29 @@
   gap: 10px;
 }
 
-.hwt-gr-bars {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
+/* same look as the student's grade card (styles.css .gr-card) */
+.hwt-gr-review .gr-head b { font-size: 16px; }
+.hwt-gr-review .gr-sub { display: block; color: var(--e-muted); font-size: 12.5px; margin-top: 4px; }
+.hwt-gr-review .gr-sub.gr-range { color: #1f6fd1; font-weight: 600; margin-top: 2px; }
+.hwt-gr-review .gr-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12.5px; color: var(--e-muted); }
+.hwt-gr-review .gr-legend .gr-sub { display: inline; margin: 0; }
+.hwt-gr-review .gr-details summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.hwt-gr-review .gr-table th, .hwt-gr-review .gr-table td { border-bottom-color: var(--e-line); }
 
-.hwt-gr-bar-row {
-  background: var(--e-panel);
+/* the real score, read-only: no toolbar or grading buttons */
+.hwt-gr-score-host {
+  position: relative;
+  height: 440px;
   border: 1px solid var(--e-line);
   border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.hwt-gr-bar-head {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.hwt-gr-bar-track {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--e-line);
   overflow: hidden;
+  background: #ffffff;
 }
-
-.hwt-gr-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: #2f9e44;
-  transition: width 0.2s ease;
-}
-
-.hwt-gr-bar-fill.mid { background: #d9822b; }
-.hwt-gr-bar-fill.lo { background: #c62828; }
-
-.hwt-gr-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  font-size: 12px;
-  color: var(--e-muted);
-  align-items: center;
-}
+.hwt-gr-score-host .sp-top,
+.hwt-gr-score-host .sp-sub,
+.hwt-gr-score-host .sp-sel,
+.hwt-gr-score-host .gr-chips-wrap,
+.hwt-gr-score-host .gr-chips { display: none !important; }
 
 .hwt-handoff-box {
   background: var(--hwt-info-bg);
@@ -1393,4 +1368,52 @@
     color: #333;
     word-break: break-all;
   }
+}
+
+/* Built-in Test Student (purple row, no sign-in code) and the "Test" tag */
+.hwt-test-row td {
+  background: var(--hwt-pitch-bg);
+}
+.hwt-test-row td:first-child {
+  box-shadow: inset 3px 0 0 var(--hwt-pitch-fg);
+}
+.hwt-test-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hwt-pitch-border);
+  background: var(--hwt-pitch-bg);
+  color: var(--hwt-pitch-fg);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* "Have a beta code?" box */
+.hwt-beta-code {
+  margin-top: 10px;
+  max-width: 420px;
+}
+.hwt-beta-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 220px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--e-line);
+  background: var(--e-bg);
+  color: var(--e-text);
+}
+.hwt-beta-err {
+  margin-top: 4px;
+  color: var(--hwt-danger-fg);
+}
+.hwt-beta-err:empty {
+  display: none;
 }

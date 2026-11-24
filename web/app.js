@@ -92,9 +92,12 @@ const ACTION_TYPES = {
   warmup: 'Show the warm-up', agenda: 'Go to agenda step', signal: 'Show a signal', clearSignal: 'Clear signal',
 };
 
-function newClass(name = 'New class', themeIdx = 7) {
+// Each new class gets the next built-in background, so a set of classes looks varied from the start.
+// (Classes that already exist are never changed.)
+let BG_NEXT = 0;
+function newClass(name = 'New class', themeIdx = 7, bgIdx = BG_NEXT++) {
   return {
-    id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: '' },
+    id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: 'bg:' + BACKGROUNDS[bgIdx % BACKGROUNDS.length][0], panel: 0.5 },
     agenda: [], warmup: '', resources: [], roster: [], automations: [], points: [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }], notes: {},
   };
 }
@@ -950,6 +953,14 @@ function hexA(hex, a) {
   const h = (hex || '#000000').replace('#', ''), n = parseInt(h.length === 3 ? h.replace(/./g, c => c + c) : h, 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
+// Built-in backgrounds shipped with the app (web/backgrounds/*.svg). A class stores one as "bg:risers".
+const BACKGROUNDS = [['risers', 'Risers'], ['keys', 'Piano keys'], ['staff', 'Staff'], ['spotlight', 'Spotlight'], ['waves', 'Waves'], ['sunset', 'Sunset'], ['notes', 'Notes']];
+function themeImgURL(img) {
+  if (!img) return '';
+  if (img.startsWith('file:')) return fileDirectURL(img.slice(5));
+  if (img.startsWith('bg:')) return `backgrounds/${img.slice(3).replace(/[^a-z]/g, '')}.svg`;
+  return img;
+}
 function applyTheme(el, theme) {
   const th = theme || THEMES[0];
   // panel opacity: panels take the class background colour at the chosen strength (default = light tint)
@@ -970,7 +981,7 @@ function applyTheme(el, theme) {
   }
   const bg = el.querySelector('#p-bg') || el;
   const dim = th.dim ?? 0.25;
-  bg.style.backgroundImage = th.image ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim})), url("${th.image.startsWith('file:') ? fileDirectURL(th.image.slice(5)) : th.image}")` : '';
+  bg.style.backgroundImage = th.image ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim})), url("${themeImgURL(th.image)}")` : '';
 }
 // ============================================================ toolbar (dock): customizable + movable
 const DOCK_ITEMS = {
@@ -3486,13 +3497,15 @@ function renderIcons() {
 function renderLook() {
   $('#look-panel')?.remove();
   const c = ieClass(); if (!P.lookOpen || !c) return;
-  const th = c.cls.theme, img = th.image ? (th.image.startsWith('file:') ? S.files[th.image.slice(5)]?.name || 'picture' : 'web picture') : '';
+  const th = c.cls.theme, img = th.image ? (th.image.startsWith('file:') ? S.files[th.image.slice(5)]?.name || 'picture' : th.image.startsWith('bg:') ? '' : 'web picture') : '';
   const p = document.createElement('div'); p.id = 'look-panel'; p.className = 'look-panel';
   p.innerHTML = `<div class="dc-head"><b>${IC('ico:look')} Look — ${esc(c.cls.name)}</b><span class="grow"></span><button class="iconbtn pop-x" data-action="look-open" title="Close" aria-label="Close">${IC('ico:close')}</button></div>
     <div class="lp-themes">${THEMES.map((t, k) => `<button class="lp-theme ${t.bg === th.bg && t.accent === th.accent ? 'on' : ''}" style="background:${t.bg};color:${t.text}" data-action="look-theme" data-k="${k}">${t.name} <span style="color:${t.accent}">●</span></button>`).join('')}</div>
+    ${window.LOOKS?.rowHTML(c.cls) || ''}
     <div class="lp-row"><label>Background <input type="color" data-look="bg" value="${th.bg}"></label><label>Accent <input type="color" data-look="accent" value="${th.accent}"></label><label>Text <input type="color" data-look="text" value="${th.text || '#ffffff'}"></label></div>
     <div class="lp-row"><label>Class title <input type="color" data-look="titleText" value="${th.titleText || th.text || '#ffffff'}"></label><label>Clock <input type="color" data-look="clockText" value="${th.clockText || th.text || '#ffffff'}"></label>${th.titleText || th.clockText ? `<button type="button" data-action="look-text-reset">Match text</button>` : ''}</div>
-    <div class="lp-row"><button data-action="look-pic">${IC('ico:image')} ${img ? 'Change picture…' : 'Use a picture…'}</button>${img ? `<button data-action="look-pic-clear">Remove picture</button>` : ''}</div>
+    <div class="lp-row"><button data-action="look-pic">${IC('ico:image')} ${img ? 'Change picture…' : 'Use a picture…'}</button>${img || th.image?.startsWith('bg:') ? `<button data-action="look-pic-clear">Remove picture</button>` : ''}</div>
+    <div class="lp-row lp-bgs"><span class="lp-lbl">Rehearsal backgrounds</span>${BACKGROUNDS.map(([k, n]) => `<button type="button" class="lp-bg ${th.image === 'bg:' + k ? 'on' : ''}" data-action="look-bg" data-bg="${k}" title="${n}" aria-label="${n}" style="background-image:url(backgrounds/${k}.svg)"></button>`).join('')}</div>
     <label class="lp-dim">Dim background <input type="range" min="0" max="0.85" step="0.05" data-look="dim" value="${th.dim ?? 0.25}"><span>${Math.round((th.dim ?? 0.25) * 100)}%</span></label>
     <label class="lp-dim" data-for="panel">Panel background <input type="range" min="0" max="1" step="0.05" data-look="panel" value="${th.panel ?? 0.1}"><span>${Math.round((th.panel ?? 0.1) * 100)}%</span></label>
     <label class="chk lp-link"><input type="checkbox" data-look-link ${th.sideLinked !== false ? 'checked' : ''}> Side panel matches the other panels</label>
@@ -3518,7 +3531,7 @@ function renderLook() {
 }
 function applyDim(el, th) {
   const bg = el.querySelector('#p-bg') || el, d = th.dim ?? 0.25;
-  if (th.image) bg.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${th.image.startsWith('file:') ? fileDirectURL(th.image.slice(5)) : th.image}")`;
+  if (th.image) bg.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${themeImgURL(th.image)}")`;
 }
 // ---------- automations drawer (reuses the Edit screen's timeline)
 function renderAutoDrawer() {
@@ -4345,12 +4358,19 @@ function tickNoise() {
 }
 
 // ============================================================ EDITOR
-const TABS = [['classes', 'Classes'], ['homework', 'Homework'], ['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events'], ['library', 'Library'], ['tutorials', 'Tutorials'], ['settings', 'Settings']];
+const TABS = [['classes', 'Classes'], ['homework', 'Homework'], ['planning', 'Planning'], ['library', 'Library'], ['tutorials', 'Tutorials'], ['settings', 'Settings']];
+// "Planning" holds what used to be four tabs. The one you used last is remembered on this device.
+const PLAN_SUBS = [['schedule', 'Bell schedule'], ['routines', 'Daily routines'], ['notes', 'Notes & print'], ['events', 'Events']];
+let PLAN_SUB = (() => { try { const v = localStorage.getItem('rehearsal-plan-tab'); return PLAN_SUBS.some(s => s[0] === v) ? v : 'schedule'; } catch { return 'schedule'; } })();
+function planningTab() {
+  const bar = `<div class="set-tabs" role="tablist">${PLAN_SUBS.map(([k, v]) => `<button type="button" role="tab" class="set-tab ${PLAN_SUB === k ? 'on' : ''}" aria-selected="${PLAN_SUB === k}" data-action="plan-sub" data-sub="${k}">${v}</button>`).join('')}</div>`;
+  return bar + ({ schedule: scheduleTab, routines: routinesTab, notes: notesTab, events: eventsTab }[PLAN_SUB])();
+}
 function renderEditor() {
   setTimeout(loadBackups, 0);                         // fills the backup list if Settings is showing
   const scroll = $('#e-main')?.scrollTop || 0;
   app().innerHTML = `<div class="editor">
-    <header class="e-top"><div class="brand">${IC('ico:music')} Rehearsal <span class="ver" title="The version you're using (Settings → Updates)">${esc(WEB_VERSION)}</span></div>
+    <header class="e-top"><button class="brand" data-action="tab" data-tab="settings" title="Rehearsal ${esc(WEB_VERSION)} — click for updates and Settings"><img class="brand-ico" src="icon-192.png" alt="" width="26" height="26"> Rehearsal <span class="ver">${esc(WEB_VERSION)}</span></button>
       <nav class="tabs">${TABS.map(([k, v]) => `<button class="tab ${TAB === k ? 'on' : ''}" data-action="tab" data-tab="${k}">${v}</button>`).join('')}</nav>
       <button class="btn primary" data-action="present">${IC('ico:play')} Present</button></header>
     <div class="e-main" id="e-main"><div class="e-wrap">${tabHTML()}</div></div></div>`;
@@ -4362,10 +4382,7 @@ function tabHTML() {
   switch (TAB) {
     case 'classes': return classesTab();
     case 'homework': return typeof window.HW_TEACHER?.renderTab === 'function' ? window.HW_TEACHER.renderTab() : '<div class="card"><div class="empty">Online Homework could not load.</div></div>';
-    case 'schedule': return scheduleTab();
-    case 'routines': return routinesTab();
-    case 'notes': return notesTab();
-    case 'events': return eventsTab();
+    case 'planning': return planningTab();
     case 'library': return libraryTab();
     case 'tutorials': return helpTutorialsCard();
     case 'settings': return settingsTab();
@@ -4379,7 +4396,7 @@ function classesTab() {
   if (!SEL_CLASS || !S.classes.find(c => c.id === SEL_CLASS)) SEL_CLASS = S.classes[0]?.id || null;
   const cls = S.classes.find(c => c.id === SEL_CLASS);
   const list = `<div class="card"><div class="card-head"><h3>Classes</h3><span class="grow"></span><button class="btn small ic-btn" data-action="class-add">${IC('ico:plus')} Add</button></div>
-    <div class="list">${S.classes.map(c => `<div class="list-item ${c.id === SEL_CLASS ? 'on' : ''}" data-action="class-sel" data-id="${c.id}"><span class="swatch" style="background:${c.theme.bg}"></span><span class="grow">${esc(c.name)}<br><span class="small muted">${esc(c.subtitle)}</span></span></div>`).join('') || '<div class="empty">No classes yet.</div>'}</div></div>`;
+    <div class="list">${S.classes.map(c => `<div class="list-item ${c.id === SEL_CLASS ? 'on' : ''}" data-action="class-sel" data-id="${c.id}"><span class="swatch" style="background:${c.theme.bg}"></span><span class="grow">${esc(c.name)}<br><span class="small muted">${esc(c.subtitle)}</span></span><span class="look-tag" title="Change this class's colours and background (Look, below)">✎ Change look</span></div>`).join('') || '<div class="empty">No classes yet.</div>'}</div></div>`;
   if (!cls) return `<div class="split">${list}<div class="card"><div class="empty">Add a class to get started.</div></div></div>`;
   const i = S.classes.indexOf(cls), base = `classes.${i}`;
   const th = cls.theme;
@@ -4391,6 +4408,7 @@ function classesTab() {
     </div>
     <div class="card"><h2>Look</h2><p class="desc">Each class gets its own colors so students instantly know which class they're in.</p>
       <div class="themes">${THEMES.map((t, k) => `<span class="theme-chip ${t.bg === th.bg && t.accent === th.accent ? 'on' : ''}" style="background:${t.bg};color:${t.text}" data-action="theme" data-k="${k}">${t.name} <span style="color:${t.accent}">●</span></span>`).join('')}</div>
+      ${window.LOOKS?.rowHTML(cls) || ''}
       <div class="row" style="margin-top:12px">
         <label class="fld"><span>Background</span><input type="color" data-bind="${base}.theme.bg" data-rerender value="${th.bg}"></label>
         <label class="fld"><span>Accent</span><input type="color" data-bind="${base}.theme.accent" data-rerender value="${th.accent}"></label>
@@ -4398,11 +4416,12 @@ function classesTab() {
         <label class="fld"><span>Class title</span><input type="color" data-bind="${base}.theme.titleText" data-rerender value="${th.titleText || th.text || '#ffffff'}"></label>
         <label class="fld"><span>Clock</span><input type="color" data-bind="${base}.theme.clockText" data-rerender value="${th.clockText || th.text || '#ffffff'}"></label>
         ${th.titleText || th.clockText ? `<button class="btn small" data-action="theme-text-reset" style="align-self:flex-end">Match text</button>` : ''}
-        <label class="fld grow"><span>Background image URL (optional)</span><input data-bind="${base}.theme.image" data-rerender value="${esc(th.image && !th.image.startsWith('file:') ? th.image : '')}" placeholder="https://…"></label>
+        <label class="fld grow"><span>Background image URL (optional)</span><input data-bind="${base}.theme.image" data-rerender value="${esc(th.image && !th.image.startsWith('file:') && !th.image.startsWith('bg:') ? th.image : '')}" placeholder="https://…"></label>
         <button class="btn small" data-action="theme-image" style="align-self:flex-end">Use a picture…</button>
         ${th.image ? `<button class="btn small" data-action="theme-image-clear" style="align-self:flex-end">Remove picture</button>` : ''}
       </div>
-      <div class="preview-strip" style="margin-top:12px;background-color:${th.bg};color:${th.text};${th.image ? `background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url('${th.image.startsWith('file:') ? fileDirectURL(th.image.slice(5)) : esc(th.image)}')` : ''}"><b style="font-size:20px;color:${th.titleText || th.text || '#fff'}">${esc(cls.name)}</b><span style="background:${th.accent};color:${th.bg};padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">Current step</span><b style="font-size:16px;color:${th.clockText || th.text || '#fff'}">10:15 AM</b></div>
+      <div class="lp-bgs" style="margin-top:8px"><span class="lp-lbl">Rehearsal backgrounds</span>${BACKGROUNDS.map(([k, n]) => `<button type="button" class="lp-bg ${th.image === 'bg:' + k ? 'on' : ''}" data-action="theme-bg" data-bg="${k}" title="${n}" aria-label="${n}" style="background-image:url(backgrounds/${k}.svg)"></button>`).join('')}</div>
+      <div class="preview-strip" style="margin-top:12px;background-color:${th.bg};color:${th.text};${th.image ? `background-image:linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url('${esc(themeImgURL(th.image))}')` : ''}"><b style="font-size:20px;color:${th.titleText || th.text || '#fff'}">${esc(cls.name)}</b><span style="background:${th.accent};color:${th.bg};padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px">Current step</span><b style="font-size:16px;color:${th.clockText || th.text || '#fff'}">10:15 AM</b></div>
     </div>
     <div class="card"><div class="card-head"><h2>Agenda</h2><span class="grow"></span><button class="btn small ic-btn" data-action="agenda-add">${IC('ico:plus')} Step</button></div>
       <p class="desc">Steps show on the side of the screen. Add minutes and the agenda moves forward on its own during class. Leave minutes blank to move it yourself (or with an automation).</p>
@@ -4849,7 +4868,7 @@ function parseICS(text) {
 // ---------- library
 function libraryTab() {
   const files = Object.entries(S.files).sort((a, b) => (b[1].added || 0) - (a[1].added || 0));
-  const usedBy = id => S.classes.filter(c => c.resources.some(r => r.fileId === id) || c.theme.image === 'file:' + id || c.automations.some(a => a.fileId === id || a.sound === 'file:' + id)).map(c => c.name);
+  const usedBy = id => S.classes.filter(c => c.resources.some(r => r.fileId === id) || c.theme.image === 'file:' + id || c.automations.some(a => a.fileId === id || a.sound === 'file:' + id)).map(c => c.name).concat((S.savedLooks || []).filter(l => l.theme.image === 'file:' + id).map(l => 'Look: ' + l.name));
   return `<div class="card"><div class="card-head"><h2>Library</h2><span class="grow"></span><button class="btn small primary" data-action="lib-add">+ Add files…</button></div>
     <p class="desc">Music for transitions, sound effects, PDFs and pictures, stored on this ${DEVICE}. Music files can be used by “Start music” automations and as timer sounds.</p>
     ${files.length ? `<table class="tbl"><tr><th></th><th>Name</th><th>Type</th><th>Size</th><th>Used by</th><th></th></tr>${files.map(([id, f]) => `<tr><td style="width:30px">${f.mime.startsWith('audio/') ? IC('ico:audio') : f.mime === 'application/pdf' ? IC('ico:file') : f.mime.startsWith('image/') ? IC('ico:image') : f.mime.startsWith('video/') ? IC('ico:video') : IC('ico:attach')}</td>
@@ -5260,35 +5279,44 @@ function helpTutorialsCard() {
 // ---------- settings
 function settingsTab() {
   const sim = S.settings.sim;
-  return `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
-    <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}
-  ${updatesCard()}${typeof window.HW_TEACHER?.renderSettingsCard === 'function' ? window.HW_TEACHER.renderSettingsCard() : ''}<div class="card"><h2>Present screen</h2>
+  // Each card is built here as before; web/settings.js (SETTINGS_UI) arranges them into the Features and Setup & backup tabs.
+  const cards = {
+  coffee: `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
+    <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}`,
+  updates: updatesCard(),
+  homework: typeof window.HW_TEACHER?.renderSettingsCard === 'function' ? window.HW_TEACHER.renderSettingsCard() : '',
+  present: `<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
     <label class="fld" style="margin-top:10px"><span>After-school message</span><input data-bind="settings.afterSchool" value="${esc(S.settings.afterSchool)}"></label>
     <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" data-bind="settings.use24h" ${S.settings.use24h ? 'checked' : ''}> 24-hour clock</label>
       <label class="chk"><input type="checkbox" data-bind="settings.showSeconds" ${S.settings.showSeconds ? 'checked' : ''}> Show seconds</label>
-      <span class="small muted">Toolbar size, labels and shrinking: ⋯ → Customize toolbar on the Present screen.</span></div></div>
-  <div class="card"><h2>Test mode</h2><p class="desc">Pretend it's a different time so you can watch your automations run. The Present screen shows a red TEST TIME badge while this is on.</p>
+      <span class="small muted">Toolbar size, labels and shrinking: ⋯ → Customize toolbar on the Present screen.</span></div></div>`,
+  test: `<div class="card"><h2>Test mode</h2><p class="desc">Pretend it's a different time so you can watch your automations run. The Present screen shows a red TEST TIME badge while this is on.</p>
     <div class="row"><label class="chk"><input type="checkbox" data-action-change="sim-on" ${sim.on ? 'checked' : ''}> Pretend the time is</label><input type="time" value="${sim.time}" data-action-change="sim-time">
-    <span class="small muted">Tip: set it to a minute before a class starts.</span></div></div>
-  ${IS_NATIVE ? `<div class="card"><h2>Google Drive</h2><p class="desc">“Browse Google Drive…” (in a class's Resources) opens Drive in its own window. Sign in there once with your school account, exactly like in Safari. Open a file, then click <b>Use this file</b>.</p>
+    <span class="small muted">Tip: set it to a minute before a class starts.</span></div></div>`,
+  drive: `${IS_NATIVE ? `<div class="card"><h2>Google Drive</h2><p class="desc">“Browse Google Drive…” (in a class's Resources) opens Drive in its own window. Sign in there once with your school account, exactly like in Safari. Open a file, then click <b>Use this file</b>.</p>
     <button class="btn" data-action="drive-open">Open Google Drive window</button>
-    <p class="small muted">If a Google file shows “You need access” or a sign-in page on the Present screen, use the <b>Drive window</b> button on that tab instead. It always works because it's the same as Drive itself.</p></div>` : ''}
-  ${bookmarksCard()}
-  <div class="card"><h2>Sight-reading grading</h2><p class="desc">While you grade, the take is kept in memory so you can listen back to it. It's thrown away when you make a new example or grade again.</p>
+    <p class="small muted">If a Google file shows “You need access” or a sign-in page on the Present screen, use the <b>Drive window</b> button on that tab instead. It always works because it's the same as Drive itself.</p></div>` : ''}`,
+  bookmarks: bookmarksCard(),
+  grading: `<div class="card"><h2>Sight-reading grading</h2><p class="desc">While you grade, the take is kept in memory so you can listen back to it. It's thrown away when you make a new example or grade again.</p>
     <div style="margin:8px 0 10px">${typeof grStrictnessSlider === 'function' ? grStrictnessSlider(80) : ''}</div>
     ${HAS_SERVER ? `<label class="chk"><input type="checkbox" data-action-change="grlog-toggle" ${S.settings.saveGradeRecordings ? 'checked' : ''}> Also save the last 20 takes on this Mac for troubleshooting the grader</label>
-    <p class="small muted">Off unless you turn it on. Turning it off deletes any saved takes.</p>` : ''}</div>
-  ${HAS_SERVER ? `<div class="card"><h2>Automatic backups</h2><p class="desc">Each day you use Rehearsal it keeps a dated copy of your classes, tabs, agendas and settings (the newest 30). If something goes missing, restore an earlier day here. Restoring first saves what you have now, so you can always undo it.</p>
+    <p class="small muted">Off unless you turn it on. Turning it off deletes any saved takes.</p>` : ''}</div>`,
+  backups: `${HAS_SERVER ? `<div class="card"><h2>Automatic backups</h2><p class="desc">Each day you use Rehearsal it keeps a dated copy of your classes, tabs, agendas and settings (the newest 30). If something goes missing, restore an earlier day here. Restoring first saves what you have now, so you can always undo it.</p>
     <div class="row"><button class="btn" data-action="backup-now">Back up now</button><span class="grow"></span></div>
-    <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}
-  <div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
+    <div id="backup-list" class="backup-list"><div class="small muted">Loading…</div></div></div>` : ''}`,
+  sound: `<div class="card"><h2>Sound and playhead sync</h2><p class="desc">Music volume sets how loud sight reading and scores play. If the moving playhead (sight reading, scores) is ahead of or behind the sound on this ${DEVICE}, calibrate it: tap along with 8 clicks and Rehearsal measures the delay. Bluetooth speakers usually need more. Kept separately on each device.</p>
     <div class="row"><span style="width:9em">Playhead delay</span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay" style="flex:1;max-width:320px"><b class="av-val">${avDelayMs()} ms</b><button class="btn" data-action="av-cal">Calibrate…</button></div>
     <div class="row" style="margin-top:8px"><span style="width:9em">Music volume</span><input type="range" min="0.5" max="3" step="0.1" value="${musicVol()}" data-action-input="music-vol" style="flex:1;max-width:320px"><b>${Math.round(musicVol() * 100)}%</b><button class="btn" data-action="vol-test">Test</button><button class="btn" data-action="audio-reset" title="Restart the sound engine without reopening Rehearsal (useful if audio glitches after switching speakers or sleeping)">Reset sound</button></div>
-    <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div>
-    <div class="row" style="margin-top:8px"><span style="width:9em">Rhythm counts</span><select data-action-change="rhythm-sys">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => `<option value="${v}" ${(S.settings.rhythmSystem || 'numbers') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="small muted">Used in Sight Reading, Score Practice, and Warm-up notation.</span></div></div>
-  <div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or the web version in any browser (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
-    <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`;
+    <div class="row" style="margin-top:8px"><span style="width:9em">Metronome volume</span><input type="range" min="0" max="2" step="0.05" value="${metVol()}" data-metvol style="flex:1;max-width:320px"><b class="mv-v">${Math.round(metVol() * 100)}%</b></div></div>`,
+  rhythm: `<div class="row" style="margin-top:8px"><span style="width:9em">Rhythm counts</span><select data-action-change="rhythm-sys">${(typeof RHYTHM_SYSTEMS !== 'undefined' ? RHYTHM_SYSTEMS : [['numbers', 'Numbers (1 e & a)']]).map(([v, l]) => `<option value="${v}" ${(S.settings.rhythmSystem || 'numbers') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="small muted">Used in Sight Reading, Score Practice, and Warm-up notation.</span></div>`,
+  backup: `<div class="card"><h2>Backup</h2><p class="desc">Your classes and settings are saved on this ${DEVICE} automatically. Export a backup file to move them to another Mac or the web version in any browser (Import backup there). Library files (music, PDFs, pictures) aren't in the backup file, so add them again on the other device.</p>
+    <div class="row"><button class="btn" data-action="export">Export backup…</button><button class="btn" data-action="import">Import backup…</button><span class="grow"></span><button class="btn danger" data-action="reset">Start over with the template</button></div></div>`,
+  };
+  // without settings.js, show every card in one column, in the original order
+  if (window.SETTINGS_UI) return window.SETTINGS_UI.render(cards);
+  const { rhythm, sound, ...rest } = cards;
+  return Object.values(rest).join('\n') + sound.replace(/<\/div>$/, rhythm + '</div>');
 }
 // your Buy Me a Coffee page (shown in Settings when set)
 const COFFEE_URL = 'https://buymeacoffee.com/loganshippee';
@@ -5403,6 +5431,7 @@ async function loadBackups() {
 // ============================================================ actions
 const A = {
   tab: el => { TAB = el.dataset.tab; renderEditor(); },
+  'plan-sub': el => { PLAN_SUB = el.dataset.sub; try { localStorage.setItem('rehearsal-plan-tab', PLAN_SUB); } catch { } renderEditor(); },
   present: () => go('present'),
   edit: () => { exitFullscreen(); go('edit'); },
   fullscreen: () => { if (!native('fullscreen')) { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); } },
@@ -5843,6 +5872,7 @@ const A = {
   'look-theme': el => { const c = ieClass(); if (!c) return; const th = c.cls.theme; Object.assign(th, { ...THEMES[el.dataset.k], image: th.image || '', dim: th.dim }); delete th.titleText; delete th.clockText; save(); renderLook(); },
   'look-text-reset': () => { const c = ieClass(); if (!c) return; delete c.cls.theme.titleText; delete c.cls.theme.clockText; save(); renderLook(); },
   'look-pic': async () => { const c = ieClass(); if (!c) return; const [f] = await pickFile('image/*'); if (!f) return; const id = await storeFile(f); c.cls.theme.image = 'file:' + id; save(); renderLook(); },
+  'look-bg': el => { const c = ieClass(); if (!c) return; c.cls.theme.image = 'bg:' + el.dataset.bg; save(); renderLook(); },
   'look-pic-clear': () => { const c = ieClass(); if (!c) return; c.cls.theme.image = ''; save(); renderLook(); },
   'auto-open': () => { P.autoDrawer = !P.autoDrawer; P.lookOpen = false; renderLook(); renderAutoDrawer(); },
   'stage-zoom-reset': () => { Object.assign(stageZoomState(), { zoom: 1, zx: 0, zy: 0 }); applyStageZoom(); },
@@ -5921,7 +5951,7 @@ const A = {
   },
   // classes
   'class-sel': el => { SEL_CLASS = el.dataset.id; renderEditor(); renderClip(); $('#e-main').scrollTop = 0; },
-  'class-add': () => { const c = newClass('New class', S.classes.length); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
+  'class-add': () => { const c = newClass('New class', S.classes.length, S.classes.length); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
   'class-dup': () => { const c = S.classes.find(x => x.id === SEL_CLASS); const d = JSON.parse(JSON.stringify(c)); d.id = uid(); d.name += ' (copy)'; d.notes = {}; d.automations.forEach(a => a.id = uid()); S.classes.push(d); SEL_CLASS = d.id; save(); renderEditor(); },
   'class-del': () => {
     const c = S.classes.find(x => x.id === SEL_CLASS);
@@ -5929,9 +5959,10 @@ const A = {
     S.classes = S.classes.filter(x => x !== c); S.templates.forEach(t => t.periods = t.periods.filter(p => p.classId !== c.id)); save(); renderEditor();
   },
   'class-preview': () => { P.pinned = SEL_CLASS; go('present'); },
-  theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '' }; save(); renderEditor(); },
+  theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '', ...(c.theme.panel != null ? { panel: c.theme.panel } : {}) }; save(); renderEditor(); },
   'theme-text-reset': () => { const c = selClass(); if (!c) return; delete c.theme.titleText; delete c.theme.clockText; save(); renderEditor(); },
   'theme-image': async () => { const [f] = await pickFile('image/*'); if (!f) return; const id = await storeFile(f); selClass().theme.image = 'file:' + id; save(); renderEditor(); },
+  'theme-bg': el => { selClass().theme.image = 'bg:' + el.dataset.bg; save(); renderEditor(); },
   'theme-image-clear': () => { selClass().theme.image = ''; save(); renderEditor(); },
   'agenda-add': () => { selClass().agenda.push({ text: '', min: 0 }); save(); renderEditor(); $$('.agenda-row input')[$$('.agenda-row').length * 2 - 2]?.focus(); },
   'agenda-del': el => { const c = VIEW === 'edit' ? selClass() : ieClass()?.cls; if (!c) return; c.agenda.splice(el.dataset.k, 1); TL_SEL = null; save(); tlRerender(); },

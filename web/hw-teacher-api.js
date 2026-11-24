@@ -1427,9 +1427,14 @@
     return { ok: false, status, code, error, ...(extra || {}) };
   }
 
+  // Same plan shape the live server sends, with the beta flag included.
+  function demoPublicPlan(t, now) {
+    return { ...computeDemoPlan(t, now), beta: !!t.beta };
+  }
+
   function formatDemoTeacherPublic(db) {
     const t = db.teacher;
-    const plan = computeDemoPlan(t, Date.now());
+    const plan = demoPublicPlan(t, Date.now());
     return {
       id: t.id,
       email: t.email,
@@ -1489,8 +1494,36 @@
     return best || subs[subs.length - 1];
   }
 
+  // Every demo class has one test student (no sign-in code). Made on demand so older saved demo data gets one too.
+  function ensureDemoTestStudent(db, classId) {
+    let test = db.students.find(s => s.classId === classId && s.isTest);
+    if (!test) {
+      const now = Date.now();
+      test = {
+        id: 'stu_test_' + classId,
+        classId,
+        displayName: 'Test Student',
+        email: null,
+        part: '',
+        hasGoogle: false,
+        hasCode: false,
+        codePlain: null,
+        codeLocked: false,
+        codeCooldownUntil: null,
+        archivedAt: null,
+        lastActiveAt: null,
+        createdAt: now,
+        updatedAt: now,
+        isTest: true,
+      };
+      db.students.push(test);
+      saveDemoDb();
+    }
+    return test;
+  }
+
   function demoFormatClass(db, c) {
-    const studentCount = db.students.filter(s => s.classId === c.id && !s.archivedAt).length;
+    const studentCount = db.students.filter(s => s.classId === c.id && !s.archivedAt && !s.isTest).length;
     const assignmentCount = db.assignments.filter(a => a.classId === c.id && !a.archivedAt).length;
     const submissionCount = db.submissions.filter(sub => sub.classId === c.id).length;
     return {
@@ -1523,6 +1556,7 @@
       codeLocked: !!s.codeLocked,
       codeCooldownUntil: s.codeCooldownUntil && s.codeCooldownUntil > Date.now() ? s.codeCooldownUntil : null,
       archivedAt: s.archivedAt ?? null,
+      isTest: !!s.isTest,
       submissionCount: subs.length,
       lastActiveAt,
     };
@@ -1565,7 +1599,7 @@
     const now = Date.now();
 
     const students = db.students
-      .filter(s => s.classId === classId && !s.archivedAt)
+      .filter(s => s.classId === classId && !s.archivedAt && !s.isTest)
       .sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
     const assignments = db.assignments
@@ -1662,7 +1696,7 @@
 
   function demoActiveStudentCount(db) {
     const activeClasses = new Set(db.classes.filter(c => !c.archivedAt).map(c => c.id));
-    return db.students.filter(s => activeClasses.has(s.classId) && !s.archivedAt).length;
+    return db.students.filter(s => activeClasses.has(s.classId) && !s.archivedAt && !s.isTest).length;
   }
 
   function setDemoPlan(status) {
@@ -2101,6 +2135,29 @@
       );
     },
 
+    // Beta access code: gives the teacher a free Purchase Order plan for a set time.
+    async redeemBeta(code) {
+      if (!isDemoMode()) {
+        return liveFetch('/api/teacher/redeem-beta', { method: 'POST', json: { code } });
+      }
+      if (isOffline()) return offlineErr();
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const entered = String(code || '').trim().toUpperCase();
+      if (entered !== 'BETA-DEMO-01') {
+        return demoErr(400, 'BETA_INVALID', 'That beta code isn’t valid.');
+      }
+      const now = Date.now();
+      db.teacher.planStatus = 'po_active';
+      db.teacher.beta = true;
+      db.teacher.poReference = 'Beta: Demo';
+      db.teacher.planEndsAt = now + 90 * DAY_MS;
+      db.teacher.graceEndsAt = null;
+      saveDemoDb();
+      return { ok: true, plan: demoPublicPlan(db.teacher, now) };
+    },
+
     // Classes
     async listClasses(includeArchived = false) {
       if (!isDemoMode()) {
@@ -2232,6 +2289,14 @@
       return { ok: true, deleted: true, classId, deletedR2Objects: 0 };
     },
 
+    // Test student: a sign-in for the teacher to try the student side. Demo just returns a fixed token.
+    async openTestStudent(classId) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/classes/${encodeURIComponent(classId)}/test-student/open`, { method: 'POST', json: {} });
+      }
+      return { ok: true, token: 'demo-test-student' };
+    },
+
     // Students
     async listStudents(classId, includeArchived = false) {
       if (!isDemoMode()) {
@@ -2267,9 +2332,11 @@
       }
       const cls = db.classes.find(c => c.id === classId);
       if (!cls) return demoErr(404, 'CLASS_NOT_FOUND', 'Class not found.');
+      ensureDemoTestStudent(db, classId);
+      // The test student always comes first.
       const students = db.students
         .filter(s => s.classId === classId && (includeArchived || !s.archivedAt))
-        .sort((a, b) => (!!a.archivedAt - !!b.archivedAt) || a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()))
+        .sort((a, b) => (!!b.isTest - !!a.isTest) || (!!a.archivedAt - !!b.archivedAt) || a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()))
         .map(s => demoFormatStudent(db, s));
       const formattedCls = demoFormatClass(db, cls);
       const cache = loadCache();
@@ -2428,6 +2495,7 @@
       if (!cls) return demoErr(404, 'CLASS_NOT_FOUND', 'Class not found.');
       const stu = db.students.find(s => s.id === studentId && s.classId === classId);
       if (!stu) return demoErr(404, 'STUDENT_NOT_FOUND', 'Student not found.');
+      if (stu.isTest) return demoErr(400, 'TEST_STUDENT', 'The test student does not have a sign-in code.');
 
       const used = new Set(db.students.filter(s => s.classId === classId && s.codePlain).map(s => s.codePlain));
       const newCode = generateCode6(used);
@@ -2465,7 +2533,7 @@
 
       const filterIds = Array.isArray(opts?.studentIds) && opts.studentIds.length ? new Set(opts.studentIds) : null;
       const targets = db.students
-        .filter(s => s.classId === classId && !s.archivedAt && (!filterIds || filterIds.has(s.id)))
+        .filter(s => s.classId === classId && !s.archivedAt && !s.isTest && (!filterIds || filterIds.has(s.id)))
         .sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
       const used = new Set();
       const now = Date.now();
@@ -2525,7 +2593,7 @@
       if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
       const cls = db.classes.find(c => c.id === classId);
       if (!cls) return demoErr(404, 'CLASS_NOT_FOUND', 'Class not found.');
-      const count = db.students.filter(s => s.classId === classId && !s.archivedAt).length;
+      const count = db.students.filter(s => s.classId === classId && !s.archivedAt && !s.isTest).length;
       return { ok: true, classId, revokedCount: count };
     },
 
@@ -2858,6 +2926,19 @@
         contentType: mime,
         updatedAt: now,
       };
+    },
+
+    // The assignment's score file, so the submission review can show the graded notes on the real music.
+    async downloadAssignmentScore(assignmentId) {
+      if (!isDemoMode()) {
+        if (isOffline()) return offlineErr('Showing the score needs an internet connection.');
+        return liveFetch(`/api/assignments/${encodeURIComponent(assignmentId)}/score`, { responseType: 'blob' });
+      }
+      const db = loadDemoDb();
+      const a = db.assignments.find(x => x.id === assignmentId);
+      const xml = a?.config?.demoXml || (typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '');
+      if (!xml) return demoErr(404, 'SCORE_NOT_FOUND', 'No score file for this assignment.');
+      return { ok: true, blob: new Blob([xml], { type: 'application/xml' }), filename: a?.scoreFilename || 'Score.musicxml' };
     },
 
     async createAssignmentPreview(assignmentId) {

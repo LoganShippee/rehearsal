@@ -410,7 +410,21 @@ function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationS
       rmsPeak: +rmsPeak.toFixed(4),
       inputMode: gradeResult.take?.taps ? 'tap' : (gradeResult.gradePitch ? 'mic_pitch_rhythm' : 'mic_rhythm'),
       noteCount: total,
-      notes: notes.map(n => ({ bar: n.bar, idx: n.idx, status: n.status, pitch: n.pitch || null, cents: n.cents ?? null, errMs: n.errMs ?? null })),
+      notes: notes.map((n, i) => ({
+        bar: n.bar, idx: n.idx, status: n.status, pitch: n.pitch || null, cents: n.cents ?? null, errMs: n.errMs ?? null,
+        written: n.written ?? null, sungAs: n.sungAs || null, octave: n.octave || null, joined: n.joined || null,
+        t: Number.isFinite(gradeResult.exp?.[i]?.t) ? +gradeResult.exp[i].t.toFixed(4) : null,
+      })),
+      // so the teacher's review can draw the same marks on the music as the student's grade card
+      q: res.q || null,
+      lineIdx: gradeResult.lineIdx ?? null,
+      rangeLabel: res.rangeLabel || null,
+      partName: res.partName || null,
+      heard: res.diag?.heard ?? null,
+      extraAt: (() => {
+        const used = new Set(notes.map(n => n.match).filter(Boolean));
+        return (res.det || []).filter(d => !used.has(d) && res.q).map(d => +((d.t - res.T0 - (res.offsetSec || 0)) / res.q).toFixed(3)).filter(Number.isFinite);
+      })(),
     };
   } else if (!audioBlob || audioBlob.size === 0) {
     flags.push('missing_audio');
@@ -513,7 +527,7 @@ function hwInstallEngineHooks(onTakeSaved) {
         };
         if (input !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
         else hwAbortParallelRecorder();
-      }
+      } else if (!wasRunning && typeof GR !== 'undefined' && !GR.on && !GR.starting) hwMicCloseSoon(0);   // cancelled while the mic was starting: don't leave it open
       return res;
     };
   }
@@ -539,7 +553,7 @@ function hwInstallEngineHooks(onTakeSaved) {
         };
         if (mode !== 'tap' && GR.mic?.stream) hwStartParallelRecorder(GR.mic.stream);
         else hwAbortParallelRecorder();
-      }
+      } else if (!wasRunning && typeof GR !== 'undefined' && !GR.on && !GR.starting) hwMicCloseSoon(0);   // cancelled while the mic was starting: don't leave it open
       return res;
     };
   }
@@ -576,7 +590,9 @@ function hwInstallEngineHooks(onTakeSaved) {
           const take = hwBuildSubmissionSummary(
             ctx.type, ctx.label, grObj, grObj.take?.taps ? null : blob, durationSec, ctx.expectedSec, ctx.meta, ctx.autoSubmit
           );
+          if (hwTakeIsEmpty(take, grObj)) { toast('Nothing was heard, so that take wasn’t saved.'); return; }
           await hwIdbPut(take);
+          await hwPruneTakes(take);
           HW_STATE.latestTakeId = take.id;
           await onTakeSaved(take);
           if (HW_STATE.previewMode) {
@@ -598,6 +614,28 @@ function hwInstallEngineHooks(onTakeSaved) {
       return out;
     };
   }
+
+  // When a take ends, close the mic soon instead of 2 minutes later (the app keeps it open between takes
+  // for Macs; on a student's Chromebook the browser's mic light staying on looks like it's still recording).
+  // A cancelled take also stops the background recorder, so it can't turn into an empty take later.
+  if (typeof grStop === 'function') {
+    const origGrStop = window.grStop;
+    window.grStop = function (show = true) {
+      const wasOn = typeof GR !== 'undefined' && GR.on;
+      const out = origGrStop.call(this, show);
+      if (wasOn) {
+        if (!show) { HW_GRADE_CAP.activeContext = null; hwAbortParallelRecorder(); }
+        hwMicCloseSoon(show ? HW_MIC_IDLE_MS : 0);
+      }
+      return out;
+    };
+  }
+}
+const HW_MIC_IDLE_MS = 20000;
+function hwMicCloseSoon(ms) {
+  if (typeof GR === 'undefined' || !GR.mic || typeof grMicClose !== 'function') return;
+  clearTimeout(GR.mic.idle);
+  GR.mic.idle = setTimeout(grMicClose, ms);
 }
 
 // ---------- App State
@@ -1567,6 +1605,7 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
       fileId: fid || null,
       name: a.title,
       gradeMode: HW_STATE.spGradeMode,
+      layout: 'v',   // always "Down": a teacher's "Sideways" setting gave students one long line they couldn't scroll down or switch back
     };
   } else {
     HW_STATE.aud.countIn = cfg.countIn !== false;
@@ -2185,7 +2224,7 @@ function hwMountScoreRunner() {
         </div>
       </div>` : ''}
 
-      <div class="hw-stage">
+      <div class="hw-stage hw-stage-score">
         <div class="score-host" id="hw-sp-host"></div>
       </div>
     </div>`;
@@ -2354,7 +2393,9 @@ function hwStopAudioOnly() {
     const take = hwBuildSubmissionSummary('audio', 'Audio Check-In', null, blob, elapsed, 0, {
       prompt: a.prompt, countIn: a.countIn, bpm: a.bpm, syncMs: avDelayMs(),
     }, false);
+    if (hwTakeIsEmpty(take)) { await hwRefreshTakes(); hwMountAudioRunner(); toast('That recording was too short to save.'); return; }
     await hwIdbPut(take);
+    await hwPruneTakes(take);
     HW_STATE.latestTakeId = take.id;
     await hwRefreshTakes();
     hwMountAudioRunner();
@@ -2372,6 +2413,42 @@ function hwStopAudioOnly() {
 }
 
 // ---------- Saved Takes Drawer
+// Practice takes pile up on Chromebooks (each one holds its recording), so only the newest few are kept.
+// A take waiting to upload, a submitted take and the best-scoring practice take are never removed here.
+const HW_KEEP_TAKES = 5;
+function hwIsPracticeTake(t) { return t.status === 'draft' && (!t.uploadState || t.uploadState === 'draft'); }
+function hwBestTakeId(list) {
+  let best = null;
+  for (const t of list) if (hwIsPracticeTake(t) && t.overallPct != null && (!best || t.overallPct > best.overallPct)) best = t;
+  return best?.id || null;
+}
+// A take that stopped right away or heard nothing has nothing worth keeping (it showed up as a 0:00 take).
+function hwTakeIsEmpty(take, gradeResult) {
+  if (take.autoSubmitted) return false;                        // a one-try take always counts
+  const taps = gradeResult?.take?.taps;
+  if (taps) return Array.isArray(taps) && taps.length === 0;
+  if (!take.audioBytes || take.durationSec < 1) return true;
+  const rj = take.resultsJson;
+  return !!rj && rj.heard === 0 && rj.rmsPeak < 0.004;
+}
+async function hwPruneTakes(take) {
+  try {
+    const all = await hwIdbAll();
+    const mine = all.filter(t => t.assignmentId === take.assignmentId && t.studentId === take.studentId);
+    const best = hwBestTakeId(mine);
+    const practice = mine.filter(hwIsPracticeTake).sort((a, b) => b.createdAt - a.createdAt);
+    // keep the newest five, but if the best one is older, it takes the place of the fifth
+    const keep = new Set(practice.slice(0, HW_KEEP_TAKES).map(t => t.id));
+    if (best && !keep.has(best)) { keep.delete(practice[HW_KEEP_TAKES - 1].id); keep.add(best); }
+    keep.add(take.id);
+    for (const t of practice) {
+      if (keep.has(t.id)) continue;
+      const url = HW_STATE.takeUrls.get(t.id);
+      if (url) { try { URL.revokeObjectURL(url); } catch { } HW_STATE.takeUrls.delete(t.id); }
+      await hwIdbDelete(t.id);
+    }
+  } catch (err) { console.warn('Could not tidy old takes:', err); }
+}
 async function hwRefreshTakes() {
   try { HW_STATE.takes = await hwIdbAll(); } catch { HW_STATE.takes = []; }
   hwRenderTakes();
@@ -2396,13 +2473,15 @@ function hwRenderTakes() {
   const localServerIds = new Set(list.map(t => t.serverSubmissionId).filter(Boolean));
   const remoteOnlySubs = serverSubs.filter(s => !localServerIds.has(s.id));
 
+  const bestId = list.filter(hwIsPracticeTake).length > 1 ? hwBestTakeId(list) : null;
   if (countEl) {
-    const totalShown = list.length + remoteOnlySubs.length;
+    const nPractice = list.filter(hwIsPracticeTake).length, nOther = list.filter(t => t.status === 'submitted').length;
+    const kept = `${nPractice} of ${HW_KEEP_TAKES} practice takes saved on this ${DEVICE}`;
     countEl.textContent = isPreview
       ? `${list.length} preview take${list.length === 1 ? '' : 's'} (sandbox only)`
-      : (remoteOnlySubs.length
-        ? `${list.length} saved on this ${DEVICE} · ${serverSubs.length} submitted`
-        : `${totalShown} saved on this ${DEVICE}`);
+      : (remoteOnlySubs.length || nOther
+        ? `${kept} · ${Math.max(serverSubs.length, nOther)} submitted`
+        : kept);
   }
   if (!list.length && !remoteOnlySubs.length) {
     host.innerHTML = `<div class="hw-empty">${isPreview
@@ -2451,7 +2530,7 @@ function hwRenderTakes() {
       integrity_flags: t.integrityFlags, results_json: t.resultsJson, meta: t.meta,
     };
 
-    let pillHtml = `<span class="hw-pill draft">Practice Take</span>`;
+    let pillHtml = `<span class="hw-pill draft">Practice Take</span>${t.id === bestId ? ' <span class="hw-pill submitted" title="Your best score. It stays saved even when older takes are cleared.">★ Best</span>' : ''}`;
     if (isUploading) pillHtml = `<span class="hw-pill draft">Uploading…</span>`;
     else if (isQueued) pillHtml = `<span class="hw-pill queued">Saved on this device — Retry Upload</span>`;
     else if (isSubmitted) pillHtml = `<span class="hw-pill submitted">✓ ${t.autoSubmitted ? 'Auto-Submitted' : 'Submitted'}</span>`;
@@ -2648,6 +2727,14 @@ async function hwBoot() {
   if (previewTok) {
     await hwOpenPreview(previewTok);
     return;
+  }
+
+  // A teacher opening "Test Student" arrives with #test=<token>. The #part is never sent to any
+  // server; take it, then clear it from the address bar so it isn't left in history or shared.
+  const testTok = (location.hash.match(/^#test=([^&]+)/) || [])[1];
+  if (testTok) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch { }
+    HW_API.setToken(decodeURIComponent(testTok));
   }
 
   // Restore the kept sign-in (localStorage on this Chromebook, or this tab's copy)

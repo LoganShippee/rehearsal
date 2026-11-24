@@ -1100,6 +1100,32 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 html.web .e-top { padding-left: 16px; }
 .brand { white-space: nowrap; }
 .brand .ver { font-weight: 500; font-size: 12px; color: var(--e-muted); margin-left: 4px; }
+/* the real app icon at the left of Setup; the whole thing opens Settings */
+/* built-in backgrounds picker (Look panel and Setup) and the "Change look" hint on Setup class cards */
+.lp-bgs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lp-bgs .lp-lbl { flex: 0 0 100%; font-size: 12px; color: var(--e-muted, #6b7385); }
+.lp-bg { width: 44px; height: 28px; border-radius: 6px; border: 2px solid transparent; background-size: cover; background-position: center; cursor: pointer; padding: 0; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.lp-bg:hover { transform: translateY(-1px); }
+.lp-bg.on { border-color: #3b6cf6; }
+/* Sub-tabs inside a Setup tab (Planning) */
+.set-tabs { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--e-line); }
+.set-tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 16px; font: inherit; font-weight: 600; font-size: 15px; color: var(--e-muted, #6b7385); cursor: pointer; margin-bottom: -1px; }
+.set-tab:hover { color: inherit; }
+.set-tab.on { color: inherit; border-bottom-color: #3b6cf6; }
+/* My looks (web/looks.js) */
+.lp-looks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.lp-looks .lp-lbl { flex: 0 0 100%; font-size: 12px; color: var(--e-muted, #6b7385); }
+.lk-chip { display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.lk-apply { border: 0; padding: 5px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.lk-all, .lk-x { display: none; border: 0; padding: 0 7px; font: inherit; font-size: 11px; cursor: pointer; background: rgba(0,0,0,.55); color: #fff; }
+.lk-chip:hover .lk-all, .lk-chip:hover .lk-x, .lk-chip:focus-within .lk-all, .lk-chip:focus-within .lk-x { display: inline-block; }
+.lk-x:hover { background: #b42318; }
+.lk-save { border: 1px dashed var(--e-muted, #8a93a6); background: transparent; color: inherit; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.lk-save:hover { border-style: solid; }
+.look-tag { font-size: 11px; color: var(--e-muted, #6b7385); white-space: nowrap; margin-left: 6px; }
+button.brand { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 2px 6px; margin: 0 -6px; border-radius: 8px; color: inherit; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+button.brand:hover { background: var(--e-line); }
+.brand-ico { width: 26px; height: 26px; border-radius: 6px; display: block; }
 
 /* ---------- calendar & progress windows (same surface as the tuner / metronome) */
 .wg-host { position: absolute; inset: 0; overflow: auto; background: var(--surface, var(--card)); color: var(--text); }
@@ -3032,9 +3058,13 @@ button.comp-timer:hover { filter: brightness(1.12); }
   .e-top { gap: 10px; padding: 8px 12px 8px 76px; }
   .tab { padding: 6px 9px; font-size: 13px; }
 }
-@media (max-width: 820px) {
-  .p-body { grid-template-columns: 1fr; padding: .8em; }
-  .p-side { max-height: 34vh; }
+/* A window snapped to half or a third of the screen (about 700-900px): app.js sets the side panel's width
+   directly on .p-body, which beats a plain rule, so this one uses !important. The side panel stacks above the
+   stage instead of squeezing it, and the hidden splitter no longer leaves the stage in its narrow column. */
+@media (max-width: 900px) {
+  .p-body:not(.full) { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto minmax(0, 1fr); gap: .6em; padding: .8em; }
+  .p-body:not(.full) .p-side { max-height: min(26vh, 220px); }
+  .p-body.side-collapsed .p-side { display: none; }
   .p-split { display: none; }
   .p-head { padding: .8em 1em .6em; gap: .6em; }
 }

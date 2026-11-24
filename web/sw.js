@@ -3,11 +3,12 @@
 // when offline. Only Rehearsal's own files are cached; classes and library files live elsewhere
 // (browser storage / IndexedDB) and are never touched here.
 const CACHE = 'rehearsal-app';
-const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'score.js', 'tools.js',
+const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'looks.js', 'settings.js', 'score.js', 'tools.js',
   'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js',
   'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-demo.html', 'hw-oauth.html',
   'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',
+  'backgrounds/risers.svg', 'backgrounds/keys.svg', 'backgrounds/staff.svg', 'backgrounds/spotlight.svg', 'backgrounds/waves.svg', 'backgrounds/sunset.svg', 'backgrounds/notes.svg',
   'vendor/vexflow.js', 'vendor/osmd.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/piano.js',
   'vendor/hands/do.png', 'vendor/hands/re.png', 'vendor/hands/mi.png', 'vendor/hands/fa.png', 'vendor/hands/sol.png', 'vendor/hands/la.png', 'vendor/hands/ti.png',
   'vendor/hands/di.png', 'vendor/hands/ri.png', 'vendor/hands/fi.png', 'vendor/hands/si.png', 'vendor/hands/li.png',

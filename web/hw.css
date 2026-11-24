@@ -310,6 +310,11 @@ body.hw-page {
   background: #ffffff;
 }
 
+/* Score Practice: use most of the screen, so more of a long score shows before scrolling down inside it */
+.hw-stage.hw-stage-score {
+  height: clamp(440px, calc(100vh - 180px), 900px);
+}
+
 /* When Teacher Setup is open, expand stage so full Rehearsal Settings panels fit comfortably */
 .hw-teacher-mode .hw-stage {
   height: 680px;

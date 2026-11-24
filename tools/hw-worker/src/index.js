@@ -26,6 +26,7 @@ import {
   handleBillingCheckout,
   handleBillingPortal,
   handleStripeWebhook,
+  handleRedeemBeta,
 } from './billing.js';
 import {
   handleAddStudents,
@@ -35,6 +36,7 @@ import {
   handleExportStudentData,
   handleListClasses,
   handleListStudents,
+  handleOpenTestStudent,
   handleRegenerateClassCodes,
   handleRegenerateStudentCode,
   handleRevokeClassSessions,
@@ -178,6 +180,9 @@ async function route(request, env) {
   if (method === 'POST' && path === '/api/billing/webhook') {
     return handleStripeWebhook(request, env);
   }
+  if (method === 'POST' && path === '/api/teacher/redeem-beta') {
+    return withTeacher(request, env, auth => handleRedeemBeta(request, env, auth));
+  }
   if (method === 'POST' && path === '/api/admin/po-grant') {
     return handleAdminPoGrant(request, env);
   }
@@ -202,6 +207,12 @@ async function route(request, env) {
     const classId = decodeSeg(m[1]);
     if (method === 'GET') return withTeacher(request, env, auth => handleListStudents(request, env, auth, classId));
     if (method === 'POST') return withTeacher(request, env, auth => handleAddStudents(request, env, auth, classId));
+  }
+
+  // /api/classes/:classId/test-student/open
+  if (method === 'POST' && (m = path.match(/^\/api\/classes\/([^/]+)\/test-student\/open$/))) {
+    const classId = decodeSeg(m[1]);
+    return withTeacher(request, env, auth => handleOpenTestStudent(request, env, auth, classId));
   }
 
   // /api/classes/:classId/regenerate-codes (and /students/regenerate-codes alias)

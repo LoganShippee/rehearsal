@@ -801,6 +801,38 @@ async function main() {
     assertEq(ro.overallPct, 63, 'rhythm-only overallPct equals rhythmPct');
     assertEq(ro.integrityFlags.length, 0, 'rhythm tap with 0 audioBytes has no missing_audio flag');
 
+    // 2b. The details the teacher's review needs to draw the grade card's marks are kept (and checked)
+    const rv = validateAndRecomputeSubmission({
+      assignment: { type: 'score', mode: 'practice' },
+      config: { gradeMode: 'mic' },
+      payload: {
+        durationSec: 8, expectedSec: 8,
+        results: {
+          inputMode: 'mic_pitch_rhythm', q: 0.7142857, lineIdx: 1, rangeLabel: 'm. 8–11', partName: 'Soprano', heard: 9,
+          extraAt: [1.25, 'junk', 3],
+          notes: [
+            { status: 'ok', bar: 8, idx: 1, pitch: 'ok', written: 72, t: 0 },
+            { status: 'pitch', bar: 8, idx: 2, pitch: 'wrong', sungAs: 'E♭5', cents: -180, written: 74.4, t: 1 },
+            { status: 'pitch', bar: 8, idx: 3, pitch: 'octave', octave: -1, written: 300, sungAs: { bad: 1 } },
+          ],
+        },
+      },
+      audioBytes: 1000, attemptStart: null, submittedAt: now,
+    });
+    const rn = rv.sanitizedResults?.notes || [];
+    assertEq(rv.ok, true, 'review details: submission ok');
+    assertEq(rv.sanitizedResults.q, 0.71429, 'review details: q kept (rounded)');
+    assertEq(rv.sanitizedResults.lineIdx, 1, 'review details: lineIdx kept');
+    assertEq(rv.sanitizedResults.rangeLabel, 'm. 8–11', 'review details: rangeLabel kept');
+    assertEq(rv.sanitizedResults.partName, 'Soprano', 'review details: partName kept');
+    assertEq(JSON.stringify(rv.sanitizedResults.extraAt), '[1.25,3]', 'review details: extraAt keeps numbers only');
+    assertEq(rn[1].sungAs, 'E♭5', 'review details: sungAs kept');
+    assertEq(rn[1].written, 74, 'review details: written rounded');
+    assertEq(rn[1].t, 1, 'review details: t kept');
+    assertEq(rn[2].written, 127, 'review details: written clamped to MIDI range');
+    assertEq(rn[2].octave, -1, 'review details: octave kept');
+    assertEq(rn[2].sungAs, undefined, 'review details: non-text sungAs dropped');
+
     // 3. Tamper detection: score_mismatch, low_rms_high_score, duration_too_short, missing_audio
     const tamper = validateAndRecomputeSubmission({
       assignment: { type: 'sight', mode: 'practice' },

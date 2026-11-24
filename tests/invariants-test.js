@@ -29,6 +29,8 @@ const jsFiles = [
   'web/grade.js',
   'web/pdfview.js',
   'web/app.js',
+  'web/looks.js',
+  'web/settings.js',
   'web/score.js',
   'web/tools.js',
   'web/sw.js'
@@ -155,6 +157,11 @@ check('Persistent ID: IndexedDB rehearsal-files in app.js',
 check('iPad shell: viewport-fit=cover and dark html.web overscroll-behavior: none',
   indexHtml.includes('viewport-fit=cover') &&
   indexHtml.includes('html.web { background: #1b2a3d; overscroll-behavior: none; }'));
+
+// 6b. A window snapped to half a screen: the side panel must stack above the stage (with !important, because
+// app.js sets the column widths directly on .p-body) instead of squeezing the stage to nothing.
+check('Narrow window: side panel stacks above the stage',
+  /@media\s*\(max-width:\s*900px\)\s*\{[^}]*\.p-body:not\(\.full\)\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important/.test(stylesCss));
 
 // 7. Protected zones manifest is valid JSON
 {

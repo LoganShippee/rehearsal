@@ -76,8 +76,26 @@ export async function runDailyCleanup(env) {
   ).bind(now, now, now).run();
   const teachersExpired = Number(teachersRes?.meta?.changes || 0);
 
+  // 7. Test Student homework is only for trying things out: drop it after 7 days
+  let testSubmissionsPurged = 0;
+  const testRes = await env.DB.prepare(
+    `SELECT s.id, s.audio_r2_key
+     FROM submissions s
+     JOIN students st ON st.id = s.student_id
+     WHERE st.is_test = 1 AND s.submitted_at <= ?
+     LIMIT ?`
+  ).bind(now - 7 * DAY_MS, AUDIO_BATCH_SIZE).all();
+  for (const row of testRes?.results || []) {
+    if (row.audio_r2_key && env.BUCKET) {
+      await env.BUCKET.delete(row.audio_r2_key).catch(() => {});
+    }
+    await env.DB.prepare('DELETE FROM submissions WHERE id = ?').bind(row.id).run();
+    testSubmissionsPurged++;
+  }
+
   return {
     audioScrubbed,
+    testSubmissionsPurged,
     authCodesPurged,
     handoffsPurged,
     sessionsPurged,

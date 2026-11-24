@@ -998,6 +998,7 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
   const c = tap ? c0 : mic.c;                                  // grading's own sound engine (see grMic); taps use the app's
   document.getElementById('gr-card')?.remove();
   host.__grResult = null; grClearMarks(host);
+  if (typeof srStop === 'function') srStop();                  // a running Play (or listen-back) must not play over the take
   srKeepAwake(c);
   GR.out = c.createGain(); GR.out.connect(musicOut(c));
   const t0 = c.currentTime + 0.3;
@@ -1050,7 +1051,8 @@ async function grStart(host, st, timeline, btn, input = 'mic') {
     // the playhead follows grading's own sound engine
     heard() { return srHeard0(c) - avDelayMs() / 1000; },
   };
-  srAnimate(host, { ...st, playhead: st.playhead && st.playhead !== 'off' ? st.playhead : 'beat' }, () => host.__timeline || timeline, gClock);
+  // The Playhead button stays live while grading: Off hides the line (the count-in numbers still show).
+  srAnimate(host, new Proxy(st, { get: (t, k) => k === 'playhead' ? (host.__phMode ? host.__phMode() : (t.playhead && t.playhead !== 'off' ? t.playhead : 'beat')) : t[k] }), () => host.__timeline || timeline, gClock);
   GR.timer = setInterval(() => {
     const now = c.currentTime;
     if (tap) { if (now > GR.end) grStop(true); return; }

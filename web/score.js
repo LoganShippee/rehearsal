@@ -1289,13 +1289,14 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   const T0 = t0 + countBeats * beatSec;
   const last = exp[exp.length - 1];
   const end = T0 + (last.t + last.len) * q0 + 0.8;
-  // Schedule metronome clicks while performing if Metronome is active
-  if (st.metronome) {
-    for (const b of sc.pbeats) {
-      if (b.q >= R.a - 1e-6 && b.q < R.b - 1e-6) {
-        const dt = spTimeBetweenQ(sc, R.a, b.q, fac);
-        grClick(c, T0 + dt, b.accent, 0.5);
-      }
+  // Metronome clicks while performing. They're always scheduled, through their own volume, so the
+  // Metronome button can turn them on or off in the middle of a take (it used to cancel the take,
+  // leaving the mic open and the Grade button stuck).
+  const metroG = c.createGain(); metroG.gain.value = st.metronome ? 0.45 : 0; metroG.connect(GR.out);
+  for (const b of sc.pbeats) {
+    if (b.q >= R.a - 1e-6 && b.q < R.b - 1e-6) {
+      const dt = spTimeBetweenQ(sc, R.a, b.q, fac);
+      spClick(metroG, T0 + dt, b.accent);
     }
   }
   // Optional quiet guide of other parts during grading (OFF by default — opt-in for headphones)
@@ -1342,7 +1343,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   } catch { lat = null; }
 
   const rec = tap ? null : { sr: c.sampleRate, chunks: [], marks: [], n: 0 };
-  const idleHTML = btn ? btn.innerHTML : null;
+  const idleHTML = idleBtnHTML;              // the label from before "Mic starting…", so the button doesn't keep saying it
   let gradeRaf = 0;
   const onFinish = () => {
     cancelAnimationFrame(gradeRaf); gradeRaf = 0;
@@ -1371,6 +1372,7 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
     btn,
     idleHTML,
     onFinish,
+    metroGain: metroG,
     lat,
     gradePitch,
     tl,
@@ -2276,11 +2278,29 @@ function mountScore(host, st, onChange0, key) {
     const m = ms[mi], dq = q - P[pi].start;
     let x;
     const K = r.knots || [];
-    if (K.length) {
-      // glide on beat or jump note-to-note, slightly left of each notehead so notes are never covered
+    if (K.length && phMode === 'notes') {
+      // jump note-to-note, slightly left of each notehead so notes are never covered
       let j = 0; while (j < K.length - 1 && dq >= K[j + 1][0]) j++;
-      const [qa, xa] = K[j], [qb, xb] = K[j + 1] || [m.len, r.x + r.w - 4];
-      x = (phMode === 'notes' || dq <= qa) ? xa : xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
+      x = K[j][1];
+    } else if (K.length) {
+      // Glide on a beat grid. Printed music isn't spaced by time (a half note gets barely more room than a
+      // quarter), so gliding note to note sped up and slowed down. Beats that start a note are pinned to that
+      // note; the beats in between are spaced evenly. The measure ends where the next measure's first beat is
+      // drawn when it's on the same line, so the playhead carries on past the barline instead of jumping.
+      const nb = BOX[P[pi + 1]?.w], sameRow = nb && nb.knots?.length && Math.abs((nb.sysTop ?? nb.y) - (r.sysTop ?? r.y)) < 4 && nb.x >= r.x + r.w - 4;
+      const G = [];
+      for (let bq = 0; bq < m.len - 1e-6; bq++) { const k = K.find(p => Math.abs(p[0] - bq) < 1e-3); G.push([bq, k ? k[1] : NaN]); }
+      if (!G.length) G.push([0, NaN]);
+      if (!isFinite(G[0][1])) G[0][1] = K[0][0] <= 1e-3 ? K[0][1] : Math.min(K[0][1], r.x + Math.min(14, r.w * 0.08));
+      G.push([m.len, Math.max(G[0][1], sameRow ? nb.knots[0][1] : r.x + r.w - 4)]);
+      for (let j = 1; j < G.length - 1; j++) if (!isFinite(G[j][1])) {
+        let e = j + 1; while (!isFinite(G[e][1])) e++;
+        G[j][1] = G[j - 1][1] + (G[e][1] - G[j - 1][1]) * (G[j][0] - G[j - 1][0]) / (G[e][0] - G[j - 1][0]);
+      }
+      for (let j = 1; j < G.length; j++) G[j][1] = Math.max(G[j][1], G[j - 1][1]);   // never backwards
+      let j = 0; while (j < G.length - 2 && dq >= G[j + 1][0]) j++;
+      const [qa, xa] = G[j], [qb, xb] = G[j + 1];
+      x = xa + (xb - xa) * Math.max(0, Math.min(1, (dq - qa) / ((qb - qa) || 1)));
     } else { const f = Math.max(0, Math.min(1, dq / (m.len || 1))), pad = Math.min(14, r.w * 0.08); x = r.x + pad + f * (r.w - pad * 1.5); }
     x = Math.max(r.x + 2, x - 6);
     if (!ph.firstChild) ph.innerHTML = '<i class="seg top"></i><i class="seg bot"></i>';
@@ -2301,7 +2321,8 @@ function mountScore(host, st, onChange0, key) {
     ph.children[1].style.height = segLen + 'px';
     const sc = $q('.sp-score');                                     // keep the playhead in view
     if (y0 < sc.scrollTop + 10 || y0 + totalH > sc.scrollTop + sc.clientHeight - 10) sc.scrollTop = Math.max(0, y0 - sc.clientHeight * 0.25);
-    if (x < sc.scrollLeft + 30 || x > sc.scrollLeft + sc.clientWidth - 60) sc.scrollLeft = Math.max(0, x - sc.clientWidth * 0.3);
+    // sideways only in the one-long-line layout: in "Down" a score a little wider than its box got pulled left and lost its clef
+    if (st.layout === 'h' && (x < sc.scrollLeft + 30 || x > sc.scrollLeft + sc.clientWidth - 60)) sc.scrollLeft = Math.max(0, x - sc.clientWidth * 0.3);
     if (ctl.lastIter !== ctl.iter) { ctl.lastIter = ctl.iter; ctl.updateBar(); }
   };
   const SP_COLORS = ['#1f6fd1', '#1a9a5a', '#c2410c', '#8b3fc7', '#b8860b', '#0e7490', '#be185d', '#4d7c0f'];
@@ -2447,13 +2468,35 @@ function mountScore(host, st, onChange0, key) {
     }
     box.appendChild(frag);
   };
+  // A short score only fills part of the line, so it sat against the left edge. In the "Down" layout, slide
+  // the drawing over so the music is centered. Overlays measure from the drawing, so they follow along.
+  // Up and down too: the measure label and the playhead's top mark sit above the music, and they were cut off
+  // when the music started at the very top of the box, so there's always room for them.
+  ctl.centerScore = () => {
+    const page = $q('.sp-osmd > div:not(.sp-ov)'), svg = page?.querySelector('svg'), scEl = $q('.sp-score');
+    if (!page) return;
+    page.style.left = ''; page.style.width = ''; page.style.overflow = ''; page.style.marginTop = '';
+    if (svg && scEl) {
+      const H = scEl.clientHeight, h = svg.getBoundingClientRect().height;
+      if (H && h) page.style.marginTop = Math.max(36, Math.round((H - h) / 2)) + 'px';
+    }
+    if (st.layout === 'h' || !svg) return;
+    let bb; try { bb = svg.getBBox(); } catch { return; }
+    const vbW = svg.viewBox?.baseVal?.width, W = svg.clientWidth || svg.getBoundingClientRect().width;
+    if (!bb || !bb.width || !vbW || !W) return;
+    const k = W / vbW, left = bb.x * k, right = (bb.x + bb.width) * k;
+    const off = Math.round((W - right - left) / 2);   // equal space on both sides
+    if (off < 8) return;
+    Object.assign(page.style, { left: off + 'px', width: `calc(100% - ${off}px)`, overflow: 'hidden' });   // the clipped part is empty
+  };
   ctl.relayout = () => {
     if (!ctl.osmd) return;
     const scEl = $q('.sp-score'); if (!scEl) return;
     const w = scEl.clientWidth;
-    if (!w || w === ctl.lastW) { BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); ctl.drawGradeMarks(); ctl._paintPlayhead?.(); return; }
+    if (!w || w === ctl.lastW) { if (w) ctl.centerScore(); BOX = boxes(); ctl.drawSel(); ctl.drawLabels(); ctl.drawGradeMarks(); ctl._paintPlayhead?.(); return; }
     ctl.lastW = w;
     try { ctl.osmd.render(); } catch { }
+    ctl.centerScore();
     ctl.lastW = scEl.clientWidth || w;   // capture post-render width (e.g. if a Windows scrollbar appeared/disappeared)
     BOX = boxes(); ctl.drawSel(); ctl.tagNotes(); ctl.drawLabels(); ctl.drawGradeMarks(); ctl._paintPlayhead?.();
   };
@@ -2464,7 +2507,8 @@ function mountScore(host, st, onChange0, key) {
     if (b) {
       e.stopPropagation(); SP_ACTIVE = ctl;
       const k = b.dataset.sp;
-      if (k !== 'grade' && k !== 'grade-menu' && k !== 'gradego' && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
+      const metroLive = k === 'metro' && typeof GR !== 'undefined' && GR.on && GR.host === ctl.host && GR.metroGain;   // Metronome mid-take: just switch the clicks
+      if (k !== 'grade' && k !== 'grade-menu' && k !== 'gradego' && !metroLive && typeof GR !== 'undefined' && (GR.on || GR.starting)) grStop(false);
       if (k === 'play') { if (ctl.playing) spStop(); else if (ctl.sc) spPlay(ctl); }
       if (k === 'tempo-step') { st.tempo = Math.max(30, Math.min(150, st.tempo + Number(b.dataset.d))); ctl.updateBar(); ctl.drawVoices(); onChange(); }
       if (k === 'tempo-reset') { if (st.tempo !== 100) { st.tempo = 100; ctl.updateBar(); ctl.drawVoices(); onChange(); } }
@@ -2494,7 +2538,10 @@ function mountScore(host, st, onChange0, key) {
       }
       if (k === 'loop-sel') { st.loop.on = true; onChange(); ctl.updateBar(); ctl.drawSel(); return; }
       if (k === 'sync-check') { ctl.closeGradeMenu(); if (typeof openAvCal === 'function') openAvCal(); return; }
-      if (k === 'metro') { st.metronome = !st.metronome; onChange(); ctl.updateBar(); }
+      if (k === 'metro') {
+        st.metronome = !st.metronome; onChange(); ctl.updateBar();
+        if (metroLive) try { GR.metroGain.gain.setTargetAtTime(st.metronome ? 0.45 : 0, GR.c.currentTime, 0.01); } catch { }
+      }
       if (k === 'loop') { st.loop.on = !st.loop.on; ctl.pick = null; onChange(); ctl.updateBar(); ctl.drawSel(); ctl.drawVoices(); }
       if (k === 'zoom') { st.zoom = Math.max(0.3, Math.min(2.5, +(st.zoom + Number(b.dataset.d)).toFixed(2))); ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }
       if (k === 'zoom-reset') { st.zoom = 1; ctl.updateBar(); onChange(); if (ctl.osmd) { ctl.osmd.zoom = st.zoom; ctl.lastW = 0; ctl.relayout(); } }

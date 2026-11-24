@@ -88,7 +88,7 @@ async function createTeacherSession(env, teacherId, request, ephemeral = false) 
   return { token: rawToken, sessionId: sessId, expiresAt: now + ttl, ephemeral: !!ephemeral };
 }
 
-async function createStudentSession(env, studentId, classId, authMethod) {
+export async function createStudentSession(env, studentId, classId, authMethod) {
   const now = nowMs(env);
   const rawToken = `rs_${randomHex(32)}`;
   const tokenHash = await hashSessionToken(rawToken, env);
@@ -405,7 +405,7 @@ export async function handleTeacherMe(request, env, auth) {
     `SELECT COUNT(*) AS n
      FROM students st
      JOIN classes c ON c.id = st.class_id
-     WHERE c.teacher_id = ? AND c.archived_at IS NULL AND st.archived_at IS NULL`
+     WHERE c.teacher_id = ? AND c.archived_at IS NULL AND st.archived_at IS NULL AND st.is_test = 0`
   ).bind(auth.teacher.id).first();
   const activeStudentCount = Number(countRow?.n || 0);
   return jsonResponse({
@@ -522,7 +522,7 @@ export async function handleStudentCodeLogin(request, env) {
   //    resolve the student row so per-student 5-fail cooldown & 10-fail hard lock apply directly.
   if (!student && studentName) {
     const byName = await env.DB.prepare(
-      'SELECT * FROM students WHERE class_id = ? AND LOWER(TRIM(display_name)) = LOWER(?) AND archived_at IS NULL LIMIT 2'
+      'SELECT * FROM students WHERE class_id = ? AND LOWER(TRIM(display_name)) = LOWER(?) AND archived_at IS NULL AND is_test = 0 LIMIT 2'
     ).bind(cls.id, studentName).all();
     const list = byName?.results || [];
     if (list.length === 1) {

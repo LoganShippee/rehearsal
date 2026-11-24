@@ -9,6 +9,7 @@ import {
   generateReadableCode, hashStudentCode, studentCodeLookupKey,
 } from './crypto.js';
 import { assertTeacherWritable } from './billing.js';
+import { createStudentSession } from './auth.js';
 
 const MAX_BULK_STUDENTS = 250;
 const MAX_CODE_GEN_ATTEMPTS = 10;
@@ -23,6 +24,23 @@ async function getOwnedStudent(env, classId, studentId) {
   return await env.DB.prepare(
     'SELECT * FROM students WHERE id = ? AND class_id = ?'
   ).bind(studentId, classId).first();
+}
+
+// Every class gets one built-in "Test Student" so a teacher can try homework as a student.
+// It has no sign-in code (the teacher opens it from the roster), is never counted in
+// student totals or grades, and its submissions are cleaned up by the daily job.
+export async function ensureTestStudent(env, classId) {
+  const existing = await env.DB.prepare(
+    'SELECT id FROM students WHERE class_id = ? AND is_test = 1 LIMIT 1'
+  ).bind(classId).first();
+  if (existing) return existing.id;
+  const id = makeId('stu');
+  const now = nowMs(env);
+  await env.DB.prepare(
+    `INSERT INTO students (id, class_id, display_name, part, is_test, created_at, updated_at)
+     VALUES (?, ?, 'Test Student', '', 1, ?, ?)`
+  ).bind(id, classId, now, now).run();
+  return id;
 }
 
 function formatClass(row) {
@@ -58,6 +76,7 @@ function formatStudentPublic(row, now) {
     part: row.part || '',
     hasGoogle: Boolean(row.has_google !== undefined ? row.has_google : row.google_sub),
     hasCode: Boolean(row.has_code !== undefined ? row.has_code : row.code_hash),
+    isTest: !!row.is_test,
     codeLocked: !!row.code_hard_locked,
     codeCooldownUntil: activeCooldown,
     archivedAt: row.archived_at ?? null,
@@ -136,7 +155,7 @@ export async function handleListClasses(request, env, auth) {
   const res = await env.DB.prepare(
     `SELECT
        c.*,
-       (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.archived_at IS NULL) AS student_count,
+       (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.archived_at IS NULL AND st.is_test = 0) AS student_count,
        (SELECT COUNT(*) FROM assignments a WHERE a.class_id = c.id AND a.archived_at IS NULL) AS assignment_count,
        (SELECT COUNT(*) FROM submissions sub WHERE sub.class_id = c.id) AS submission_count
      FROM classes c
@@ -272,7 +291,7 @@ export async function handleUpdateClass(request, env, auth, classId) {
   const updated = await env.DB.prepare(
     `SELECT
        c.*,
-       (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.archived_at IS NULL) AS student_count,
+       (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.archived_at IS NULL AND st.is_test = 0) AS student_count,
        (SELECT COUNT(*) FROM assignments a WHERE a.class_id = c.id AND a.archived_at IS NULL) AS assignment_count,
        (SELECT COUNT(*) FROM submissions sub WHERE sub.class_id = c.id) AS submission_count
      FROM classes c
@@ -321,6 +340,7 @@ export async function handleListStudents(request, env, auth, classId) {
   const whereArchived = includeArchived ? '' : 'AND st.archived_at IS NULL';
 
   const now = nowMs(env);
+  await ensureTestStudent(env, classId);
   // NEVER select or return code_hash, code_salt, or code_lookup.
   const res = await env.DB.prepare(
     `SELECT
@@ -328,6 +348,7 @@ export async function handleListStudents(request, env, auth, classId) {
        st.display_name,
        st.email,
        st.part,
+       st.is_test,
        CASE WHEN st.google_sub IS NOT NULL AND st.google_sub != '' THEN 1 ELSE 0 END AS has_google,
        CASE WHEN st.code_hash IS NOT NULL AND st.code_hash != '' THEN 1 ELSE 0 END AS has_code,
        st.code_hard_locked,
@@ -340,11 +361,21 @@ export async function handleListStudents(request, env, auth, classId) {
        (SELECT MAX(sub2.submitted_at) FROM submissions sub2 WHERE sub2.student_id = st.id) AS last_submission_at
      FROM students st
      WHERE st.class_id = ? ${whereArchived}
-     ORDER BY st.archived_at IS NOT NULL ASC, LOWER(st.display_name) ASC`
+     ORDER BY st.is_test DESC, st.archived_at IS NOT NULL ASC, LOWER(st.display_name) ASC`
   ).bind(classId).all();
 
   const students = (res?.results || []).map(row => formatStudentPublic(row, now));
   return jsonResponse({ ok: true, class: formatClass(cls), students }, 200, request, env);
+}
+
+// Teacher clicks "Open as student": hand back a student session for the class's Test Student.
+// The app puts the token in the URL #fragment, which browsers never send to any server.
+export async function handleOpenTestStudent(request, env, auth, classId) {
+  const cls = await getOwnedClass(env, classId, auth.teacher.id);
+  if (!cls) return errResponse('Class not found', 404, 'CLASS_NOT_FOUND', request, env);
+  const studentId = await ensureTestStudent(env, classId);
+  const session = await createStudentSession(env, studentId, classId, 'code');
+  return jsonResponse({ ok: true, token: session.token, expiresAt: session.expiresAt }, 200, request, env);
 }
 
 export async function handleAddStudents(request, env, auth, classId) {
@@ -546,7 +577,7 @@ export async function handleUpdateStudent(request, env, auth, classId, studentId
 
   const updated = await env.DB.prepare(
     `SELECT
-       st.id, st.display_name, st.email, st.part,
+       st.id, st.display_name, st.email, st.part, st.is_test,
        CASE WHEN st.google_sub IS NOT NULL AND st.google_sub != '' THEN 1 ELSE 0 END AS has_google,
        CASE WHEN st.code_hash IS NOT NULL AND st.code_hash != '' THEN 1 ELSE 0 END AS has_code,
        st.code_hard_locked, st.code_cooldown_until, st.archived_at,
@@ -645,7 +676,7 @@ export async function handleRegenerateClassCodes(request, env, auth, classId) {
       const res = await env.DB.prepare(
         `SELECT id, display_name, part
          FROM students
-         WHERE class_id = ? AND archived_at IS NULL AND id IN (${placeholders})
+         WHERE class_id = ? AND archived_at IS NULL AND is_test = 0 AND id IN (${placeholders})
          ORDER BY LOWER(display_name) ASC`
       ).bind(classId, ...ids).all();
       students = res?.results || [];
@@ -654,7 +685,7 @@ export async function handleRegenerateClassCodes(request, env, auth, classId) {
     const res = await env.DB.prepare(
       `SELECT id, display_name, part
        FROM students
-       WHERE class_id = ? AND archived_at IS NULL
+       WHERE class_id = ? AND archived_at IS NULL AND is_test = 0
        ORDER BY LOWER(display_name) ASC`
     ).bind(classId).all();
     students = res?.results || [];

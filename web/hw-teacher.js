@@ -264,6 +264,7 @@
 
   function planBadgeInfo(plan) {
     if (!plan) return { cls: 'muted', label: 'No Plan' };
+    if (plan.beta) return { cls: 'ok', label: 'Beta access' };
     switch (plan.status) {
       case 'trialing': return { cls: 'info', label: `Trial · ${plan.daysLeft ?? 0}d left` };
       case 'active': return { cls: 'ok', label: 'Active Pro' };
@@ -273,6 +274,30 @@
       case 'expired': return { cls: 'danger', label: 'Expired (Read-Only)' };
       default: return { cls: 'muted', label: plan.status || 'Plan' };
     }
+  }
+
+  // Small "Have a beta code?" box. Shown in the trial banner and the Account card
+  // until the teacher has beta access. Errors show inline in .hwt-beta-err.
+  function renderBetaCodeHTML(plan) {
+    if (plan?.beta) {
+      const until = plan.betaUntil || plan.betaEndsAt;
+      return `<div class="small muted hwt-beta-note">Beta access${until ? ` until ${escHtml(formatDateShort(until))}` : ''}.</div>`;
+    }
+    return `
+      <div class="hwt-beta-code">
+        <label class="small" style="display:block;margin-bottom:4px">Have a beta code?</label>
+        <div class="row" style="gap:6px">
+          <input type="text" class="hwt-beta-input" placeholder="Beta code" autocomplete="off" spellcheck="false" maxlength="64" aria-label="Beta code">
+          <button type="button" class="btn small" data-hwt="apply-beta-code">Apply</button>
+        </div>
+        <div class="small hwt-beta-err" role="alert"></div>
+      </div>
+    `;
+  }
+
+  // Students that count as real students (the built-in Test Student does not).
+  function realStudents() {
+    return S_STATE.students.filter(s => !s.isTest);
   }
 
   function typeLabel(t) {
@@ -462,6 +487,7 @@
       studentId,
       studentName: stuObj?.displayName || 'Student',
       studentPart: stuObj?.part || '',
+      studentIsTest: !!stuObj?.isTest,
       attempts: [],
       activeIdx: 0,
       audioUrl: '',
@@ -793,7 +819,8 @@
     } else if (plan.status === 'trialing') {
       out.push(`
         <div class="hwt-banner info">
-          <div><b>Free 30-Day Trial:</b> ${Number(plan.daysLeft || 0)} day${Number(plan.daysLeft || 0) === 1 ? '' : 's'} remaining (up to ${Number(plan.studentSoftCap || 200)} students, no card required).</div>
+          <div><b>Free 30-Day Trial:</b> ${Number(plan.daysLeft || 0)} day${Number(plan.daysLeft || 0) === 1 ? '' : 's'} remaining (up to ${Number(plan.studentSoftCap || 200)} students, no card required).
+            ${renderBetaCodeHTML(plan)}</div>
           <button type="button" class="btn small" data-hwt="goto-account">View Plans</button>
         </div>
       `);
@@ -951,7 +978,7 @@
               <h3>Add Students</h3>
               <span class="grow"></span>
               <button type="button" class="btn small" data-hwt="toggle-bulk-paste">${rf.showBulk ? 'Hide Bulk Paste' : 'Bulk Paste List'}</button>
-              <button type="button" class="btn small" data-hwt="regen-all-codes" ${writable && S_STATE.students.length ? '' : 'disabled'}>Regenerate &amp; Print All Student Codes</button>
+              <button type="button" class="btn small" data-hwt="regen-all-codes" ${writable && realStudents().length ? '' : 'disabled'}>Regenerate &amp; Print All Student Codes</button>
             </div>
 
             <div class="row" style="align-items:flex-end">
@@ -997,9 +1024,9 @@
 
           <div class="card">
             <div class="card-head">
-              <h3>Roster (${S_STATE.students.length})</h3>
+              <h3>Roster (${realStudents().length})</h3>
               <span class="grow"></span>
-              <button type="button" class="btn small" data-hwt="export-roster-csv" ${S_STATE.students.length ? '' : 'disabled'}>Export Roster CSV</button>
+              <button type="button" class="btn small" data-hwt="export-roster-csv" ${realStudents().length ? '' : 'disabled'}>Export Roster CSV</button>
               <label class="chk">
                 <input type="checkbox" data-hwt-change="toggle-archived-students" ${S_STATE.showArchivedStudents ? 'checked' : ''}>
                 Show archived students
@@ -1069,6 +1096,26 @@
   }
 
   function renderStudentRowHTML(st, writable, online) {
+    // The built-in Test Student: a purple row, no sign-in code, no edit/delete/archive.
+    if (st.isTest) {
+      return `
+        <tr class="hwt-test-row">
+          <td>
+            <div style="font-weight:600">Test Student <span class="hwt-test-tag">Test</span></div>
+            <div class="small muted">Not counted in grades</div>
+          </td>
+          <td><span class="muted">—</span></td>
+          <td><span class="small muted">No sign-in code</span></td>
+          <td>${Number(st.submissionCount || 0)}</td>
+          <td class="small muted">${st.lastActiveAt ? escHtml(formatDateShort(st.lastActiveAt)) : 'Never'}</td>
+          <td>
+            <div class="row" style="gap:5px">
+              <button type="button" class="btn small" data-hwt="open-test-student" ${online ? '' : 'disabled'} title="Open Rehearsal as this test student in a new window">Open as student ↗</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
     const badges = [];
     if (st.hasGoogle) badges.push(`<span class="hwt-pill ok">Google</span>`);
     if (st.hasCode) badges.push(`<span class="hwt-pill info">Code</span>`);
@@ -1282,6 +1329,7 @@
               <td class="hwt-gb-sticky">
                 <div style="font-weight:600">${escHtml(st.displayName)}</div>
                 ${st.part ? `<div class="small muted">${escHtml(st.part)}</div>` : ''}
+                ${st.isTest ? `<span class="hwt-test-tag">Test</span>` : ''}
               </td>
               ${asgns.map(a => renderGradebookCellHTML(st, a)).join('')}
               <td class="hwt-gb-cell"><b>${st.averagePct != null ? `${Math.round(Number(st.averagePct))}%` : '—'}</b></td>
@@ -1348,6 +1396,8 @@
           ${plan.trialEndsAt ? `<div class="hwt-metric"><span>Trial Ends</span><strong style="font-size:14px">${escHtml(formatDateShort(plan.trialEndsAt))}</strong></div>` : ''}
           ${plan.planEndsAt ? `<div class="hwt-metric"><span>Renews / Ends</span><strong style="font-size:14px">${escHtml(formatDateShort(plan.planEndsAt))}</strong></div>` : ''}
         </div>
+
+        ${renderBetaCodeHTML(plan)}
 
         ${billingReady ? `
           <div class="row">
@@ -1475,7 +1525,7 @@
         <div class="hwt-modal" role="dialog" aria-modal="true" aria-label="Submission Review">
           <div class="hwt-modal-head">
             <div style="min-width:0">
-              <h3>${escHtml(sm.studentName)}${sm.studentPart ? ` · ${escHtml(sm.studentPart)}` : ''}</h3>
+              <h3>${escHtml(sm.studentName)}${sm.studentPart ? ` · ${escHtml(sm.studentPart)}` : ''}${(sm.studentIsTest || sm.attempts?.[0]?.studentIsTest) ? ` <span class="hwt-test-tag">Test</span>` : ''}</h3>
               <div class="small muted">${escHtml(sm.assignment?.title || 'Submission Review')}</div>
             </div>
             <div class="row">
@@ -1649,38 +1699,66 @@
     `;
   }
 
+  // ---------- Submission review: the take shown the way the student's grade card shows it:
+  // the same headline, the same marks on the real music, and the same "What was graded" table.
+  function subGradeInfo(sub) {
+    const rj = sub?.resultsJson || {};
+    const notes = Array.isArray(rj.notes) ? rj.notes : [];
+    return { rj, notes, gradePitch: rj.expectsPitch !== false && sub?.pitchPct != null, tap: rj.inputMode === 'tap' };
+  }
+
+  // how one graded note is marked on the music (same rules as grade.js)
+  function subMarkOf(n) {
+    const pitchBad = !!n.pitch && n.pitch !== 'ok';
+    const cls = n.status === 'missed' ? 'missed' : pitchBad ? 'pitch' : n.status === 'timing' ? 'timing' : 'ok';
+    const cents = n.cents != null ? Math.round(Number(n.cents)) : null;
+    const lbl = n.pitch === 'wrong' ? (n.sungAs ? String(n.sungAs).replace(/-?\d+$/, '') : cents != null ? `${cents > 0 ? '+' : ''}${cents}¢` : '')
+      : n.pitch === 'octave' ? (n.octave > 0 ? 'oct ↑' : n.octave < 0 ? 'oct ↓' : 'oct')
+        : n.pitch === 'none' ? '?' : n.joined ? 'joined' : '';
+    return { cls, tcls: n.status === 'timing' ? 'timing' : 'ok', lbl, soft: !!n.joined && !pitchBad };
+  }
+
   function renderSubVisualFeedbackHTML(sub) {
-    const notes = sub?.resultsJson?.notes;
-    if (!Array.isArray(notes) || !notes.length) return '';
+    const { rj, notes, gradePitch, tap } = subGradeInfo(sub);
+    if (!notes.length) return '';
 
     const sm = S_STATE.subModal;
     const asgn = S_STATE.assignments.find(a => a.id === sm.assignmentId) || sm.assignment;
-    const expectsPitch = sub.resultsJson?.expectsPitch !== false && sub.pitchPct != null;
-    const rPct = sub.rhythmPct != null ? Math.round(Number(sub.rhythmPct)) : null;
+    const rPct = sub.rhythmPct != null ? Math.round(Number(sub.rhythmPct)) : 0;
     const pPct = sub.pitchPct != null ? Math.round(Number(sub.pitchPct)) : null;
-    const extra = Number(sub.resultsJson?.extra || 0);
+    const heard = rj.heard != null ? Number(rj.heard) : notes.filter(n => n.status !== 'missed').length;
+    const extra = Number(rj.extra || 0);
+    const bits = [`${heard} ${tap ? 'tap' : 'note'}${heard === 1 ? '' : 's'} ${tap ? 'counted' : 'heard'}`];
+    if (extra > 0) bits.push(`${extra} extra`);
+    if (Math.abs(rj.driftCents ?? 0) >= 25) bits.push(`went ${Math.abs(rj.driftCents)}¢ ${rj.driftCents < 0 ? 'flat' : 'sharp'} by the end`);
+    const range = rj.rangeLabel ? `Graded ${rj.partName ? `${rj.partName} · ` : ''}${rj.rangeLabel}` : '';
 
-    const okCnt = notes.filter(n => n.status === 'ok').length;
-    const timCnt = notes.filter(n => n.status === 'timing').length;
-    const pitCnt = notes.filter(n => n.status === 'pitch').length;
-    const misCnt = notes.filter(n => n.status === 'missed' || n.status === 'wrong').length;
-    const summaryBits = [`${okCnt} of ${notes.length} notes on target`];
-    if (timCnt) summaryBits.push(`${timCnt} timing`);
-    if (pitCnt) summaryBits.push(`${pitCnt} wrong pitch`);
-    if (misCnt) summaryBits.push(`${misCnt} missed`);
-    if (extra > 0) summaryBits.push(`${extra} extra sound${extra === 1 ? '' : 's'}`);
-
-    const barCls = pct => (pct == null ? '' : pct >= 85 ? '' : pct >= 65 ? 'mid' : 'lo');
     const isSightMel = asgn?.type === 'sight' && asgn?.config?.srState?.mode !== 'rhythm';
     const srShowOn = sm.showSolfege != null ? sm.showSolfege : true;
     const srCntOn = sm.showCounts != null ? sm.showCounts : !!asgn?.config?.srState?.showCounts;
 
+    const word = ms => ms > 0 ? `${ms} ms late` : ms < 0 ? `${-ms} ms early` : 'on time';
+    const rows = notes.map(n => {
+      const st = n.status === 'wrong' ? 'pitch' : n.status;
+      const cents = n.cents != null ? Math.round(Number(n.cents)) : 0;
+      const where = `bar ${n.bar}, note ${n.idx}${gradePitch && n.written != null && typeof grName === 'function' ? ` (${grName(n.written)})` : ''}`;
+      const status = n.joined ? '✓ joined (re-sing it)' : st === 'timing' ? (n.errMs < 0 ? 'early' : 'late') : ({ ok: '✓ on time', missed: tap ? 'no tap' : 'not heard', pitch: 'pitch' }[st] || st);
+      const timing = n.errMs == null ? '—' : word(Math.round(Number(n.errMs)));
+      const pitch = !gradePitch ? '—'
+        : n.pitch === 'ok' ? (Math.abs(cents) >= 40 ? `✓ ${Math.abs(cents)}¢ ${cents < 0 ? 'flat' : 'sharp'}` : '✓')
+          : n.pitch === 'none' ? 'no clear pitch'
+            : n.pitch === 'octave' ? `wrong octave${n.octave ? ` (${n.octave > 0 ? 'too high' : 'too low'})` : ''}`
+              : n.pitch === 'wrong' ? (n.sungAs ? `sang ${String(n.sungAs).replace(/-?\d+$/, '')} (${cents > 0 ? '+' : ''}${cents}¢)` : `${cents > 0 ? '+' : ''}${cents}¢ off`) : '—';
+      return `<tr class="gr-${escHtml(st)}"><td>${escHtml(where)}</td><td>${escHtml(status)}</td><td>${escHtml(timing)}</td>${gradePitch ? `<td>${escHtml(pitch)}</td>` : ''}</tr>`;
+    }).join('');
+
     return `
-      <div class="hwt-visual-feedback">
-        <div class="row" style="justify-content:space-between">
-          <div>
-            <b style="font-size:13.5px">Performance Visual Feedback (Student View)</b>
-            <div class="small muted">${escHtml(summaryBits.join(' · '))}</div>
+      <div class="hwt-visual-feedback hwt-gr-review">
+        <div class="row" style="justify-content:space-between;align-items:flex-start">
+          <div class="gr-head">
+            <b>Rhythm ${rPct}%</b>${gradePitch && pPct != null ? ` · <b>Pitch ${pPct}%</b>` : ''}
+            ${range ? `<span class="gr-sub gr-range">${escHtml(range)}</span>` : ''}
+            <span class="gr-sub">${escHtml(bits.join(' · '))}</span>
           </div>
           ${asgn?.type === 'sight' ? `
             <div class="row" style="gap:10px">
@@ -1690,40 +1768,35 @@
           ` : ''}
         </div>
 
-        <div class="hwt-gr-bars">
-          ${rPct != null ? `
-            <div class="hwt-gr-bar-row">
-              <div class="hwt-gr-bar-head"><span>Rhythm Accuracy</span><span>${rPct}%</span></div>
-              <div class="hwt-gr-bar-track"><div class="hwt-gr-bar-fill ${barCls(rPct)}" style="width:${Math.max(0, Math.min(100, rPct))}%"></div></div>
-            </div>
-          ` : ''}
-          ${expectsPitch && pPct != null ? `
-            <div class="hwt-gr-bar-row">
-              <div class="hwt-gr-bar-head"><span>Pitch Accuracy</span><span>${pPct}%</span></div>
-              <div class="hwt-gr-bar-track"><div class="hwt-gr-bar-fill ${barCls(pPct)}" style="width:${Math.max(0, Math.min(100, pPct))}%"></div></div>
-            </div>
-          ` : ''}
+        <div class="gr-legend"><span class="gr-sub">On the music:</span>
+          <span><i class="gr-dot ok"></i>on time</span><span><i class="gr-dot timing"></i>early / late</span><span><i class="gr-dot missed"></i>${tap ? 'no tap' : 'not heard'}</span>${gradePitch ? '<span><i class="gr-dot pitch"></i>wrong pitch</span>' : ''}<span><i class="gr-dot extra"></i>extra</span>
         </div>
 
-        <div class="gr-legend hwt-gr-legend">
-          <span><span class="gr-dot ok"></span>On time</span>
-          <span><span class="gr-dot timing"></span>Early / late</span>
-          <span><span class="gr-dot missed"></span>Missed</span>
-          ${expectsPitch ? `<span><span class="gr-dot pitch"></span>Wrong pitch</span>` : ''}
-          <span><span class="gr-dot extra"></span>Extra</span>
-        </div>
+        <div class="hwt-gr-music" id="hwt-sub-visual-staff"></div>
 
-        <div class="sr-staff hwt-gr-staff" id="hwt-sub-visual-staff"></div>
+        <details class="gr-details">
+          <summary>What was graded</summary>
+          <table class="gr-table"><thead><tr><th>Note</th><th>Result</th><th>Timing</th>${gradePitch ? '<th>Pitch</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>
+        </details>
       </div>
     `;
   }
 
-  function applyStudentMarksToSightSvg(staffEl, tl, notes, tempoBpm) {
+  // Sight Reading: the same marks grade.js draws (grDrawMarks). Each graded note is found by bar and
+  // note number, so a take that was stopped early still lines up.
+  function applyStudentMarksToSightSvg(staffEl, tl, notes, q, extraAt) {
     const svg = staffEl?.querySelector('svg');
     const geo = tl?.geo;
     if (!svg || !geo?.measures?.length) return false;
     const atk = tl.filter(e => !e.rest && !e.tiedFrom);
-    if (atk.length !== notes.length) return false;
+    const exp = typeof grExpected === 'function' ? grExpected(tl) : [];
+    const at = new Map(exp.map((e, i) => [`${e.bar}:${e.idx}`, i]));
+    const pairs = notes.map((n, i) => {
+      const k = at.get(`${n.bar}:${n.idx}`);
+      const e = k != null ? atk[k] : (notes.length === atk.length ? atk[i] : null);
+      return e ? [n, e] : null;
+    }).filter(Boolean);
+    if (!pairs.length) return false;
 
     const NS = 'http://www.w3.org/2000/svg';
     const mk = (tag, a, parent) => {
@@ -1751,28 +1824,25 @@
     }
     const rise = Math.min(Math.max(up, 4), 30) + 10;
     const laneY = m => m.y0 + 18 - rise;
-    const q = 60 / (Number(tempoBpm) || 80);
 
     const g = mk('g', { class: 'gr-ov' }, svg);
     for (const m of M) {
       mk('line', { x1: m.x0 + 6, x2: m.x1 - 6, y1: laneY(m), y2: laneY(m), class: 'gr-lane' }, g);
     }
 
-    notes.forEach((n, i) => {
-      const e = atk[i], m = mAt(e.t), x = xAt(m, e.t), y = laneY(m);
-      const st = n.status || 'ok';
-      const cls = st === 'missed' ? 'missed' : (st === 'pitch' || st === 'wrong') ? 'pitch' : st === 'timing' ? 'timing' : 'ok';
+    pairs.forEach(([n, e]) => {
+      const m = mAt(e.t), x = xAt(m, e.t), y = laneY(m);
+      const { cls, tcls, lbl, soft } = subMarkOf(n);
       if (e.el?.classList) {
         e.el.classList.add('gr-n-' + cls);
         const bh = e.el.getAttribute?.('data-bh');
         if (bh) document.getElementById(bh)?.classList.add('gr-n-' + cls);
       }
       mk('line', { x1: x, x2: x, y1: y - 6, y2: y + 6, class: 'gr-tick' }, g);
-      if (st === 'missed') {
+      if (cls === 'missed') {
         mk('circle', { cx: x, cy: e.y ?? (m.y0 + m.y1) / 2, r: 11, class: 'gr-ring' }, g);
         return;
       }
-      const tcls = st === 'timing' ? 'timing' : 'ok';
       const hp = e.t + (Number(n.errMs) || 0) / 1000 / q;
       const hm = hp > m.t0 - 0.75 && hp < m.t1 + 0.75 ? m : mAt(hp);
       const hx = xAt(hm, hp), hy = laneY(hm);
@@ -1780,110 +1850,112 @@
         mk('line', { x1: x, x2: hx, y1: y, y2: y, class: 'gr-off ' + tcls }, g);
       }
       mk('circle', { cx: hx, cy: hy, r: 5, class: 'gr-dot ' + tcls }, g);
-      let lbl = '';
-      if (st === 'pitch' || st === 'wrong') {
-        if (n.sungAs) lbl = String(n.sungAs).replace(/-?\d+$/, '');
-        else if (n.cents != null) lbl = `${n.cents > 0 ? '+' : ''}${Math.round(Number(n.cents))}¢`;
-      }
-      if (lbl) {
-        const txt = mk('text', { x: hx, y: hy - 9, 'text-anchor': 'middle', class: 'gr-lbl' }, g);
-        txt.textContent = lbl;
-      }
+      if (lbl) mk('text', { x: hx, y: hy - 9, 'text-anchor': 'middle', class: 'gr-lbl' + (soft ? ' soft' : '') }, g).textContent = lbl;
     });
+    // sounds that belong to no written note
+    const total = last.t1;
+    for (const p of extraAt || []) {
+      if (!(p > -1 && p < total + 1)) continue;
+      const m = mAt(p), x = xAt(m, p), y = laneY(m);
+      mk('path', { d: `M${x - 4} ${y - 4}L${x + 4} ${y + 4}M${x + 4} ${y - 4}L${x - 4} ${y + 4}`, class: 'gr-extra' }, g);
+    }
     return true;
   }
 
-  function drawFallbackVisualStaffSvg(staffEl, notes) {
-    staffEl.innerHTML = '';
-    const NS = 'http://www.w3.org/2000/svg';
-    const mk = (tag, a, parent) => {
-      const n = document.createElementNS(NS, tag);
-      for (const k in a) n.setAttribute(k, a[k]);
-      parent.appendChild(n);
-      return n;
-    };
-    const byBar = [];
-    const barMap = new Map();
-    for (const n of notes) {
-      const b = n.bar != null ? n.bar : 1;
-      if (!barMap.has(b)) { const arr = []; barMap.set(b, arr); byBar.push([b, arr]); }
-      barMap.get(b).push(n);
-    }
-    const perRow = Math.min(4, Math.max(1, byBar.length));
-    const rows = Math.ceil(byBar.length / perRow);
-    const barW = 160;
-    const W = 20 + perRow * barW + 10;
-    const rowH = 128;
-    const H = rows * rowH + 12;
-
-    const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', style: 'display:block;min-width:460px' }, staffEl);
-    const colorMap = { ok: '#1b7a2a', timing: '#d9822b', pitch: '#7b3fbf', wrong: '#7b3fbf', missed: '#c62828' };
-    const pitchYOffset = p => {
-      const m = String(p || '').match(/^([A-Ga-g])[#b]?(\d)?/);
-      if (!m) return 2;
-      const letters = { C: 6, D: 5, E: 4, F: 3, G: 2, A: 1, B: 0 };
-      const oct = m[2] ? Number(m[2]) : 4;
-      return (letters[m[1].toUpperCase()] ?? 3) - (oct - 4) * 7;
-    };
-
-    byBar.forEach(([barNum, list], bIdx) => {
-      const col = bIdx % perRow, row = Math.floor(bIdx / perRow);
-      const x0 = 16 + col * barW, yTop = 44 + row * rowH;
-      const laneY = yTop - 16;
-
-      // Measure label
-      const mTxt = mk('text', { x: x0 + 2, y: yTop - 27, fill: '#6b7385', font: '600 10px sans-serif' }, svg);
-      mTxt.textContent = `m.${barNum}`;
-
-      // 5 staff lines
-      for (let l = 0; l < 5; l++) {
-        mk('line', { x1: x0, x2: x0 + barW, y1: yTop + l * 9, y2: yTop + l * 9, stroke: '#cbd5e1', 'stroke-width': 1 }, svg);
+  // Score assignments: the real score (downloaded once per assignment), drawn by Score Practice with
+  // its own grading marks. The graded part and notes are found by bar and note number.
+  async function mountSubScore(box, asgn, sub) {
+    const sm = S_STATE.subModal;
+    const stillHere = () => box.isConnected && sm.open && sm.attempts[sm.activeIdx]?.id === sub.id;
+    if (typeof mountScore !== 'function' || typeof SP_XML === 'undefined' || typeof spExpectedNotes !== 'function') return false;
+    const fid = 'hwt-review-' + asgn.id;
+    if (!SP_XML[fid]) {
+      box.innerHTML = '<div class="small muted">Loading the score…</div>';
+      const r = await API().downloadAssignmentScore(asgn.id);
+      if (!r?.ok || !r.blob) {
+        if (stillHere()) box.innerHTML = `<div class="small muted">${escHtml(r?.error || 'Could not load the score for this assignment.')}</div>`;
+        return true;
       }
-      mk('line', { x1: x0, x2: x0, y1: yTop, y2: yTop + 36, stroke: '#94a3b8', 'stroke-width': 1.2 }, svg);
-      mk('line', { x1: x0 + barW, x2: x0 + barW, y1: yTop, y2: yTop + 36, stroke: '#94a3b8', 'stroke-width': 1.2 }, svg);
+      const buf = await r.blob.arrayBuffer(), head = new Uint8Array(buf, 0, 2);
+      SP_XML[fid] = head[0] === 0x50 && head[1] === 0x4b ? await spMxlToXml(buf) : new TextDecoder().decode(buf);   // "PK" = zipped .mxl
+    }
+    if (!stillHere()) return true;
+    // one settings object per assignment, so a redraw of this window re-attaches the drawn score instantly
+    const store = (sm.scoreSt ||= {});
+    const st = store[fid] ||= { ...JSON.parse(JSON.stringify(asgn.config?.spState || {})), fileId: fid, name: asgn.scoreFilename || 'Score', loop: undefined };
+    box.innerHTML = '<div class="score-host hwt-gr-score-host"></div>';
+    const host = box.firstChild;
+    // Score Practice opens only files in the file list: list this one just while it opens, hidden from the library
+    const listed = !!S.files[fid];
+    if (!listed) S.files[fid] = { name: st.name, mime: 'application/xml', size: SP_XML[fid].length, added: Date.now(), hiddenScore: true, derived: true };
+    // the drawn score is re-used between attempts, but never the last attempt's marks
+    if (SP_CACHE[fid]?.host) SP_CACHE[fid].host.__grResult = null;
+    const ctl = mountScore(host, st, () => { }, fid);
+    host.__grResult = null;
+    for (let i = 0; i < 80 && !(ctl?.sc && ctl.osmd); i++) await new Promise(r => setTimeout(r, 125));
+    if (!listed) delete S.files[fid];   // never kept in the teacher's own data
+    if (S.scoreSettings) delete S.scoreSettings[fid];
+    if (!ctl?.sc || !ctl.osmd || !stillHere()) return true;
+    // a short score doesn't need the full box
+    const musicH = host.querySelector('.sp-osmd svg')?.getBoundingClientRect().height;
+    if (musicH) host.style.height = `${Math.round(Math.min(440, Math.max(180, musicH + 64)))}px`;
 
-      // Dotted timing lane matching .gr-ov
-      const ov = mk('g', { class: 'gr-ov' }, svg);
-      mk('line', { x1: x0 + 6, x2: x0 + barW - 6, y1: laneY, y2: laneY, class: 'gr-lane' }, ov);
-
-      list.forEach((n, i) => {
-        const st = n.status || 'ok';
-        const nx = x0 + ((i + 0.5) / list.length) * (barW - 12) + 6;
-        const ny = Math.max(yTop - 6, Math.min(yTop + 42, yTop + pitchYOffset(n.pitch) * 4.5));
-        const fill = colorMap[st] || '#1b7a2a';
-
-        mk('ellipse', { cx: nx, cy: ny, rx: 5.5, ry: 4.2, fill, transform: `rotate(-18 ${nx} ${ny})` }, svg);
-        mk('line', { x1: nx + 5, x2: nx + 5, y1: ny, y2: ny - 22, stroke: fill, 'stroke-width': 1.6 }, svg);
-        mk('line', { x1: nx, x2: nx, y1: laneY - 5, y2: laneY + 5, class: 'gr-tick' }, ov);
-
-        if (st === 'missed') {
-          mk('circle', { cx: nx, cy: ny, r: 10, class: 'gr-ring' }, ov);
-          return;
-        }
-        const shiftPx = Math.max(-18, Math.min(18, Math.round((Number(n.errMs) || 0) / 14)));
-        const hx = nx + shiftPx;
-        const tcls = st === 'timing' ? 'timing' : 'ok';
-        if (Math.abs(shiftPx) > 2) mk('line', { x1: nx, x2: hx, y1: laneY, y2: laneY, class: 'gr-off ' + tcls }, ov);
-        mk('circle', { cx: hx, cy: laneY, r: 4.5, class: 'gr-dot ' + tcls }, ov);
-
-        if (st === 'pitch' || st === 'wrong') {
-          const lbl = n.sungAs ? String(n.sungAs).replace(/-?\d+$/, '') : (n.cents != null ? `${n.cents > 0 ? '+' : ''}${Math.round(Number(n.cents))}¢` : '?');
-          mk('text', { x: hx, y: laneY - 8, 'text-anchor': 'middle', class: 'gr-lbl' }, ov).textContent = lbl;
-        }
-      });
-    });
+    const { rj, notes, gradePitch } = subGradeInfo(sub);
+    const runAt = all => {
+      outer: for (let k = 0; k + notes.length <= all.length; k++) {
+        for (let i = 0; i < notes.length; i++) if (all[k + i].bar !== notes[i].bar || all[k + i].idx !== notes[i].idx) continue outer;
+        return k;
+      }
+      return -1;
+    };
+    const lines = ctl.sc.lines.map((L, i) => i);
+    if (rj.lineIdx != null && ctl.sc.lines[rj.lineIdx]) lines.unshift(rj.lineIdx);
+    else {
+      const want = String(rj.partName || sm.studentPart || '').toLowerCase();
+      if (want) lines.sort((a, b) => (String(ctl.sc.lines[b].name || '').toLowerCase().includes(want) ? 1 : 0) - (String(ctl.sc.lines[a].name || '').toLowerCase().includes(want) ? 1 : 0));
+    }
+    let exp = null, lineIdx = null;
+    for (const li of lines) {
+      const all = spExpectedNotes(ctl, li, { a: 0, b: Infinity });
+      const k = runAt(all);
+      if (k >= 0) { exp = all.slice(k, k + notes.length); lineIdx = li; break; }
+    }
+    if (!exp) { ctl.drawGradeMarks?.(); return true; }   // the music shows without marks; the table below still lists every note
+    const q = Number(rj.q) || 60 / (typeof spBpmAt === 'function' ? spBpmAt(ctl.sc, 0) : 100) / ((Number(st.tempo) || 100) / 100);
+    const off = notes[0].t != null ? exp[0].t - Number(notes[0].t) : null;
+    const res = {
+      notes: notes.map(n => ({ ...n, match: n.status === 'missed' ? null : {} })),
+      q, T0: 0, offsetSec: 0, diag: { heard: rj.heard ?? 1 },
+      det: off == null ? [] : (rj.extraAt || []).map(p => ({ t: (Number(p) + off) * q })),
+    };
+    host.__grResult = { res, gradePitch, exp, lineIdx, fileId: fid, hidden: false, hist: [] };
+    ctl.drawGradeMarks?.();
+    // start the view at the graded measures
+    const tick = host.querySelector('.sp-grov .gr-tick'), scroller = host.querySelector('.sp-score');
+    if (tick && scroller) scroller.scrollTop = Math.max(0, Number(tick.getAttribute('y1')) - 60);
+    return true;
   }
 
   function mountModalVisualStaff() {
     const sm = S_STATE.subModal;
     const sub = sm?.attempts?.[sm.activeIdx];
-    const staffEl = document.getElementById('hwt-sub-visual-staff');
-    if (!staffEl || !sub?.resultsJson?.notes?.length) return;
+    const box = document.getElementById('hwt-sub-visual-staff');
+    if (!box || !sub?.resultsJson?.notes?.length) return;
     const notes = sub.resultsJson.notes;
     const asgn = S_STATE.assignments.find(a => a.id === sm.assignmentId) || sm.assignment;
+    const noMusic = msg => { box.innerHTML = `<div class="small muted">${escHtml(msg)}</div>`; };
 
+    if (asgn?.type === 'score') {
+      mountSubScore(box, asgn, sub).then(ok => { if (!ok) noMusic('The score can’t be shown here. Every note is listed below.'); })
+        .catch(() => noMusic('The score can’t be shown here. Every note is listed below.'));
+      return;
+    }
+
+    box.innerHTML = '<div class="sr-staff hwt-gr-staff"></div>';
+    const staffEl = box.firstChild;
     if (asgn?.type === 'sight' && asgn?.config?.srState && typeof srDraw === 'function') {
       const srCopy = JSON.parse(JSON.stringify(asgn.config.srState));
+      if (srCopy.ex && Array.isArray(srCopy.ex.rhythm)) srCopy.ex.rhythm = { rhythm: srCopy.ex.rhythm };   // older saved shape
       let view = srCopy;
       if (srCopy.mode === 'build' && typeof srBuildToView === 'function' && srCopy.build?.items?.length) {
         try { view = srBuildToView(srCopy); } catch { }
@@ -1900,12 +1972,13 @@
           }
           staffEl.__zoom = 1;
           const tl = srDraw(staffEl, view);
-          const tempo = Number(view[view.mode]?.tempo || 80);
-          if (applyStudentMarksToSightSvg(staffEl, tl, notes, tempo)) {
-            return;
-          }
+          const o = view[view.mode] || {};
+          const beatQ = typeof SR_METERS !== 'undefined' && SR_METERS[o.ts]?.[1] === 'compound' ? 1.5 : 1;
+          const q = Number(sub.resultsJson.q) || 60 / (Number(o.tempo) || 80) / beatQ;
+          applyStudentMarksToSightSvg(staffEl, tl, notes, q, sub.resultsJson.extraAt);
+          return;   // the music shows even if a note can't be placed; the table below lists every note
         } catch {
-          // Fall back cleanly to clean mini-staff visual below
+          // drawn below as a plain message
         } finally {
           if (typeof S !== 'undefined' && S?.settings && prevRhySys !== undefined) {
             S.settings.rhythmSystem = prevRhySys;
@@ -1913,50 +1986,12 @@
         }
       }
     }
-
-    drawFallbackVisualStaffSvg(staffEl, notes);
+    noMusic('The music for this assignment can’t be shown here. Every note is listed below.');
   }
 
+  // the grade card's headline, marks and "What was graded" table (one place, so they never disagree)
   function renderSubNoteBreakdownHTML(sub) {
-    const notes = sub.resultsJson?.notes;
-    if (!Array.isArray(notes) || !notes.length) return '';
-
-    const visualSection = renderSubVisualFeedbackHTML(sub);
-    const groups = new Map();
-    for (const n of notes) {
-      const bar = n.bar != null ? n.bar : 1;
-      if (!groups.has(bar)) groups.set(bar, []);
-      groups.get(bar).push(n);
-    }
-
-    const htmlGroups = [];
-    for (const [bar, list] of groups.entries()) {
-      const pills = list.map((n, i) => {
-        const st = ['ok', 'timing', 'pitch', 'missed', 'wrong'].includes(n.status) ? n.status : 'wrong';
-        const parts = [];
-        parts.push(n.pitch && n.pitch !== 'ok' && n.pitch !== 'rest' ? n.pitch : `#${(n.idx != null ? n.idx : i) + 1}`);
-        if (n.sungAs) parts.push(`(heard ${n.sungAs})`);
-        if (n.errMs != null && st !== 'missed') {
-          const sign = Number(n.errMs) > 0 ? '+' : '';
-          parts.push(`${sign}${Math.round(Number(n.errMs))}ms`);
-        }
-        if (n.cents != null && st !== 'missed') {
-          const sign = Number(n.cents) > 0 ? '+' : '';
-          parts.push(`${sign}${Math.round(Number(n.cents))}¢`);
-        }
-        if (st === 'missed') parts.push('missed');
-        return `<span class="hwt-note-pill ${st}">${escHtml(parts.join(' '))}</span>`;
-      }).join('');
-      htmlGroups.push(`<div class="hwt-measure-group"><strong>m.${escHtml(bar)}</strong>${pills}</div>`);
-    }
-
-    return `
-      ${visualSection}
-      <details>
-        <summary class="small muted" style="cursor:pointer;font-weight:600">Measure-by-measure timing &amp; cents details (${notes.length} notes)</summary>
-        <div class="hwt-notes-grid" style="margin-top:8px">${htmlGroups.join('')}</div>
-      </details>
-    `;
+    return renderSubVisualFeedbackHTML(sub);
   }
 
   // ---------- Settings Card (#hw-settings-card)
@@ -2443,11 +2478,13 @@
         if (!confirm(`Regenerate personal sign-in codes for all active students in "${cls.name}"? Existing student sessions will be signed out.`)) break;
         const res = await api.regenerateClassCodes(cls.id, { revokeSessions: true });
         if (!res?.ok) { showToast(res?.error || 'Could not regenerate codes.'); break; }
+        // Leave the Test Student out of the printed code sheet.
+        const testIds = new Set(S_STATE.students.filter(s => s.isTest).map(s => s.id));
         S_STATE.generatedCodes = {
           classId: cls.id,
           className: cls.name,
           joinCode: cls.joinCode,
-          items: res.generatedCodes || [],
+          items: (res.generatedCodes || []).filter(it => !testIds.has(it.id) && !testIds.has(it.studentId)),
         };
         await loadClassDetails(cls.id);
         renderAll();
@@ -2466,7 +2503,7 @@
       case 'export-roster-csv': {
         const cls = getSelectedClass();
         if (!cls) break;
-        const r = api.exportRosterCsv(cls, S_STATE.students);
+        const r = api.exportRosterCsv(cls, realStudents());
         showToast(r?.ok ? `Exported ${r.count} student${r.count === 1 ? '' : 's'} to ${r.filename}.` : (r?.error || 'Could not export roster CSV.'));
         break;
       }
@@ -2482,6 +2519,42 @@
         S_STATE.generatedCodes = null;
         renderMain();
         break;
+      case 'open-test-student': {
+        const cls = getSelectedClass();
+        if (!cls || !api) break;
+        // Open the window now, while the click is still allowed to open a popup.
+        // Its address is set once the test session is ready.
+        const win = window.open('about:blank', '_blank');
+        try {
+          const r = await api.openTestStudent(cls.id);
+          const url = new URL('hw.html', location.href).href + '#test=' + encodeURIComponent(r.token);
+          if (win) win.location.href = url;
+          else window.open(url, '_blank');
+        } catch (err) {
+          if (win) win.close();
+          showToast(err?.message || 'Could not open the test student.');
+        }
+        break;
+      }
+      case 'apply-beta-code': {
+        const box = btn.closest('.hwt-beta-code');
+        const input = box?.querySelector('.hwt-beta-input');
+        const errEl = box?.querySelector('.hwt-beta-err');
+        const code = String(input?.value || '').trim();
+        if (errEl) errEl.textContent = '';
+        if (!code) { if (errEl) errEl.textContent = 'Type your beta code first.'; break; }
+        btn.disabled = true;
+        try {
+          const res = await api.redeemBeta(code);
+          if (res && res.ok === false) throw new Error(res.error || 'That beta code did not work.');
+          showToast('Beta access is on.');
+          await loadSessionAndWorkspace(true);
+        } catch (err) {
+          if (errEl) errEl.textContent = err?.message || 'That beta code did not work.';
+          btn.disabled = false;
+        }
+        break;
+      }
       case 'stu-new-code': {
         const cls = getSelectedClass();
         const sid = btn.dataset.id;
@@ -3088,7 +3161,7 @@
     const lc = getLocalClasses().find(c => c.id === rf.importClassId);
     if (!lc || !Array.isArray(lc.roster) || !lc.roster.length) return;
 
-    const existingNames = new Set(S_STATE.students.map(s => String(s.displayName || '').trim().toLowerCase()));
+    const existingNames = new Set(realStudents().map(s => String(s.displayName || '').trim().toLowerCase()));
     const toAdd = lc.roster
       .map(n => String(n || '').trim())
       .filter(n => n && !existingNames.has(n.toLowerCase()))

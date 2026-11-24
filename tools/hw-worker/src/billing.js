@@ -10,6 +10,7 @@
 
 import { DAY_MS, cleanText, errResponse, getBearerToken, jsonResponse, normalizeEmail, nowMs, readJsonBody } from './util.js';
 import { timingSafeEqual, verifyStripeSignature } from './crypto.js';
+import { checkRateLimit } from './rate-limit.js';
 
 export const TRIAL_DAYS = 30;
 export const GRACE_DAYS = 7;
@@ -67,6 +68,8 @@ export function computePlanState(teacher, now = Date.now()) {
         inGrace: false,
         planEndsAt: endsAt,
         poReference: teacher.po_reference || null,
+        beta: raw === 'po_active' && !!teacher.beta_code,
+        betaEndsAt: raw === 'po_active' && teacher.beta_code ? endsAt : null,
         daysLeft: endsAt ? Math.max(1, Math.ceil((endsAt - now) / DAY_MS)) : null,
         studentSoftCap: softCap,
       };
@@ -331,6 +334,56 @@ export async function handleStripeWebhook(request, env) {
   }
 
   return jsonResponse({ ok: true, handled: type }, 200, request, env);
+}
+
+// Beta code: a teacher types a code we gave them and gets free access until the code's end date.
+// Stored as 'po_active' (the plan_status list can't be changed without rebuilding the table)
+// plus teachers.beta_code, which is what marks it as beta.
+export async function handleRedeemBeta(request, env, auth) {
+  const teacher = auth.teacher;
+  const rl = await checkRateLimit(env, `beta:${teacher.id}`, 10, 60 * 60 * 1000);
+  if (!rl.allowed) return errResponse('Too many tries. Please wait a bit and try again.', 429, 'RATE_LIMITED', request, env);
+
+  const body = await readJsonBody(request);
+  if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
+  const code = String(body.data.code || '').trim().toUpperCase().replace(/\s+/g, '');
+  const invalid = () => errResponse('That beta code isn’t valid.', 400, 'BETA_INVALID', request, env);
+  if (!code || code.length > 40) return invalid();
+
+  const now = nowMs(env);
+  if (teacher.plan_status === 'active') {
+    return errResponse('You already have a paid plan, so you don’t need a beta code.', 400, 'ALREADY_PAID', request, env);
+  }
+
+  const row = await env.DB.prepare('SELECT * FROM beta_codes WHERE code = ?').bind(code).first();
+  if (!row || Number(row.plan_ends_at) <= now) return invalid();
+  const already = await env.DB.prepare(
+    'SELECT 1 AS x FROM beta_redemptions WHERE code = ? AND teacher_id = ?'
+  ).bind(code, teacher.id).first();
+  if (already) return errResponse('You’ve already used that code.', 400, 'BETA_USED', request, env);
+
+  // Claim one use atomically so two people can't both take the last one.
+  const claim = await env.DB.prepare(
+    'UPDATE beta_codes SET uses = uses + 1 WHERE code = ? AND uses < max_uses'
+  ).bind(code).run();
+  if (!Number(claim?.meta?.changes || 0)) {
+    return errResponse('That beta code has already been used up.', 400, 'BETA_FULL', request, env);
+  }
+  await env.DB.prepare(
+    'INSERT INTO beta_redemptions (code, teacher_id, redeemed_at) VALUES (?, ?, ?)'
+  ).bind(code, teacher.id, now).run();
+
+  const endsAt = Math.max(Number(row.plan_ends_at), Number(teacher.plan_ends_at || 0));
+  const cap = Math.max(Number(row.student_soft_cap || 0), Number(teacher.student_soft_cap || 0));
+  await env.DB.prepare(
+    `UPDATE teachers
+     SET plan_status = 'po_active', plan_ends_at = ?, grace_ends_at = NULL,
+         student_soft_cap = ?, po_reference = ?, beta_code = ?, updated_at = ?
+     WHERE id = ?`
+  ).bind(endsAt, cap, `Beta: ${row.label || code}`, code, now, teacher.id).run();
+
+  const fresh = await env.DB.prepare('SELECT * FROM teachers WHERE id = ?').bind(teacher.id).first();
+  return jsonResponse({ ok: true, plan: computePlanState(fresh, now) }, 200, request, env);
 }
 
 // School / District Purchase Order license grant (requires ADMIN_SECRET Bearer token)

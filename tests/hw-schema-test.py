@@ -24,6 +24,8 @@ EXPECTED_TABLES = {
     "attempt_starts",
     "submissions",
     "rate_limits",
+    "beta_codes",
+    "beta_redemptions",
 }
 
 passed = 0
@@ -63,9 +65,9 @@ def main():
     actual_tables = {r[0] for r in rows}
     check(
         actual_tables == EXPECTED_TABLES,
-        f"Expected 11 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
+        f"Expected 13 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
     )
-    check(len(actual_tables) == 11, "Exactly 11 tables created")
+    check(len(actual_tables) == 13, "Exactly 13 tables created")
 
     now = 1_700_000_000_000
     trial_end = now + 30 * 86_400_000

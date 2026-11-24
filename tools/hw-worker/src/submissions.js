@@ -141,14 +141,21 @@ export function validateAndRecomputeSubmission({
     if (!n || typeof n !== 'object' || !VALID_NOTE_STATUSES.has(n.status)) {
       return { ok: false, error: `Invalid note status at index ${i}.` };
     }
-    sanitizedNotes.push({
+    const sn = {
       bar: isFiniteNumeric(n.bar) ? Math.round(Number(n.bar)) : null,
       idx: isFiniteNumeric(n.idx) ? Math.round(Number(n.idx)) : i,
       status: n.status,
       pitch: typeof n.pitch === 'string' && n.pitch ? cleanText(n.pitch, 16) : null,
       cents: isFiniteNumeric(n.cents) ? Math.round(Number(n.cents)) : null,
       errMs: isFiniteNumeric(n.errMs) ? Math.round(Number(n.errMs)) : null,
-    });
+    };
+    // what the teacher's review needs to show the same marks and wording as the student's grade card
+    if (isFiniteNumeric(n.written)) sn.written = clamp(Math.round(Number(n.written)), 0, 127);
+    if (typeof n.sungAs === 'string' && n.sungAs) sn.sungAs = cleanText(n.sungAs, 8);
+    if (isFiniteNumeric(n.octave) && Number(n.octave)) sn.octave = clamp(Math.round(Number(n.octave)), -4, 4);
+    if (n.joined === true) sn.joined = true;
+    if (isFiniteNumeric(n.t)) sn.t = +clamp(Number(n.t), -1e5, 1e5).toFixed(4);
+    sanitizedNotes.push(sn);
   }
 
   const total = sanitizedNotes.length;
@@ -248,6 +255,15 @@ export function validateAndRecomputeSubmission({
     noteCount: total,
     notes: sanitizedNotes,
   };
+  // where the graded notes sit in the music (seconds per beat unit, which part of a score, extra sounds)
+  if (isFiniteNumeric(results.q) && Number(results.q) > 0 && Number(results.q) < 10) sanitizedResults.q = +Number(results.q).toFixed(5);
+  if (isFiniteNumeric(results.lineIdx)) sanitizedResults.lineIdx = clamp(Math.round(Number(results.lineIdx)), 0, 500);
+  if (typeof results.rangeLabel === 'string' && results.rangeLabel) sanitizedResults.rangeLabel = cleanText(results.rangeLabel, 40);
+  if (typeof results.partName === 'string' && results.partName) sanitizedResults.partName = cleanText(results.partName, 80);
+  if (isFiniteNumeric(results.heard)) sanitizedResults.heard = clamp(Math.round(Number(results.heard)), 0, 100000);
+  if (Array.isArray(results.extraAt)) {
+    sanitizedResults.extraAt = results.extraAt.slice(0, 500).filter(isFiniteNumeric).map(p => +clamp(Number(p), -1e5, 1e5).toFixed(3));
+  }
 
   return {
     ok: true,
@@ -659,7 +675,7 @@ export async function handleGetGradebook(request, env, auth, classId) {
   const studentsRes = await env.DB.prepare(
     `SELECT id, display_name, email, part, archived_at
      FROM students
-     WHERE class_id = ? AND archived_at IS NULL
+     WHERE class_id = ? AND archived_at IS NULL AND is_test = 0
      ORDER BY LOWER(display_name) ASC, created_at ASC`
   ).bind(classId).all();
   const students = studentsRes?.results || [];
@@ -784,7 +800,7 @@ export async function handleListAssignmentSubmissions(request, env, auth, assign
   }
 
   const rowsRes = await env.DB.prepare(
-    `SELECT s.*, st.display_name AS student_name, st.email AS student_email, st.part AS student_part
+    `SELECT s.*, st.display_name AS student_name, st.email AS student_email, st.part AS student_part, st.is_test AS student_is_test
      FROM submissions s
      JOIN students st ON st.id = s.student_id
      WHERE s.assignment_id = ?
@@ -808,6 +824,7 @@ export async function handleListAssignmentSubmissions(request, env, auth, assign
       studentName: s.student_name,
       studentEmail: s.student_email || null,
       studentPart: s.student_part || '',
+      studentIsTest: !!s.student_is_test,
       attemptNum: s.attempt_num,
       attemptStartId: s.attempt_start_id || null,
       overallPct: s.overall_pct,
@@ -975,7 +992,7 @@ export async function handleExportGradebookCsv(request, env, auth, classId) {
   const studentsRes = await env.DB.prepare(
     `SELECT id, display_name, email, part
      FROM students
-     WHERE class_id = ? AND archived_at IS NULL
+     WHERE class_id = ? AND archived_at IS NULL AND is_test = 0
      ORDER BY LOWER(display_name) ASC, created_at ASC`
   ).bind(classId).all();
   const students = studentsRes?.results || [];
