@@ -75,7 +75,7 @@ The web version keeps its classes and files in that browser on that device only.
 - **Library:** music and sound files, PDFs and pictures, stored on this Mac.
 - **Test mode** (Settings): pretend it's a different time to watch automations run.
 - **Settings** is one page, ordered by how often you change things: Present screen, sight-reading grading, sound and playhead sync, Online Homework, Test mode, Drive and bookmarks, updates, backups, support. The Rehearsal icon at the top left of Setup opens it.
-- **Class looks:** every new class gets one of seven built-in backgrounds (risers, piano keys, staff, spotlight, waves, sunset, notes); pick others under **Rehearsal backgrounds** in Look. **My looks** saves a class's colours and picture under a name so you can use it on another class, or on all of them. New classes start with an 85% panel background and 20% dimming.
+- **Class looks:** every new class starts with the Sky colours, the Waves background and a white class title and clock; there are seven built-in backgrounds (risers, piano keys, staff, spotlight, waves, sunset, notes) under **Rehearsal backgrounds** in Look. **My looks** saves a class's colours and picture under a name so you can use it on another class, or on all of them. New classes start with an 85% panel background and 20% dimming.
 - **Online Homework extras:** teachers can enter a beta code (Account & Plan) for free access until the code's end date, and every class has a built-in **Test Student** (not counted in grades; its homework is cleared after 7 days) with an **Open as student** button. Beta codes are made with `tools/hw-worker/make-beta-codes.sh`.
 
 Keyboard on the Present screen: ← → move the agenda, Esc closes pop-ups and annotation, ⌘E opens Setup, ⌃⌘F toggles full screen.

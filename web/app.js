@@ -92,12 +92,11 @@ const ACTION_TYPES = {
   warmup: 'Show the warm-up', agenda: 'Go to agenda step', signal: 'Show a signal', clearSignal: 'Clear signal',
 };
 
-// Each new class gets the next built-in background, so a set of classes looks varied from the start.
-// (Classes that already exist are never changed.)
-let BG_NEXT = 0;
-function newClass(name = 'New class', themeIdx = 7, bgIdx = BG_NEXT++) {
+// Every new class starts with the same look: the Sky colours, the Waves background, 85% panels and 20% dimming.
+// (Pick any other colours or background in Look. Classes that already exist are never changed.)
+function newClass(name = 'New class') {
   return {
-    id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: 'bg:' + BACKGROUNDS[bgIdx % BACKGROUNDS.length][0], panel: 0.85, dim: 0.2 },
+    id: uid(), name, subtitle: '', theme: { ...THEMES.find(t => t.name === 'Sky'), image: 'bg:waves', panel: 0.85, dim: 0.2, titleText: '#ffffff', clockText: '#ffffff' },
     agenda: [], warmup: '', resources: [], roster: [], automations: [], points: [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }], notes: {},
   };
 }
@@ -5951,7 +5950,7 @@ const A = {
   },
   // classes
   'class-sel': el => { SEL_CLASS = el.dataset.id; renderEditor(); renderClip(); $('#e-main').scrollTop = 0; },
-  'class-add': () => { const c = newClass('New class', S.classes.length, S.classes.length); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
+  'class-add': () => { const c = newClass('New class'); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
   'class-dup': () => { const c = S.classes.find(x => x.id === SEL_CLASS); const d = JSON.parse(JSON.stringify(c)); d.id = uid(); d.name += ' (copy)'; d.notes = {}; d.automations.forEach(a => a.id = uid()); S.classes.push(d); SEL_CLASS = d.id; save(); renderEditor(); },
   'class-del': () => {
     const c = S.classes.find(x => x.id === SEL_CLASS);

@@ -2991,7 +2991,7 @@ button.pdfv-num:hover { background: rgba(255,255,255,.12); border-color: rgba(25
 .chip.pin-chip {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  color: var(--text); font-weight: 700; cursor: pointer;
+  color: var(--title-text, var(--text)); font-weight: 700; cursor: pointer;   /* in the header, so it follows the class title colour */
 }
 .chip.pin-chip:hover { background: color-mix(in srgb, var(--accent) 36%, transparent); }
 .swb-hint {
