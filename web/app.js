@@ -97,7 +97,7 @@ const ACTION_TYPES = {
 let BG_NEXT = 0;
 function newClass(name = 'New class', themeIdx = 7, bgIdx = BG_NEXT++) {
   return {
-    id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: 'bg:' + BACKGROUNDS[bgIdx % BACKGROUNDS.length][0], panel: 0.5 },
+    id: uid(), name, subtitle: '', theme: { ...THEMES[themeIdx % THEMES.length], image: 'bg:' + BACKGROUNDS[bgIdx % BACKGROUNDS.length][0], panel: 0.85, dim: 0.2 },
     agenda: [], warmup: '', resources: [], roster: [], automations: [], points: [{ name: 'Team 1', score: 0 }, { name: 'Team 2', score: 0 }], notes: {},
   };
 }
@@ -5959,7 +5959,7 @@ const A = {
     S.classes = S.classes.filter(x => x !== c); S.templates.forEach(t => t.periods = t.periods.filter(p => p.classId !== c.id)); save(); renderEditor();
   },
   'class-preview': () => { P.pinned = SEL_CLASS; go('present'); },
-  theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '', ...(c.theme.panel != null ? { panel: c.theme.panel } : {}) }; save(); renderEditor(); },
+  theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '', ...(c.theme.panel != null ? { panel: c.theme.panel } : {}), ...(c.theme.dim != null ? { dim: c.theme.dim } : {}) }; save(); renderEditor(); },
   'theme-text-reset': () => { const c = selClass(); if (!c) return; delete c.theme.titleText; delete c.theme.clockText; save(); renderEditor(); },
   'theme-image': async () => { const [f] = await pickFile('image/*'); if (!f) return; const id = await storeFile(f); selClass().theme.image = 'file:' + id; save(); renderEditor(); },
   'theme-bg': el => { selClass().theme.image = 'bg:' + el.dataset.bg; save(); renderEditor(); },
