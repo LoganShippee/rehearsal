@@ -681,7 +681,7 @@
             <strong>30-Day Free Trial — No Credit Card Required</strong>
             <span class="hwt-pill ok">Up to 300 students</span>
           </div>
-          <div class="hwt-trial-points">Try every homework feature right away by entering your school email below. After 30 days, continue for $5/mo or $49/yr (or a School Purchase Order).</div>
+          <div class="hwt-trial-points">Try every homework feature right away: sign in with Google or your school email. After 30 days, continue for $5/mo or $49/yr (or a School Purchase Order).</div>
         </div>
 
         ${qsDemo ? `<div class="hwt-banner info">
@@ -732,7 +732,7 @@
           <div class="row">
             <button type="button" class="btn ${googleSection ? '' : 'primary'}" data-hwt="auth-send-code" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Sending…' : 'Email me a sign-in code'}</button>
           </div>
-          <div class="small muted">New here? Entering your school email automatically starts your free 30-day trial — no password or credit card needed.</div>
+          <div class="small muted">New here? Signing in with Google or your school email starts your free 30-day trial. No password or credit card needed.</div>
         `}
 
         <label class="chk">

@@ -728,12 +728,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         // Google sign-in popups must stay in-app so they can talk back to the opener page.
         let host = url?.host ?? ""
         if url == nil || url?.absoluteString == "about:blank" || host.hasSuffix("accounts.google.com") || host.hasSuffix("google.com") && url!.path.contains("signin") {
-            let popup = WKWebView(frame: NSRect(x: 0, y: 0, width: 520, height: 680), configuration: configuration)
+            // A blank popup is also how "Open as student" opens its window, so only Google's own
+            // pages get the small sign-in size and title; everything else is a normal-sized window.
+            let isGoogle = host.hasSuffix("google.com")
+            let size = isGoogle ? NSSize(width: 520, height: 680) : NSSize(width: 1100, height: 780)
+            let popup = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
             popup.customUserAgent = safariUA
             popup.uiDelegate = self
-            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680),
-                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            win.title = "Sign in with Google"
+            let win = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                               styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            win.title = isGoogle ? "Sign in with Google" : "Rehearsal"
             win.contentView = popup
             win.isReleasedWhenClosed = false
             win.center()

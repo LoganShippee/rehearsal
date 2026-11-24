@@ -17,14 +17,16 @@
   const native = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native);
   const hasServer = isLocalHost && location.protocol.startsWith('http') && !!QS.get('t');
   const gateOn = !native && !hasServer && QS.get('demo') !== '1' && (!isLocalHost || QS.get('gate') === '1');
-  if (!gateOn) return;
+  // Mac/Windows apps: sign-in is never required. Teachers can turn on the same backup from Settings ("optional" mode).
+  const optional = (native || hasServer) && QS.get('demo') !== '1';
+  if (!gateOn && !optional) return;
 
   const META_KEY = 'rehearsal-hw-sync';
   const DEMO_SERVER_KEY = 'rehearsal-hw-sync-demo-server';   // stands in for the server when no worker is reachable (?hwApi=demo)
   const MAX_BYTES = 1400000;
   const PUSH_DELAY = 4000;
 
-  let state = 'checking';       // checking | signedout | ready
+  let state = 'checking';       // checking | signedout | ready   (optional mode: off | signedout (sign-in expired) | ready)
   let chipState = 'idle';       // idle | saving | saved | offline | error | toolarge
   let me = null, meta = loadMeta(), pushTimer = null, pushing = false, dirty = false;
   let restorePending = null;    // the open restore question (a promise), so only one is ever shown and no push runs meanwhile
@@ -66,7 +68,7 @@
 
   // ---------- push (debounced, called from saveNow)
   function changed() {
-    if (state !== 'ready') return;
+    if (state !== 'ready') return;   // optional mode: only after the teacher turned backup on
     dirty = true;
     if (restorePending) return;
     clearTimeout(pushTimer);
@@ -105,7 +107,8 @@
     const mine = JSON.stringify(snapshot());
     if (!r.data) { meta.rev = r.rev || 0; saveMeta(); return push(); }          // nothing on the account yet: back up this device
     if (JSON.stringify(r.data) === mine) { meta.rev = r.rev; meta.hash = mine; saveMeta(); return setChip('saved'); }
-    const fresh = typeof IS_FRESH_INSTALL !== 'undefined' && IS_FRESH_INSTALL;
+    // Desktop backup is opt-in, so "fresh install" never forces a restore there.
+    const fresh = !optional && typeof IS_FRESH_INSTALL !== 'undefined' && IS_FRESH_INSTALL;
     if (fresh || (r.rev || 0) > (meta.rev || 0)) return offerRestore(r.data, r.rev, false);
     return push();
   }
@@ -115,7 +118,8 @@
     // A copy that is not a real saved document must never replace what is on this device.
     const valid = serverData && typeof serverData === 'object' && !Array.isArray(serverData) && (serverData.classes || serverData.settings);
     if (!valid) { meta.rev = rev || 0; saveMeta(); return push(); }
-    const fresh = typeof IS_FRESH_INSTALL !== 'undefined' && IS_FRESH_INSTALL;
+    const fresh = !optional && typeof IS_FRESH_INSTALL !== 'undefined' && IS_FRESH_INSTALL;
+    css();                                              // desktop never drew the overlay first, so make sure the styles exist
     restorePending = new Promise(resolve => {
       const m = document.createElement('div');
       m.className = 'hws-modal';
@@ -134,7 +138,19 @@
           try { const cur = localStorage.getItem('rehearsal'); if (cur) localStorage.setItem('rehearsal-pre-restore', cur); } catch { }   // so a restore can be undone
           const d = JSON.parse(JSON.stringify(serverData));
           d.files = (typeof S !== 'undefined' && S && S.files) || {};
-          try { localStorage.setItem('rehearsal', JSON.stringify(d)); } catch { }
+          if (optional && typeof HAS_SERVER !== 'undefined' && HAS_SERVER) {
+            // Mac/Windows app: the real copy lives in the app's own folder. Keep a dated backup, then replace it.
+            try { await fetch('/api/backup-now', { method: 'POST', headers: { 'X-Token': TOKEN } }); } catch { }
+            window.__noSave = true;
+            try { if (typeof saveTimer !== 'undefined') clearTimeout(saveTimer); } catch { }
+            try {
+              const w = await fetch('/api/data', { method: 'POST', headers: { 'X-Token': TOKEN, 'X-Client': CLIENT, 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+              if (!w.ok) throw new Error('save failed');
+            } catch { window.__noSave = false; alert('Could not restore from your account. Nothing on this computer was changed.'); restorePending = null; resolve(); return; }
+            try { localStorage.removeItem('rehearsal'); } catch { }
+          } else {
+            try { localStorage.setItem('rehearsal', JSON.stringify(d)); } catch { }
+          }
           meta.rev = rev; meta.hash = JSON.stringify(serverData); saveMeta();
           window.__noSave = true;                       // don't overwrite the restored copy while reloading
           location.reload();
@@ -186,10 +202,10 @@
   }
 
   function render() {
-    if (state === 'ready') { overlay?.remove(); overlay = null; setInert(false); return; }
+    if (state === 'ready' || (optional && !ui.open)) { overlay?.remove(); overlay = null; if (!optional) setInert(false); paintCard(); return; }
     css();
     if (!overlay) { overlay = document.createElement('div'); overlay.className = 'hws-gate'; document.body.appendChild(overlay); }
-    setInert(true);
+    if (!optional) setInert(true);
     let body;
     if (state === 'checking') body = `<h1>Rehearsal</h1><p>Checking your sign-in…</p>`;
     else if (ui.step === 'code') body = `<h1>Check your email</h1><p>We sent a 6-digit code to ${esc(ui.email)}.</p>
@@ -198,12 +214,13 @@
       ${ui.error ? `<p class="hws-err">${esc(ui.error)}</p>` : ''}
       <button class="hws-btn hws-primary" data-a="verify" ${ui.busy ? 'disabled' : ''}>Sign in</button>
       <button class="hws-btn" data-a="back">Use a different email</button>`;
-    else body = `<h1>Sign in to Rehearsal</h1><p>Teachers sign in so their classes and schedules are saved to their account and follow them to any computer.</p>
+    else body = `<h1>${optional ? 'Back up to your account' : 'Sign in to Rehearsal'}</h1><p>${optional ? 'Sign in with Google or an email code and your classes, schedules and settings are saved to your account, so you can restore them on a new computer. This is optional.' : 'Teachers sign in so their classes and schedules are saved to their account and follow them to any computer.'}</p>
       ${ui.handoff ? `<p class="hws-note">Finish signing in with Google in the window that opened…</p><button class="hws-btn" data-a="cancelg">Cancel</button>` :
         `<button class="hws-btn hws-primary" data-a="google" ${ui.busy ? 'disabled' : ''}>Sign in with Google</button><div class="hws-or">or use an email code</div>`}
       <input id="hws-email" type="email" autocomplete="email" placeholder="you@school.org" value="${esc(ui.email)}">
       ${ui.error ? `<p class="hws-err">${esc(ui.error)}</p>` : ''}
-      <button class="hws-btn" data-a="sendcode" ${ui.busy ? 'disabled' : ''}>Email me a code</button>`;
+      <button class="hws-btn" data-a="sendcode" ${ui.busy ? 'disabled' : ''}>Email me a code</button>
+      ${optional ? '<button class="hws-btn" data-a="close">Not now</button>' : ''}`;
     overlay.innerHTML = `<div class="hws-card" role="dialog" aria-modal="true">${body}</div>`;
   }
 
@@ -214,6 +231,7 @@
     const emailEl = overlay.querySelector('#hws-email'); if (emailEl) ui.email = emailEl.value.trim();
     const codeEl = overlay.querySelector('#hws-code'); if (codeEl) ui.code = codeEl.value.replace(/\s+/g, '');
     if (a === 'back') { ui.step = 'start'; ui.code = ''; return render(); }
+    if (a === 'close') { stopHandoff(); ui = { step: 'start', email: '', code: '', busy: false, error: '', notice: '', handoff: null, open: false }; return render(); }
     if (a === 'cancelg') { stopHandoff(); return render(); }
     if (a === 'sendcode') {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ui.email)) { ui.error = 'Enter a valid email address.'; return render(); }
@@ -265,6 +283,14 @@
     const r = await api.getMe();
     me = r?.teacher || null;
     const email = me?.email || '';
+    if (optional) {
+      // Desktop app: never wipe or reload local data. A different account just starts a fresh sync with this account.
+      if (meta.email && email && meta.email !== email) meta = { email };
+      meta.email = email; meta.enabled = true; saveMeta();
+      state = 'ready'; ui = { step: 'start', email: '', code: '', busy: false, error: '', notice: '', handoff: null, open: false };
+      render(); setChip('saving'); await syncDown();
+      return;
+    }
     if (meta.email && email && meta.email !== email) {
       // A different teacher on this browser: never carry the last teacher's classes into this account.
       meta = { email }; saveMeta();
@@ -290,14 +316,61 @@
   function signedOut(msg) {
     api.clearSession();
     state = 'signedout'; me = null; ui.step = 'start'; ui.error = msg || '';
+    if (optional) { ui.error = ''; render(); return; }   // desktop: the Settings card says "sign in again"
     render(); setChip('idle');
   }
+
+  // ---------- desktop only: the Settings card (Mac and Windows apps)
+  const CARD_ID = 'hws-card';
+  function renderCard() { return optional ? `<div class="card" id="${CARD_ID}"></div>` : ''; }
+  function paintCard() {
+    if (!optional) return;
+    const el = document.getElementById(CARD_ID); if (!el) return;
+    const signedInHere = !!api.getToken();
+    let status, buttons;
+    if (state === 'ready') {
+      status = `Backing up to <b>${esc(me?.email || meta.email || 'your account')}</b>. ${esc(CHIP[chipState] || CHIP.saved)}.`;
+      buttons = `<button class="btn" data-hws="now">Back up now</button><button class="btn" data-hws="off">Stop backing up</button>`;
+    } else if (meta.enabled && !signedInHere) {
+      status = 'Your sign-in expired, so backing up is paused.';
+      buttons = `<button class="btn primary" data-hws="signin">Sign in again</button><button class="btn" data-hws="off">Stop backing up</button>`;
+    } else if (signedInHere) {
+      status = `You're signed in to Online Homework${me?.email ? ` as <b>${esc(me.email)}</b>` : ''}. Backup is off.`;
+      buttons = `<button class="btn primary" data-hws="on">Turn on backup</button>`;
+    } else {
+      status = 'Backup is off.';
+      buttons = `<button class="btn primary" data-hws="signin">Sign in to back up</button>`;
+    }
+    el.innerHTML = `<h2>Back up to my account <span class="small muted">(optional)</span></h2>
+      <p class="desc">Sign in with Google or an email code and Rehearsal saves your classes, schedules and settings to your account, so you can restore them on a new computer. Library files (scores, PDFs, pictures) are not uploaded. You don't need an account to use Rehearsal, and the daily backups on this ${esc(typeof DEVICE !== 'undefined' ? DEVICE : 'computer')} keep running either way. Signing in here does not start the Online Homework trial.</p>
+      <p class="small">${status}</p>
+      <div class="row">${buttons}</div>`;
+  }
+  async function turnOn() {
+    me = (await api.getMe())?.teacher || me;
+    if (me?.email && meta.email && meta.email !== me.email) meta = { email: me.email };   // a different account: forget the old copy's revision
+    meta.enabled = true; meta.email = me?.email || meta.email; saveMeta();
+    state = 'ready'; setChip('saving'); await syncDown();
+  }
+  document.addEventListener('click', async e => {
+    const a = optional && e.target.closest('[data-hws]')?.dataset.hws; if (!a) return;
+    if (a === 'signin') { ui = { step: 'start', email: '', code: '', busy: false, error: '', notice: '', handoff: null, open: true }; return render(); }
+    if (a === 'on') return turnOn();
+    if (a === 'now') { clearTimeout(pushTimer); return push(); }
+    if (a === 'off') {
+      if (!confirm('Stop backing up to your account? The copy already saved there stays. Your Online Homework sign-in is not affected.')) return;
+      clearTimeout(pushTimer); meta.enabled = false; saveMeta(); state = 'off'; paintCard();
+    }
+  });
+  // Settings cards are rebuilt when the page redraws, so fill ours in shortly after.
+  if (optional) new MutationObserver(() => { const el = document.getElementById(CARD_ID); if (el && !el.firstChild) paintCard(); }).observe(document.documentElement, { childList: true, subtree: true });
 
   // ---------- status chip
   const CHIP = { idle: 'Backed up to your account', saved: 'Backed up to your account', saving: 'Saving…', offline: 'Offline: will back up later',
     error: 'Could not back up', toolarge: 'Too large to back up' };
   function setChip(s) {
     chipState = s;
+    if (optional) { paintCard(); return; }          // desktop: status shows in the Settings card instead of a floating chip
     if (!chip) {
       css(); chip = document.createElement('button'); chip.className = 'hws-chip'; chip.type = 'button';
       chip.addEventListener('click', toggleMenu); document.body.appendChild(chip);
@@ -326,14 +399,30 @@
     document.addEventListener('click', onClick);
     document.addEventListener('keydown', e => { if (e.key === 'Enter' && overlay && e.target.matches('input')) overlay.querySelector('[data-a=verify],[data-a=sendcode]')?.click(); });
     window.addEventListener('online', () => { if (state === 'ready' && (dirty || chipState === 'offline' || chipState === 'error')) push(); });
+    if (optional) {
+      // Desktop: nothing happens unless the teacher turned backup on and is still signed in.
+      state = 'off';
+      if (meta.enabled && api.getToken()) {
+        const r = await api.getMe();
+        if (r?.ok) {
+          me = r.teacher || null;
+          if (me?.email && meta.email && meta.email !== me.email) meta = { email: me.email, enabled: true };
+          state = 'ready'; setChip('saving'); syncDown();
+        }
+        else if (r && (r.status === 401 || r.status === 403)) { api.clearSession(); state = 'signedout'; }
+        else { state = 'ready'; setChip('offline'); }
+      }
+      paintCard();
+      return;
+    }
     if (!api.getToken()) { state = 'signedout'; render(); setChip('idle'); return; }
     render();
     const r = await api.getMe();
-    if (r?.ok) { me = r.teacher || null; state = 'ready'; meta.email = me?.email || meta.email; saveMeta(); render(); setChip('saving'); syncDown(); }
+    if (r?.ok) { me = r.teacher || null; state = 'ready'; if (me?.email && meta.email && meta.email !== me.email) meta = { email: me.email }; meta.email = me?.email || meta.email; saveMeta(); render(); setChip('saving'); syncDown(); }
     else if (r && (r.status === 401 || r.status === 403)) signedOut('');
     else { state = 'ready'; render(); setChip('offline'); }   // offline or a server hiccup: keep the sign-in and work from the copy on this device
   }
 
-  window.HWSYNC = { changed, push, active: true, get state() { return state; } };
+  window.HWSYNC = { changed, push, renderCard, active: true, get state() { return state; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

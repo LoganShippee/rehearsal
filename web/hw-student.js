@@ -1061,7 +1061,7 @@ function hwRenderGoogleLinkOffer() {
   const stu = HW_STATE.session?.student || {};
   let dismissed = false;
   try { dismissed = localStorage.getItem('rehearsal-hw-glink-skip-' + stu.id) === '1'; } catch { }
-  const show = !!hwGoogleClientId() && !HW_API.isDemoMode() && HW_STATE.session?.authMethod === 'code' && stu.hasGoogle === false && !dismissed;
+  const show = !HW_STATE.isTestSession && !!hwGoogleClientId() && !HW_API.isDemoMode() && HW_STATE.session?.authMethod === 'code' && stu.hasGoogle === false && !dismissed;
   box.hidden = !show;
   if (!show) { box.innerHTML = ''; return; }
   box.innerHTML = `
@@ -2769,6 +2769,7 @@ async function hwBoot() {
   // server; take it, then clear it from the address bar so it isn't left in history or shared.
   const testTok = (location.hash.match(/^#test=([^&]+)/) || [])[1];
   if (testTok) {
+    HW_STATE.isTestSession = true;   // a teacher previewing: don't offer to connect Google
     try { history.replaceState(null, '', location.pathname + location.search); } catch { }
     HW_API.setToken(decodeURIComponent(testTok));
   }

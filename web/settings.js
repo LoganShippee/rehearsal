@@ -5,7 +5,7 @@ window.SETTINGS_UI = (() => {
   function render(c) {
     // Rhythm counts is a row of the Sound card, as it always was
     const sound = c.sound.replace(/<\/div>$/, c.rhythm + '</div>');
-    return [c.present, c.grading, sound, c.homework, c.test, c.drive, c.bookmarks, c.updates, c.backups, c.backup, c.coffee].join('\n');
+    return [c.present, c.grading, sound, c.homework, c.test, c.drive, c.bookmarks, c.updates, c.backups, c.backup, c.cloud || '', c.coffee].join('\n');
   }
   return { render };
 })();

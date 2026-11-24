@@ -1416,7 +1416,7 @@
           <h3 style="margin:0">Sign in to Online Homework</h3>
           <span class="hwt-pill ok">30-Day Free Trial</span>
         </div>
-        <p class="small muted" style="margin:0">Start your free 30-day trial (no credit card) or sign back in — your ${D.type === 'score' ? 'score and settings' : 'exercise and settings'} stay right here.</p>
+        <p class="small muted" style="margin:0">Start your free 30-day trial (no credit card) or sign back in — your ${D.type === 'score' ? 'score and settings' : 'exercise and settings'} stay right here. Prefer Google? Sign in with Google from the Online Homework tab, then come back.</p>
         ${au.error ? `<div class="hwt-banner readonly">${escHtml(au.error)}</div>` : ''}
         ${au.step === 'email' ? `
           <div class="hwt-field-grid">

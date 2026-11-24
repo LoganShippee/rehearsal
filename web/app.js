@@ -5295,6 +5295,7 @@ function settingsTab() {
   coffee: `${COFFEE_URL ? `<div class="card coffee"><h2>Support Rehearsal</h2><p class="desc">Rehearsal is free. If it saves you time in class, you can buy me a coffee. Thank you!</p>
     <button class="btn coffee-btn" data-action="open-external" data-url="${COFFEE_URL}">${IC('ico:coffee')} Buy me a coffee</button></div>` : ''}`,
   updates: updatesCard(),
+  cloud: typeof window.HWSYNC?.renderCard === 'function' ? window.HWSYNC.renderCard() : '',
   homework: typeof window.HW_TEACHER?.renderSettingsCard === 'function' ? window.HW_TEACHER.renderSettingsCard() : '',
   present: `<div class="card"><h2>Present screen</h2>
     <label class="fld"><span>Before-school welcome message</span><textarea rows="2" data-bind="settings.welcome">${esc(S.settings.welcome)}</textarea></label>
