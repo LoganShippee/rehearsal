@@ -5,7 +5,7 @@ export const meta = { seconds: 12 };
 export async function run(R, ctx) {
   await R.openTab('http://localhost:8765/hw.html?demo=1&auto=1');
   await R.page.waitForSelector('.hw-asgn-card .hw-btn');
-  await L.cap(R, 'Then see what students see', 1700);
+  await L.cap(R, 'Then students can practice the same thing at home', 2400);
   // Open the Ode to Joy score assignment (titled "Vocal Part Check-In") with a visible click.
   await R.page.evaluate(() => { const c = [...document.querySelectorAll('.hw-asgn-card')].find(x => x.innerText.includes('Vocal Part Check-In')); c.querySelector('.hw-btn').setAttribute('data-reel', 'ode'); });
   await L.click(R, '[data-reel=ode]', null, { pause: 900 });
