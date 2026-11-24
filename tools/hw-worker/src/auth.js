@@ -31,7 +31,20 @@ const STUDENT_HARD_LOCK_FAILS = 10;                // Hard lock at 10 fails unti
 const HANDOFF_TTL_MS = 60 * 1000;                  // 60 seconds
 
 // ---------- Shared teacher upsert (auto-starts 30-day no-card trial on first sign-in)
-async function upsertTeacher(env, { email, googleSub = null, name = '' }) {
+// syncOnly (sent by the BROWSER version's sign-in gate, which only backs up settings): the account is created with
+// trial_ends_at = 0, meaning "trial not started yet" (reads as read-only for homework; no column or CHECK change).
+// The trial starts the first time the same teacher signs in WITHOUT syncOnly (Online Homework) or calls
+// POST /api/teacher/start-trial.
+export async function startTrialIfPending(env, teacher) {
+  if (!teacher || teacher.plan_status !== 'trialing' || Number(teacher.trial_ends_at || 0) !== 0) return teacher;
+  const now = nowMs(env);
+  await env.DB.prepare(
+    "UPDATE teachers SET trial_ends_at = ?, updated_at = ? WHERE id = ? AND plan_status = 'trialing' AND trial_ends_at = 0"
+  ).bind(now + TRIAL_DAYS * DAY_MS, now, teacher.id).run();
+  return await env.DB.prepare('SELECT * FROM teachers WHERE id = ?').bind(teacher.id).first();
+}
+
+async function upsertTeacher(env, { email, googleSub = null, name = '', syncOnly = false }) {
   const now = nowMs(env);
   let teacher = null;
   if (googleSub) {
@@ -44,7 +57,7 @@ async function upsertTeacher(env, { email, googleSub = null, name = '' }) {
   if (!teacher) {
     const id = makeId('tch');
     const displayName = cleanText(name || email.split('@')[0] || 'Teacher', 120);
-    const trialEnds = now + TRIAL_DAYS * DAY_MS;
+    const trialEnds = syncOnly ? 0 : now + TRIAL_DAYS * DAY_MS;
     await env.DB.prepare(
       `INSERT INTO teachers
         (id, email, google_sub, name, plan_status, trial_ends_at, student_soft_cap, created_at, updated_at)
@@ -70,6 +83,7 @@ async function upsertTeacher(env, { email, googleSub = null, name = '' }) {
     await env.DB.prepare(`UPDATE teachers SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
     teacher = await env.DB.prepare('SELECT * FROM teachers WHERE id = ?').bind(teacher.id).first();
   }
+  if (!syncOnly) teacher = await startTrialIfPending(env, teacher);
   return teacher;
 }
 
@@ -265,7 +279,7 @@ export async function handleTeacherEmailVerify(request, env) {
     return errResponse('That code was already used. Request a fresh code.', 401, 'CODE_USED', request, env);
   }
 
-  const teacher = await upsertTeacher(env, { email, name });
+  const teacher = await upsertTeacher(env, { email, name, syncOnly: body.data.syncOnly === true });
   const session = await createTeacherSession(env, teacher.id, request, ephemeral);
   const capabilities = getServerCapabilities(env);
   const plan = { ...computePlanState(teacher, now), billingEnabled: capabilities.billingEnabled };
@@ -292,6 +306,7 @@ export async function handleTeacherGoogleAuth(request, env) {
     email: verified.email,
     googleSub: verified.sub,
     name: verified.name,
+    syncOnly: body.data.syncOnly === true,
   });
   const session = await createTeacherSession(env, teacher.id, request, ephemeral);
   const capabilities = getServerCapabilities(env);
@@ -315,11 +330,12 @@ export async function handleOAuthHandoffStart(request, env) {
   const pollSecret = randomHex(24);
   const pollSecretHash = await sha256Hex(pollSecret);
   const ephemeral = body.data.ephemeral ? 1 : 0;
+  const syncOnly = body.data.syncOnly === true ? 1 : 0; // browser sign-in gate: no homework trial yet
 
   await env.DB.prepare(
-    `INSERT INTO oauth_handoffs (state, poll_secret_hash, status, ephemeral, expires_at, created_at)
-     VALUES (?, ?, 'pending', ?, ?, ?)`
-  ).bind(state, pollSecretHash, ephemeral, now + HANDOFF_TTL_MS, now).run();
+    `INSERT INTO oauth_handoffs (state, poll_secret_hash, status, ephemeral, sync_only, expires_at, created_at)
+     VALUES (?, ?, 'pending', ?, ?, ?, ?)`
+  ).bind(state, pollSecretHash, ephemeral, syncOnly, now + HANDOFF_TTL_MS, now).run();
 
   return jsonResponse({
     ok: true,
@@ -348,6 +364,7 @@ export async function handleOAuthHandoffComplete(request, env) {
     email: verified.email,
     googleSub: verified.sub,
     name: verified.name,
+    syncOnly: !!row.sync_only,
   });
   const session = await createTeacherSession(env, teacher.id, request, !!row.ephemeral);
 

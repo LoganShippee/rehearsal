@@ -1856,12 +1856,12 @@
       return { ok: true, sent: true, expiresInSec: 600, devCode };
     },
 
-    async emailVerify({ email, code, ephemeral = false, name = '' }) {
+    async emailVerify({ email, code, ephemeral = false, name = '', syncOnly = false }) {
       if (!isDemoMode()) {
         const res = await liveFetch('/api/auth/teacher/email/verify', {
           method: 'POST',
           auth: false,
-          json: { email, code, ephemeral: !!ephemeral, name },
+          json: { email, code, ephemeral: !!ephemeral, name, ...(syncOnly ? { syncOnly: true } : {}) },
         });
         if (res.ok && res.token) setSession(res.token, !!ephemeral);
         return res;
@@ -1905,12 +1905,12 @@
       };
     },
 
-    async oauthHandoffStart({ ephemeral = false } = {}) {
+    async oauthHandoffStart({ ephemeral = false, syncOnly = false } = {}) {
       if (!isDemoMode()) {
         return liveFetch('/api/auth/teacher/oauth/start', {
           method: 'POST',
           auth: false,
-          json: { ephemeral: !!ephemeral },
+          json: { ephemeral: !!ephemeral, ...(syncOnly ? { syncOnly: true } : {}) },
         });
       }
       if (isOffline()) return offlineErr('Connect to the internet to start browser sign-in.');
@@ -1979,12 +1979,12 @@
       };
     },
 
-    async googleAuth({ idToken, ephemeral = false }) {
+    async googleAuth({ idToken, ephemeral = false, syncOnly = false }) {
       if (!isDemoMode()) {
         const res = await liveFetch('/api/auth/teacher/google', {
           method: 'POST',
           auth: false,
-          json: { idToken, ephemeral: !!ephemeral },
+          json: { idToken, ephemeral: !!ephemeral, ...(syncOnly ? { syncOnly: true } : {}) },
         });
         if (res.ok && res.token) setSession(res.token, !!ephemeral);
         return res;
@@ -2134,6 +2134,16 @@
         'DEMO_MODE',
         'Billing Portal requires a live homework server. Use the Plan State preview buttons below to test plan states.'
       );
+    },
+
+    // Starts the 30-day trial for an account that signed in only for backup. Nothing starts until this is called.
+    async startTrial() {
+      if (!isDemoMode()) return liveFetch('/api/teacher/start-trial', { method: 'POST', json: {} });
+      const db = loadDemoDb();
+      db.teacher.planStatus = 'trialing';
+      db.teacher.trialEndsAt = Date.now() + 30 * DAY_MS;
+      saveDemoDb();
+      return { ok: true, plan: demoPublicPlan(db.teacher, Date.now()) };
     },
 
     // Beta access code: gives the teacher a free Purchase Order plan for a set time.

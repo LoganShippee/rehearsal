@@ -699,6 +699,62 @@ async function main() {
     assertEq(sTrialExp.canWrite, false, 'plan expired trial canWrite=false');
     assertEq(sTrialExp.readOnly, true, 'plan expired trial readOnly=true');
 
+    // 1c. sync-only account: trial_ends_at = 0 means "not started" (read-only for homework, flagged)
+    const sNotStarted = billingMod.computePlanState({ plan_status: 'trialing', trial_ends_at: 0 }, now);
+    assertEq(sNotStarted.canWrite, false, 'sync-only account has no homework write access yet');
+    assertEq(sNotStarted.trialNotStarted, true, 'sync-only account flagged trialNotStarted');
+
+    // 1d. teacher_data handlers: conflict on stale baseRev, validation, blob stripping
+    {
+      const tdMod = await import('../tools/hw-worker/src/teacherdata.js');
+      assert(typeof tdMod.handleGetTeacherData === 'function', 'teacherdata.js exports handleGetTeacherData');
+      assert(typeof tdMod.handlePutTeacherData === 'function', 'teacherdata.js exports handlePutTeacherData');
+      assert(typeof tdMod.handleStartTrial === 'function', 'teacherdata.js exports handleStartTrial');
+      let store = null; // {data, rev}
+      const db = {
+        prepare(sql) {
+          const q = sql.replace(/\s+/g, ' ').trim();
+          let p = [];
+          const st = {
+            bind(...a) { p = a; return st; },
+            async first() {
+              if (!store) return null;
+              return { data: store.data, rev: store.rev, updated_at: 1 };
+            },
+            async run() {
+              if (q.startsWith('INSERT INTO teacher_data')) {
+                if (store) return { meta: { changes: 0 } };
+                store = { data: p[1], rev: 1 }; return { meta: { changes: 1 } };
+              }
+              if (q.startsWith('UPDATE teacher_data')) {
+                if (!store || store.rev !== p[3]) return { meta: { changes: 0 } };
+                store = { data: p[0], rev: store.rev + 1 }; return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
+            },
+          };
+          return st;
+        },
+      };
+      const env = { DB: db };
+      const auth = { teacher: { id: 'tch_x' } };
+      const put = (body) => tdMod.handlePutTeacherData(
+        new Request('http://x/api/teacher/data', { method: 'PUT', body: JSON.stringify(body) }), env, auth);
+      const r1 = await put({ data: { classes: [{ name: 'A', blob: 'zzz' }], settings: { big: 'data:image/png;base64,' + 'A'.repeat(3000) } }, baseRev: 0 });
+      assertEq(r1.status, 200, 'teacher data first save 200');
+      assertEq((await r1.json()).rev, 1, 'teacher data first save rev=1');
+      assert(!store.data.includes('zzz') && !store.data.includes('AAAA'), 'teacher data strips blob-like content');
+      const r2 = await put({ data: { classes: [] }, baseRev: 0 });
+      assertEq(r2.status, 409, 'teacher data stale baseRev -> 409');
+      assertEq((await r2.json()).rev, 1, 'teacher data conflict returns current rev');
+      const r3 = await put({ data: { classes: [] }, baseRev: 1 });
+      assertEq((await r3.json()).rev, 2, 'teacher data matching baseRev -> rev 2');
+      assertEq((await put({ data: { nope: 1 }, baseRev: 2 })).status, 400, 'teacher data rejects non-Rehearsal data');
+      assertEq((await put({ data: [], baseRev: 2 })).status, 400, 'teacher data rejects non-object');
+      const g = await tdMod.handleGetTeacherData(new Request('http://x/api/teacher/data'), env, auth);
+      assertEq((await g.json()).rev, 2, 'teacher data GET returns current rev');
+    }
+
     // 2. active
     const sActive = billingMod.computePlanState({ plan_status: 'active', plan_ends_at: now + 30 * DAY }, now);
     assertEq(sActive.status, 'active', 'plan active status');

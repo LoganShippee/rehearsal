@@ -26,6 +26,7 @@ EXPECTED_TABLES = {
     "rate_limits",
     "beta_codes",
     "beta_redemptions",
+    "teacher_data",
 }
 
 passed = 0
@@ -65,9 +66,9 @@ def main():
     actual_tables = {r[0] for r in rows}
     check(
         actual_tables == EXPECTED_TABLES,
-        f"Expected 13 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
+        f"Expected 14 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
     )
-    check(len(actual_tables) == 13, "Exactly 13 tables created")
+    check(len(actual_tables) == 14, "Exactly 14 tables created")
 
     now = 1_700_000_000_000
     trial_end = now + 30 * 86_400_000
@@ -235,7 +236,12 @@ def main():
            VALUES ('tsess_1', 'tch_1', 'tthash_1', ?, ?, ?)""",
         (now + 86_400_000, now, now),
     )
+    conn.execute(
+        "INSERT INTO teacher_data (teacher_id, data, rev, updated_at) VALUES ('tch_1', '{}', 1, ?)", (now,)
+    )
     conn.execute("DELETE FROM teachers WHERE id = 'tch_1'")
+    check(conn.execute("SELECT COUNT(*) FROM teacher_data WHERE teacher_id = 'tch_1'").fetchone()[0] == 0,
+          "Teacher delete cascades to teacher_data")
     check(conn.execute("SELECT COUNT(*) FROM classes WHERE teacher_id = 'tch_1'").fetchone()[0] == 0,
           "Teacher delete cascades to classes")
     check(conn.execute("SELECT COUNT(*) FROM teacher_sessions WHERE teacher_id = 'tch_1'").fetchone()[0] == 0,

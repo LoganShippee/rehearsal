@@ -71,6 +71,7 @@ import {
   handleSubmitAttempt,
 } from './submissions.js';
 import { runDailyCleanup } from './cron.js';
+import { handleGetTeacherData, handlePutTeacherData, handleStartTrial } from './teacherdata.js';
 
 function decodeSeg(seg) {
   try { return decodeURIComponent(seg); } catch { return seg; }
@@ -152,6 +153,15 @@ async function route(request, env) {
   }
   if (method === 'POST' && path === '/api/auth/teacher/logout-all') {
     return withTeacher(request, env, auth => handleTeacherLogoutAll(request, env, auth));
+  }
+
+  // ---------- Teacher settings backup (browser sign-in gate)
+  if (path === '/api/teacher/data') {
+    if (method === 'GET') return withTeacher(request, env, auth => handleGetTeacherData(request, env, auth));
+    if (method === 'PUT') return withTeacher(request, env, auth => handlePutTeacherData(request, env, auth));
+  }
+  if (method === 'POST' && path === '/api/teacher/start-trial') {
+    return withTeacher(request, env, auth => handleStartTrial(request, env, auth));
   }
 
   // ---------- Student Auth

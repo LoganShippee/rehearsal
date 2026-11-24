@@ -46,6 +46,20 @@ export function computePlanState(teacher, now = Date.now()) {
         studentSoftCap: softCap,
       };
     }
+    if (endsAt === 0) {
+      // Signed in only to back up settings (browser version); the homework trial starts when they open Online Homework.
+      return {
+        status: 'expired',
+        canWrite: false,
+        readOnly: true,
+        inGrace: false,
+        trialNotStarted: true,
+        trialEndsAt: 0,
+        daysLeft: 0,
+        studentSoftCap: softCap,
+        reason: 'Start your free 30-day trial to use Online Homework.',
+      };
+    }
     return {
       status: 'expired',
       canWrite: false,

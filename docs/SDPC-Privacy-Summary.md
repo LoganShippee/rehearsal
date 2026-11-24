@@ -9,7 +9,8 @@
 
 ## 1. Local App vs. Optional Online Homework
 
-- **Rehearsal Local Classroom App (Mac, Windows, Web):** 100% free, offline-first, and collects **zero** cloud student data. Classes, schedules, rosters, MusicXML scores, and classroom recordings remain on the teacher's device.
+- **Rehearsal Local Classroom App (Mac, Windows):** 100% free, offline-first, no account, and collects **zero** cloud student data. Classes, schedules, rosters, MusicXML scores, and classroom recordings remain on the teacher's device.
+- **Rehearsal Web Version (browser):** Teachers sign in (Google or email code). Settings, classes, schedules and events are backed up to the teacher's account; library files (scores, PDFs, recordings) stay in the browser.
 - **Rehearsal Online Homework (Optional Teacher Add-On):** Stores only the data needed to deliver sight-reading, score practice, and vocal/instrumental recording assignments and return grades to the classroom teacher.
 
 ---

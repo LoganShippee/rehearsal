@@ -71,7 +71,7 @@ export async function runDailyCleanup(env) {
   const teachersRes = await env.DB.prepare(
     `UPDATE teachers
      SET plan_status = 'expired', updated_at = ?
-     WHERE (plan_status = 'trialing' AND trial_ends_at <= ?)
+     WHERE (plan_status = 'trialing' AND trial_ends_at > 0 AND trial_ends_at <= ?)
         OR (plan_status = 'past_due' AND grace_ends_at IS NOT NULL AND grace_ends_at <= ?)`
   ).bind(now, now, now).run();
   const teachersExpired = Number(teachersRes?.meta?.changes || 0);

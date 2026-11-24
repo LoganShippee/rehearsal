@@ -174,6 +174,28 @@ async function main() {
   assert(!!teacherToken && !!teacherId, 'teacher token & id present');
 
   // ==========================================================================
+  // 3b. Browser sign-in gate: settings backup + sync-only (no trial) accounts
+  // ==========================================================================
+  {
+    const syncGoogle = await req('POST', '/api/auth/teacher/google', {
+      json: { idToken: `dev-google:sub_sync_${runId}|sync-${runId}@school.edu|Sync Teacher`, syncOnly: true },
+    });
+    assertEq(syncGoogle.status, 200, 'syncOnly google sign-in 200');
+    assertEq(syncGoogle.data.teacher.plan.trialNotStarted, true, 'syncOnly account has no trial started');
+    const tk = syncGoogle.data.token;
+    const g0 = await req('GET', '/api/teacher/data', { token: tk });
+    assertEq(g0.data.rev, 0, 'teacher data starts empty');
+    const p1 = await req('PUT', '/api/teacher/data', { token: tk, json: { data: { classes: [], settings: {} }, baseRev: 0 } });
+    assertEq(p1.data.rev, 1, 'teacher data PUT rev 1');
+    const p2 = await req('PUT', '/api/teacher/data', { token: tk, json: { data: { classes: [] }, baseRev: 0 } });
+    assertEq(p2.status, 409, 'teacher data stale PUT -> 409');
+    const noAuth = await req('GET', '/api/teacher/data');
+    assertEq(noAuth.status, 401, 'teacher data requires sign-in');
+    const trial = await req('POST', '/api/teacher/start-trial', { token: tk });
+    assertEq(trial.data.teacher.plan.status, 'trialing', 'start-trial begins the homework trial');
+  }
+
+  // ==========================================================================
   // 4. Classes + Lock Class + Google Student Auto-Enroll + Archive
   // ==========================================================================
   const clsCreate = await req('POST', '/api/classes', {

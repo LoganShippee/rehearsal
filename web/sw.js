@@ -4,7 +4,7 @@
 // (browser storage / IndexedDB) and are never touched here.
 const CACHE = 'rehearsal-app';
 const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'looks.js', 'settings.js', 'score.js', 'tools.js',
-  'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js',
+  'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js', 'hw-sync.js',
   'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html', 'embed-sight.html', 'embed-score.html', 'demo/ode-to-joy.musicxml', 'demo/ode-to-joy.mxl',
   'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',

@@ -238,3 +238,13 @@ CREATE INDEX IF NOT EXISTS idx_students_test ON students(class_id, is_test);
 
 -- 14. Viewable student codes (same as migrations/0003_student_code_enc.sql)
 ALTER TABLE students ADD COLUMN code_enc TEXT;
+
+-- 15. Per-teacher settings backup + sync-only sign-in (same as migrations/0004_teacher_data.sql)
+CREATE TABLE IF NOT EXISTS teacher_data (
+  teacher_id TEXT PRIMARY KEY REFERENCES teachers(id) ON DELETE CASCADE,
+  data TEXT NOT NULL,
+  rev INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+ALTER TABLE oauth_handoffs ADD COLUMN sync_only INTEGER NOT NULL DEFAULT 0;

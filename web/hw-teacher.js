@@ -807,7 +807,16 @@
       `);
     }
 
-    if (plan.readOnly) {
+    if (plan.trialNotStarted) {
+      // Signed in for backup only: homework stays locked until the teacher presses the button (or enters a beta code).
+      out.push(`
+        <div class="hwt-banner info">
+          <div><b>Online Homework is ready when you are.</b> Start your free 30-day trial (no card needed) to create assignments and let students turn in work.
+            ${renderBetaCodeHTML(plan)}<div class="small hwt-trial-err" role="alert"></div></div>
+          <button type="button" class="btn small primary" data-hwt="start-trial">Start my free 30-day trial</button>
+        </div>
+      `);
+    } else if (plan.readOnly) {
       out.push(`
         <div class="hwt-banner readonly">
           <div><b>Read-Only Mode:</b> ${escHtml(plan.reason || 'Your Online Homework plan is inactive. Creating or editing classes, assignments, and grades is disabled, while viewing the Gradebook, playing audio, exporting CSV files, and deleting records still work.')}</div>
@@ -2547,6 +2556,21 @@
         } catch (err) {
           if (win) win.close();
           showToast(err?.message || 'Could not open the test student.');
+        }
+        break;
+      }
+      case 'start-trial': {
+        const errEl = btn.closest('.hwt-banner')?.querySelector('.hwt-trial-err');
+        if (errEl) errEl.textContent = '';
+        btn.disabled = true;
+        try {
+          const res = await api.startTrial();
+          if (res && res.ok === false) throw new Error(res.error || 'Could not start the trial. Try again.');
+          showToast('Your 30-day trial has started.');
+          await loadSessionAndWorkspace(true);
+        } catch (err) {
+          if (errEl) errEl.textContent = err?.message || 'Could not start the trial. Try again.';
+          btn.disabled = false;
         }
         break;
       }

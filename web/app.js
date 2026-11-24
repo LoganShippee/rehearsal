@@ -213,6 +213,7 @@ async function saveNow() {
   if (window.__noSave) return;
   const body = JSON.stringify(S);
   try { localStorage.setItem('rehearsal', body); } catch { }
+  window.HWSYNC?.changed();   // browser version: back up to the teacher's account (hw-sync.js)
   if (HAS_SERVER) {
     try { await fetch('/api/data', { method: 'POST', headers: { 'X-Token': TOKEN, 'X-Client': CLIENT, 'Content-Type': 'application/json' }, body }); }
     catch (e) { toast('Could not save — is the app still running?'); }
