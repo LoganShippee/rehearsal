@@ -890,6 +890,8 @@ body.hw-page {
 .hw-code-toggle:hover { color: #1e3a8a; }
 .hw-code-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: 6px; }
 #hw-code-form[hidden] { display: none; }
+/* "Demo what students see": no flash of the sample sign-in screen while it signs in by itself */
+body.hw-auto-demo #hw-auth-view { visibility: hidden; }
 
 /* Google is the main way in: its button leads the card, the codes sit below */
 .hw-google-gsi { display: flex; justify-content: center; min-height: 0; }

@@ -3,33 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Schools, Privacy &amp; IT — Rehearsal</title>
-<meta name="description" content="FERPA, COPPA, SOPIPA, and NY Ed Law 2-d privacy docs, IT setup sheet, and School Purchase Order requests for Rehearsal.">
-<meta property="og:title" content="Rehearsal for Schools &amp; Districts">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://rehearsalmusic.com/schools">
-<meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
+<title>Rehearsal — Schools and privacy note</title>
+<meta name="description" content="What Rehearsal collects, what Online Homework stores, where it lives and for how long. A plain privacy note for district reviewers.">
 <link rel="icon" href="img/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="img/icon-180.png">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="site-header">
     <div class="nav-bar">
-      <a class="brand-link" href="index.html">
-        <img src="img/icon-192.png" alt="Rehearsal" width="30" height="30">
-        <span>Rehearsal</span>
-      </a>
+      <a class="brand-link" href="index.html"><img src="img/icon-192.png" alt="Rehearsal" width="30" height="30"><span>Rehearsal</span></a>
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
-        <a href="index.html#tools">Tools</a>
-        <a href="index.html#install">Install</a>
+        <a href="index.html#minutes">Tools</a>
         <a href="homework.html">Homework</a>
-        <a href="schools.html" class="active">Schools &amp; Privacy</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="schools.html">Schools &amp; Privacy</a>
+        <a href="faq.html">FAQ</a>
       </nav>
       <div class="nav-actions">
         <a class="btn primary sm" href="download.html">Download</a>
-        <a class="btn sm" href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
+        <a class="btn sm" href="index.html#try">Try it</a>
       </div>
     </div>
   </header>
@@ -37,49 +30,122 @@
   <main>
     <section class="page-hero">
       <div class="wrap">
-        <h1>Schools, Privacy &amp; IT</h1>
-        <p>Ready-to-print privacy documents, IT setup guide, and Purchase Order info for your principal or district team.</p>
+        <h1>Schools and privacy note</h1>
+        <p class="hero-sub">Written for district reviewers. It says what Rehearsal collects, where it is kept and how to delete it. If you need a form signed or a purchase order set up, <a href="#contact">use the contact card below</a>.</p>
+        <p class="muted">Also: the <a href="privacy.html">full privacy policy</a>, a <a href="privacy-sdpc.html">one-page student data summary</a> and an <a href="it-whitelisting.html">IT setup sheet</a>.</p>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" id="classroom">
       <div class="wrap">
-        <div class="grid-3">
-          <div class="card">
-            <span class="tag ok">1-Page Printable</span>
-            <h3>SDPC Privacy Summary</h3>
-            <p class="small muted">One-page FERPA, COPPA, SOPIPA, and NY Ed Law 2-d summary for principals and parents.</p>
-            <div style="margin-top:12px"><a class="btn primary" href="privacy-sdpc.html">Open 1-Page Sheet</a></div>
-          </div>
-          <div class="card">
-            <span class="tag">For School IT</span>
-            <h3>IT Setup Sheet</h3>
-            <p class="small muted">Works right away without Google Admin approval, plus the simple network allowlist for school IT.</p>
-            <div style="margin-top:12px"><a class="btn primary" href="it-whitelisting.html">Open IT Sheet</a></div>
-          </div>
-          <div class="card">
-            <span class="tag">Full Policy</span>
-            <h3>Privacy Policy</h3>
-            <p class="small muted">Plain-language overview of the offline classroom app, optional homework data, and 72-hour breach notice.</p>
-            <div style="margin-top:12px"><a class="btn primary" href="privacy.html">Read Policy</a></div>
-          </div>
+        <div class="section-head">
+          <h2>What the classroom app collects: nothing</h2>
         </div>
+        <ul class="check-list">
+          <li>No account or login to teach. Your classes, schedules and files stay on your device.</li>
+          <li>No ads, no analytics or tracking scripts, and no sale of data.</li>
+          <li>It works offline: display, tuner, metronome, sight reading, score practice and grading.</li>
+          <li>It needs the internet only for Online Homework, YouTube, Google Drive and update checks.</li>
+          <li>There is no automatic crash reporting. If a teacher chooses to send a bug report, they see the screenshot first and approve it before it is sent.</li>
+        </ul>
+      </div>
+    </section>
 
-        <div class="grid-2" style="margin-top:24px">
-          <div class="card">
-            <h3>Built for school computers</h3>
-            <ul class="check-list">
-              <li>Everything runs on one school-safe address (<code>rehearsalmusic.com</code>)</li>
-              <li>No ads, pop-ups, or student tracking</li>
-              <li>Windows installs without an administrator password</li>
-              <li>Student audio auto-deletes after 90 days; no student emails needed</li>
-            </ul>
-          </div>
+    <section class="section" id="stores" style="background:var(--sky-soft)">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>What Online Homework stores</h2>
+          <p>Online Homework is optional. Only classes that use it have any of this.</p>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;background:var(--surface)">
+            <thead>
+              <tr>
+                <th scope="col" style="text-align:left;padding:10px 14px;border:1px solid var(--line)">Item</th>
+                <th scope="col" style="text-align:left;padding:10px 14px;border:1px solid var(--line)">Why</th>
+                <th scope="col" style="text-align:left;padding:10px 14px;border:1px solid var(--line)">How long</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Student name or alias</td><td style="padding:10px 14px;border:1px solid var(--line)">So you can tell who turned work in</td><td style="padding:10px 14px;border:1px solid var(--line)">Until the teacher deletes the student or class</td></tr>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Student code (stored hashed)</td><td style="padding:10px 14px;border:1px solid var(--line)">So the student can sign in</td><td style="padding:10px 14px;border:1px solid var(--line)">Until the teacher deletes the student or class</td></tr>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Email or Google ID (optional)</td><td style="padding:10px 14px;border:1px solid var(--line)">Only if the student signs in with Google</td><td style="padding:10px 14px;border:1px solid var(--line)">Until the teacher deletes the student or class</td></tr>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Voice part (optional)</td><td style="padding:10px 14px;border:1px solid var(--line)">So solfege parts match the student</td><td style="padding:10px 14px;border:1px solid var(--line)">Until the teacher deletes the student or class</td></tr>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Scores</td><td style="padding:10px 14px;border:1px solid var(--line)">The gradebook</td><td style="padding:10px 14px;border:1px solid var(--line)">Until the teacher deletes them</td></tr>
+              <tr><td style="padding:10px 14px;border:1px solid var(--line)">Recordings</td><td style="padding:10px 14px;border:1px solid var(--line)">So the teacher can listen back</td><td style="padding:10px 14px;border:1px solid var(--line)">Server audio deleted after 90 days</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" style="margin-top:12px">Student email is never needed to sign in with a code.</p>
+      </div>
+    </section>
 
-          <div class="card" id="contact">
-            <h3>Purchase Orders &amp; District Agreements</h3>
-            <p class="small muted" style="margin-bottom:12px">Request a school Purchase Order quote ($49/yr per teacher), W-9, or data agreement—or email <a href="mailto:privacy@rehearsalmusic.com">privacy@rehearsalmusic.com</a>.</p>
-            <form id="inquiry-form" novalidate>
+    <section class="section" id="where">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Where data lives and for how long</h2>
+        </div>
+        <div class="grid-2">
+          <div class="card"><h3>On our server</h3><p>Audio is deleted automatically after 90 days. Scores stay until the teacher deletes them. Teachers can delete audio, a single student, or a whole class at any time.</p></div>
+          <div class="card"><h3>On the student’s device</h3><p>The newest 5 practice takes for each assignment are kept. If Wi-Fi drops, a recording is saved on the device and uploads when the connection returns.</p></div>
+          <div class="card"><h3>Shared computers</h3><p>Sessions on a shared Chromebook or computer expire after 24 hours.</p></div>
+          <div class="card"><h3>Your classroom files</h3><p>Classes, schedules and files stay on the teacher’s own device. They are not sent to us.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="third-parties" style="background:var(--sky-soft)">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Third-party services</h2>
+          <p>These are the outside services Rehearsal actually uses.</p>
+        </div>
+        <ul class="check-list">
+          <li><b>Cloudflare:</b> hosting.</li>
+          <li><b>Resend:</b> sends teachers their sign-in email codes.</li>
+          <li><b>Google sign-in:</b> optional, for students whose school allows it.</li>
+          <li><b>YouTube and Google Drive:</b> only if a teacher adds them to a class.</li>
+          <li><b>GitHub:</b> update checks in the Mac and Windows apps.</li>
+          <li><b>Stripe:</b> payments, only when billing is switched on. It is not switched on yet.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="signin">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Student sign-in options</h2>
+        </div>
+        <div class="grid-2">
+          <div class="card"><h3>Class code and student code</h3><p>Students enter the class code plus a personal 6-character student code. No student email is needed.</p></div>
+          <div class="card"><h3>Google</h3><p>Students can sign in with Google where their school allows it.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="it-google">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>For school IT: allowing Google sign-in</h2>
+          <p>Some districts only let approved apps use “Sign in with Google”. Teachers and students at those schools see “Access blocked” (error: admin_policy_enforced). Codes and the email code still work, so nobody is locked out.</p>
+        </div>
+        <ol class="step-list">
+          <li>In the Google Admin console, open <b>Security → Access and data control → API controls → Manage third-party app access</b>.</li>
+          <li>Add Rehearsal as an app by its OAuth client ID and set it to <b>Trusted</b>. The client ID is: <code>130764622805-uauoq1f4trsb50mtcu5vcla74tcia7gb.apps.googleusercontent.com</code></li>
+          <li>Rehearsal asks only for basic sign-in details: name, email address and profile picture. It has no access to Drive, Gmail or Calendar.</li>
+        </ol>
+        <p class="muted small">Menu names in the Admin console can differ slightly. Questions: <a href="contact.html">contact us</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="contact" style="background:var(--sky-soft)">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Purchase orders, W-9 and data agreements</h2>
+          <p>Questions about a purchase order, a W-9 or a data agreement go to <a href="mailto:privacy@rehearsalmusic.com">privacy@rehearsalmusic.com</a>. School purchase orders are set up by hand.</p>
+        </div>
+        <div class="card">
+          <form id="inquiry-form" novalidate>
               <div class="form-grid">
                 <div class="fld">
                   <label for="inq-name">Name *</label>
@@ -114,25 +180,29 @@
               </div>
               <div class="form-status" id="inquiry-status" role="status" aria-live="polite"></div>
             </form>
-          </div>
         </div>
       </div>
     </section>
+
   </main>
 
   <footer class="site-footer">
     <div class="wrap footer-row">
       <span>© 2026 Rehearsal · rehearsalmusic.com</span>
       <nav class="footer-links" aria-label="Footer navigation">
-        <a href="index.html">Home</a>
         <a href="download.html">Download</a>
-        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
+        <a href="index.html#try">Try it</a>
         <a href="homework.html">Online Homework</a>
-        <a href="changelog.html">Changelog</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="devices.html">Supported devices</a>
+        <a href="schools.html">Privacy note</a>
+        <a href="faq.html">FAQ</a>
+        <a href="changelog.html">What’s new</a>
+        <a href="contact.html">Contact and feedback</a>
       </nav>
     </div>
   </footer>
-
-  <script src="site.js?v=5"></script>
+  
+  <script src="site.js?v=7"></script>
 </body>
 </html>

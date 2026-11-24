@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Rehearsal Score Playback Demo</title>
+<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="hw.css?v=13">
+<style>
+  html, body { height: 100%; margin: 0; }
+  body.hw-page { height: 100%; min-height: 0; overflow: hidden; background: #fff; color: #182235; display: flex; flex-direction: column; }
+  .emb-opts { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 14px; border-bottom: 1px solid #dce2ec; background: #f7f9fc; font-size: 14px; }
+  .emb-opts label { display: inline-flex; align-items: center; gap: 6px; }
+  .emb-opts select { font: inherit; }
+  .emb-opts .emb-tip { color: #5a6578; font-size: 12.5px; }
+  .emb-stage { flex: 1 1 auto; position: relative; min-height: 0; }
+  .emb-stage .score-host { position: absolute; inset: 0; }
+  .emb-foot { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border-top: 1px solid #dce2ec; background: #f7f9fc; color: #5a6578; font-size: 13.5px; text-align: center; }
+  .emb-lock { opacity: .6; }
+</style>
+</head>
+<body class="hw-page">
+  <!-- The demo must never read or write the real app's saved data. -->
+  <script>
+  (() => {
+    const bad = k => /^rehearsal/i.test(String(k));
+    try {
+      const P = Storage.prototype, g = P.getItem, s = P.setItem, r = P.removeItem;
+      P.getItem = function (k) { return bad(k) ? null : g.call(this, k); };
+      P.setItem = function (k, v) { if (!bad(k)) s.call(this, k, v); };
+      P.removeItem = function (k) { if (!bad(k)) r.call(this, k); };
+    } catch { }
+  })();
+  </script>
+
+  <div class="emb-stage"><div class="score-host" id="emb-host"></div></div>
+  <div class="emb-foot">All of Score Practice works here. Open your own scores (MusicXML, or MuseScore in the Mac and Windows apps) in the free app.</div>
+
+  <script src="hw-shim.js?v=11"></script>
+  <script src="icons.js?v=11"></script>
+  <script src="vendor/vexflow.js"></script>
+  <script src="sight.js?v=13"></script>
+  <script src="music.js?v=11"></script>
+  <script src="grade.js?v=12"></script>
+  <script src="score.js?v=13"></script>
+  <script>
+  (async () => {
+    // Start from clean defaults, whatever the shim carried over. Nothing is hidden: it is the full Score Practice.
+    S.settings.spHidden = [];
+    S.settings.rhythmSystem = 'numbers'; S.settings.solMinor = 'do';
+
+    const host = document.getElementById('emb-host');
+    let ctl = null;
+    const st = { fileId: null, name: 'Ode to Joy.musicxml', tempo: 100, countIn: 1, metronome: false, zoom: 0.8, playhead: 'beat', nums: true,
+      loop: { on: false, a: 0, b: 3 }, speed: { on: false, start: 70, step: 5 } };
+
+    const onChange = () => { };                             // nothing is saved and nothing is limited
+
+    try {
+      const r = await fetch('demo/ode-to-joy.musicxml');
+      if (!r.ok) throw new Error('could not load the demo score');
+      st.fileId = hwRegisterFile(await r.blob(), st.name);
+      ctl = mountScore(host, st, onChange, 'embed-score');
+    } catch (e) {
+      host.innerHTML = '<p style="padding:20px;color:#5a6578">The demo could not start. Download the free app to try score playback.</p>';
+      console.warn(e);
+    }
+  })();
+  </script>
+</body>
+</html>

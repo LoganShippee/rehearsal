@@ -1165,6 +1165,12 @@ function hwRenderAuthScreen() {
           hwHandleGoogleSignIn();
         };
       }
+      // "Demo what students see" link (?demo=1&auto=1): skip the sample sign-in and open the sample class straight away
+      if (QS.get('auto') === '1' && !HW_STATE.autoDemoDone) {
+        HW_STATE.autoDemoDone = true;
+        document.body.classList.add('hw-auto-demo');
+        demoBox.querySelector('[data-demo-stu]')?.click();
+      }
     }
   }
 }
@@ -1183,7 +1189,7 @@ async function hwEnterAuthenticated(sessionPayload) {
   hwRenderAssignmentList();
   hwSetView('list');
   hwRenderGoogleLinkOffer();
-  if (!hwSyncIsDone()) {
+  if (!hwSyncIsDone() && !document.body.classList.contains('hw-auto-demo')) {   // the demo link skips the mic check
     hwOpenSyncModal(true, () => hwRetryQueuedUploads(true));
   } else {
     hwRetryQueuedUploads(true);

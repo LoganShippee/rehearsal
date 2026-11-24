@@ -1,0 +1,30 @@
+# STAGING copy of the Online Homework server. Its own database and storage, with fake data only.
+# Nothing here can touch real teachers or students. Use through tools/staging.sh, or add `-c wrangler.staging.toml`.
+# (The real server's settings are in wrangler.toml and are not changed by this file.)
+
+name = "rehearsal-hw-staging"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+[vars]
+# DEV_MODE lets testers sign in without a real email (the 6-digit code is shown on screen). Safe here: fake data only.
+DEV_MODE = "true"
+APP_ORIGINS = "https://rehearsal-staging.pages.dev,http://localhost:*,http://127.0.0.1:*"
+FROM_EMAIL = "Rehearsal Staging <noreply@rehearsalmusic.com>"
+STRIPE_PRICE_ID_MONTHLY = ""
+STRIPE_PRICE_ID_ANNUAL = ""
+PRIVACY_URL = "https://app.rehearsalmusic.com/privacy.html"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rehearsal-hw-staging"
+database_id = "1bfabf30-4e48-4520-8445-1486d0eafb8c"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "rehearsal-hw-media-staging"
+
+[triggers]
+crons = ["0 7 * * *"]

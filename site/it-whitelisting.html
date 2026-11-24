@@ -166,12 +166,7 @@
             <td>Online Homework API: assignment fetch, server-verified grading, R2 audio uploads &amp; Gradebook streaming</td>
           </tr>
           <tr>
-            <td><code>https://loganshippee.github.io/rehearsal/</code> *(optional legacy fallback)*</td>
-            <td>HTTPS (443)</td>
-            <td>Legacy GitHub Pages mirror if teachers already pinned the GitHub Pages URL</td>
-          </tr>
-          <tr>
-            <td><code>https://accounts.google.com</code>, <code>https://apis.google.com</code> *(optional)*</td>
+            <td><code>https://accounts.google.com</code>, <code>https://apis.google.com</code> <em>(optional)</em></td>
             <td>HTTPS (443)</td>
             <td>Only needed if optional Google Identity Services sign-in is enabled</td>
           </tr>
@@ -189,7 +184,7 @@
         <h2>3. Chromebook, iPad &amp; Desktop Readiness</h2>
         <ul>
           <li><strong>Zero External CDNs:</strong> <code>rehearsalmusic.com</code> loads zero Google Fonts, third-party scripts, or ad networks.</li>
-          <li><strong>Windows No-Admin Install:</strong> Installs per-user in <code>%LOCALAPPDATA%\Programs\Rehearsal</code> without administrator privileges.</li>
+          <li><strong>Windows Per-User Install:</strong> Installs into <code>%LOCALAPPDATA%\Programs\Rehearsal</code> (often works without admin elevation depending on district IT policy).</li>
           <li><strong>Microphone &amp; Wi-Fi Drops:</strong> Student Portal uses standard browser <code>getUserMedia</code> and queues recordings locally in IndexedDB during temporary Wi-Fi drops.</li>
         </ul>
       </div>

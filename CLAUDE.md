@@ -30,6 +30,11 @@ tests/check-diff.sh        # audit every touched file/section and fail if a Prot
 ./release.sh "Notes"       # publish to everyone (see Releases); --minor / --major for bigger bumps
 ```
 
+### Staging and monitoring (Online Homework)
+- `tools/staging.sh all|api|web|seed|reset|status`: a private test copy of the homework server and website with its **own** D1 (`rehearsal-hw-staging`) and R2 bucket, fake data only, pinned to `tools/hw-worker/wrangler.staging.toml` (never `wrangler.toml`). Server: `https://rehearsal-hw-staging.logan-shippee.workers.dev`; site: `https://rehearsal-staging.pages.dev` (shows a STAGING banner; DEV_MODE is on so teacher sign-in shows the 6-digit code). Try migrations and homework features there before the real deploy.
+- `tools/monitor/run.sh`: read-only local dashboard (http://127.0.0.1:8790) for live and staging health, usage counts, database size, downloads. It prints counts only, never names, emails or codes.
+- `tools/metrics.sh` and the local `usage-metrics` skill answer usage questions with counts only.
+
 ### Guarding against accidental regressions & unrelated edits (mandatory)
 1. **Live Pre-Edit Permission Gate (automatic hook)** — `.agents/hooks.json` (Antigravity) and `.claude/settings.json` (Claude Code) run `tests/edit-guard.py` *before* every file edit (`edit_file`/`write_file` and `Edit`/`Write`/`MultiEdit`). If an edit touches a Protected Zone or any app file/section unrelated to the user's request (or tries to modify the guardrail files themselves), the hook pauses and prompts the user for explicit permission. Never bypass `edit_file`/`write_file` by mutating source files through shell commands (`sed -i`, `python -c`, redirection).
 2. **Do not touch unrelated code** — only edit files/sections directly required to fulfill the user's request or fix the reported bug. If you discover a necessary edit outside the request's scope, explain why and get explicit user permission first.

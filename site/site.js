@@ -301,10 +301,42 @@
     });
   }
 
+  function setupCarousels() {
+    document.querySelectorAll('[data-carousel]').forEach(car => {
+      const steps = Array.from(car.querySelectorAll('[data-car-step]'));
+      const slides = Array.from(car.querySelectorAll('[data-car-slide]'));
+      const prev = car.querySelector('[data-car-prev]');
+      const next = car.querySelector('[data-car-next]');
+      if (!slides.length) return;
+      let idx = 0;
+
+      function show(i) {
+        idx = ((i % slides.length) + slides.length) % slides.length;
+        slides.forEach((s, k) => { s.hidden = k !== idx; });
+        steps.forEach((b, k) => {
+          b.setAttribute('aria-selected', k === idx ? 'true' : 'false');
+          b.tabIndex = k === idx ? 0 : -1;
+        });
+      }
+
+      steps.forEach((b, k) => {
+        b.addEventListener('click', () => show(k));
+        b.addEventListener('keydown', e => {
+          if (e.key === 'ArrowRight') { e.preventDefault(); show(idx + 1); steps[idx]?.focus(); }
+          if (e.key === 'ArrowLeft') { e.preventDefault(); show(idx - 1); steps[idx]?.focus(); }
+        });
+      });
+      if (prev) prev.addEventListener('click', () => show(idx - 1));
+      if (next) next.addEventListener('click', () => show(idx + 1));
+      show(0);
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     setupMobileNav();
     setupOsTabs();
     setupTabGroup('[data-tool-tablist]', 'data-tool-panel');
+    setupCarousels();
     setupLightbox();
     applyOsAwareness();
     hydrateReleaseMeta();

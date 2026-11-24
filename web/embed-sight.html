@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Rehearsal Sight Reading Demo</title>
+<link rel="stylesheet" href="styles.css?v=11">
+<style>
+  /* Always light: this page sits inside a light marketing site. */
+  :root, :root:not([data-theme="light"]) {
+    color-scheme: light;
+    --e-bg: #ffffff; --e-panel: #ffffff; --e-text: #1d2330; --e-muted: #6b7385; --e-line: #e3e6ec; --e-soft: #eef2fe;
+  }
+  html, body { margin: 0; height: 100%; background: #ffffff; color: #1d2330; overflow: hidden; }
+  #demo { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #ffffff; }
+  #demo-host { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #ffffff; }
+  #demo-host .sr-host { position: absolute; inset: 0; background: #ffffff; --surface: #ffffff; --card: #ffffff; --text: #1d2330; }
+  #demo-host .sr { height: 100%; }
+  /* The staff scrolls inside its own box when the iframe is short. */
+  #demo-host .sr-staff { overflow: auto; }
+
+  /* Locked controls row */
+  .demo-lock { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 14px; border-top: 1px solid #e3e6ec; background: #f7f8fa; font-size: 13px; color: #6b7385; }
+  .demo-lock .lk { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; border: 1px dashed #c9cfda; background: #eceef2; color: #8b93a5; cursor: not-allowed; user-select: none; font-size: 12px; }
+  .demo-lock .lk svg { width: 12px; height: 12px; }
+  .demo-lock .cap { margin-left: auto; color: #4a5368; }
+  @media (max-width: 560px) { .demo-lock .cap { margin-left: 0; width: 100%; } }
+
+  /* The whole interface is shown, as in the free app. Controls that need the free app are greyed out and can't be used
+     (the engine is untouched; this page only dims them and switches them off). */
+  .sr .demo-grey { opacity: .42 !important; filter: grayscale(1); pointer-events: none !important; cursor: not-allowed; user-select: none; }
+  /* Download call to action laid over the settings panel */
+  .sr .sr-settings { position: relative; }
+  .sr .demo-cta { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5; width: min(700px, 94%); display: flex; align-items: center; gap: 14px;
+    background: #ffffff; border: 1px solid #c6d4ea; border-radius: 14px; padding: 10px 14px 10px 18px; box-shadow: 0 8px 24px rgba(20, 33, 61, .22); pointer-events: auto; }
+  .sr .demo-cta .t { flex: 1; min-width: 0; }
+  .sr .demo-cta b { display: block; font-size: 15px; color: #14213d; }
+  .sr .demo-cta span { display: block; font-size: 13px; color: #46546b; line-height: 1.3; margin-top: 2px; }
+  @media (max-width: 560px) { .sr .demo-cta { flex-direction: column; text-align: center; } }
+  .sr .demo-cta a { display: inline-block; flex: none; background: #1565c0; color: #fff; text-decoration: none; font-weight: 700; font-size: 14px; padding: 9px 18px; border-radius: 999px; white-space: nowrap; }
+  .sr .demo-cta a:hover { background: #0f4f99; }
+</style>
+</head>
+<body>
+<div id="demo">
+  <div id="demo-host"><div class="sr-host" id="demo-sr"></div></div>
+  <div class="demo-lock" id="demo-lock">
+    <span class="cap" style="margin-left:0">Greyed-out controls work in the free app: adjust difficulty, keys, and counting systems.</span>
+  </div>
+</div>
+
+<script src="hw-shim.js?v=11"></script>
+<script src="icons.js?v=11"></script>
+<script src="vendor/vexflow.js"></script>
+<script src="sight.js?v=13"></script>
+<script src="music.js?v=11"></script>
+<script src="grade.js?v=12"></script>
+<script>
+'use strict';
+(function () {
+  // The shim reads the real app's saved settings at load; a visitor must start from fresh defaults instead.
+  S.settings = {
+    avDelay: null, saveGradeRecordings: false, srPresets: [], srBar: null, spBar: null, lastScore: null,
+    rhythmSystem: 'numbers', gradeStrictness: 50, gradeStrictRhythm: 50, gradeStrictPitch: 50, solMinor: 'do',
+  };
+  // Never write the real app's keys.
+  window.save = function () { };
+
+  const st = srDefaults();
+  // Rhythm and Solfege are locked to an easy setup; Build is fully open (only Save and Assign, which need an account, are off).
+  const isBuildMode = () => st.mode === 'build';
+  function clampDemo() {
+    if (st.mode !== 'rhythm' && st.mode !== 'solfege' && st.mode !== 'build') st.mode = 'solfege';
+    if (isBuildMode()) return;                              // build: no limits at all
+    // (settingsOpen, and the Syllables / Counts / Rhythm only display toggles, are left alone: visitors can use those)
+    S.settings.rhythmSystem = 'numbers';
+    S.settings.gradeStrictRhythm = 50; S.settings.gradeStrictPitch = 50; S.settings.gradeStrictness = 50;
+    if (st.mode === 'rhythm') {
+      const o = st.rhythm;
+      o.ts = '4/4'; o.measures = 4; o.cells = ['q', 'h', 'ee', 'qr', 'w'];
+      o.metronome = true; o.measureNums = true; o.sound = 'clap';
+      delete o.ties; delete o.countIn;
+      if (!(o.tempo >= 40 && o.tempo <= 120)) o.tempo = 80;
+    } else {
+      const o = st.solfege;
+      o.key = 'C'; o.scale = 'major'; o.clef = 'treble'; o.range = 'do-mi'; o.leap = 'step';
+      o.ts = '4/4'; o.measures = 4; o.parts = 1; o.cells = ['q', 'h', 'w'];
+      o.startDo = true; o.countIn = true;
+      if (!(o.tempo >= 40 && o.tempo <= 120)) o.tempo = 72;
+    }
+  }
+  // Entering Rhythm or Solfege (from anywhere) throws away whatever was set before and starts from the easy defaults.
+  function resetLocked(mode) {
+    const d = srDefaults();
+    st[mode] = d[mode];
+    st.solRhythm = false; st.show = false; st.showCounts = false; st.startM = null;
+    delete st.ex[mode];
+  }
+  clampDemo();
+  st.ex = {};
+
+  const host = document.getElementById('demo-sr');
+  let lastKey = '';
+  let prevMode = st.mode;
+  const driftKey = () => JSON.stringify(st.mode === 'rhythm'
+    ? [st.rhythm.ts, st.rhythm.measures, st.rhythm.cells, st.mode]
+    : [st.solfege.key, st.solfege.range, st.solfege.measures, st.mode]);
+  function onChange() {
+    if (st.mode !== prevMode) {
+      // the mode toggle was used: start the new mode from its proper setup and rebuild the screen
+      prevMode = st.mode;
+      if (st.mode !== 'build') resetLocked(st.mode);
+      clampDemo();
+      lastKey = '';
+      document.getElementById('gr-card')?.remove();
+      remount();
+      return;
+    }
+    if (isBuildMode()) return;
+    const exBefore = st.ex[st.mode];
+    const before = driftKey();
+    clampDemo();
+    const after = driftKey();
+    // an engine action tried to leave the locked setup: rebuild the exercise inside it
+    if (before !== after) { delete st.ex[st.mode]; remount(); return; }
+    const key = JSON.stringify(exBefore || null).slice(0, 300);
+    if (lastKey && key !== lastKey) document.getElementById('gr-card')?.remove();
+    lastKey = key;
+  }
+  function remount() { mountSight(host, st, onChange); tidy(); }
+
+  // Grey out (and switch off) everything that needs the free app: the Rhythm / Solfege / Build toggle, Show buttons,
+  // Rhythm only, Save, Assign, Print, Settings, Recent, Undo, the settings summary and the strictness sliders.
+  // The Settings button stays clickable so visitors can see every setting; the settings inside the panel are greyed out.
+  // (The Rhythm / Solfege / Build toggle always works.) In Build only Save and Assign are greyed.
+  const GREY_LOCKED = ['[data-sr="save"]', '[data-sr="assign"]', '[data-sr="print"]',
+    '[data-sr="grrecent"]', '[data-sr="undo-ex"]',
+    '.sr-settings > *:not(.demo-cta)', '.gr-strict-wrap'].join(',');   // Syllables, Counts and Rhythm only work: they only change what is shown
+  const GREY_BUILD = '[data-sr="save"],[data-sr="assign"]';
+  const greySel = () => isBuildMode() ? GREY_BUILD : GREY_LOCKED;
+  const CAP_LOCKED = 'Greyed-out controls work in the free app: adjust difficulty, keys, and counting systems. Try Build for the full tools.';
+  const CAP_BUILD = 'Build is fully working here. Save and Assign are in the free app, along with your classes and student work.';
+  // where "Download" goes: the marketing site's download page (the host page can override it with ?dl=...)
+  const DOWNLOAD_URL = new URLSearchParams(location.search).get('dl') || 'https://rehearsalmusic.com/download.html';
+  function addCta() {
+    const panel = host.querySelector('.sr-settings');
+    if (isBuildMode()) { host.querySelectorAll('.demo-cta').forEach(n => n.remove()); return; }
+    if (!panel || panel.querySelector('.demo-cta')) return;
+    const box = document.createElement('div');
+    box.className = 'demo-cta';
+    box.innerHTML = '<div class="t"><b>Change all of this in the free app</b><span>Difficulty, key, clef, counting system, bars, and presets for each class. Free, and works offline.</span></div>';
+    const a = document.createElement('a');
+    a.href = DOWNLOAD_URL; a.target = '_top'; a.rel = 'noopener'; a.textContent = 'Download the free app';
+    box.appendChild(a);
+    panel.appendChild(box);
+  }
+  function tidy() {
+    addCta();
+    const cap = document.querySelector('#demo-lock .cap');
+    const capText = isBuildMode() ? CAP_BUILD : CAP_LOCKED;
+    if (cap && cap.textContent !== capText) cap.textContent = capText;
+    const sel = greySel();
+    // anything greyed that should now be live (after leaving a locked mode) is switched back on
+    host.querySelectorAll('.demo-grey').forEach(el => {
+      if (el.matches(sel)) return;
+      el.classList.remove('demo-grey');
+      el.removeAttribute('aria-disabled');
+      el.removeAttribute('tabindex');
+      if (el.getAttribute('title') === 'Available in the free app') el.removeAttribute('title');
+    });
+    host.querySelectorAll(sel).forEach(el => {
+      if (el.classList.contains('demo-grey')) return;
+      el.classList.add('demo-grey');
+      el.setAttribute('aria-disabled', 'true');
+      el.setAttribute('tabindex', '-1');
+      el.setAttribute('title', 'Available in the free app');
+    });
+  }
+  new MutationObserver(() => {
+    // re-apply after each engine re-render
+    const sel = greySel();
+    const wantCta = !isBuildMode() && host.querySelector('.sr-settings');
+    if (host.querySelector(sel.split(',').map(s => s + ':not(.demo-grey)').join(','))
+      || [...host.querySelectorAll('.demo-grey')].some(el => !el.matches(sel))
+      || (wantCta && !host.querySelector('.demo-cta')) || (!wantCta && host.querySelector('.demo-cta'))) tidy();
+  }).observe(host, { childList: true, subtree: true });
+
+  mountSight(host, st, onChange);
+  tidy();
+  // the first exercise generated inside mountSight; make sure it matches the locked setup
+  lastKey = JSON.stringify(st.ex.solfege || null).slice(0, 300);
+})();
+</script>
+</body>
+</html>

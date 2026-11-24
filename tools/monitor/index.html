@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rehearsal Monitor</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --text: #1c2330;
+    --muted: #5b6474;
+    --line: #dfe3ea;
+    --accent: #2c6bd1;
+    --bar-bg: #e1e6ee;
+    --ok-bg: #dff4e6;
+    --ok-text: #14622e;
+    --down-bg: #fbe3e0;
+    --down-text: #9b1c12;
+    --off-bg: #e6e9ee;
+    --off-text: #4a5262;
+    --err-bg: #fbeeed;
+    --err-text: #8a2a22;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #13161c;
+      --card: #1d222b;
+      --text: #e7eaf0;
+      --muted: #a2aaba;
+      --line: #2e3542;
+      --accent: #7fa8f0;
+      --bar-bg: #2e3542;
+      --ok-bg: #173a24;
+      --ok-text: #9be3b4;
+      --down-bg: #3d1d1a;
+      --down-text: #ffb4ab;
+      --off-bg: #2a2f3a;
+      --off-text: #c3c9d5;
+      --err-bg: #3a1f1d;
+      --err-text: #ffb4ab;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #13161c;
+    --card: #1d222b;
+    --text: #e7eaf0;
+    --muted: #a2aaba;
+    --line: #2e3542;
+    --accent: #7fa8f0;
+    --bar-bg: #2e3542;
+    --ok-bg: #173a24;
+    --ok-text: #9be3b4;
+    --down-bg: #3d1d1a;
+    --down-text: #ffb4ab;
+    --off-bg: #2a2f3a;
+    --off-text: #c3c9d5;
+    --err-bg: #3a1f1d;
+    --err-text: #ffb4ab;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 10px 16px; padding: 18px 16px 12px; max-width: 1100px; margin: 0 auto;
+  }
+  h1 { font-size: 22px; margin: 0; }
+  .head-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--accent); color: var(--accent);
+    background: var(--card); border-radius: 8px; padding: 6px 14px; min-height: 36px;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .banner {
+    max-width: 1100px; margin: 0 auto 8px; padding: 10px 16px; border-radius: 10px;
+    background: var(--err-bg); color: var(--err-text);
+  }
+  .banner[hidden] { display: none; }
+  main {
+    display: grid; gap: 14px; max-width: 1100px; margin: 0 auto;
+    padding: 0 16px 28px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; min-width: 0;
+  }
+  .wide { grid-column: 1 / -1; }
+  .card h2 { font-size: 17px; margin: 0 0 10px; }
+  .card h3 { font-size: 15px; margin: 0 0 6px; }
+  .cols { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-weight: 600; font-size: 14px; margin-bottom: 8px;
+  }
+  .pill.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .pill.down { background: var(--down-bg); color: var(--down-text); }
+  .pill.off { background: var(--off-bg); color: var(--off-text); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .stats {
+    display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+  .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-width: 0; }
+  .stat .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .stat .l { color: var(--muted); font-size: 13px; }
+  .err {
+    margin: 8px 0 0; padding: 8px 10px; border-radius: 8px;
+    background: var(--err-bg); color: var(--err-text); font-size: 14px; overflow-wrap: anywhere;
+  }
+  .bar { height: 10px; border-radius: 999px; background: var(--bar-bg); overflow: hidden; margin: 8px 0 4px; }
+  .bar > div { height: 100%; background: var(--accent); border-radius: 999px; }
+  .table-wrap { overflow-x: auto; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .totals { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  .totals strong { font-size: 20px; }
+  @media (max-width: 480px) {
+    h1 { font-size: 20px; }
+    main { padding: 0 16px 24px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rehearsal Monitor</h1>
+  <div class="head-right">
+    <span class="muted" id="updated">Loading…</span>
+    <button type="button" id="refresh">Refresh</button>
+  </div>
+</header>
+<div class="banner" id="banner" hidden></div>
+
+<main>
+  <section class="card wide" id="card-status">
+    <h2>Status</h2>
+    <div class="body cols" id="status"></div>
+  </section>
+
+  <section class="card" id="card-usage">
+    <h2>Usage (live)</h2>
+    <div class="body" id="usage"></div>
+  </section>
+
+  <section class="card" id="card-beta">
+    <h2>Beta codes</h2>
+    <div class="body" id="beta"></div>
+  </section>
+
+  <section class="card" id="card-downloads">
+    <h2>Downloads</h2>
+    <div class="body" id="downloads"></div>
+  </section>
+
+  <section class="card" id="card-cloudflare">
+    <h2>Requests (last 24 hours)</h2>
+    <div class="body" id="cloudflare"></div>
+  </section>
+
+  <section class="card wide" id="card-staging">
+    <h2>Staging usage</h2>
+    <div class="body" id="staging"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var REFRESH_MS = 60000;
+  var busy = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  // Every piece of text goes through textContent, never innerHTML.
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+  function num(n) {
+    return (typeof n === "number" && isFinite(n)) ? n.toLocaleString() : "–";
+  }
+
+  function bytesText(n) {
+    if (typeof n !== "number" || !isFinite(n)) return "Not available";
+    var units = ["bytes", "KB", "MB", "GB"];
+    var v = n, i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return (i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)) + " " + units[i];
+  }
+
+  function timeAgo(ms) {
+    if (typeof ms !== "number" || !isFinite(ms)) return "No homework yet";
+    var diff = Date.now() - ms;
+    var minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return plural(minutes, "minute") + " ago";
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return plural(hours, "hour") + " ago";
+    var days = Math.floor(hours / 24);
+    if (days < 30) return plural(days, "day") + " ago";
+    return new Date(ms).toLocaleDateString();
+  }
+
+  function errorLine(parent, label, message) {
+    if (!message) return;
+    parent.appendChild(el("p", "err", label + ": " + message));
+  }
+
+  function pill(state) {
+    if (state === "ok") return el("span", "pill ok", "Healthy");
+    if (state === "down") return el("span", "pill down", "Down");
+    return el("span", "pill off", "Not set up");
+  }
+
+  function statTiles(items) {
+    var grid = el("div", "stats");
+    items.forEach(function (item) {
+      var tile = el("div", "stat");
+      tile.appendChild(el("div", "v", item[1]));
+      tile.appendChild(el("div", "l", item[0]));
+      grid.appendChild(tile);
+    });
+    return grid;
+  }
+
+  function usageItems(db) {
+    return [
+      ["Teachers signed up", num(db.teachers_total)],
+      ["Teachers active in last 7 days", num(db.teachers_7d)],
+      ["Teachers active in last 30 days", num(db.teachers_30d)],
+      ["Beta teachers", num(db.teachers_beta)],
+      ["Classes", num(db.classes_total)],
+      ["Students on rosters", num(db.students_total)],
+      ["Students active in last 7 days", num(db.students_7d)],
+      ["Students active in last 30 days", num(db.students_30d)],
+      ["Homework turned in (all time)", num(db.submissions_total)],
+      ["Homework turned in (last 30 days)", num(db.submissions_30d)],
+      ["Last homework turned in", timeAgo(db.last_submission_at)],
+      ["Audio recordings stored", num(db.audio_stored)],
+      ["Database size", bytesText(db.dbSizeBytes)]
+    ];
+  }
+
+  function renderStatus(d) {
+    var box = $("status");
+    box.replaceChildren();
+
+    function column(title, health, site, notSet) {
+      var c = el("div", "");
+      c.appendChild(el("h3", "", title));
+      if (notSet) {
+        c.appendChild(pill("off"));
+        c.appendChild(el("p", "muted", "Staging isn't set up yet."));
+        return c;
+      }
+      var healthy = !!(health && health.ok);
+      c.appendChild(pill(healthy ? "ok" : "down"));
+      var list = el("dl", "");
+      function row(label, value) {
+        list.appendChild(el("dt", "", label));
+        list.appendChild(el("dd", "", value));
+      }
+      if (health && !health.error) {
+        row("Response time", typeof health.ms === "number" ? health.ms + " ms" : "–");
+        row("Developer mode", health.devMode === true ? "On" : (health.devMode === false ? "Off" : "–"));
+        row("Google sign-in", health.googleSignInEnabled === true ? "On" : (health.googleSignInEnabled === false ? "Off" : "–"));
+        row("Billing", health.billingEnabled === true ? "On" : (health.billingEnabled === false ? "Off" : "–"));
+      }
+      if (site && !site.error) {
+        if (site.httpStatus === 200) {
+          row("Website version", site.version || "Online (no version listed)");
+        } else {
+          row("Website", "Not answering (HTTP " + site.httpStatus + ")");
+        }
+      }
+      c.appendChild(list);
+      if (health && health.error) errorLine(c, "Health check", health.error);
+      if (health && health.httpStatus && !health.ok && !health.error) {
+        errorLine(c, "Health check", "Answered with HTTP " + health.httpStatus);
+      }
+      if (site && site.error) errorLine(c, "Website check", site.error);
+      return c;
+    }
+
+    var stagingHealth = d.health.staging || {};
+    var stagingSite = d.sites.staging || {};
+    var stagingNotSet = stagingHealth.configured === false && stagingSite.configured === false;
+
+    box.appendChild(column("Live", d.health.live, d.sites.live, false));
+    box.appendChild(column("Staging (test copy)", stagingNotSet ? null : stagingHealth,
+      stagingNotSet ? null : stagingSite, stagingNotSet));
+  }
+
+  function renderUsage(d) {
+    var box = $("usage");
+    box.replaceChildren();
+    var db = d.db.live || {};
+    if (db.error) { errorLine(box, "Could not load usage", db.error); return; }
+    box.appendChild(statTiles(usageItems(db)));
+  }
+
+  function renderBeta(d) {
+    var box = $("beta");
+    box.replaceChildren();
+    var db = d.db.live || {};
+    if (db.error) { errorLine(box, "Could not load beta codes", db.error); return; }
+    var codes = typeof db.beta_codes_total === "number" ? db.beta_codes_total : 0;
+    var total = typeof db.beta_uses_allowed === "number" ? db.beta_uses_allowed : codes;
+    var used = typeof db.beta_codes_used === "number" ? db.beta_codes_used : 0;
+    if (codes === 0) {
+      box.appendChild(el("p", "muted", "No beta codes have been made yet."));
+      return;
+    }
+    box.appendChild(el("p", "", used.toLocaleString() + " of " + total.toLocaleString() + " beta sign-ups used (" + codes.toLocaleString() + " codes made)"));
+    var track = el("div", "bar");
+    var fill = el("div", "");
+    var pct = Math.max(0, Math.min(100, Math.round((used / total) * 100)));
+    fill.style.width = pct + "%";
+    track.appendChild(fill);
+    box.appendChild(track);
+    box.appendChild(el("p", "muted", pct + "% used"));
+  }
+
+  function renderDownloads(d) {
+    var box = $("downloads");
+    box.replaceChildren();
+    var dl = d.downloads || {};
+    if (dl.error) { errorLine(box, "Could not load downloads", dl.error); return; }
+    var totals = dl.totals || { mac: 0, windows: 0 };
+    var line = el("div", "totals");
+    var mac = el("div", ""); mac.appendChild(el("strong", "", num(totals.mac))); mac.appendChild(el("span", "muted", " Mac downloads"));
+    var win = el("div", ""); win.appendChild(el("strong", "", num(totals.windows))); win.appendChild(el("span", "muted", " Windows downloads"));
+    line.appendChild(mac);
+    line.appendChild(win);
+    box.appendChild(line);
+
+    var releases = dl.releases || [];
+    if (!releases.length) { box.appendChild(el("p", "muted", "No releases found.")); return; }
+    var wrap = el("div", "table-wrap");
+    var table = el("table", "");
+    var head = el("tr", "");
+    ["Version", "Released", "Mac", "Windows"].forEach(function (h, i) {
+      head.appendChild(el("th", i >= 2 ? "n" : "", h));
+    });
+    var thead = el("thead", ""); thead.appendChild(head); table.appendChild(thead);
+    var tbody = el("tbody", "");
+    releases.slice(0, 10).forEach(function (r) {
+      var tr = el("tr", "");
+      tr.appendChild(el("td", "", r.tag || "–"));
+      var when = r.published_at ? new Date(r.published_at).toLocaleDateString() : "–";
+      tr.appendChild(el("td", "", when));
+      tr.appendChild(el("td", "n", num(r.mac)));
+      tr.appendChild(el("td", "n", num(r.windows)));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+  }
+
+  function renderCloudflare(d) {
+    var box = $("cloudflare");
+    box.replaceChildren();
+    var cf = d.cloudflare || {};
+    if (cf.configured === false) {
+      box.appendChild(el("p", "muted", cf.hint || "Not set up."));
+      return;
+    }
+    if (cf.error) { errorLine(box, "Could not load request counts", cf.error); return; }
+    var items = [];
+    if (cf.live) {
+      items.push(["Live requests", num(cf.live.requests)]);
+      items.push(["Live errors", num(cf.live.errors)]);
+    }
+    if (cf.staging) {
+      items.push(["Staging requests", num(cf.staging.requests)]);
+      items.push(["Staging errors", num(cf.staging.errors)]);
+    }
+    if (!items.length) { box.appendChild(el("p", "muted", "No numbers returned.")); return; }
+    box.appendChild(statTiles(items));
+  }
+
+  function renderStaging(d) {
+    var box = $("staging");
+    box.replaceChildren();
+    var db = d.db.staging || {};
+    if (db.configured === false) {
+      box.appendChild(el("p", "muted", "Staging isn't set up yet. Add the staging addresses in tools/monitor/config.json to see its numbers here."));
+      return;
+    }
+    if (db.error) { errorLine(box, "Could not load staging usage", db.error); return; }
+    box.appendChild(statTiles(usageItems(db)));
+  }
+
+  function renderAll(d) {
+    renderStatus(d);
+    renderUsage(d);
+    renderBeta(d);
+    renderDownloads(d);
+    renderCloudflare(d);
+    renderStaging(d);
+  }
+
+  function setUpdated(text) { $("updated").textContent = text; }
+
+  function showBanner(message) {
+    var b = $("banner");
+    b.textContent = message || "";
+    b.hidden = !message;
+  }
+
+  async function load(refresh) {
+    if (busy) return;
+    busy = true;
+    var btn = $("refresh");
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+    setUpdated(refresh ? "Checking now…" : "Updating…");
+    try {
+      var resp = await fetch("/api/status" + (refresh ? "?refresh=1" : ""), { cache: "no-store" });
+      if (!resp.ok) throw new Error("the monitor answered HTTP " + resp.status);
+      var data = await resp.json();
+      renderAll(data);
+      var when = new Date(data.generatedAt);
+      setUpdated("Updated " + (isNaN(when.getTime()) ? "just now" : when.toLocaleTimeString()));
+      showBanner("");
+    } catch (err) {
+      showBanner("Couldn't load the monitor data: " + (err && err.message ? err.message : "unknown problem"));
+      setUpdated("Not updated");
+    } finally {
+      busy = false;
+      btn.disabled = false;
+      btn.textContent = "Refresh";
+    }
+  }
+
+  // Starting message in every card until the first load finishes.
+  ["status", "usage", "beta", "downloads", "cloudflare", "staging"].forEach(function (id) {
+    $(id).appendChild(el("p", "muted", "Loading…"));
+  });
+
+  $("refresh").addEventListener("click", function () { load(true); });
+  load(false);
+  setInterval(function () { load(false); }, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

@@ -3,51 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rehearsal — Classroom Display, Sight Reading &amp; Music Rehearsal App</title>
-<meta name="description" content="Free offline classroom display and music rehearsal app for Choir, Band, Orchestra, and General Music teachers. Runs on Mac, Windows (no IT password needed), Chromebook, and iPad.">
-<meta property="og:title" content="Rehearsal — Classroom Display &amp; Music Rehearsal App">
-<meta property="og:description" content="Bell schedules, score practice with measure looping, sight-reading generator, piano warm-ups, Curwen solfege board, tuner, metronome, and optional online homework.">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://rehearsalmusic.com/">
-<meta property="og:image" content="https://rehearsalmusic.com/img/icon-512.png">
-<meta name="twitter:card" content="summary">
+<title>Rehearsal — Already on when your students walk in</title>
+<meta name="description" content="The classroom screen and rehearsal toolkit for your projector. Free in class, no account, works offline.">
 <link rel="icon" href="img/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="img/icon-180.png">
-<link rel="stylesheet" href="styles.css?v=5">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Rehearsal",
-  "applicationCategory": "EducationalApplication",
-  "operatingSystem": "macOS, Windows 10, Windows 11, Web Browser, ChromeOS, iPadOS",
-  "offers": {
-    "@type": "Offer",
-    "price": "0",
-    "priceCurrency": "USD"
-  },
-  "description": "Free offline classroom display, bell schedules, score practice, sight-reading generator, and music rehearsal toolkit for music teachers.",
-  "url": "https://rehearsalmusic.com/"
-}
-</script>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="site-header">
     <div class="nav-bar">
-      <a class="brand-link" href="index.html">
-        <img src="img/icon-192.png" alt="Rehearsal" width="30" height="30">
-        <span>Rehearsal</span>
-      </a>
+      <a class="brand-link" href="index.html"><img src="img/icon-192.png" alt="Rehearsal" width="30" height="30"><span>Rehearsal</span></a>
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
       <nav class="nav-links" id="site-nav" aria-label="Main navigation">
-        <a href="#tools">Tools</a>
-        <a href="#install">Install</a>
+        <a href="#minutes">Tools</a>
         <a href="homework.html">Homework</a>
+        <a href="pricing.html">Pricing</a>
         <a href="schools.html">Schools &amp; Privacy</a>
+        <a href="faq.html">FAQ</a>
       </nav>
       <div class="nav-actions">
         <a class="btn primary sm" href="download.html">Download</a>
-        <a class="btn sm" href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
+        <a class="btn sm" href="#try">Try it</a>
       </div>
     </div>
   </header>
@@ -55,196 +30,189 @@
   <main>
     <section class="hero">
       <div class="wrap hero-inner">
-        <h1>A classroom screen and music rehearsal toolkit.</h1>
-        <p class="hero-sub">Switches classes by bell schedule, works offline, and puts your music tools on one screen. Free with no account required.</p>
+        <p class="eyebrow-line">Already on when your students walk in.</p>
+        <h1>Your whole rehearsal room in one free app.</h1>
+        <p class="hero-sub">Everything you use in rehearsal, on one classroom screen. Works offline, no account, free for classroom use.</p>
+        <ul class="feature-chips" aria-label="What's included">
+          <li>Bell-schedule classes</li>
+          <li>Tuner &amp; drone</li>
+          <li>Metronome</li>
+          <li>Solfege board</li>
+          <li>Piano &amp; warm-ups</li>
+          <li>Sight reading with grading</li>
+          <li>Score playback</li>
+          <li>Online homework (optional)</li>
+        </ul>
+        <div class="hero-actions">
+          <a class="btn primary" href="download.html">Download for Mac or Windows</a>
+          <a class="btn" href="#try">Try it in your browser</a>
+        </div>
+        <p class="trust-line">Free for classroom use · Works offline · Your files stay on your device · No logins to teach</p>
         <div class="hero-shot">
-          <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge classroom screen screenshot">
-            <img src="img/screens/layout.png" alt="Rehearsal classroom screen showing Choir agenda, warm-up question, pinned tabs, movable toolbar, and clock">
+          <button type="button" class="screen-frame" aria-label="Classroom screen">
+            <img src="img/screens/layout.png?v=2" alt="Rehearsal classroom screen showing a class agenda, warm-up question, tabs, toolbar and clock">
           </button>
         </div>
-        <div class="hero-points">
-          <span>Bell schedule &amp; clock</span>
-          <span>·</span>
-          <span>Auto-advancing agenda</span>
-          <span>·</span>
-          <span>Movable toolbar</span>
-          <span>·</span>
-          <span>Warm-up &amp; class tabs (click screenshot to enlarge)</span>
-        </div>
+        <p class="muted" style="text-align:center;margin-top:12px">On a Chromebook or iPad, open Rehearsal in the browser and add it to your home screen. <a href="devices.html">Supported devices</a></p>
       </div>
     </section>
 
-    <section class="section" id="tools">
+    <section class="section" id="try" style="background:var(--sky-soft)">
       <div class="wrap">
         <div class="section-head">
-          <h2>Built-in music tools</h2>
-          <p>Click a tab to see how each tool looks inside Rehearsal.</p>
+          <h2>Try it right here</h2>
+          <p>This is the real Rehearsal, running in your browser. Nothing you play or sing is uploaded.</p>
         </div>
-
-        <div class="tool-tabs" role="tablist" aria-label="Music tools" data-tool-tablist>
-          <button type="button" class="tool-tab" role="tab" id="t-score" aria-controls="p-score" aria-selected="true" tabindex="0">Score Practice</button>
-          <button type="button" class="tool-tab" role="tab" id="t-sight" aria-controls="p-sight" aria-selected="false" tabindex="-1">Sight Reading</button>
-          <button type="button" class="tool-tab" role="tab" id="t-piano" aria-controls="p-piano" aria-selected="false" tabindex="-1">Piano &amp; Warm-Ups</button>
-          <button type="button" class="tool-tab" role="tab" id="t-solfege" aria-controls="p-solfege" aria-selected="false" tabindex="-1">Solfege Board</button>
-          <button type="button" class="tool-tab" role="tab" id="t-tuner" aria-controls="p-tuner" aria-selected="false" tabindex="-1">Tuner &amp; Metronome</button>
+        <div class="tool-tabs" role="tablist" aria-label="Interactive demos">
+          <button type="button" class="tool-tab" role="tab" id="d-sight" aria-selected="true" data-demo="sight">Sight reading &amp; grading</button>
+          <button type="button" class="tool-tab" role="tab" id="d-score" aria-selected="false" data-demo="score">Score playback</button>
         </div>
-
-        <div class="tool-panel" id="p-score" role="tabpanel" aria-labelledby="t-score" data-tool-panel>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Score Practice screenshot">
-              <img src="img/screens/score-practice.png" alt="Rehearsal Score Practice showing an uploaded 4-part score with Loop m. 2-3, Soprano focus, and movable-do solfege">
-            </button>
-            <div class="tool-copy">
-              <h3>Upload Your Own Scores</h3>
-              <p>Open your own sheet music (MusicXML or MuseScore files) with grand piano playback.</p>
-              <p style="margin-top:10px">Loop any measures with count-ins and automatic speed-up, focus one voice while others stay soft, sound starting pitches, show movable-do solfege or counts, save rehearsal spots, or grade a section with your mic.</p>
-            </div>
-          </div>
+        <div class="demo-frame" id="demo-sight">
+          <iframe title="Sight reading demo" src="https://app.rehearsalmusic.com/embed-sight.html" allow="microphone" loading="lazy"></iframe>
         </div>
-
-        <div class="tool-panel" id="p-sight" role="tabpanel" aria-labelledby="t-sight" data-tool-panel hidden>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Sight Reading screenshot">
-              <img src="img/screens/sight-reading.png" alt="Rehearsal Sight Reading generator with staff notation, Play, Grade, and Worksheet controls">
-            </button>
-            <div class="tool-copy">
-              <h3>Sight Reading &amp; Grading</h3>
-              <p>Generate rhythm (Numbers, Kodály, Takadimi) and 1–3 part solfege examples with custom building and printable 1–6 exercise worksheets with a Page 2 answer key.</p>
-              <p style="margin-top:10px">Grade singing or clapping with the mic—or tap rhythms on a keyboard or iPad—and listen back lined up with the beat.</p>
-            </div>
-          </div>
+        <div class="demo-frame" id="demo-score" hidden>
+          <iframe title="Score playback demo" data-src="https://app.rehearsalmusic.com/embed-score.html" allow="microphone" loading="lazy"></iframe>
         </div>
-
-        <div class="tool-panel" id="p-piano" role="tabpanel" aria-labelledby="t-piano" data-tool-panel hidden>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Piano and Warm-up screenshot">
-              <img src="img/screens/piano.png" alt="Rehearsal Classroom Piano with solfege labels, quick chords, and Warm-up sequencer staff">
-            </button>
-            <div class="tool-copy">
-              <h3>Classroom Piano &amp; Warm-Ups</h3>
-              <p>Play a 2.5-octave grand piano by mouse, touch, or computer keys with movable-do labels, quick chords, and 12 hands-free modulating choir vocalizes with live notation.</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="tool-panel" id="p-solfege" role="tabpanel" aria-labelledby="t-solfege" data-tool-panel hidden>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Solfege board screenshot">
-              <img src="img/screens/solfege-board.png" alt="Rehearsal Solfege board showing colored pitch ladder, Curwen hand signs, Echo Trail, and Mystery Echo">
-            </button>
-            <div class="tool-copy">
-              <h3>Solfege Board</h3>
-              <p>Project a pitch ladder or grid with Major, Minor, Pentatonic, and Chromatic scales, all 17 Curwen hand signs, pitch colors, Echo Trail replay, and Mystery Echo.</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="tool-panel" id="p-tuner" role="tabpanel" aria-labelledby="t-tuner" data-tool-panel hidden>
-          <div class="tool-layout">
-            <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Tuner and Metronome screenshot">
-              <img src="img/screens/tuner-metronome.png" alt="Rehearsal Tuner and Drone tiled next to the Metronome">
-            </button>
-            <div class="tool-copy">
-              <h3>Tuner, Drone &amp; Metronome</h3>
-              <p>Transposing mic tuner (Concert, B♭, E♭, F) with a chord drone and pure intervals, plus a big-count metronome with accents, subdivisions, speed trainer, and gap-click.</p>
-            </div>
-          </div>
-        </div>
-
-        <p class="small muted" style="margin-top:20px"><strong>Also built in:</strong> Audio Track Player (A–B loops &amp; slow-down), Classroom Recorder, PDF viewer with foot-pedal page turns, Staff Whiteboard, Annotate, Calendar, Progress Tracker, and 1-click Sub Plans.</p>
+        <p class="muted" style="margin-top:12px">The free app adds difficulty levels, keys, clefs, counting systems, worksheets and your own scores. <a href="download.html">Download it</a></p>
       </div>
     </section>
 
-    <section class="section alt" id="install">
+    <section class="section" id="minutes">
       <div class="wrap">
         <div class="section-head">
-          <h2>Install in under a minute</h2>
-          <p>Free forever. Pick what fits your classroom computer.</p>
+          <h2>Built for the rehearsal room, not the practice room at home</h2>
+          <p>Other software drills students at home and asks you to check a dashboard later. Rehearsal is for the moment you’re standing in front of the ensemble.</p>
         </div>
-        <div class="grid-3">
-          <div class="card">
-            <span class="tag ok">No IT password needed</span>
-            <h3>Windows (School PCs)</h3>
-            <p class="small muted" style="margin-bottom:12px">Installs for your user account without an administrator password. Opens MuseScore files and Google Drive, with automatic backups.</p>
-            <a href="download.html#win">Download for Windows →</a>
+        <div class="two-col">
+          <div>
+            <p class="lead">Set your bell schedule once and the screen follows it. Project a solfege ladder or a warm-up, tune the clarinets in their own transposition, loop the tricky four bars while you listen. Between classes it shows what’s next and a countdown. No sign-in, no waiting on Wi-Fi.</p>
+            <ul class="check-list proof">
+              <li>Classes follow your bell schedule, each with its own agenda and tabs</li>
+              <li>Solfege ladder with Curwen hand signs, and 12 warm-up patterns that climb by half steps on their own</li>
+              <li>Tuner and drone for Concert, B-flat, E-flat and F instruments</li>
+              <li>Loops, count-ins and speed-up on each repeat for any MusicXML score</li>
+              <li>Print a sub plan for any day: schedule, notes, agenda and roster</li>
+            </ul>
           </div>
-          <div class="card">
-            <h3>Mac</h3>
-            <p class="small muted" style="margin-bottom:12px">Drag Rehearsal into Applications and open. Opens MuseScore files, Google Drive, and can show another app's window right inside Rehearsal.</p>
-            <a href="download.html#mac">Download for Mac →</a>
-          </div>
-          <div class="card">
-            <h3>Chromebook &amp; iPad</h3>
-            <p class="small muted" style="margin-bottom:12px">Nothing to install. Open Rehearsal in Chrome or Safari and it keeps working offline after your first visit.</p>
-            <a href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser →</a>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section sky">
-      <div class="wrap">
-        <div class="tool-layout">
-          <button type="button" class="screen-frame" data-zoom-img aria-label="Enlarge Student Homework screenshot">
-            <img src="img/screens/homework.png" alt="Rehearsal Online Homework student screen showing rhythm notation, Hear Tempo, Hear Example, and Tap Practice Take">
+          <button type="button" class="screen-frame" aria-label="Solfege board">
+            <img src="img/screens/score-playback.png" alt="Rehearsal score playback with the first four measures selected for looping, the Play, Loop and tempo controls, and a two-part score">
           </button>
-          <div class="tool-copy">
-            <span class="tag ok">Optional Add-On</span>
-            <h3>Online Homework</h3>
-            <p>Assign Sight Reading, locked True Sight-Read, Score Practice, or voice/instrument recordings to student Chromebooks, iPads, and phones.</p>
-            <p style="margin-top:10px">Recordings save on the student's device if school Wi-Fi drops and auto-delete after 90 days. Free 30-day trial, then $5/mo or $49/yr per teacher (or a School Purchase Order).</p>
-            <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px">
-              <a class="btn primary" href="homework.html">Online Homework details</a>
-              <a class="btn" href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
-            </div>
-          </div>
         </div>
       </div>
     </section>
 
-    <section class="section" id="accounts">
+    <section class="section" id="loop" style="background:var(--sky-soft)">
       <div class="wrap">
         <div class="section-head">
-          <h2>How accounts work</h2>
-          <p>No sign-up wall to use Rehearsal in class. Accounts are only for optional Online Homework.</p>
+          <h2>Print it, project it, assign it: the same exercise</h2>
+          <p>Generate a rhythm or solfege exercise once, then use it three ways.</p>
         </div>
-        <div class="grid-3">
-          <div class="card">
-            <span class="tag ok">No account needed</span>
-            <h3>Teaching in class</h3>
-            <p class="small muted">Open Rehearsal and start teaching. No sign-up or login—your classes, schedules, and files stay on your device.</p>
-          </div>
-          <div class="card">
-            <span class="tag">Teacher email code</span>
-            <h3>Assigning homework</h3>
-            <p class="small muted">Only sign in inside <strong>Setup → Homework</strong> if you want Online Homework. Type your school email and enter the 6-digit code—no password to remember.</p>
-          </div>
-          <div class="card">
-            <span class="tag ok">No accounts or emails</span>
-            <h3>Students</h3>
-            <p class="small muted">Print cut-out 6-character personal codes for your class. Students go to <code>app.rehearsalmusic.com/hw</code>, enter their code, and record without an email address.</p>
-          </div>
+        <div class="three-steps">
+          <div class="card"><span class="step-no">1</span><h3>Generate and project</h3><p>Put the exercise on the classroom screen, big enough for the back row.</p></div>
+          <div class="card"><span class="step-no">2</span><h3>Print the worksheet</h3><p>Print 1, 2, 3, 4 or 6 exercises on a worksheet, with an answer key on page 2.</p></div>
+          <div class="card"><span class="step-no">3</span><h3>Assign as homework</h3><p>One Assign button sends it to Online Homework. Students record at home and get graded.</p></div>
+        </div>
+        <div class="grid-2" style="margin:22px 0 8px">
+          <figure style="margin:0"><img src="img/screens/worksheet-sheet.png" alt="A sample student worksheet: four solfege sight-reading exercises with name, date and class lines and a blank line under every note" style="width:100%;border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 24px rgba(13,27,42,.10)"><figcaption class="muted small" style="margin-top:6px">Student sheet</figcaption></figure>
+          <figure style="margin:0"><img src="img/screens/worksheet-key.png" alt="The matching answer key on page 2, with the solfege syllables written under every note" style="width:100%;border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 24px rgba(13,27,42,.10)"><figcaption class="muted small" style="margin-top:6px">Page 2: the answer key</figcaption></figure>
+        </div>
+        <p class="muted">To give each group its own level, change the level, key or clef and print another set.</p>
+        <a class="link-more" href="homework.html">How Online Homework works →</a>
+      </div>
+    </section>
+
+    <section class="section" id="grading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Fair grading, in plain numbers</h2>
+          <p>When Rehearsal grades a take, the student sees why: which notes drifted, which beats rushed, and how much leeway the grade allowed.</p>
+        </div>
+        <div class="two-col">
+          <ul class="check-list">
+            <li>Rhythm and pitch are scored and shown separately, not just one number</li>
+            <li>You set the leeway with a slider: from about ±250 to ±40 ms for timing, and ±100 to ±25 cents for pitch</li>
+            <li>A singer who is steadily late isn’t marked wrong note by note</li>
+            <li>Listen back with the recording lined up against the beat</li>
+            <li>Grade singing with the mic, or tap rhythms on a keyboard or iPad</li>
+          </ul>
+          <button type="button" class="screen-frame" aria-label="Sight reading and grading">
+            <img src="img/screens/sight-reading.png?v=2" alt="Rehearsal sight reading with staff notation and grading controls">
+          </button>
         </div>
       </div>
     </section>
+
+    <section class="section" id="privacy" style="background:var(--sky-soft)">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Built to clear a district review</h2>
+          <p>If your district reviews every tool, hand them this page first.</p>
+        </div>
+        <div class="grid-2">
+          <div class="card"><h3>The classroom app collects nothing</h3><p>No sign-up or login to teach. Your classes, schedules and files stay on your device. No ads, no analytics or tracking scripts, and student data is never sold. It works offline.</p></div>
+          <div class="card"><h3>Online Homework stores only what a gradebook needs</h3><p>A student name or alias, a sign-in code, optional email, scores, and short recordings. Audio on our server is deleted automatically after 90 days; scores stay. Accounts are only for Online Homework.</p></div>
+        </div>
+        <a class="link-more" href="schools.html">Read the full privacy note →</a>
+      </div>
+    </section>
+
+    <section class="section" id="cost">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Replace three subscriptions with one screen</h2>
+          <p>Tuner, metronome, sight reading, a homework tool and a classroom projector screen, in one app.</p>
+        </div>
+        <div class="strip">
+          <div><b>Classroom screen and tools</b>Free, no account</div>
+          <div><b>Online Homework</b>Free during the launch</div>
+          <div><b>30-day homework trial</b>No card required</div>
+          <div><b>Schools</b>Purchase orders on request</div>
+        </div>
+        <a class="link-more" href="pricing.html">Pricing details →</a>
+      </div>
+    </section>
+
+    <section class="section" id="who" style="background:var(--sky-soft)">
+      <div class="wrap">
+        <div class="section-head"><h2>Who it’s for</h2></div>
+        <div class="grid-3">
+          <div class="card"><h3>Choir directors</h3><p>Movable-do solfege with Curwen hand signs, 12 warm-up patterns, and mic grading for sight singing. Project the solfege ladder, run the warm-up, grade the examples.</p></div>
+          <div class="card"><h3>Band and orchestra directors</h3><p>Tuner and drone for B-flat, E-flat and F instruments. Score Practice with loops and speed-up on each repeat. Tap grading on keyboards and iPads.</p></div>
+          <div class="card"><h3>Teachers running mixed rooms</h3><p>Print worksheet batches and change level, key or clef for each group. Track progress. Print a sub plan for any day, with schedule, notes and roster.</p></div>
+        </div>
+        <p class="tagline">The rehearsal room, on one screen.</p>
+      </div>
+    </section>
+
   </main>
 
   <footer class="site-footer">
     <div class="wrap footer-row">
-      <span>© 2026 Rehearsal · rehearsalmusic.com (<span data-release-version>v1.3.1</span>)</span>
+      <span>© 2026 Rehearsal · rehearsalmusic.com</span>
       <nav class="footer-links" aria-label="Footer navigation">
         <a href="download.html">Download</a>
-        <a href="https://app.rehearsalmusic.com/" data-app-href="app">Try in Browser</a>
+        <a href="#try">Try it</a>
         <a href="homework.html">Online Homework</a>
-        <a href="https://app.rehearsalmusic.com/hw" data-app-href="hw">Student Sign-In</a>
-        <a href="schools.html">Schools &amp; Privacy</a>
-        <a href="changelog.html">Changelog</a>
-        <a href="https://buymeacoffee.com/loganshippee" target="_blank" rel="noopener">Buy Me a Coffee</a>
-        <a href="mailto:privacy@rehearsalmusic.com">privacy@rehearsalmusic.com</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="devices.html">Supported devices</a>
+        <a href="schools.html">Privacy note</a>
+        <a href="faq.html">FAQ</a>
+        <a href="changelog.html">What’s new</a>
+        <a href="contact.html">Contact and feedback</a>
       </nav>
     </div>
   </footer>
-
-  <script src="site.js?v=5"></script>
+  <script>
+    document.querySelectorAll('[data-demo]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        document.querySelectorAll('[data-demo]').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
+        ['sight', 'score'].forEach(function (k) {
+          var box = document.getElementById('demo-' + k); box.hidden = (k !== b.dataset.demo);
+          var f = box.querySelector('iframe'); if (!box.hidden && f.dataset.src && !f.src) f.src = f.dataset.src;
+        });
+      });
+    });
+  </script>
+  <script src="site.js?v=7"></script>
 </body>
 </html>

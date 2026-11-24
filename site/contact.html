@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact and feedback — Rehearsal</title>
+<meta name="description" content="Ask a question, report a bug, suggest a feature or reach the privacy contact for Rehearsal.">
+<link rel="icon" href="img/favicon.ico" sizes="any">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-bar">
+      <a class="brand-link" href="index.html"><img src="img/icon-192.png" alt="Rehearsal" width="30" height="30"><span>Rehearsal</span></a>
+      <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav class="nav-links" id="site-nav" aria-label="Main navigation">
+        <a href="index.html#minutes">Tools</a>
+        <a href="homework.html">Homework</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="schools.html">Schools &amp; Privacy</a>
+        <a href="faq.html">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="btn primary sm" href="download.html">Download</a>
+        <a class="btn sm" href="index.html#try">Try it</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="wrap">
+        <h1>Contact and feedback</h1>
+        <p>Questions, bugs and ideas from teachers are how Rehearsal gets better. Write any time.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="two-col" style="align-items:start">
+          <div>
+            <h2>Send a message</h2>
+            <form id="inquiry-form" novalidate>
+              <div class="form-grid">
+                <div class="fld">
+                  <label for="c-name">Name (optional)</label>
+                  <input id="c-name" name="name" type="text" autocomplete="name">
+                </div>
+                <div class="fld">
+                  <label for="c-email">Email</label>
+                  <input id="c-email" name="email" type="email" autocomplete="email">
+                </div>
+                <div class="fld full">
+                  <label for="c-topic">Topic</label>
+                  <select id="c-topic" name="kind">
+                    <option value="question">Question</option>
+                    <option value="bug">Bug report</option>
+                    <option value="feature">Feature idea</option>
+                    <option value="po">School purchase order</option>
+                    <option value="privacy">Privacy</option>
+                  </select>
+                </div>
+                <div class="fld full">
+                  <label for="c-msg">Message</label>
+                  <textarea id="c-msg" name="message" rows="6"></textarea>
+                </div>
+              </div>
+              <p style="margin-top:14px"><button type="submit" class="btn primary" id="inquiry-submit">Send</button></p>
+              <div class="hp-field" aria-hidden="true"><input name="website" type="text" tabindex="-1" autocomplete="off"></div>
+              <div class="form-status" id="inquiry-status" role="status" aria-live="polite"></div>
+            </form>
+          </div>
+
+          <div>
+            <div class="card">
+              <h3>Report a bug from inside the app</h3>
+              <p>The quickest way is the bug report option in the app itself. It is opt-in: you see the screenshot first and choose whether to send it. Rehearsal has no automatic crash reporting.</p>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>Privacy questions</h3>
+              <p>For anything about student data, deleting a class or a student, or a district review, write to <a href="mailto:privacy@rehearsalmusic.com">privacy@rehearsalmusic.com</a>. See also the <a href="schools.html">privacy note</a>.</p>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>School purchase orders</h3>
+              <p>Purchase orders are set up by hand. Choose "School purchase order" in the form, or see the <a href="schools.html">Schools page</a>.</p>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>Like Rehearsal?</h3>
+              <p>The classroom app is free. If it saves you time, you can <a href="https://buymeacoffee.com/loganshippee">buy me a coffee</a>. Totally optional.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <span>© 2026 Rehearsal · rehearsalmusic.com</span>
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="download.html">Download</a>
+        <a href="index.html#try">Try it</a>
+        <a href="homework.html">Online Homework</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="devices.html">Supported devices</a>
+        <a href="schools.html">Privacy note</a>
+        <a href="faq.html">FAQ</a>
+        <a href="changelog.html">What’s new</a>
+        <a href="contact.html">Contact and feedback</a>
+      </nav>
+    </div>
+  </footer>
+  
+  <script src="site.js?v=7"></script>
+</body>
+</html>
