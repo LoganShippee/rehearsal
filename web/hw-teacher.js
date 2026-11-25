@@ -1219,6 +1219,21 @@
     return Math.max(1, Math.round(n / 1024)) + ' KB';
   }
 
+  // The MusicXML file to send for a library score: the file itself, or, for a MuseScore file, its converted copy.
+  function practiceXmlFile(fid) {
+    const files = S.files || {};
+    const f = files[fid];
+    if (!f) return null;
+    const isXml = n => /\.(mxl|musicxml|xml)$/i.test(n || '');
+    if (isXml(f.name)) return { id: fid, name: f.name };
+    if (!/\.(mscz|mscx)$/i.test(f.name || '')) return null;
+    const xid = S.scoreSettings?.[fid]?.xmlId;
+    if (xid && files[xid] && isXml(files[xid].name)) return { id: xid, name: files[xid].name };
+    const base = n => n.replace(/\.[^.]+$/, '').trim().toLowerCase();
+    const sib = Object.entries(files).find(([, g]) => isXml(g.name) && !/\.mxl$/i.test(g.name) && base(g.name) === base(f.name));
+    return sib ? { id: sib[0], name: sib[1].name } : null;
+  }
+
   function renderPracticeTracksCardHTML(writable, online) {
     const tracks = S_STATE.practiceTracks || [];
     return `
@@ -1237,8 +1252,7 @@
         </div>
         ${(() => {
           // Scores already in Rehearsal (MusicXML only: MuseScore files can't be sent as they are).
-          const lib = (typeof spLibrary === 'function' ? spLibrary() : [])
-            .filter(x => /\.(mxl|musicxml|xml)$/i.test(S.files?.[x.id]?.name || ''));
+          const lib = (typeof spLibrary === 'function' ? spLibrary() : []).filter(x => practiceXmlFile(x.id));
           return lib.length ? `
             <label class="fld" style="margin:8px 0 0">
               <span class="small muted">Or add a score that's already in Rehearsal</span>
@@ -2314,18 +2328,19 @@
         const fid = t.value;
         t.value = '';
         if (!fid || !S_STATE.selectedClassId) break;
-        const meta = S.files?.[fid];
-        const fname = meta?.name || 'Score.mxl';
+        const src = practiceXmlFile(fid);
+        if (!src) { showToast('That score has no MusicXML copy yet. Open it once in Rehearsal, then try again.'); break; }
+        const fname = src.name;
         let blob = null;
         try {
-          if (typeof memBlobs !== 'undefined' && memBlobs[fid]) blob = memBlobs[fid];
+          if (typeof memBlobs !== 'undefined' && memBlobs[src.id]) blob = memBlobs[src.id];
           else if (typeof fileDirectURL === 'function') {
-            const url = fileDirectURL(fid);
+            const url = fileDirectURL(src.id);
             if (url) { const r = await fetch(url); if (r.ok) blob = await r.blob(); }
           }
         } catch {}
         if (!blob || !blob.size) { showToast('Could not read that score from Rehearsal.'); break; }
-        const guess = fname.replace(/\.[^.]+$/, '');
+        const guess = (S.files?.[fid]?.name || fname).replace(/\.[^.]+$/, '').trim();
         const title = prompt('Name for this practice track', guess);
         if (title === null) break;
         showToast('Uploading…');
