@@ -315,8 +315,13 @@ export async function handleDeleteClass(request, env, auth, classId) {
     'SELECT audio_r2_key FROM submissions WHERE class_id = ? AND audio_r2_key IS NOT NULL'
   ).bind(classId).all();
 
+  const practiceRows = await env.DB.prepare(
+    'SELECT score_r2_key FROM practice_tracks WHERE class_id = ?'
+  ).bind(classId).all();
+
   const r2Keys = [
     ...(scoreRows?.results || []).map(r => r.score_r2_key),
+    ...(practiceRows?.results || []).map(r => r.score_r2_key),
     ...(audioRows?.results || []).map(r => r.audio_r2_key),
   ];
   const deletedR2Objects = await bestEffortDeleteR2Keys(env, r2Keys);

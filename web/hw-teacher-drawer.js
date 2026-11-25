@@ -307,6 +307,7 @@
       scoreGradeMode: 'mic',
       scoreSolfege: false,
       scoreCounts: false,
+      scoreGuide: false,
       scoreBaseSpState: null,
 
       // Audio-Only state
@@ -1104,6 +1105,10 @@
       D.scoreCounts = !!el.checked;
       return;
     }
+    if (key === 'score-guide') {
+      D.scoreGuide = !!el.checked;
+      return;
+    }
     if (key === 'audio-countIn') {
       D.audioCountIn = !!el.checked;
     }
@@ -1259,6 +1264,8 @@
         origBpm: D.scoreOrigBpm || baseSp.origBpm || 0,
         solfege: !!D.scoreSolfege,
         counts: !!D.scoreCounts,
+        guidePiano: !!D.scoreGuide && gradeMode !== 'tap',
+        gradeGuide: false,   // never inherit the teacher's own guide setting; students turn it on with the headphones tick
         focus: Number.isFinite(focusVal) ? focusVal : null,
         loop,
         zoom: baseSp.zoom ?? 0.85,
@@ -1803,6 +1810,10 @@
             <input type="checkbox" data-hwt-change="score-counts" ${D.scoreCounts ? 'checked' : ''}>
             <span>Show Counts</span>
           </label>
+          ${D.scoreGradeMode === 'tap' || (D.scoreParts?.length || 2) < 2 ? '' : `<label class="chk">
+            <input type="checkbox" data-hwt-change="score-guide" ${D.scoreGuide ? 'checked' : ''}>
+            <span>Play the other parts on piano while students sing <small>(students confirm they have headphones)</small></span>
+          </label>`}
         </div>
 
         <label class="fld" style="grid-column:1 / -1">
@@ -2005,6 +2016,7 @@
     D.scoreGradeMode = hwtGradeMode(st.gradeMode);
     D.scoreSolfege = !!st.solfege;
     D.scoreCounts = !!st.counts;
+    D.scoreGuide = false;   // a published guide is a deliberate choice, not the teacher's own practice setting
 
     if (sc?.lines) {
       D.scoreParts = sc.lines.map((l, i) => ({ index: i, name: l.name || `Part ${i + 1}`, acc: !!l.acc }));
@@ -2110,6 +2122,7 @@
       D.scoreOrigBpm = Number(sp.origBpm || 0);
       D.scoreSolfege = !!sp.solfege;
       D.scoreCounts = !!sp.counts;
+      D.scoreGuide = !!sp.guidePiano;
       if (Array.isArray(sp.partNames)) D.scoreParts = clone(sp.partNames);
       if (sp.measuresCount) D.scoreMeasuresCount = Number(sp.measuresCount);
       if (Array.isArray(sp.measureNums)) D.scoreMeasureNums = clone(sp.measureNums);

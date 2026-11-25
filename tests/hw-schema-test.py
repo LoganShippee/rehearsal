@@ -27,6 +27,7 @@ EXPECTED_TABLES = {
     "beta_codes",
     "beta_redemptions",
     "teacher_data",
+    "practice_tracks",
 }
 
 passed = 0
@@ -66,9 +67,9 @@ def main():
     actual_tables = {r[0] for r in rows}
     check(
         actual_tables == EXPECTED_TABLES,
-        f"Expected 14 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
+        f"Expected 15 tables {sorted(EXPECTED_TABLES)}, got {sorted(actual_tables)}",
     )
-    check(len(actual_tables) == 14, "Exactly 14 tables created")
+    check(len(actual_tables) == 15, "Exactly 15 tables created")
 
     now = 1_700_000_000_000
     trial_end = now + 30 * 86_400_000
@@ -214,9 +215,31 @@ def main():
     )
     check(True, "Submission score boundaries (0, 100, NULL) accepted")
 
+    # Practice tracks: required columns, and they belong to a class
+    conn.execute(
+        """INSERT INTO practice_tracks (id, class_id, title, score_r2_key, score_filename, score_bytes, created_at)
+           VALUES ('pt_1', 'cls_1', 'Ode', 'practice/cls_1/pt_1.mxl', 'ode.mxl', 100, ?)""",
+        (now,),
+    )
+    expect_integrity_error(
+        conn,
+        """INSERT INTO practice_tracks (id, class_id, title, score_r2_key, score_filename, created_at)
+           VALUES ('pt_bad', 'cls_missing', 'X', 'k', 'x.mxl', ?)""",
+        (now,),
+        "practice_tracks.class_id must reference a real class",
+    )
+    expect_integrity_error(
+        conn,
+        """INSERT INTO practice_tracks (id, class_id, title, score_r2_key, score_filename, created_at)
+           VALUES ('pt_1', 'cls_1', 'Dup', 'k', 'x.mxl', ?)""",
+        (now,),
+        "practice_tracks.id is unique",
+    )
+
     # 5. ON DELETE CASCADE — deleting cls_1 wipes students, student_sessions, assignments, attempt_starts, submissions
     conn.execute("DELETE FROM classes WHERE id = 'cls_1'")
     for table, where in [
+        ("practice_tracks", "class_id = 'cls_1'"),
         ("students", "class_id = 'cls_1'"),
         ("student_sessions", "class_id = 'cls_1'"),
         ("assignments", "class_id = 'cls_1'"),

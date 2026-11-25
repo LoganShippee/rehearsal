@@ -2302,6 +2302,7 @@
       db.students = db.students.filter(s => s.classId !== classId);
       db.assignments = db.assignments.filter(a => a.classId !== classId);
       db.submissions = db.submissions.filter(sub => sub.classId !== classId);
+      db.practiceTracks = (db.practiceTracks || []).filter(t => t.classId !== classId);
       saveDemoDb();
       return { ok: true, deleted: true, classId, deletedR2Objects: 0 };
     },
@@ -2864,6 +2865,118 @@
         contentType: mime,
         updatedAt: now,
       };
+    },
+
+    // ---------- Practice tracks: free-practice files shared with a whole class (not graded)
+    async listPracticeTracks(classId, includeArchived = false) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/classes/${encodeURIComponent(classId)}/practice-tracks${includeArchived ? '?includeArchived=1' : ''}`);
+      }
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const tracks = (db.practiceTracks || [])
+        .filter(t => t.classId === classId && (includeArchived || !t.archivedAt))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return { ok: true, tracks: JSON.parse(JSON.stringify(tracks)) };
+    },
+
+    async uploadPracticeTrack(classId, fileOrBlob, filename, title) {
+      const rawName = String(filename || (fileOrBlob && fileOrBlob.name) || 'track.musicxml').trim();
+      const baseName = (rawName.split(/[/\\]/).pop() || 'track.musicxml').trim();
+      const lower = baseName.toLowerCase();
+
+      if (lower.endsWith('.mscz') || lower.endsWith('.mscx')) {
+        return demoErr(415, 'UNSUPPORTED_SCORE_FORMAT', MUSESCORE_UNSUPPORTED_MSG);
+      }
+      if (!lower.endsWith('.mxl') && !lower.endsWith('.musicxml') && !lower.endsWith('.xml')) {
+        return demoErr(415, 'UNSUPPORTED_SCORE_FORMAT', 'Upload a MusicXML file (.mxl, .musicxml, or .xml).');
+      }
+      if (!fileOrBlob) {
+        return demoErr(400, 'MISSING_FILE', 'Attach a MusicXML (.mxl or .musicxml) file.');
+      }
+      const blob = fileOrBlob instanceof Blob
+        ? fileOrBlob
+        : new Blob([fileOrBlob], { type: 'application/octet-stream' });
+      if (blob.size <= 0) {
+        return demoErr(400, 'EMPTY_FILE', 'Uploaded score file is empty.');
+      }
+      if (blob.size > MAX_SCORE_BYTES) {
+        return demoErr(413, 'SCORE_TOO_LARGE', 'Score file is too large (10 MB maximum).');
+      }
+      const cleanTitle = String(title || '').trim().slice(0, 120) || baseName.replace(/\.[^.]+$/, '');
+
+      if (!isDemoMode()) {
+        // FormData with ONLY the Authorization header, so the browser sets the multipart boundary
+        const form = new FormData();
+        form.append('file', blob, baseName);
+        form.append('title', cleanTitle);
+        return liveFetch(`/api/classes/${encodeURIComponent(classId)}/practice-tracks`, {
+          method: 'POST',
+          formData: form,
+        });
+      }
+
+      if (isOffline()) return offlineErr();
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const blocked = assertDemoWritable(auth);
+      if (blocked) return blocked;
+      if (!db.classes.find(c => c.id === classId)) return demoErr(404, 'CLASS_NOT_FOUND', 'Class not found.');
+      db.practiceTracks ||= [];
+      if (db.practiceTracks.filter(t => t.classId === classId && !t.archivedAt).length >= 40) {
+        return demoErr(409, 'TRACK_LIMIT_REACHED', 'This class already has 40 practice tracks. Archive or delete one to add another.');
+      }
+      const track = {
+        id: makeId('pt'), classId, title: cleanTitle, scoreFilename: baseName,
+        scoreBytes: blob.size, createdAt: Date.now(), archivedAt: null,
+      };
+      db.practiceTracks.push(track);
+      saveDemoDb();
+      return { ok: true, track: JSON.parse(JSON.stringify(track)) };
+    },
+
+    async updatePracticeTrack(trackId, patch) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/practice-tracks/${encodeURIComponent(trackId)}`, {
+          method: 'PATCH',
+          json: patch || {},
+        });
+      }
+      if (isOffline()) return offlineErr();
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const blocked = assertDemoWritable(auth);
+      if (blocked) return blocked;
+      const t = (db.practiceTracks || []).find(x => x.id === trackId);
+      if (!t) return demoErr(404, 'TRACK_NOT_FOUND', 'Practice track not found.');
+      const p = patch || {};
+      if (p.title !== undefined) {
+        const nt = String(p.title || '').trim().slice(0, 120);
+        if (!nt) return demoErr(400, 'INVALID_TITLE', 'Practice track name is required.');
+        t.title = nt;
+      }
+      if (p.archived !== undefined) t.archivedAt = p.archived ? (t.archivedAt || Date.now()) : null;
+      saveDemoDb();
+      return { ok: true, track: JSON.parse(JSON.stringify(t)) };
+    },
+
+    async deletePracticeTrack(trackId) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/practice-tracks/${encodeURIComponent(trackId)}`, { method: 'DELETE' });
+      }
+      if (isOffline()) return offlineErr();
+      const db = loadDemoDb();
+      const auth = demoAuth(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      const list = db.practiceTracks || [];
+      const idx = list.findIndex(x => x.id === trackId);
+      if (idx < 0) return demoErr(404, 'TRACK_NOT_FOUND', 'Practice track not found.');
+      list.splice(idx, 1);
+      saveDemoDb();
+      return { ok: true, deleted: true, id: trackId };
     },
 
     // The assignment's score file, so the submission review can show the graded notes on the real music.

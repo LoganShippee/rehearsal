@@ -248,3 +248,17 @@ CREATE TABLE IF NOT EXISTS teacher_data (
 );
 
 ALTER TABLE oauth_handoffs ADD COLUMN sync_only INTEGER NOT NULL DEFAULT 0;
+
+-- 16. Practice tracks (same as migrations/0006_practice_tracks.sql)
+CREATE TABLE IF NOT EXISTS practice_tracks (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  score_r2_key TEXT NOT NULL,
+  score_filename TEXT NOT NULL,
+  score_bytes INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  archived_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_practice_tracks_class ON practice_tracks(class_id, archived_at);

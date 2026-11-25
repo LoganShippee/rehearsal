@@ -163,6 +163,18 @@ check('iPad shell: viewport-fit=cover and dark html.web overscroll-behavior: non
 check('Narrow window: side panel stacks above the stage',
   /@media\s*\(max-width:\s*900px\)\s*\{[^}]*\.p-body:not\(\.full\)\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important/.test(stylesCss));
 
+// 6c. Homework piano guide: never plays unless the student ticks "headphones", and a teacher's own
+// practice setting must not leak into published assignments.
+{
+  const sp = read('web/score.js') || '', stu = read('web/hw-student.js') || '', drw = read('web/hw-teacher-drawer.js') || '';
+  check('Piano guide: score.js grading guide uses piano on its own gain into GR.out, only when not tapping',
+    /if \(st\.gradeGuide && !tap\) \{[\s\S]{0,400}guideG\.connect\(GR\.out\)[\s\S]{0,900}spPianoNote\(guideG/.test(sp));
+  check('Piano guide: student spState forces gradeGuide:false until the headphones tick',
+    /gradeGuide: false,[^\n]*\n\s*layout: 'v'/.test(stu) && stu.includes('id="hw-sp-hp"') && !stu.includes("rehearsal-hw-guide-hp"));   // never remembered: shared devices must start unticked
+  check('Piano guide: teacher build publishes guidePiano and forces gradeGuide:false',
+    /guidePiano: !!D\.scoreGuide[^\n]*\n\s*gradeGuide: false/.test(drw));
+}
+
 // 7. Protected zones manifest is valid JSON
 {
   const raw = read('tests/protected-zones.json');

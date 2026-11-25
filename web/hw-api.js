@@ -363,6 +363,7 @@
       ],
       attemptStarts: [], // { id, assignmentId, studentId, attemptNum, startedAt, studySeconds, expectedSec, consumedAt }
       submissions: [],   // { id, assignmentId, studentId, attemptNum, attemptStartId, overallPct, rhythmPct, pitchPct, submittedAt, audioSaved }
+      practiceTracks: [{ id: 'pt_demo_ode', title: 'Ode to Joy', scoreFilename: 'Ode to Joy.mxl', scoreBytes: 0, createdAt: t0, archivedAt: null }],
     };
   }
 
@@ -776,6 +777,32 @@
           .filter(a => a.published)
           .map(a => buildStudentAssignmentSummary(db, a, auth.stu.id)),
       };
+    },
+
+    // Free-practice files the teacher shared with the whole class (not graded).
+    async listPracticeTracks() {
+      if (!isDemoMode()) {
+        return liveFetch('/api/student/practice-tracks');
+      }
+      const db = loadDemoDb();
+      const auth = demoAuthStudent(db);
+      if (!auth) return demoErr(401, 'SESSION_INVALID', 'Session expired — please sign in again.');
+      return { ok: true, tracks: clone(db.practiceTracks || []).filter(t => !t.archivedAt) };
+    },
+
+    async downloadPracticeTrackBlob(trackId) {
+      if (!isDemoMode()) {
+        return liveFetch(`/api/practice-tracks/${encodeURIComponent(trackId)}/score`, {
+          method: 'GET',
+          responseType: 'blob',
+        });
+      }
+      try {
+        const r = await fetch('demo/ode-to-joy.mxl');
+        if (r.ok) return { ok: true, blob: await r.blob(), filename: 'Ode to Joy.mxl' };
+      } catch {}
+      const xml = typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '';
+      return { ok: true, blob: new Blob([xml], { type: 'application/xml' }), filename: 'Sample Vocal Check-In.musicxml' };
     },
 
     async getAssignment(assignmentId) {

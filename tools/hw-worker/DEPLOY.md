@@ -136,3 +136,11 @@ curl -X POST https://<your-worker>.workers.dev/api/admin/po-grant \
     "studentSoftCap": 600
   }'
 ```
+
+---
+
+## 8. Practice tracks (migration 0006)
+
+Practice tracks let a teacher share MusicXML files with a whole class for free practice (not graded). Routes: `GET/POST /api/classes/:id/practice-tracks`, `PATCH/DELETE /api/practice-tracks/:id`, `GET /api/practice-tracks/:id/score`, `GET /api/student/practice-tracks`. Files live in R2 under `practice/<classId>/<trackId>.mxl|xml`.
+
+Deploy order: run `tools/hw-worker/backup-d1.sh`, apply `migrations/0006_practice_tracks.sql` (staging first with `tools/staging.sh`, then production), deploy the worker, and only then publish the web UI.

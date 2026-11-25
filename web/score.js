@@ -1301,12 +1301,16 @@ async function spGradeStart(ctl, btn, inputOverride = null) {
   }
   // Optional quiet guide of other parts during grading (OFF by default — opt-in for headphones)
   if (st.gradeGuide && !tap) {
+    // Own volume, so the Metronome button and its level don't change the guide. Piano when the
+    // samples are loaded, plain tones otherwise. Same clock as the grade window (T0).
+    const guideG = c.createGain(); guideG.gain.value = 0.5; guideG.connect(GR.out);
     for (const e of sc.pevents) {
       if (e.line === lineIdx || st.parts[e.line]?.on === false) continue;
       if (e.q < R.a - 1e-6 || e.q >= R.b - 1e-6) continue;
       const dt = spTimeBetweenQ(sc, R.a, e.q, fac);
       const durSec = spTimeBetweenQ(sc, e.q, Math.min(e.q + e.dur, R.b), fac);
-      grTone(c, T0 + dt, e.midi, Math.max(0.05, durSec * 0.9), 0.12);
+      const gv = st.parts[e.line]?.vol ?? 1, pn = SP_PIANO.buffers?.[spNoteName(e.midi)];
+      if (pn) spPianoNote(guideG, T0 + dt, e.midi, Math.max(0.05, durSec * 0.9), 0.22 * gv);   // no samples: stay silent rather than play a louder plain tone
     }
   }
   // Build playhead marks on clock `c` so the score playhead glides smoothly across the measures while grading

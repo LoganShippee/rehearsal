@@ -418,7 +418,9 @@ function hwBuildSubmissionSummary(type, label, gradeResult, audioBlob, durationS
       // so the teacher's review can draw the same marks on the music as the student's grade card
       q: res.q || null,
       lineIdx: gradeResult.lineIdx ?? null,
-      rangeLabel: res.rangeLabel || null,
+      // the server keeps only a few text fields, so "guide used" rides along on the range label
+      rangeLabel: meta.guide ? ((res.rangeLabel ? res.rangeLabel + ' · ' : '') + 'with piano guide').slice(0, 40) : (res.rangeLabel || null),
+      guide: !!meta.guide,
       partName: res.partName || null,
       heard: res.diag?.heard ?? null,
       extraAt: (() => {
@@ -547,7 +549,7 @@ function hwInstallEngineHooks(onTakeSaved) {
           expectedSec: Math.max(0, (GR.end || 0) - (GR.T0 || 0) - 0.8),
           meta: {
             scoreName: ctl?.st?.name || 'Score Check-In', gradeMode: mode, tempo: ctl?.st?.tempo || null,
-            attemptStartId: null,
+            attemptStartId: null, guide: !!ctl?.st?.gradeGuide && mode !== 'tap',
             syncMs: avDelayMs(), strictness: typeof grStrictnessValues === 'function' ? grStrictnessValues() : { rhythm: 25, pitch: 25 },
           },
         };
@@ -647,6 +649,8 @@ const HW_STATE = {
   previewClass: null,
   previewRevealed: false,
   assignments: [],
+  practiceTracks: [],   // free practice files the teacher shared with this class
+  practiceTrackId: null,
   activeAssignment: null,
   activeAttemptStart: null,
   scoreFileIds: new Map(),
@@ -1328,7 +1332,13 @@ async function hwRefreshAssignments() {
     HW_STATE.assignments = res.assignments;
   } else if (res.status === 401) {
     await hwSignOut();
+    return;
   }
+  // Practice tracks are optional: an older server (404) or a hiccup just leaves the list as it was.
+  try {
+    const pr = await HW_API.listPracticeTracks?.();
+    if (pr?.ok && Array.isArray(pr.tracks)) HW_STATE.practiceTracks = pr.tracks;
+  } catch { }
 }
 
 function hwRenderAssignmentList() {
@@ -1428,16 +1438,72 @@ function hwRenderPracticeButtons() {
   $('#hw-practice-tracks').onclick = () => hwOpenPracticeTracks();
 }
 
-function hwOpenPracticeTracks() {
+async function hwOpenPracticeTracks() {
+  hwCleanupMediaAndMic();
+  document.getElementById('gr-card')?.remove();
   HW_STATE.freePractice = true;
   HW_STATE.activeAssignment = null;
+  HW_STATE.practiceTrackId = null;
+  HW_STATE.latestTakeId = null;
+  HW_STATE.tab = 'score';
   const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
   hwSetView('runner');
   hwRenderRunnerHeaderBar();
   const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Practice tracks';
   const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
-  const tracks = Array.isArray(HW_STATE.practiceTracks) ? HW_STATE.practiceTracks : [];
-  $('#hw-runner-body').innerHTML = `<div class="hw-card"><div class="hw-empty" style="padding:48px 20px">${tracks.length ? '' : 'Your teacher hasn’t shared any practice tracks yet.'}</div></div>`;
+  const body = $('#hw-runner-body');
+  if (!body) return;
+  body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
+  const draw = () => {
+    const tracks = Array.isArray(HW_STATE.practiceTracks) ? HW_STATE.practiceTracks : [];
+    body.innerHTML = `<div class="hw-card">${tracks.length
+      ? `<div class="hw-practice">${tracks.map(t => `<button type="button" class="hw-practice-btn" data-open-track="${esc(t.id)}">${esc(t.title)}</button>`).join('')}</div>`
+      : `<div class="hw-empty" style="padding:48px 20px">Your teacher hasn’t shared any practice tracks yet.</div>`}</div>`;
+    body.querySelectorAll('[data-open-track]').forEach(b => { b.onclick = () => hwOpenPracticeTrack(b.dataset.openTrack); });
+  };
+  draw();
+  // show what we have right away, then refresh in case the teacher added one
+  try {
+    const pr = await HW_API.listPracticeTracks?.();
+    if (pr?.ok && Array.isArray(pr.tracks) && HW_STATE.freePractice && !HW_STATE.practiceTrackId && HW_STATE.view === 'runner') {
+      HW_STATE.practiceTracks = pr.tracks;
+      draw();
+    }
+  } catch { }
+}
+
+// Opens one shared track in the normal score player. Just practice: nothing is graded or saved.
+async function hwOpenPracticeTrack(trackId) {
+  const t = (HW_STATE.practiceTracks || []).find(x => x.id === trackId);
+  if (!t) return;
+  const key = 'track:' + trackId;
+  let fid = HW_STATE.scoreFileIds.get(key);
+  if (!fid) {
+    const dl = await HW_API.downloadPracticeTrackBlob(trackId);
+    if (!dl?.ok || !dl.blob) {
+      toast(dl?.error || 'Could not open this track. Check your connection and try again.');
+      return;
+    }
+    fid = hwRegisterFile(dl.blob, dl.filename || t.scoreFilename || 'Practice track.musicxml');
+    HW_STATE.scoreFileIds.set(key, fid);
+  }
+  HW_STATE.freePractice = true;
+  HW_STATE.activeAssignment = null;
+  HW_STATE.practiceTrackId = trackId;
+  HW_STATE.scoreLoadError = '';
+  HW_STATE.latestTakeId = null;
+  HW_STATE.tab = 'score';
+  HW_STATE.spFileId = fid;
+  HW_STATE.spGradeMode = 'mic';
+  HW_STATE.spState = { fileId: fid, name: t.title, gradeMode: 'mic', layout: 'v' };
+  // practice always grades at Standard
+  S.settings.gradeStrictRhythm = 25; S.settings.gradeStrictPitch = 25; S.settings.gradeStrictness = 25;
+  const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
+  hwSetView('runner');
+  hwRenderRunnerHeaderBar();
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = t.title;
+  const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
+  hwMountScoreRunner();
 }
 
 // Free Sight Reading practice uses Sight Reading's own toolbar and Settings (minus teacher tools), starting
@@ -1532,7 +1598,7 @@ function hwRenderRunnerHeaderBar() {
   if (backBtn) {
     backBtn.hidden = false;   // teachers in preview get a clear way back too
     const lbl = $('#hw-back-label');
-    if (lbl) lbl.textContent = HW_STATE.previewMode ? 'Back to assignment setup' : 'All assignments';
+    if (lbl) lbl.textContent = HW_STATE.previewMode ? 'Back to assignment setup' : (HW_STATE.freePractice && HW_STATE.practiceTrackId ? 'Practice tracks' : 'All assignments');
   }
   // keep the sticky bar just under the page header, whatever height it wraps to
   const hdr = document.querySelector('.hw-header');
@@ -1633,6 +1699,7 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
       fileId: fid || null,
       name: a.title,
       gradeMode: HW_STATE.spGradeMode,
+      gradeGuide: false,   // the piano guide plays only after the student ticks "I'm wearing headphones"
       layout: 'v',   // always "Down": a teacher's "Sideways" setting gave students one long line they couldn't scroll down or switch back
     };
   } else {
@@ -2217,7 +2284,7 @@ function hwMountScoreRunner() {
   const strictDesc = strictSpec
     ? ` · Rhythm: ${strictSpec.rhythmLabel} (±${strictSpec.rhythmMs} ms)${HW_STATE.spGradeMode === 'mic' ? ` · Pitch: ${strictSpec.pitchLabel} (±${strictSpec.pitchCents}¢)` : ''}`
     : '';
-  const canSub = hwCanSubmitActive();
+  const canSub = HW_STATE.freePractice || hwCanSubmitActive();   // free practice has no tries to run out
 
   body.innerHTML = `
     <div class="hw-card">
@@ -2244,6 +2311,7 @@ function hwMountScoreRunner() {
             <select id="hw-sp-part" class="hw-part-select"></select>
           </label>
           <button type="button" class="hw-btn pitch" id="hw-sp-pitch">Starting pitch</button>
+          ${HW_STATE.spState.guidePiano && HW_STATE.spGradeMode === 'mic' ? `<label class="hw-guide-hp" style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="hw-sp-hp"> <span>I'm wearing headphones (plays a quiet piano guide). No headphones? Leave it off and you'll sing without the piano.</span></label>` : ''}
         </div>
         <div class="hw-student-actions">
           ${canSub
@@ -2294,6 +2362,13 @@ function hwMountScoreRunner() {
     if (first) hwPlayMidi(c, c.currentTime + 0.04, first.midi, 1.2, 0.95);
     else toast('No starting pitch found for this part.');
   };
+  const hp = $('#hw-sp-hp');
+  if (hp) {
+    // Always starts unticked: on a shared school device the last student's answer must not carry over.
+    hp.checked = false;
+    HW_STATE.spState.gradeGuide = false;
+    hp.onchange = () => { HW_STATE.spState.gradeGuide = hp.checked; };
+  }
   const gBtn = $('#hw-sp-grade');
   if (gBtn) gBtn.onclick = () => spGradeStart(ctl, gBtn, HW_STATE.spGradeMode);
 }
@@ -2682,6 +2757,7 @@ async function hwBoot() {
   $('#hw-retry-all').onclick = () => hwRetryQueuedUploads(false);
   $('#hw-back-list').onclick = async () => {
     hwCleanupMediaAndMic();
+    if (HW_STATE.freePractice && HW_STATE.practiceTrackId) { await hwOpenPracticeTracks(); return; }   // track -> track list -> assignments
     if (HW_STATE.previewMode) { hwClosePreviewWindow(); return; }   // teacher preview: close it, back to setup
     await hwRefreshAssignments();
     hwRenderAssignmentList();

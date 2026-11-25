@@ -495,6 +495,97 @@ function hasXmlMagic(bytes) {
   return i < bytes.length && bytes[i] === 0x3C; // '<'
 }
 
+// Reads and checks an uploaded MusicXML file (multipart "file" field, or raw body + x-filename).
+// Shared by assignment scores and practice tracks. Returns { error } or the checked file.
+// `form` is the parsed multipart form (null for a raw upload) so callers can read extra fields.
+export async function readValidatedScoreUpload(request, env) {
+  const contentType = (request.headers.get('content-type') || '').toLowerCase();
+  let rawFilename = '';
+  let bytes = null;
+  let form = null;
+
+  if (contentType.includes('multipart/form-data')) {
+    try {
+      form = await request.formData();
+    } catch {
+      return { error: errResponse('Could not read uploaded file.', 400, 'INVALID_UPLOAD', request, env) };
+    }
+    const file = form.get('file');
+    if (!file || typeof file === 'string' || typeof file.arrayBuffer !== 'function') {
+      return { error: errResponse('Attach a MusicXML (.mxl or .musicxml) file in the "file" field.', 400, 'MISSING_FILE', request, env) };
+    }
+    rawFilename = file.name || request.headers.get('x-filename') || '';
+
+    // Check MuseScore rejection before rejecting on size or reading buffer
+    const lowerPre = rawFilename.trim().toLowerCase();
+    if (lowerPre.endsWith('.mscz') || lowerPre.endsWith('.mscx')) {
+      return { error: errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env) };
+    }
+    if (typeof file.size === 'number' && file.size > MAX_SCORE_BYTES) {
+      return { error: errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env) };
+    }
+    bytes = new Uint8Array(await file.arrayBuffer());
+  } else {
+    rawFilename = request.headers.get('x-filename') || '';
+    const lowerPre = rawFilename.trim().toLowerCase();
+    if (lowerPre.endsWith('.mscz') || lowerPre.endsWith('.mscx')) {
+      return { error: errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env) };
+    }
+    const contentLen = Number(request.headers.get('content-length') || 0);
+    if (Number.isFinite(contentLen) && contentLen > MAX_SCORE_BYTES) {
+      return { error: errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env) };
+    }
+    bytes = new Uint8Array(await request.arrayBuffer());
+  }
+
+  let decodedName = rawFilename;
+  try { decodedName = decodeURIComponent(rawFilename); } catch {}
+  const baseName = (decodedName.split(/[/\\]/).pop() || '').trim();
+  const lowerName = baseName.toLowerCase();
+
+  if (lowerName.endsWith('.mscz') || lowerName.endsWith('.mscx')) {
+    return { error: errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env) };
+  }
+
+  const isMxl = lowerName.endsWith('.mxl');
+  const isXml = lowerName.endsWith('.musicxml') || lowerName.endsWith('.xml');
+  if (!isMxl && !isXml) {
+    return { error: errResponse('Upload a MusicXML file (.mxl, .musicxml, or .xml).', 415, 'UNSUPPORTED_SCORE_FORMAT', request, env) };
+  }
+
+  if (!bytes || bytes.byteLength === 0) {
+    return { error: errResponse('Uploaded score file is empty.', 400, 'EMPTY_FILE', request, env) };
+  }
+  if (bytes.byteLength > MAX_SCORE_BYTES) {
+    return { error: errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env) };
+  }
+
+  if (isMxl && !hasZipMagic(bytes)) {
+    return {
+      error: errResponse(
+        'This .mxl file does not look like a valid compressed MusicXML archive. Re-export it as MusicXML (.mxl) and try again.',
+        415, 'INVALID_SCORE_FILE', request, env
+      ),
+    };
+  }
+  if (isXml && !hasXmlMagic(bytes)) {
+    return {
+      error: errResponse(
+        'This file does not look like valid MusicXML. Re-export it from your notation app and try again.',
+        415, 'INVALID_SCORE_FILE', request, env
+      ),
+    };
+  }
+
+  if (!env.BUCKET) {
+    return { error: errResponse('Score file storage is not configured.', 503, 'STORAGE_UNAVAILABLE', request, env) };
+  }
+
+  const safeFilename = sanitizeFilename(baseName, isMxl ? 'score.mxl' : 'score.musicxml');
+  const mime = isMxl ? 'application/vnd.recordare.musicxml' : 'application/xml; charset=utf-8';
+  return { bytes, baseName, safeFilename, isMxl, mime, form };
+}
+
 export async function handleUploadAssignmentScore(request, env, auth, assignmentId) {
   const blocked = assertTeacherWritable(auth.teacher, request, env);
   if (blocked) return blocked;
@@ -508,93 +599,10 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
     return errResponse('Score files can only be uploaded to Score Practice assignments.', 400, 'NOT_SCORE_ASSIGNMENT', request, env);
   }
 
-  const contentType = (request.headers.get('content-type') || '').toLowerCase();
-  let rawFilename = '';
-  let bytes = null;
-
-  if (contentType.includes('multipart/form-data')) {
-    let form;
-    try {
-      form = await request.formData();
-    } catch {
-      return errResponse('Could not read uploaded file.', 400, 'INVALID_UPLOAD', request, env);
-    }
-    const file = form.get('file');
-    if (!file || typeof file === 'string' || typeof file.arrayBuffer !== 'function') {
-      return errResponse('Attach a MusicXML (.mxl or .musicxml) file in the "file" field.', 400, 'MISSING_FILE', request, env);
-    }
-    rawFilename = file.name || request.headers.get('x-filename') || '';
-
-    // Check MuseScore rejection before rejecting on size or reading buffer
-    const lowerPre = rawFilename.trim().toLowerCase();
-    if (lowerPre.endsWith('.mscz') || lowerPre.endsWith('.mscx')) {
-      return errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env);
-    }
-    if (typeof file.size === 'number' && file.size > MAX_SCORE_BYTES) {
-      return errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env);
-    }
-    bytes = new Uint8Array(await file.arrayBuffer());
-  } else {
-    rawFilename = request.headers.get('x-filename') || '';
-    const lowerPre = rawFilename.trim().toLowerCase();
-    if (lowerPre.endsWith('.mscz') || lowerPre.endsWith('.mscx')) {
-      return errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env);
-    }
-    const contentLen = Number(request.headers.get('content-length') || 0);
-    if (Number.isFinite(contentLen) && contentLen > MAX_SCORE_BYTES) {
-      return errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env);
-    }
-    bytes = new Uint8Array(await request.arrayBuffer());
-  }
-
-  let decodedName = rawFilename;
-  try { decodedName = decodeURIComponent(rawFilename); } catch {}
-  const baseName = (decodedName.split(/[/\\]/).pop() || '').trim();
-  const lowerName = baseName.toLowerCase();
-
-  if (lowerName.endsWith('.mscz') || lowerName.endsWith('.mscx')) {
-    return errResponse(MUSESCORE_UNSUPPORTED_MSG, 415, 'UNSUPPORTED_SCORE_FORMAT', request, env);
-  }
-
-  const isMxl = lowerName.endsWith('.mxl');
-  const isXml = lowerName.endsWith('.musicxml') || lowerName.endsWith('.xml');
-  if (!isMxl && !isXml) {
-    return errResponse('Upload a MusicXML file (.mxl, .musicxml, or .xml).', 415, 'UNSUPPORTED_SCORE_FORMAT', request, env);
-  }
-
-  if (!bytes || bytes.byteLength === 0) {
-    return errResponse('Uploaded score file is empty.', 400, 'EMPTY_FILE', request, env);
-  }
-  if (bytes.byteLength > MAX_SCORE_BYTES) {
-    return errResponse('Score file is too large (10 MB maximum).', 413, 'SCORE_TOO_LARGE', request, env);
-  }
-
-  if (isMxl && !hasZipMagic(bytes)) {
-    return errResponse(
-      'This .mxl file does not look like a valid compressed MusicXML archive. Re-export it as MusicXML (.mxl) and try again.',
-      415,
-      'INVALID_SCORE_FILE',
-      request,
-      env
-    );
-  }
-  if (isXml && !hasXmlMagic(bytes)) {
-    return errResponse(
-      'This file does not look like valid MusicXML. Re-export it from your notation app and try again.',
-      415,
-      'INVALID_SCORE_FILE',
-      request,
-      env
-    );
-  }
-
-  if (!env.BUCKET) {
-    return errResponse('Score file storage is not configured.', 503, 'STORAGE_UNAVAILABLE', request, env);
-  }
-
-  const safeFilename = sanitizeFilename(baseName, isMxl ? 'score.mxl' : 'score.musicxml');
+  const up = await readValidatedScoreUpload(request, env);
+  if (up.error) return up.error;
+  const { bytes, safeFilename, mime } = up;
   const r2Key = `scores/${auth.teacher.id}/${assignmentId}/${safeFilename}`;
-  const mime = isMxl ? 'application/vnd.recordare.musicxml' : 'application/xml; charset=utf-8';
   const oldKey = assignment.score_r2_key;
 
   await env.BUCKET.put(r2Key, bytes, {
@@ -629,9 +637,9 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
   }, 200, request, env);
 }
 
-async function streamAssignmentScoreResponse(request, env, assignment, cacheControl = 'private, max-age=300') {
+export async function streamAssignmentScoreResponse(request, env, assignment, cacheControl = 'private, max-age=300', noun = 'assignment') {
   if (!assignment.score_r2_key) {
-    return errResponse('No score file has been uploaded for this assignment.', 404, 'SCORE_NOT_FOUND', request, env);
+    return errResponse(`No score file has been uploaded for this ${noun}.`, 404, 'SCORE_NOT_FOUND', request, env);
   }
   if (!env.BUCKET) {
     return errResponse('Score file storage is not configured.', 503, 'STORAGE_UNAVAILABLE', request, env);

@@ -32,6 +32,9 @@
     assignments: [],
     showArchivedAssignments: false,
 
+    practiceTracks: [],   // free-practice files shared with the selected class
+    showArchivedTracks: false,
+
     gradebook: null,
     gbFilter: {
       search: '',
@@ -418,15 +421,20 @@
     if (!api || !classId) {
       S_STATE.students = [];
       S_STATE.assignments = [];
+      S_STATE.practiceTracks = [];
       S_STATE.gradebook = null;
       return;
     }
 
-    const [stuRes, asgnRes, gbRes] = await Promise.all([
+    const [stuRes, asgnRes, gbRes, trackRes] = await Promise.all([
       api.listStudents(classId, S_STATE.showArchivedStudents),
       api.listAssignments(classId, S_STATE.showArchivedAssignments),
       api.getGradebook(classId),
+      Promise.resolve(api.listPracticeTracks?.(classId, S_STATE.showArchivedTracks)).catch(() => null),
     ]);
+
+    // Not in `errs`: an older server without practice tracks answers 404, which should stay quiet.
+    S_STATE.practiceTracks = trackRes?.ok && Array.isArray(trackRes.tracks) ? trackRes.tracks : [];
 
     const errs = [];
     if (stuRes?.ok) S_STATE.students = Array.isArray(stuRes.students) ? stuRes.students : [];
@@ -1200,8 +1208,48 @@
             <div class="card"><div class="empty">No assignments in ${escHtml(cls.name)} yet. Use "+ Assign Homework" above or click <b>Assign</b> inside Sight Reading or Score Practice on the Present screen.</div></div>
           `}
         </div>
+        ${renderPracticeTracksCardHTML(writable, online)}
       `}
     `;
+  }
+
+  function practiceSizeLabel(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return Math.max(1, Math.round(n / 1024)) + ' KB';
+  }
+
+  function renderPracticeTracksCardHTML(writable, online) {
+    const tracks = S_STATE.practiceTracks || [];
+    return `
+      <div class="card hwt-practice-card">
+        <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0">Practice tracks</h3>
+          <div class="row">
+            <label class="chk">
+              <input type="checkbox" data-hwt-change="toggle-archived-tracks" ${S_STATE.showArchivedTracks ? 'checked' : ''}>
+              Show archived
+            </label>
+            <label class="btn small primary" ${writable ? '' : 'style="opacity:.5;pointer-events:none"'}>Upload practice track
+              <input type="file" accept=".mxl,.musicxml,.xml" hidden data-hwt-change="practice-upload" ${writable ? '' : 'disabled'}>
+            </label>
+          </div>
+        </div>
+        <div class="muted small">Students can play these any time. Nothing is graded or saved.</div>
+        <div class="muted small">MusicXML only. Max 10 MB. In MuseScore, use File &gt; Export &gt; MusicXML.</div>
+        ${tracks.length ? tracks.map(t => `
+          <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-top:1px solid rgba(128,128,128,.25)">
+            <div>
+              <b>${escHtml(t.title)}</b>${t.archivedAt ? ' <span class="muted small">(archived)</span>' : ''}
+              <div class="muted small">${escHtml(t.scoreFilename || '')} · ${escHtml(practiceSizeLabel(t.scoreBytes))}</div>
+            </div>
+            <div class="row">
+              <button type="button" class="btn small" data-hwt="rename-track" data-id="${escHtml(t.id)}" ${writable ? '' : 'disabled'}>Rename</button>
+              <button type="button" class="btn small" data-hwt="${t.archivedAt ? 'restore-track' : 'archive-track'}" data-id="${escHtml(t.id)}" ${writable ? '' : 'disabled'}>${t.archivedAt ? 'Restore' : 'Archive'}</button>
+              <button type="button" class="btn small danger" data-hwt="delete-track" data-id="${escHtml(t.id)}" ${online ? '' : 'disabled'}>Delete</button>
+            </div>
+          </div>`).join('') : `<div class="empty" style="padding:12px 0">No practice tracks yet.</div>`}
+      </div>`;
   }
 
   function renderAssignmentCardHTML(a, writable, online) {
@@ -2226,6 +2274,29 @@
         }
         renderAll();
         break;
+      case 'toggle-archived-tracks':
+        S_STATE.showArchivedTracks = !!t.checked;
+        if (S_STATE.selectedClassId) {
+          const res = await api.listPracticeTracks?.(S_STATE.selectedClassId, S_STATE.showArchivedTracks);
+          if (res?.ok) S_STATE.practiceTracks = res.tracks || [];
+        }
+        renderAll();
+        break;
+      case 'practice-upload': {
+        const file = t.files?.[0];
+        t.value = '';
+        if (!file || !S_STATE.selectedClassId) break;
+        const guess = file.name.replace(/\.[^.]+$/, '');
+        const title = prompt('Name for this practice track', guess);
+        if (title === null) break;
+        showToast('Uploading…');
+        const res = await api.uploadPracticeTrack(S_STATE.selectedClassId, file, file.name, title.trim() || guess);
+        if (!res?.ok) { showToast(res?.error || 'Could not upload this track.'); break; }
+        await loadClassDetails(S_STATE.selectedClassId);
+        renderAll();
+        showToast('Practice track added.');
+        break;
+      }
       case 'new-class-local': {
         S_STATE.classForm.localClassId = t.value;
         const lc = getLocalClasses().find(c => c.id === t.value);
@@ -2733,6 +2804,35 @@
         showToast('Assignment deleted.');
         break;
       }
+      case 'rename-track': {
+        const t = S_STATE.practiceTracks.find(x => x.id === btn.dataset.id);
+        const title = prompt('Name for this practice track', t?.title || '');
+        if (title === null || !title.trim()) break;
+        const res = await api.updatePracticeTrack(btn.dataset.id, { title: title.trim() });
+        if (!res?.ok) { showToast(res?.error || 'Could not rename this track.'); break; }
+        await loadClassDetails(S_STATE.selectedClassId);
+        renderAll();
+        break;
+      }
+      case 'archive-track':
+      case 'restore-track': {
+        const res = await api.updatePracticeTrack(btn.dataset.id, { archived: act === 'archive-track' });
+        if (!res?.ok) { showToast(res?.error || 'Could not update this track.'); break; }
+        await loadClassDetails(S_STATE.selectedClassId);
+        renderAll();
+        showToast(act === 'archive-track' ? 'Practice track archived. Students no longer see it.' : 'Practice track restored.');
+        break;
+      }
+      case 'delete-track': {
+        const t = S_STATE.practiceTracks.find(x => x.id === btn.dataset.id);
+        if (!confirm(`Permanently delete "${t?.title || 'this track'}"? Students will no longer see it.`)) break;
+        const res = await api.deletePracticeTrack(btn.dataset.id);
+        if (!res?.ok) { showToast(res?.error || 'Could not delete this track.'); break; }
+        await loadClassDetails(S_STATE.selectedClassId);
+        renderAll();
+        showToast('Practice track deleted.');
+        break;
+      }
 
       // ----- Gradebook actions
       case 'gb-clear-asgn':
@@ -3029,6 +3129,7 @@
     S_STATE.classes = [];
     S_STATE.students = [];
     S_STATE.assignments = [];
+    S_STATE.practiceTracks = [];
     S_STATE.gradebook = null;
     S_STATE.generatedCodes = null;
     closeProjectModal();

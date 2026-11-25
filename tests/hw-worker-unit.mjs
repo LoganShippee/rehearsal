@@ -1360,6 +1360,249 @@ async function main() {
     assertEq(stuLogin2.status, 200, 'Reindexed student code still logs in after PREVIOUS_SESSION_PEPPERS is removed');
   }
 
+  // --- Practice tracks (free practice files shared with a whole class)
+  {
+    const baseNow = Date.now();
+    const envCrypto = { SESSION_PEPPER: 'practice-test-pepper' };
+    const tokA = 'pt_teacher_a';
+    const tokB = 'pt_teacher_b';
+    const tokRO = 'pt_teacher_ro';
+    const tokS1 = 'pt_student_1'; // class cls_1
+    const tokS2 = 'pt_student_2'; // class cls_2
+    const hashes = {};
+    for (const t of [tokA, tokB, tokRO, tokS1, tokS2]) hashes[t] = await cryptoMod.hashSessionToken(t, envCrypto);
+
+    const ptState = {
+      tracks: [],
+      deletedKeys: [],
+      putKeys: [],
+      failInsert: false,
+      deletedClasses: [],
+    };
+    const teachers = {
+      tch_a: { id: 'tch_a', plan_status: 'trialing', trial_ends_at: baseNow + 10 * utilMod.DAY_MS },
+      tch_b: { id: 'tch_b', plan_status: 'trialing', trial_ends_at: baseNow + 10 * utilMod.DAY_MS },
+      tch_ro: { id: 'tch_ro', plan_status: 'trialing', trial_ends_at: baseNow - 90 * utilMod.DAY_MS },
+    };
+    const teacherSessions = [
+      { hash: hashes[tokA], teacher_id: 'tch_a' },
+      { hash: hashes[tokB], teacher_id: 'tch_b' },
+      { hash: hashes[tokRO], teacher_id: 'tch_ro' },
+    ];
+    const studentSessions = [
+      { hash: hashes[tokS1], class_id: 'cls_1' },
+      { hash: hashes[tokS2], class_id: 'cls_2' },
+    ];
+    const classRows = [
+      { id: 'cls_1', teacher_id: 'tch_a', archived_at: null },
+      { id: 'cls_2', teacher_id: 'tch_b', archived_at: null },
+      { id: 'cls_ro', teacher_id: 'tch_ro', archived_at: null },
+    ];
+
+    const db = {
+      prepare(sql) {
+        const q = sql.replace(/\s+/g, ' ').trim();
+        let p = [];
+        const stmt = {
+          bind(...a) { p = a; return stmt; },
+          async first() {
+            if (q.includes('FROM teacher_sessions s JOIN teachers t')) {
+              const s = teacherSessions.find(x => x.hash === p[0]);
+              return s ? { ...teachers[s.teacher_id], session_id: 'ts', ephemeral: 0, expires_at: baseNow + 100_000 } : null;
+            }
+            if (q.includes('FROM student_sessions ss JOIN students st')) {
+              const s = studentSessions.find(x => x.hash === p[0]);
+              return s ? { session_id: 'ss', student_id: 'stu', class_id: s.class_id, student_archived: null, class_archived: null } : null;
+            }
+            if (q.startsWith('SELECT id FROM classes WHERE id = ? AND teacher_id = ?')) {
+              return classRows.find(c => c.id === p[0] && c.teacher_id === p[1] && (!q.includes('archived_at IS NULL') || !c.archived_at)) || null;
+            }
+            if (q.startsWith('SELECT * FROM classes WHERE id = ? AND teacher_id = ?')) {
+              return classRows.find(c => c.id === p[0] && c.teacher_id === p[1]) || null;
+            }
+            if (q.startsWith('SELECT COUNT(*) AS n FROM practice_tracks')) {
+              return { n: ptState.tracks.filter(t => t.class_id === p[0] && !t.archived_at).length };
+            }
+            if (q.startsWith('SELECT p.* FROM practice_tracks p JOIN classes c')) {
+              const t = ptState.tracks.find(x => x.id === p[0]);
+              const c = t && classRows.find(x => x.id === t.class_id);
+              return t && c && c.teacher_id === p[1] ? t : null;
+            }
+            if (q.startsWith('SELECT * FROM practice_tracks WHERE id = ? AND class_id = ?')) {
+              return ptState.tracks.find(t => t.id === p[0] && t.class_id === p[1] && !t.archived_at) || null;
+            }
+            return null;
+          },
+          async all() {
+            if (q.startsWith('SELECT * FROM practice_tracks WHERE class_id = ?')) {
+              const incl = !q.includes('archived_at IS NULL');
+              return { results: ptState.tracks.filter(t => t.class_id === p[0] && (incl || !t.archived_at)) };
+            }
+            if (q.startsWith('SELECT id, class_id, title')) {
+              return { results: ptState.tracks.filter(t => t.class_id === p[0] && !t.archived_at) };
+            }
+            if (q.startsWith('SELECT score_r2_key FROM practice_tracks WHERE class_id = ?')) {
+              return { results: ptState.tracks.filter(t => t.class_id === p[0]) };
+            }
+            return { results: [] };
+          },
+          async run() {
+            if (q.startsWith('INSERT INTO practice_tracks')) {
+              if (ptState.failInsert) throw new Error('D1 down');
+              ptState.tracks.push({
+                id: p[0], class_id: p[1], title: p[2], score_r2_key: p[3],
+                score_filename: p[4], score_bytes: p[5], created_at: p[6], archived_at: null,
+              });
+            } else if (q.startsWith('UPDATE practice_tracks SET title = ?, archived_at = ? WHERE id = ?')) {
+              const t = ptState.tracks.find(x => x.id === p[2]);
+              if (t) { t.title = p[0]; t.archived_at = p[1]; }
+            } else if (q.startsWith('DELETE FROM practice_tracks WHERE id = ?')) {
+              ptState.tracks = ptState.tracks.filter(t => t.id !== p[0]);
+            } else if (q.startsWith('DELETE FROM classes WHERE id = ?')) {
+              ptState.deletedClasses.push(p[0]);
+              ptState.tracks = ptState.tracks.filter(t => t.class_id !== p[0]);
+            }
+            return { meta: { changes: 1 } };
+          },
+        };
+        return stmt;
+      },
+    };
+    const stored = new Map();
+    const bucket = {
+      async put(key, bytes) { ptState.putKeys.push(key); stored.set(key, bytes); },
+      async get(key) {
+        const b = stored.get(key);
+        return b ? { body: b, size: b.byteLength } : null;
+      },
+      async delete(key) { ptState.deletedKeys.push(key); stored.delete(key); },
+    };
+    const env = { ...envCrypto, DB: db, BUCKET: bucket, APP_ORIGINS: '*' };
+    const call = (method, path, token, opts = {}) => {
+      const headers = { ...(opts.headers || {}) };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const req = new Request(`https://hw.example.com${path}`, { method, headers, body: opts.body });
+      if (opts.form) req.formData = async () => opts.form;
+      return indexMod.default.fetch(req, env, {});
+    };
+    // Stand-in for a browser multipart upload (the test runtime has no FormData).
+    const makeUpload = (name, bytes, title) => ({
+      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      form: {
+        get(k) {
+          if (k === 'title') return title ?? null;
+          if (k === 'file') return { name, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+          return null;
+        },
+      },
+    });
+    const zipBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
+    const xmlBytes = new TextEncoder().encode('<?xml version="1.0"?><score-partwise/>');
+
+    // Upload: success + R2 key shape
+    const up = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('Ode to Joy.mxl', zipBytes, 'Ode to Joy'));
+    assertEq(up.status, 201, 'Practice upload succeeds for the owning teacher');
+    const upBody = await up.json();
+    assertEq(upBody.track.title, 'Ode to Joy', 'Practice upload keeps the title');
+    assertEq(upBody.track.scoreBytes, zipBytes.byteLength, 'Practice upload records size');
+    assert(!('scoreR2Key' in upBody.track) && !('score_r2_key' in upBody.track), 'Practice track JSON never exposes the R2 key');
+    assert(/^practice\/cls_1\/pt_[A-Za-z0-9_-]+\.mxl$/.test(ptState.putKeys[0]), 'Practice R2 key is practice/<class>/<id>.mxl');
+    const trackId = upBody.track.id;
+
+    // Upload: .musicxml uses .xml key, title falls back to the filename
+    const upXml = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('Scale.musicxml', xmlBytes, ''));
+    assertEq(upXml.status, 201, 'Practice upload accepts .musicxml');
+    assertEq((await upXml.json()).track.title, 'Scale', 'Practice title falls back to the file name');
+    assert(/\.xml$/.test(ptState.putKeys[1]), 'Practice .musicxml is stored under a .xml key');
+
+    // Upload rejections
+    const mscz = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('song.mscz', zipBytes, 'x'));
+    assertEq(mscz.status, 415, 'Practice upload rejects .mscz with 415');
+    assert((await mscz.json()).error.includes('MusicXML'), 'Practice .mscz message tells the teacher to export MusicXML');
+    const big = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('big.mxl', new Uint8Array(utilMod.MAX_SCORE_BYTES + 1), 'x'));
+    assertEq(big.status, 413, 'Practice upload rejects files over 10 MB with 413');
+    const fake = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('fake.mxl', new Uint8Array([1, 2, 3, 4, 5]), 'x'));
+    assertEq(fake.status, 415, 'Practice upload rejects a fake .mxl (no ZIP header)');
+    const empty = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('e.mxl', new Uint8Array(0), 'x'));
+    assertEq(empty.status, 400, 'Practice upload rejects an empty file');
+    assertEq(ptState.tracks.length, 2, 'Rejected practice uploads store nothing');
+
+    // Ownership and plan
+    const wrongT = await call('POST', '/api/classes/cls_1/practice-tracks', tokB, makeUpload('a.mxl', zipBytes, 'x'));
+    assertEq(wrongT.status, 404, 'Another teacher cannot upload to this class (404)');
+    const roUp = await call('POST', '/api/classes/cls_ro/practice-tracks', tokRO, makeUpload('a.mxl', zipBytes, 'x'));
+    assertEq(roUp.status, 402, 'Read-only plan cannot upload practice tracks (402)');
+    ptState.tracks.push({ id: 'pt_ro1', class_id: 'cls_ro', title: 'RO', score_r2_key: 'practice/cls_ro/pt_ro1.mxl', score_filename: 'ro.mxl', score_bytes: 1, created_at: 1, archived_at: null });
+    const roPatch2 = await call('PATCH', '/api/practice-tracks/pt_ro1', tokRO, { body: JSON.stringify({ title: 'x' }), headers: { 'content-type': 'application/json' } });
+    assertEq(roPatch2.status, 402, 'Read-only plan cannot rename a practice track (402)');
+    const roDel = await call('DELETE', '/api/practice-tracks/pt_ro1', tokRO);
+    assertEq(roDel.status, 200, 'Read-only plan can still delete a practice track');
+    assert(ptState.deletedKeys.includes('practice/cls_ro/pt_ro1.mxl'), 'Deleting a practice track removes its R2 file');
+
+    // Teacher list + rename + archive
+    const listA = await call('GET', '/api/classes/cls_1/practice-tracks', tokA);
+    assertEq((await listA.json()).tracks.length, 2, 'Teacher lists their class practice tracks');
+    const listB = await call('GET', '/api/classes/cls_1/practice-tracks', tokB);
+    assertEq(listB.status, 404, 'Other teacher cannot list this class practice tracks');
+    const ren = await call('PATCH', `/api/practice-tracks/${trackId}`, tokA, { body: JSON.stringify({ title: 'Renamed' }), headers: { 'content-type': 'application/json' } });
+    assertEq((await ren.json()).track.title, 'Renamed', 'Teacher can rename a practice track');
+    const otherPatch = await call('PATCH', `/api/practice-tracks/${trackId}`, tokB, { body: JSON.stringify({ title: 'Hijack' }), headers: { 'content-type': 'application/json' } });
+    assertEq(otherPatch.status, 404, 'Other teacher cannot rename this track (404)');
+
+    // Students: only own class, archived hidden, file route 404 for other class
+    const s1 = await call('GET', '/api/student/practice-tracks', tokS1);
+    assertEq((await s1.json()).tracks.length, 2, 'Student sees their own class practice tracks');
+    const s2 = await call('GET', '/api/student/practice-tracks', tokS2);
+    assertEq((await s2.json()).tracks.length, 0, 'Student of another class sees none');
+    const noAuth = await call('GET', '/api/student/practice-tracks', null);
+    assertEq(noAuth.status, 401, 'Practice list needs a student sign-in');
+    const dl1 = await call('GET', `/api/practice-tracks/${trackId}/score`, tokS1);
+    assertEq(dl1.status, 200, 'Student can download their class practice track');
+    const dl2 = await call('GET', `/api/practice-tracks/${trackId}/score`, tokS2);
+    assertEq(dl2.status, 404, 'Student of another class gets 404 on the practice file');
+    const dlT = await call('GET', `/api/practice-tracks/${trackId}/score`, tokA);
+    assertEq(dlT.status, 200, 'Owning teacher can download the practice file');
+    const dlTB = await call('GET', `/api/practice-tracks/${trackId}/score`, tokB);
+    assertEq(dlTB.status, 404, 'Other teacher gets 404 on the practice file');
+    const dlNone = await call('GET', `/api/practice-tracks/${trackId}/score`, null);
+    assertEq(dlNone.status, 401, 'Practice file needs a sign-in');
+
+    const arch = await call('PATCH', `/api/practice-tracks/${trackId}`, tokA, { body: JSON.stringify({ archived: true }), headers: { 'content-type': 'application/json' } });
+    assertEq(arch.status, 200, 'Teacher can archive a practice track');
+    const s1b = await call('GET', '/api/student/practice-tracks', tokS1);
+    assertEq((await s1b.json()).tracks.length, 1, 'Archived practice track is hidden from students');
+    const dlArch = await call('GET', `/api/practice-tracks/${trackId}/score`, tokS1);
+    assertEq(dlArch.status, 404, 'Student cannot download an archived practice track');
+    const listArch = await call('GET', '/api/classes/cls_1/practice-tracks?includeArchived=1', tokA);
+    assertEq((await listArch.json()).tracks.length, 2, 'Teacher can list archived practice tracks too');
+
+    // Per-class cap
+    for (let i = ptState.tracks.filter(t => t.class_id === 'cls_1' && !t.archived_at).length; i < 40; i++) {
+      ptState.tracks.push({ id: `pt_fill${i}`, class_id: 'cls_1', title: 'f', score_r2_key: `practice/cls_1/pt_fill${i}.mxl`, score_filename: 'f.mxl', score_bytes: 1, created_at: 1, archived_at: null });
+    }
+    const capped = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('more.mxl', zipBytes, 'More'));
+    assertEq(capped.status, 409, 'Practice upload past the per-class limit returns 409');
+
+    // Failed INSERT removes the just-written R2 file
+    ptState.tracks = ptState.tracks.filter(t => !t.id.startsWith('pt_fill'));
+    ptState.failInsert = true;
+    const putsBefore = ptState.putKeys.length;
+    const boom = await call('POST', '/api/classes/cls_1/practice-tracks', tokA, makeUpload('boom.mxl', zipBytes, 'Boom'));
+    ptState.failInsert = false;
+    assertEq(boom.status, 500, 'A failed practice INSERT returns a server error');
+    assert(ptState.deletedKeys.includes(ptState.putKeys[putsBefore]), 'A failed practice INSERT deletes the orphaned R2 file');
+
+    // Deleting a class removes the practice R2 files
+    const keysBefore = ptState.tracks.filter(t => t.class_id === 'cls_1').map(t => t.score_r2_key);
+    const delClass = await call('DELETE', '/api/classes/cls_1', tokA);
+    assertEq(delClass.status, 200, 'Teacher can delete a class that has practice tracks');
+    assert(keysBefore.length > 0 && keysBefore.every(k => ptState.deletedKeys.includes(k)), 'Deleting a class deletes its practice R2 files');
+
+    // Delete by the owner
+    const delOther = await call('DELETE', '/api/practice-tracks/pt_nope', tokA);
+    assertEq(delOther.status, 404, 'Deleting an unknown practice track returns 404');
+  }
+
   console.log(`hw-worker-unit: ALL ${passed} assertions passed (${failed} failed)`);
 }
 

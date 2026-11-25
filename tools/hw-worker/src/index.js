@@ -60,6 +60,14 @@ import {
   handleUploadAssignmentScore,
 } from './assignments.js';
 import {
+  handleDeletePracticeTrack,
+  handleDownloadPracticeTrackScore,
+  handleListClassPracticeTracks,
+  handleStudentListPracticeTracks,
+  handleUpdatePracticeTrack,
+  handleUploadPracticeTrack,
+} from './practice.js';
+import {
   handleDeleteSubmission,
   handleDeleteSubmissionAudio,
   handleExportGradebookCsv,
@@ -278,6 +286,24 @@ async function route(request, env) {
     const classId = decodeSeg(m[1]);
     if (method === 'GET') return withTeacher(request, env, auth => handleListClassAssignments(request, env, auth, classId));
     if (method === 'POST') return withTeacher(request, env, auth => handleCreateAssignment(request, env, auth, classId));
+  }
+
+  // Practice tracks (free practice files shared with a class)
+  if ((m = path.match(/^\/api\/classes\/([^/]+)\/practice-tracks$/))) {
+    const classId = decodeSeg(m[1]);
+    if (method === 'GET') return withTeacher(request, env, auth => handleListClassPracticeTracks(request, env, auth, classId));
+    if (method === 'POST') return withTeacher(request, env, auth => handleUploadPracticeTrack(request, env, auth, classId));
+  }
+  if ((m = path.match(/^\/api\/practice-tracks\/([^/]+)$/))) {
+    const trackId = decodeSeg(m[1]);
+    if (method === 'PATCH') return withTeacher(request, env, auth => handleUpdatePracticeTrack(request, env, auth, trackId));
+    if (method === 'DELETE') return withTeacher(request, env, auth => handleDeletePracticeTrack(request, env, auth, trackId));
+  }
+  if (method === 'GET' && (m = path.match(/^\/api\/practice-tracks\/([^/]+)\/score$/))) {
+    return handleDownloadPracticeTrackScore(request, env, decodeSeg(m[1]));
+  }
+  if (method === 'GET' && path === '/api/student/practice-tracks') {
+    return withStudent(request, env, auth => handleStudentListPracticeTracks(request, env, auth));
   }
 
   // /api/classes/:classId/gradebook & /api/classes/:classId/gradebook.csv

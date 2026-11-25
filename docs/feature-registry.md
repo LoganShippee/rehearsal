@@ -22,7 +22,7 @@ Draft by Claude Code, 2026-11-23, for Logan to correct. Antigravity and Claude C
 | 9 | Piano, warm-ups, solfege board | web/tools.js, web/app.js | Right pitches and labels. | Cosmetic–quiet | Shape checks only |
 | 10 | Homework server | tools/hw-worker/src | Codes, assignments, submissions, gradebook correct and private. | Break-it-all + privacy | Behavior tests run by tests/run.sh: hw-worker-unit (541 checks) and hw-schema-test (26 checks). hw-api-test needs a local server, so it is still run by hand. |
 | 11 | 90-day audio delete | tools/hw-worker/src/cron.js | Deletes audio >90 days, keeps grades. | Privacy | Behavior tests (hw-cleanup-test .mjs + .py): real SQL on SQLite picks only due audio and keeps grades; files deleted, failures don't stop it, batches finish. |
-| 12 | Homework student/teacher screens | web/hw-*.js | Record, submit (saved if offline), assign, review, export. | Break-it-all | None |
+| 12 | Homework student/teacher screens | web/hw-*.js | Record, submit (saved if offline), assign, review, export. | Break-it-all | Shape checks for the homework piano guide (invariants-test); sound itself is manual only (needs headphones and a real mic). |
 | 13 | Present screen & bell schedules | web/app.js | Right class at right time; automations on time. | Break-it-all | Shape checks only |
 | 14 | Saving data | web/app.js (loadData/migrate/save) | Everything comes back; old data opens after updates. | Break-it-all (data loss) | None |
 | 15 | Offline | web/sw.js | Every tab works offline. | Break-it-all | Offline file list checked; never actually tested offline |
