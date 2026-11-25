@@ -91,3 +91,4 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | Step | Note Acc | Rhythm Acc | Lyric Acc | Flag Catch | Flag Precision | Sec/Page | Notes |
 |---|---|---|---|---|---|---|---|
 | Baseline (Step 1) | 52.5% | 63.7% | 78.0% | 26.3% | 100.0% | 14.5s | 6 CPDL pieces + 3 degraded photo variants; postprocess via baseline `scan-model.js` + `scan-flags.js` |
+| Step 2 (Lyrics model) | 52.5% | 63.7% | 78.0% | 26.3% | 100.0% | 14.5s | Structured `entry.lyrics` (verse number, text, syllabic, melisma extend) round-tripped identically (`0` regression) |

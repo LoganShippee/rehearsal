@@ -563,8 +563,44 @@ const SF_HEADER_TAGS = new Set([
 
 const SF_HANDLED_NOTE_TAGS = new Set([
   'grace', 'cue', 'chord', 'pitch', 'unpitched', 'rest', 'duration', 'tie', 'voice', 'type', 'dot',
-  'accidental', 'notehead', 'time-modification', 'staff'
+  'accidental', 'notehead', 'time-modification', 'staff', 'lyric'
 ]);
+
+const SF_HANDLED_LYRIC_TAGS = new Set(['syllabic', 'text', 'extend']);
+
+function sfParseLyricElement(ch) {
+  const extEl = sfXmlChild(ch, 'extend');
+  const extra = [];
+  for (const sub of sfXmlChildren(ch)) {
+    if (!SF_HANDLED_LYRIC_TAGS.has(sub.tag)) extra.push(sfSerializeXmlNode(sub));
+  }
+  return {
+    number: (ch.attrs && ch.attrs.number) || '1',
+    text: sfXmlChildText(ch, 'text') || '',
+    syllabic: sfXmlChildText(ch, 'syllabic') || null,
+    extend: !!extEl,
+    extendType: (extEl && extEl.attrs && extEl.attrs.type) || null,
+    rawAttrs: Object.assign({}, ch.attrs || {}),
+    extraXml: extra.join('')
+  };
+}
+
+function sfSerializeLyricItem(lyr) {
+  const attrsObj = Object.assign({}, lyr.rawAttrs || {});
+  attrsObj.number = lyr.number || '1';
+  let attrStr = '';
+  for (const k of Object.keys(attrsObj)) {
+    attrStr += ' ' + k + '="' + sfXmlAttrEscape(attrsObj[k]) + '"';
+  }
+  const inner = [];
+  if (lyr.syllabic) inner.push(`<syllabic>${sfXmlEscape(lyr.syllabic)}</syllabic>`);
+  inner.push(`<text>${sfXmlEscape(lyr.text || '')}</text>`);
+  if (lyr.extend) {
+    inner.push(lyr.extendType ? `<extend type="${sfXmlAttrEscape(lyr.extendType)}"/>` : '<extend/>');
+  }
+  if (lyr.extraXml) inner.push(lyr.extraXml);
+  return `<lyric${attrStr}>${inner.join('')}</lyric>`;
+}
 
 const SF_HANDLED_ATTR_TAGS = new Set([
   'divisions', 'key', 'time', 'staves', 'clef', 'transpose'
@@ -855,6 +891,8 @@ function sfParseMusicXml(xmlString) {
             };
           }
 
+          const lyrics = isRest ? [] : sfXmlChildren(ch, 'lyric').map(sfParseLyricElement);
+
           const extraParts = [];
           for (const sub of sfXmlChildren(ch)) {
             if (!SF_HANDLED_NOTE_TAGS.has(sub.tag)) {
@@ -884,6 +922,7 @@ function sfParseMusicXml(xmlString) {
             type,
             dots,
             ties,
+            lyrics,
             onsetQ: 0,
             midi,
             soundingMidi,
@@ -1159,6 +1198,11 @@ function sfSerializeNoteEntry(entry, part) {
   const extraOut = entry.isRest ? entry.extraXml : sfSyncNotationsTied(entry.extraXml, entry.ties);
   if (extraOut) {
     out.push(extraOut);
+  }
+  if (!entry.isRest && Array.isArray(entry.lyrics)) {
+    for (const lyr of entry.lyrics) {
+      out.push(sfSerializeLyricItem(lyr));
+    }
   }
   return `<note>${out.join('')}</note>`;
 }
@@ -1952,6 +1996,7 @@ function sfDeleteOrMakeRest(model, noteId, mode) {
     entry.midi = null;
     entry.soundingMidi = null;
     entry.ties = [];
+    entry.lyrics = [];
     entry.extraXml = sfStripRestIncompatibleXml(entry.extraXml);
     sfRecalcMeasureOnsets(measure);
     return { ok: true, changed: true, entry };
@@ -2514,8 +2559,14 @@ function sfParseExtraWrap(extraXml) {
 }
 
 function sfGetNoteLyric(entry, verse) {
-  if (!entry || entry.isRest || !entry.extraXml) return '';
+  if (!entry || entry.isRest) return '';
   const v = String(verse || 1);
+  if (Array.isArray(entry.lyrics)) {
+    const lyr = entry.lyrics.find(l => String(l.number || '1') === v);
+    if (!lyr || !lyr.text) return '';
+    return (lyr.syllabic === 'begin' || lyr.syllabic === 'middle') ? (lyr.text + '-') : lyr.text;
+  }
+  if (!entry.extraXml) return '';
   let children;
   try { children = sfParseExtraWrap(entry.extraXml); } catch { return ''; }
   for (const ch of children) {
@@ -2536,30 +2587,44 @@ function sfSetNoteLyric(model, entryId, text, opts) {
   if (entry.kind !== 'note' || entry.isRest) {
     return { ok: false, changed: false, entry: null, lyric: '' };
   }
-  const v = String((opts && opts.verse) || 1);
+  const o = opts || {};
+  const v = String(o.verse || 1);
   const raw = String(text == null ? '' : text).trim();
-  const children = sfParseExtraWrap(entry.extraXml);
-  const kept = [];
-  let hadVerse = false;
-  for (const ch of children) {
-    if (ch.type === 'element' && ch.tag === 'lyric' && (ch.attrs.number || '1') === v) {
-      hadVerse = true;
-      continue;
-    }
-    kept.push(sfSerializeXmlNode(ch));
+  if (!Array.isArray(entry.lyrics)) entry.lyrics = [];
+  const idx = entry.lyrics.findIndex(l => String(l.number || '1') === v);
+
+  if (raw === '') {
+    if (idx < 0) return { ok: true, changed: false, entry, lyric: '' };
+    entry.lyrics.splice(idx, 1);
+    return { ok: true, changed: true, entry, lyric: '' };
   }
 
-  if (raw !== '') {
-    const hasDash = raw.length > 1 && raw.endsWith('-');
-    const cleanText = hasDash ? raw.slice(0, -1).trim() : raw;
-    const syllabic = hasDash ? 'begin' : 'single';
-    kept.push(`<lyric number="${sfXmlAttrEscape(v)}"><syllabic>${syllabic}</syllabic><text>${sfXmlEscape(cleanText)}</text></lyric>`);
-  } else if (!hadVerse) {
-    return { ok: true, changed: false, entry, lyric: '' };
-  }
+  const existing = idx >= 0 ? entry.lyrics[idx] : null;
+  const hasDash = raw.length > 1 && raw.endsWith('-');
+  const cleanText = hasDash ? raw.slice(0, -1).trim() : raw;
+  const syllabic = o.syllabic !== undefined
+    ? o.syllabic
+    : (hasDash ? ((existing && existing.syllabic === 'middle') ? 'middle' : 'begin') : 'single');
+  const extend = o.extend !== undefined ? !!o.extend : (existing ? !!existing.extend : false);
+  const extendType = o.extendType !== undefined ? o.extendType : (extend && existing ? existing.extendType : null);
 
-  entry.extraXml = kept.join('');
-  return { ok: true, changed: true, entry, lyric: sfGetNoteLyric(entry, Number(v)) };
+  if (existing) {
+    existing.text = cleanText;
+    existing.syllabic = syllabic;
+    existing.extend = extend;
+    existing.extendType = extendType;
+  } else {
+    entry.lyrics.push({
+      number: v,
+      text: cleanText,
+      syllabic,
+      extend,
+      extendType,
+      rawAttrs: { number: v },
+      extraXml: ''
+    });
+  }
+  return { ok: true, changed: true, entry, lyric: sfGetNoteLyric(entry, v) };
 }
 
 // ---------- Musical Markings Normalization & Spoken / Clear Measure
@@ -2668,25 +2733,21 @@ function sfNormalizeMusicalMarkings(model) {
       // 2. Rescue unambiguous dynamics mistaken for <lyric>
       for (let ei = 0; ei < m.entries.length; ei++) {
         const e = m.entries[ei];
-        if (e.kind !== 'note' || e.isRest || !e.extraXml) continue;
-        let children;
-        try { children = sfParseExtraWrap(e.extraXml); } catch { continue; }
-        const kept = [];
+        if (e.kind !== 'note' || e.isRest || !Array.isArray(e.lyrics) || !e.lyrics.length) continue;
+        const keptLyrics = [];
         const rescued = [];
-        for (const ch of children) {
-          if (ch.type === 'element' && ch.tag === 'lyric') {
-            const lText = sfXmlChildText(ch, 'text').trim();
-            const normL = lText.toLowerCase().replace(/\s+/g, ' ');
-            const aliasL = SF_DYNAMIC_OCR_ALIASES[normL] || normL;
-            if (SF_UNAMBIGUOUS_LYRIC_DYNAMICS.has(aliasL) || SF_UNAMBIGUOUS_LYRIC_DYNAMICS.has(lText.toLowerCase())) {
-              rescued.push(lText);
-              continue;
-            }
+        for (const lyr of e.lyrics) {
+          const lText = String(lyr.text || '').trim();
+          const normL = lText.toLowerCase().replace(/\s+/g, ' ');
+          const aliasL = SF_DYNAMIC_OCR_ALIASES[normL] || normL;
+          if (SF_UNAMBIGUOUS_LYRIC_DYNAMICS.has(aliasL) || SF_UNAMBIGUOUS_LYRIC_DYNAMICS.has(lText.toLowerCase())) {
+            rescued.push(lText);
+            continue;
           }
-          kept.push(sfSerializeXmlNode(ch));
+          keptLyrics.push(lyr);
         }
         if (rescued.length) {
-          e.extraXml = kept.join('');
+          e.lyrics = keptLyrics;
           for (const rTxt of rescued) {
             const cls = sfClassifyDirectionText(rTxt);
             const rawXml = sfBuildDirectionXml(cls, 'below', e.staff || 1);
@@ -3440,6 +3501,7 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
             octave: e.octave,
             alter: e.alter || 0,
             accidental: e.accidental || null,
+            lyrics: Array.isArray(e.lyrics) ? JSON.parse(JSON.stringify(e.lyrics)) : [],
             lyricXml: sfExtractLyricXml(e.extraXml)
           });
         }
@@ -3513,9 +3575,11 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
         const curIdx = voiceCursor[poolKey] || 0;
         let pitchSpec;
         let lyricXml = '';
+        let noteLyrics = [];
         if (curIdx < pool.length) {
           pitchSpec = pool[curIdx];
           lyricXml = pitchSpec.lyricXml || '';
+          noteLyrics = Array.isArray(pitchSpec.lyrics) ? JSON.parse(JSON.stringify(pitchSpec.lyrics)) : [];
           voiceCursor[poolKey] = curIdx + 1;
         } else if (pool.length > 0) {
           pitchSpec = pool[pool.length - 1];
@@ -3553,6 +3617,7 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
           type: se.type || sfInferBaseTypeFromQ(durQ, se.dots || 0),
           dots: se.dots || 0,
           ties: [],
+          lyrics: noteLyrics,
           onsetQ: 0,
           midi,
           soundingMidi,
@@ -4589,15 +4654,9 @@ function sfCleanOcrLyrics(model, pdfVocabulary) {
   for (const part of model.parts) {
     for (const m of part.measures || []) {
       for (const e of m.entries || []) {
-        if (e.kind !== 'note' || e.isRest || !e.extraXml) continue;
-        let children;
-        try { children = sfParseExtraWrap(e.extraXml); } catch { continue; }
-        let entryChanged = false;
-        for (const ch of children) {
-          if (ch.type !== 'element' || ch.tag !== 'lyric') continue;
-          const textEl = sfXmlChild(ch, 'text');
-          if (!textEl) continue;
-          const before = sfXmlText(textEl);
+        if (e.kind !== 'note' || e.isRest || !Array.isArray(e.lyrics) || !e.lyrics.length) continue;
+        for (const lyr of e.lyrics) {
+          const before = lyr.text;
           if (!before) continue;
 
           // Strip stray OCR noise characters
@@ -4639,13 +4698,9 @@ function sfCleanOcrLyrics(model, pdfVocabulary) {
           }
 
           if (cleaned !== before) {
-            textEl.children = [{ type: 'text', text: cleaned }];
-            entryChanged = true;
+            lyr.text = cleaned;
             fixes.push({ entryId: e.id, before, after: cleaned });
           }
-        }
-        if (entryChanged) {
-          e.extraXml = children.map(sfSerializeXmlNode).join('');
         }
       }
     }
@@ -4994,52 +5049,50 @@ function sfFilterScoreByMode(model, mode) {
           measureChanged = true;
           continue;
         }
-        if (e.kind === 'note' && !e.isRest && e.extraXml) {
-          let children;
-          try { children = sfParseExtraWrap(e.extraXml); } catch { children = null; }
-          if (children) {
-            const kept = [];
-            let noteChanged = false;
-            for (const ch of children) {
-              if (ch.type !== 'element') {
-                kept.push(sfSerializeXmlNode(ch));
-                continue;
-              }
-              if (ch.tag === 'lyric') {
-                if (stripLyrics) {
-                  removedLyrics++;
-                  noteChanged = true;
+        if (e.kind === 'note' && !e.isRest) {
+          if (stripLyrics && Array.isArray(e.lyrics) && e.lyrics.length) {
+            removedLyrics += e.lyrics.length;
+            e.lyrics = [];
+            measureChanged = true;
+          }
+          if (e.extraXml) {
+            let children;
+            try { children = sfParseExtraWrap(e.extraXml); } catch { children = null; }
+            if (children) {
+              const kept = [];
+              let noteChanged = false;
+              for (const ch of children) {
+                if (ch.type !== 'element') {
+                  kept.push(sfSerializeXmlNode(ch));
+                  continue;
+                }
+                if (ch.tag === 'notations') {
+                  const keptNot = [];
+                  for (const nc of ch.children || []) {
+                    if (nc.type === 'element' && SF_NOISY_NOTATION_TAGS.has(nc.tag)) {
+                      removedNotations++;
+                      noteChanged = true;
+                    } else if (nc.type === 'element') {
+                      keptNot.push(nc);
+                    }
+                  }
+                  if (keptNot.length) {
+                    ch.children = keptNot;
+                    kept.push(sfSerializeXmlNode(ch));
+                  } else if ((ch.children || []).length === 0) {
+                    // empty <notations/>
+                  } else {
+                    noteChanged = true;
+                  }
                   continue;
                 }
                 kept.push(sfSerializeXmlNode(ch));
-                continue;
               }
-              if (ch.tag === 'notations') {
-                const keptNot = [];
-                for (const nc of ch.children || []) {
-                  if (nc.type === 'element' && SF_NOISY_NOTATION_TAGS.has(nc.tag)) {
-                    removedNotations++;
-                    noteChanged = true;
-                  } else if (nc.type === 'element') {
-                    keptNot.push(nc);
-                  }
-                }
-                if (keptNot.length) {
-                  ch.children = keptNot;
-                  kept.push(sfSerializeXmlNode(ch));
-                } else if ((ch.children || []).length === 0) {
-                  // empty <notations/>
-                } else {
-                  noteChanged = true;
-                }
-                continue;
+              if (noteChanged) {
+                e.extraXml = kept.join('');
+                // Ensure <notations><tied/></notations> stays synced with e.ties
+                e.extraXml = sfSyncNotationsTied(e.extraXml, e.ties);
               }
-              kept.push(sfSerializeXmlNode(ch));
-            }
-            if (noteChanged) {
-              e.extraXml = kept.join('');
-              // Ensure <notations><tied/></notations> stays synced with e.ties
-              e.extraXml = sfSyncNotationsTied(e.extraXml, e.ties);
             }
           }
         }

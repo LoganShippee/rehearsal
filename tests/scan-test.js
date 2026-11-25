@@ -934,7 +934,8 @@ check('pitch change breaks stale tie on both notes',
   // sfSetNoteLyric & sfGetNoteLyric (including hyphen & deletion)
   const lyr1 = sfSetNoteLyric(dm, dm0[0].id, 'Glo-');
   check('sfSetNoteLyric sets begin-syllabic hyphenated lyric',
-    lyr1.ok && lyr1.lyric === 'Glo-' && sfGetNoteLyric(dm0[0], 1) === 'Glo-' && dm0[0].extraXml.includes('<syllabic>begin</syllabic>'));
+    lyr1.ok && lyr1.lyric === 'Glo-' && sfGetNoteLyric(dm0[0], 1) === 'Glo-' &&
+    dm0[0].lyrics && dm0[0].lyrics[0] && dm0[0].lyrics[0].syllabic === 'begin');
   const lyr2 = sfSetNoteLyric(dm, dm0[1].id, 'ry & <joy>');
   check('sfSetNoteLyric XML-escapes special chars',
     lyr2.ok && sfGetNoteLyric(dm0[1], 1) === 'ry & <joy>');
@@ -2094,6 +2095,82 @@ check('pitch change breaks stale tie on both notes',
     sfRemoveMeasureKeySig(km, 0) === false &&
     sfRemoveMeasureKeySig(km, 1) === true &&
     sfGetEffectiveKeySig(km, 1).explicit === false && sfGetEffectiveKeySig(km, 1).fifths === -2);
+}
+
+// =========================================================================
+// 21. Structured entry.lyrics Multi-Verse Round-Trip & Data-Loss Check (#170)
+// =========================================================================
+{
+  const multiVerseXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Choir</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>begin</syllabic><text>A</text></lyric>
+        <lyric number="2"><syllabic>middle</syllabic><text>bide</text><extend/></lyric>
+      </note>
+      <note>
+        <pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>end</syllabic><text>men</text><extend type="start"/></lyric>
+      </note>
+      <note>
+        <pitch><step>B</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type>
+        <lyric number="part1verse1"><syllabic>single</syllabic><text>Verum</text></lyric>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const mv0 = sfParseMusicXml(multiVerseXml);
+  const mv0Notes = mv0.parts[0].measures[0].entries.filter(e => e.kind === 'note');
+
+  // (a) Plain load -> sfExportMusicXml -> re-parse
+  const mvReXml = sfExportMusicXml(mv0);
+  const mvRe = sfParseMusicXml(mvReXml);
+  const mvReNotes = mvRe.parts[0].measures[0].entries.filter(e => e.kind === 'note');
+  check('lyrics plain round-trip preserves all verses, syllabic, extend, extendType, and non-numeric number',
+    mvReXml.includes('number="1"') &&
+    mvReXml.includes('number="2"') &&
+    mvReXml.includes('number="part1verse1"') &&
+    mvReXml.includes('<extend/>') &&
+    mvReXml.includes('<extend type="start"/>') &&
+    sfGetNoteLyric(mvReNotes[0], 1) === 'A-' &&
+    sfGetNoteLyric(mvReNotes[0], 2) === 'bide-' &&
+    sfGetNoteLyric(mvReNotes[1], 1) === 'men' &&
+    sfGetNoteLyric(mvReNotes[2], 'part1verse1') === 'Verum');
+
+  // (b) Structured entry.lyrics + edit preservation
+  check('entry.lyrics structured array populated on parse',
+    Array.isArray(mv0Notes[0].lyrics) &&
+    mv0Notes[0].lyrics.length === 2 &&
+    mv0Notes[0].lyrics[0].number === '1' &&
+    mv0Notes[0].lyrics[0].syllabic === 'begin' &&
+    mv0Notes[0].lyrics[1].number === '2' &&
+    mv0Notes[0].lyrics[1].syllabic === 'middle' &&
+    mv0Notes[0].lyrics[1].extend === true &&
+    mv0Notes[1].lyrics[0].extendType === 'start' &&
+    mv0Notes[2].lyrics[0].number === 'part1verse1');
+
+  sfSetNoteLyric(mv0, mv0Notes[0].id, 'Praise', { verse: 1 });
+  sfSetNoteLyric(mv0, mv0Notes[0].id, 'bide-', { verse: 2 });
+  check('sfSetNoteLyric updates verse 1 while preserving verse 2 middle + extend',
+    sfGetNoteLyric(mv0Notes[0], 1) === 'Praise' &&
+    Array.isArray(mv0Notes[0].lyrics) &&
+    mv0Notes[0].lyrics.length === 2 &&
+    mv0Notes[0].lyrics[1].syllabic === 'middle' &&
+    mv0Notes[0].lyrics[1].extend === true);
+
+  // Make rest clears entry.lyrics, and notes-only filter clears entry.lyrics
+  sfDeleteOrMakeRest(mv0, mv0Notes[0].id, 'rest');
+  check('sfDeleteOrMakeRest clears entry.lyrics to []',
+    Array.isArray(mv0Notes[0].lyrics) && mv0Notes[0].lyrics.length === 0);
+
+  sfFilterScoreByMode(mvRe, 'notes-only');
+  check('sfFilterScoreByMode("notes-only") clears entry.lyrics to []',
+    mvReNotes.every(n => Array.isArray(n.lyrics) && n.lyrics.length === 0));
 }
 
 // Async tests: sfParseMxl + sfParseScoreInput
