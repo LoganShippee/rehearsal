@@ -157,6 +157,8 @@ function migrate(d) {
   d.settings = { ...base.settings, ...(d.settings || {}) };
   d.settings.sim = { ...base.settings.sim, ...(d.settings.sim || {}) };
   for (const k of ['classes', 'templates', 'routines', 'events', 'recordings', 'pinnedApps']) if (!Array.isArray(d[k])) d[k] = [];
+  // a damaged file can hold blank or odd class entries; drop them so nothing below can throw
+  d.classes = d.classes.filter(c => c && typeof c === 'object' && !Array.isArray(c));
   // repair: sight-reading windows pinned before the fix became empty web tabs
   for (const list of Object.values(d.windows || {})) for (const w of list || []) {
     if (w.kind !== 'res' || !w.sr) continue;
@@ -207,19 +209,35 @@ async function loadData() {
   IS_FRESH_INSTALL = !d;
   S = migrate(d || sampleData());
 }
-let saveTimer = null;
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 350); }
+let saveTimer = null, savePending = false;
+function save() { clearTimeout(saveTimer); savePending = true; saveTimer = setTimeout(saveNow, 350); }
 async function saveNow() {
+  clearTimeout(saveTimer); savePending = false;
   if (window.__noSave) return;
   const body = JSON.stringify(S);
   try { localStorage.setItem('rehearsal', body); } catch { }
   window.HWSYNC?.changed();   // browser version: back up to the teacher's account (hw-sync.js)
   if (HAS_SERVER) {
-    try { await fetch('/api/data', { method: 'POST', headers: { 'X-Token': TOKEN, 'X-Client': CLIENT, 'Content-Type': 'application/json' }, body }); }
+    try { await fetch('/api/data', { method: 'POST', keepalive: body.length < 60000, headers: { 'X-Token': TOKEN, 'X-Client': CLIENT, 'Content-Type': 'application/json' }, body }); }
     catch (e) { toast('Could not save — is the app still running?'); }
   }
 }
 window.__externalUpdate = async client => { if (client === CLIENT) return; await loadData(); render(); };
+// Closing or switching away within 350 ms of an edit would lose it, so save right away.
+function flushSave() { if (savePending) saveNow(); }
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
+// Browser version: another tab saved. Take its copy first so this tab can't overwrite it with old data.
+window.addEventListener('storage', e => {
+  if (HAS_SERVER || e.key !== 'rehearsal' || !e.newValue || !S) return;
+  try {
+    const hadPending = savePending;
+    clearTimeout(saveTimer); savePending = false;
+    S = migrate(JSON.parse(e.newValue));
+    render();
+    if (hadPending) toast('Updated from another window.');
+  } catch { }
+});
 
 // ---------- files (PDFs, images, audio)
 // In the Mac app they're stored by the app; in a browser (iPad) they're kept in the browser's own
@@ -885,6 +903,12 @@ function stopMusicHosts() {
   if (typeof spStop === 'function') spStop();
   if (typeof GR !== 'undefined' && (GR.on || GR.starting) && typeof grStop === 'function') grStop(false);
 }
+// A grade report left open for a window that is closing would point at music that is gone.
+function dropGradeCard(winEl) {
+  const card = document.getElementById('gr-card'); if (!card) return;
+  const h = typeof GR !== 'undefined' ? GR.host : null;
+  if (!h || !h.isConnected || (winEl && winEl.contains(h))) card.remove();
+}
 function stopAllPresentAudio(opts = {}) {
   const root = opts.root || document;
   if (opts.stageOnly) {
@@ -906,7 +930,7 @@ function stopAllPresentAudio(opts = {}) {
       if (typeof muTunerStop === 'function') muTunerStop();
       if (typeof muDroneStop === 'function') muDroneStop(0);
     }
-    if (['score', 'sight', 'res'].includes(c.kind)) stopMusicHosts();
+    if (['score', 'sight', 'res'].includes(c.kind)) { stopMusicHosts(); dropGradeCard(document.querySelector(`.win[data-win="${c.id}"]`)); }
   } else {
     stopMusicHosts();
     try { if (typeof metStop === 'function') metStop(); } catch { }
@@ -4377,7 +4401,15 @@ function planningTab() {
   const bar = `<div class="set-tabs" role="tablist">${PLAN_SUBS.map(([k, v]) => `<button type="button" role="tab" class="set-tab ${PLAN_SUB === k ? 'on' : ''}" aria-selected="${PLAN_SUB === k}" data-action="plan-sub" data-sub="${k}">${v}</button>`).join('')}</div>`;
   return bar + ({ schedule: scheduleTab, routines: routinesTab, notes: notesTab, events: eventsTab }[PLAN_SUB])();
 }
+// Before import/reset replaces everything: keep the old data (a spare copy in the browser, if it fits) and return an undo.
+function keepOldData() {
+  const old = JSON.stringify(S);
+  try { localStorage.setItem('rehearsal-pre-reset', old); } catch { }
+  return () => { S = JSON.parse(old); save(); renderEditor(); };
+}
 function renderEditor() {
+  // a focused field that is about to be rebuilt can throw when it loses focus mid-rebuild
+  try { const a = document.activeElement; if (a && a !== document.body && $('#e-main')?.contains(a)) a.blur(); } catch { }
   setTimeout(loadBackups, 0);                         // fills the backup list if Settings is showing
   const scroll = $('#e-main')?.scrollTop || 0;
   app().innerHTML = `<div class="editor">
@@ -5739,7 +5771,7 @@ const A = {
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },
-  'wm-closeall': () => { stopAllPresentAudio(); const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
+  'wm-closeall': () => { stopAllPresentAudio(); dropGradeCard($('#p-wins')); const k = curWinKey(); S.windows[k] = []; P.winMenu = false; save(); renderWinMenu(); renderDock(); renderWins(context(now()), true); },
   'win-close': el => {
     const closing = winList().find(w => w.id === el.dataset.id);
     if (closing?.kind === 'rec' && REC.state !== 'idle') {
@@ -5964,11 +5996,17 @@ const A = {
   // classes
   'class-sel': el => { SEL_CLASS = el.dataset.id; renderEditor(); renderClip(); $('#e-main').scrollTop = 0; },
   'class-add': () => { const c = newClass('New class'); S.classes.push(c); SEL_CLASS = c.id; save(); renderEditor(); },
-  'class-dup': () => { const c = S.classes.find(x => x.id === SEL_CLASS); const d = JSON.parse(JSON.stringify(c)); d.id = uid(); d.name += ' (copy)'; d.notes = {}; d.automations.forEach(a => a.id = uid()); S.classes.push(d); SEL_CLASS = d.id; save(); renderEditor(); },
+  'class-dup': () => { const c = S.classes.find(x => x.id === SEL_CLASS); const d = JSON.parse(JSON.stringify(c)); d.id = uid(); d.name += ' (copy)'; d.notes = {}; for (const k of ['automations', 'resources', 'progress']) (d[k] || []).forEach(x => { if (x && x.id) x.id = uid(); }); S.classes.push(d); SEL_CLASS = d.id; save(); renderEditor(); },
   'class-del': () => {
     const c = S.classes.find(x => x.id === SEL_CLASS);
     if (!confirm(`Delete “${c.name}” and its notes? It will also be removed from bell schedules.`)) return;
+    const idx = S.classes.indexOf(c), prevPeriods = S.templates.map(t => JSON.parse(JSON.stringify(t.periods)));
     S.classes = S.classes.filter(x => x !== c); S.templates.forEach(t => t.periods = t.periods.filter(p => p.classId !== c.id)); save(); renderEditor();
+    undoToast(`Deleted “${c.name}”.`, () => {
+      S.classes.splice(Math.min(idx, S.classes.length), 0, c); SEL_CLASS = c.id;
+      S.templates.forEach((t, i) => { if (prevPeriods[i]) t.periods = prevPeriods[i]; });
+      save(); renderEditor();
+    });
   },
   'class-preview': () => { P.pinned = SEL_CLASS; go('present'); },
   theme: el => { const c = selClass(); c.theme = { ...THEMES[el.dataset.k], image: c.theme.image || '', ...(c.theme.panel != null ? { panel: c.theme.panel } : {}), ...(c.theme.dim != null ? { dim: c.theme.dim } : {}) }; save(); renderEditor(); },
@@ -5977,10 +6015,10 @@ const A = {
   'theme-bg': el => { selClass().theme.image = 'bg:' + el.dataset.bg; save(); renderEditor(); },
   'theme-image-clear': () => { selClass().theme.image = ''; save(); renderEditor(); },
   'agenda-add': () => { selClass().agenda.push({ text: '', min: 0 }); save(); renderEditor(); $$('.agenda-row input')[$$('.agenda-row').length * 2 - 2]?.focus(); },
-  'agenda-del': el => { const c = VIEW === 'edit' ? selClass() : ieClass()?.cls; if (!c) return; c.agenda.splice(el.dataset.k, 1); TL_SEL = null; save(); tlRerender(); },
+  'agenda-del': el => { const c = VIEW === 'edit' ? selClass() : ieClass()?.cls; if (!c) return; const k = +el.dataset.k, [st] = c.agenda.splice(k, 1); if (!st) return; TL_SEL = null; save(); tlRerender(); undoToast('Step removed.', () => { c.agenda.splice(Math.min(k, c.agenda.length), 0, st); TL_SEL = null; save(); tlRerender(); }); },
   'res-add-url': () => { const u = prompt('Paste a link (Google Slides/Docs/Drive, YouTube, Canva, any web page):'); if (!u) return; const url = /^https?:\/\//.test(u.trim()) ? u.trim() : 'https://' + u.trim(); selClass().resources.push({ id: uid(), title: guessTitle(url), url, mode: 'embed' }); save(); renderEditor(); },
   'res-add-file': async () => { const fs = await pickFile('application/pdf,image/*,video/*,audio/*', true); for (const f of fs) { const id = await storeFile(f); selClass().resources.push({ id: uid(), title: f.name.replace(/\.[^.]+$/, ''), fileId: id }); } save(); renderEditor(); },
-  'res-del': el => { selClass().resources.splice(el.dataset.k, 1); save(); renderEditor(); },
+  'res-del': el => { const c = selClass(), k = +el.dataset.k, [r] = c.resources.splice(k, 1); if (!r) return; save(); renderEditor(); undoToast('Resource removed.', () => { c.resources.splice(Math.min(k, c.resources.length), 0, r); save(); renderEditor(); }); },
   'res-move': el => { const a = selClass().resources, k = +el.dataset.k, j = k + Number(el.dataset.d); if (j < 0 || j >= a.length) return; [a[k], a[j]] = [a[j], a[k]]; save(); renderEditor(); },
   'drive-browse': () => { DRIVE_TARGET = SEL_CLASS; native('openDrive', {}); },
   'drive-open': () => native('openDrive', {}),
@@ -5992,11 +6030,13 @@ const A = {
   // schedule
   'tpl-add': () => { S.templates.push({ id: uid(), name: 'New schedule', periods: [] }); save(); renderEditor(); },
   'tpl-dup': el => { const t = JSON.parse(JSON.stringify(S.templates[el.dataset.k])); t.id = uid(); t.name += ' (copy)'; t.periods.forEach(p => p.id = uid()); S.templates.push(t); save(); renderEditor(); },
-  'tpl-del': el => { const t = S.templates[el.dataset.k]; if (!confirm(`Delete the “${t.name}” bell schedule?`)) return; S.templates.splice(el.dataset.k, 1); for (const d in S.weekdays) if (S.weekdays[d] === t.id) S.weekdays[d] = ''; for (const k in S.overrides) if (S.overrides[k] === t.id) delete S.overrides[k]; save(); renderEditor(); },
-  'per-add': el => { const t = S.templates[el.dataset.k]; const last = t.periods[t.periods.length - 1]; const start = last ? addMin(last.end, 5) : '08:00'; t.periods.push({ id: uid(), classId: S.classes[0]?.id || '', start, end: addMin(start, 50) }); save(); renderEditor(); },
-  'per-del': el => { S.templates[el.dataset.k].periods.splice(el.dataset.p, 1); save(); renderEditor(); },
+  'tpl-del': el => { const t = S.templates[el.dataset.k]; if (!confirm(`Delete the “${t.name}” bell schedule?`)) return; const idx = +el.dataset.k, prevWeekdays = { ...S.weekdays }, prevOverrides = { ...S.overrides };
+    S.templates.splice(idx, 1); for (const d in S.weekdays) if (S.weekdays[d] === t.id) S.weekdays[d] = ''; for (const k in S.overrides) if (S.overrides[k] === t.id) delete S.overrides[k]; save(); renderEditor();
+    undoToast(`Deleted “${t.name}”.`, () => { S.templates.splice(Math.min(idx, S.templates.length), 0, t); S.weekdays = prevWeekdays; S.overrides = prevOverrides; save(); renderEditor(); }); },
+  'per-add': el => { if (!S.classes.length) return toast('Add a class first.'); const t = S.templates[el.dataset.k]; const last = t.periods[t.periods.length - 1]; const start = last ? addMin(last.end, 5) : '08:00'; t.periods.push({ id: uid(), classId: S.classes[0]?.id || '', start, end: addMin(start, 50) }); save(); renderEditor(); },
+  'per-del': el => { const ps = S.templates[el.dataset.k].periods, p = +el.dataset.p, [row] = ps.splice(p, 1); if (!row) return; save(); renderEditor(); undoToast('Period removed.', () => { ps.splice(Math.min(p, ps.length), 0, row); save(); renderEditor(); }); },
   'ov-add': () => { const d = new Date(); d.setDate(d.getDate() + 1); let k = dateKey(d); while (k in S.overrides) { d.setDate(d.getDate() + 1); k = dateKey(d); } S.overrides[k] = 'none'; save(); renderEditor(); },
-  'ov-del': el => { delete S.overrides[el.dataset.k]; save(); renderEditor(); },
+  'ov-del': el => { const k = el.dataset.k, v = S.overrides[k]; delete S.overrides[k]; save(); renderEditor(); undoToast('Day override removed.', () => { S.overrides[k] = v; save(); renderEditor(); }); },
   // routines
   'routine-add': () => { S.routines.push({ id: uid(), enabled: true, time: '08:00', days: [1, 2, 3, 4, 5], action: 'message', text: '', seconds: 10 }); save(); renderEditor(); },
   'routine-del': el => { S.routines.splice(el.dataset.k, 1); save(); renderEditor(); },
@@ -6028,8 +6068,8 @@ const A = {
   'lib-del': el => { if (deleteLibraryFile(el.dataset.id)) renderEditor(); },
   // settings
   export: () => { const text = JSON.stringify(S, null, 2), name = `rehearsal-backup-${dateKey(new Date())}.json`; if (!native('saveText', { name, text })) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; a.click(); } },
-  import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d.classes) throw 0; if (!confirm('Replace all current data with this backup?')) return; S = migrate(d); save(); renderEditor(); toast('Backup imported.'); } catch { alert('That file is not a Rehearsal backup.'); } },
-  reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; S = sampleData(); P.pinned = S.settings.lastPinned || null; save(); renderEditor(); },
+  import: async () => { const [f] = await pickFile('.json,application/json'); if (!f) return; try { const d = JSON.parse(await f.text()); if (!d || !Array.isArray(d.classes) || !d.classes.every(c => c && typeof c === 'object' && typeof c.id === 'string' && typeof c.name === 'string')) throw 0; if (!confirm('Replace all current data with this backup?')) return; const undo = keepOldData(); S = migrate(d); save(); renderEditor(); undoToast('Replaced.', undo); } catch { alert('That file is not a Rehearsal backup.'); } },
+  reset: () => { if (!confirm('Erase everything and start over with the basic template (four music classes and a sample bell schedule)?')) return; const undo = keepOldData(); S = sampleData(); P.pinned = S.settings.lastPinned || null; save(); renderEditor(); undoToast('Replaced.', undo); },
   'upd-check': () => {
     UPD.dismissed = null;
     if (UPD.state === 'web-ready') { refreshUpdateUI(); const b = $('#upd-status'); b?.classList.add('flash'); return; }   // already downloaded: it just needs a restart
@@ -6179,10 +6219,23 @@ document.addEventListener('change', e => {
   if (el.dataset.bind) {
     bindValue(el);
     if (el.dataset.rerender !== undefined || el.dataset.rerenderBlur !== undefined) {
-      if (VIEW === 'edit') renderEditor(); else if (P.autoDrawer && el.closest('#auto-drawer')) renderAutoDrawer();
+      const redo = () => { if (VIEW === 'edit') renderEditor(); else if (P.autoDrawer && el.closest('#auto-drawer')) renderAutoDrawer(); };
+      // Leaving a field with the mouse fires this at mouse-down; rebuilding then swallows the click. Wait for the click to finish.
+      // A menu popup can swallow the pointer-up, so also redraw after a short wait.
+      if (POINTER_DOWN) { pendingRerender = redo; setTimeout(() => { if (pendingRerender === redo) { pendingRerender = null; POINTER_DOWN = false; redo(); } }, 400); } else redo();
     }
   }
 });
+let POINTER_DOWN = false, pendingRerender = null;
+document.addEventListener('pointerdown', () => { POINTER_DOWN = true; }, true);
+const endPointer = () => {
+  if (!POINTER_DOWN) return;
+  POINTER_DOWN = false;
+  // after the click has run (setTimeout 0 comes after click)
+  setTimeout(() => { const f = pendingRerender; pendingRerender = null; if (f) f(); }, 0);
+};
+document.addEventListener('pointerup', endPointer, true);
+document.addEventListener('pointercancel', endPointer, true);
 function bindValue(el) {
   let v;
   if (el.type === 'checkbox') v = el.checked;

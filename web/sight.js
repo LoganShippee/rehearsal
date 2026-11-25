@@ -96,6 +96,7 @@ const srCellsFor = ts => SR_METERS[ts][1] === 'compound' ? SR_COMPOUND : SR_SIMP
 
 // ---------- generate rhythm (array of measures; each = array of cells {id, ev})
 function srGenRhythm(ts, measures, allowed, ties) {
+  measures = Math.max(1, Math.min(16, Math.round(Number(measures)) || 1));   // a stored 2.5 must not make half a bar
   const [beats, kind] = SR_METERS[ts];
   const table = kind === 'compound' ? SR_COMPOUND : SR_SIMPLE;
   let ids = allowed.filter(id => table[id]);
@@ -230,7 +231,7 @@ function srSpell(key, scale, d, clef) {
   return { key: `${letter}${accStr}/${oct}`, midi, syl: SR_SYL[scale][deg] };
 }
 function srGenMelody(o) {
-  const nM = o.measures;
+  const nM = Math.max(1, Math.min(16, Math.round(Number(o.measures)) || 1));   // whole number only (new Array(2.5) throws)
   const rhythm = srGenRhythm(o.ts, nM, o.cells.filter(id => SR_SIMPLE[id]), o.ties);
   const [, lo, hi] = SR_RANGES[o.range] || SR_RANGES['do-sol'];
   const maxLeap = { step: 1, third: 2, triad: 4, fifth: 4, octave: 7 }[o.leap] || 1;
@@ -1910,7 +1911,14 @@ const srBarLayout = bar => mbarLayout(bar, SR_BARCFG);
 const srBarHTML = items => mbarHTML(SR_BARCFG, items);
 // a button label that always takes the width of its widest wording, so the bar never jumps
 const srTog = (labels, i) => `<span class="sr-tog">${labels.map((l, k) => `<span class="${k === i ? '' : 'h'}">${l}</span>`).join('')}</span>`;
+// Which window (or class tab) a host belongs to, so a rebuilt copy can be matched to the old one.
+const srHostKey = h => (h.dataset.srWin || '') + '|' + (h.dataset.srRes || '') + '|' + h.classList.contains('stage-sr');
 function mountSight(host, st, onChange) {
+  host.__cleanupResize?.();   // mounting twice must not stack resize listeners
+  // The windows were rebuilt while this view was playing or grading: carry playback over, drop a take.
+  let carryPlay = false;
+  if (SR_PLAY.master && SR_PLAY.host && SR_PLAY.host !== host && !SR_PLAY.host.isConnected && srHostKey(SR_PLAY.host) === srHostKey(host)) { SR_PLAY.host = host; carryPlay = true; }
+  if (typeof GR !== 'undefined' && (GR.on || GR.starting) && GR.host && GR.host !== host && !GR.host.isConnected && GR.host.dataset && srHostKey(GR.host) === srHostKey(host)) grStop(false);
   if (!st || !st.rhythm) Object.assign(st, srDefaults());
   for (const m of ['rhythm', 'solfege']) {
     if (st[m] && st[m].measureNums === undefined) st[m].measureNums = true;
@@ -2059,7 +2067,7 @@ function mountSight(host, st, onChange) {
       return v[key];
     } });
     const clock = srPlay(live, timeline, () => srHidePlayhead(host));
-    SR_PLAY.host = host;
+    SR_PLAY.host = host; SR_PLAY.live = live; SR_PLAY.clock = clock;
     const pb = host.querySelector('[data-sr="play"]'); if (pb) pb.innerHTML = IC('ico:stop') + ' Stop';
     srAnimate(host, live, () => timeline, clock);
     return clock;
@@ -2292,10 +2300,10 @@ function mountSight(host, st, onChange) {
     else if (k === 'gradecal') { closeGradeMenu(); if (typeof openAvCal === 'function') openAvCal(); return; }
     else if (k === 'settings') st.settingsOpen = !st.settingsOpen;
     else if (k === 'play') {
-      if (SR_PLAY.master) { srStop(); return; }
+      if (SR_PLAY.master) { const same = SR_PLAY.host === host; if (!same && SR_PLAY.host) srHidePlayhead(SR_PLAY.host); srStop(); if (same) return; }   // Play here while another view plays: switch to this one
       if (!timeline.length) return;
       const live = new Proxy({}, { get: (_, key) => V()[key] });   // always the current view
-      const clock = srPlay(live, timeline, () => srHidePlayhead(host)); SR_PLAY.host = host; b.innerHTML = IC('ico:stop') + ' Stop';
+      const clock = srPlay(live, timeline, () => srHidePlayhead(host)); SR_PLAY.host = host; SR_PLAY.live = live; SR_PLAY.clock = clock; b.innerHTML = IC('ico:stop') + ' Stop';
       srAnimate(host, live, () => timeline, clock); return;
     } else if (k === 'save') {
       const cls = currentClass(); if (!cls) return toast('Show a class first (Class picker in the dock) to save this to it.');
@@ -2322,7 +2330,7 @@ function mountSight(host, st, onChange) {
         if (typeof refreshRhythmCounts === 'function') refreshRhythmCounts();
         render(); return;
       }
-      o[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? clamp(Number(el.value) || 1, Number(el.min), Number(el.max)) : k === 'countIn' ? Number(el.value) : el.value;
+      o[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? clamp(k === 'measures' ? Math.round(Number(el.value) || 1) : Number(el.value) || 1, Number(el.min), Number(el.max)) : k === 'countIn' ? Number(el.value) : el.value;
       if (k === 'countIn' && o.countIn === 0 && st.mode === 'solfege') o.countPitch = 'none';
       if (k === 'ts' && st.mode === 'rhythm') {   // switching simple ↔ compound swaps the note choices
         const table = srCellsFor(o.ts); if (!o.cells.some(c => table[c])) o.cells = SR_METERS[o.ts][1] === 'compound' ? ['dq', 'eee', 'qe', 'dh'] : ['q', 'h', 'ee', 'qr'];
@@ -2362,10 +2370,12 @@ function mountSight(host, st, onChange) {
     window.removeEventListener('resize', onWinResize);
     window.removeEventListener('rehearsal-resize', onNativeResize);
   };
+  host.__cleanupResize = cleanupResize;
   ro.observe(host);
   window.addEventListener('resize', onWinResize);
   window.addEventListener('rehearsal-resize', onNativeResize);
   render();
+  if (carryPlay && SR_PLAY.master && SR_PLAY.live && SR_PLAY.clock) srAnimate(host, SR_PLAY.live, () => timeline, SR_PLAY.clock);   // playhead on the new copy
   return st;
 }
 // Space bar plays / stops the sight-reading example you used last (unless you're typing,

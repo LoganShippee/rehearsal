@@ -2407,7 +2407,8 @@ function mountScore(host, st, onChange0, key) {
     return '·';
   };
   ctl.drawLabels = () => {
-    const box = $q('.sp-lbls'); box.innerHTML = '';
+    const box = $q('.sp-lbls'); if (!box) return;   // this score's window is gone
+    box.innerHTML = '';
     const o = ctl.osmd, sc = ctl.sc; if (!o || !sc || !st.labels) return;
     const insts = o.Sheet?.Instruments || [], activeSel = spSolo(st).length ? spSolo(st) : spFoc(st);
     const F = activeSel.filter(f => !sc.lines[f]?.acc);

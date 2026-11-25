@@ -58,10 +58,11 @@ function muDetectPitch(buf, sr, minRms = 0.012, opts = {}) {
 }
 
 function muMicErrMsg(e) {
-  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+  // Only the Mac app has a "Rehearsal" entry in System Settings; a Mac browser needs its own permission.
+  const isMacApp = typeof IS_NATIVE !== 'undefined' && IS_NATIVE && /Mac/i.test(navigator.platform || navigator.userAgent || '');
   const name = e?.name || '';
   if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-    return isMac
+    return isMacApp
       ? 'Microphone blocked — allow Rehearsal in System Settings → Privacy & Security → Microphone.'
       : 'Microphone blocked — allow microphone access in your browser or system privacy settings.';
   }
