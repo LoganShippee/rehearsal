@@ -1155,6 +1155,17 @@ body.hw-auto-demo #hw-mode-badge::after { content: 'Sample class: nothing is sav
     border-color: #60a5fa;
     color: #dbeafe;
   }
+  /* The two "Get ready" steps were left light on the dark card, so their light text vanished. */
+  body.hw-page .hw-sync-step {
+    background: #1b273c;
+    border-color: #2b384f;
+    color: #e2e8f0;
+  }
+  body.hw-page .hw-sync-step-head,
+  body.hw-page .hw-sync-step-head strong { color: #f1f5f9; }
+  body.hw-page .hw-sync-meter { background: #2b384f; }
+  body.hw-page .hw-sync-pad small { color: #93c5fd; }
+  body.hw-page .hw-sync-pad:disabled { opacity: .7; }
   body.hw-page .hw-teacher-feedback {
     background: rgba(96, 165, 250, .12);
     border-color: rgba(96, 165, 250, .35);
