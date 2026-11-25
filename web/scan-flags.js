@@ -101,7 +101,13 @@ const SF_FLAG_WEIGHTS = {
   lyric_missing_syllable: 0.20,
   lyric_broken_hyphen: 0.25,
   lyric_unknown_word: 0.18,
-  voice_crossing: 0.30
+  voice_crossing: 0.30,
+  cross_part_measure_count: 0.40,
+  cross_part_signature_mismatch: 0.35,
+  cross_part_rhythm_mismatch: 0.25,
+  cross_part_lyric_mismatch: 0.20,
+  multi_run_measure_count: 0.45,
+  multi_run_disagreement: 0.30
 };
 
 // ---------- Choir Voice Ranges & Modular Choir Rules
@@ -962,6 +968,19 @@ function sfAnalyzeFlags(model, opts) {
         }
         prevByVoice[vid] = e;
       }
+    }
+  }
+
+  if (typeof sfAnalyzeCrossPartConsensus === 'function') {
+    const crossReport = sfAnalyzeCrossPartConsensus(model, options);
+    for (const f of (crossReport && crossReport.findings) || []) {
+      addFinding(f.measureIndex, f);
+    }
+  }
+  if (options.alternateModels && options.alternateModels.length && typeof sfCompareOcrRuns === 'function') {
+    const runReport = sfCompareOcrRuns([model].concat(options.alternateModels), options);
+    for (const f of (runReport && runReport.findings) || []) {
+      addFinding(f.measureIndex, f);
     }
   }
 

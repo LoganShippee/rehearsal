@@ -644,9 +644,16 @@ def postprocess_with_jsc(
             if os.path.isfile(wordlist_path)
             else ""
         )
+        consensus_path = os.path.join(ROOT, "web", "scan-consensus.js")
+        consensus_load = (
+            f"load({json.dumps(consensus_path)});\n"
+            if os.path.isfile(consensus_path)
+            else ""
+        )
         driver_js = (
             f"load({json.dumps(os.path.join(ROOT, 'web', 'scan-model.js'))});\n"
             f"{wordlist_load}"
+            f"{consensus_load}"
             f"load({json.dumps(os.path.join(ROOT, 'web', 'scan-flags.js'))});\n"
             f"var xml = readFile({json.dumps(in_path)});\n"
             f"var vocab = JSON.parse(readFile({json.dumps(vocab_path)}));\n"

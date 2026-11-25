@@ -3,7 +3,7 @@
 // when offline. Only Rehearsal's own files are cached; classes and library files live elsewhere
 // (browser storage / IndexedDB) and are never touched here.
 const CACHE = 'rehearsal-app';
-const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'scan.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'looks.js', 'settings.js', 'score.js', 'scan-model.js', 'scan-wordlist.js', 'scan-flags.js', 'scan-client.js', 'scan-ui.js', 'tools.js',
+const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'scan.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'looks.js', 'settings.js', 'score.js', 'scan-model.js', 'scan-wordlist.js', 'scan-consensus.js', 'scan-flags.js', 'scan-client.js', 'scan-ui.js', 'tools.js',
   'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js', 'hw-sync.js',
   'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html', 'embed-sight.html', 'embed-score.html', 'demo/ode-to-joy.musicxml', 'demo/ode-to-joy.mxl',
   'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',

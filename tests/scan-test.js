@@ -26,7 +26,7 @@ function tryRead(path) {
 print('==== scan-test');
 
 // 1. Syntax-check Scan & Fix scripts
-const requiredScripts = ['web/scan-model.js', 'web/scan-wordlist.js', 'web/scan-flags.js'];
+const requiredScripts = ['web/scan-model.js', 'web/scan-wordlist.js', 'web/scan-consensus.js', 'web/scan-flags.js'];
 const optionalScripts = ['web/scan-client.js', 'web/scan-ui.js'];
 
 for (const f of requiredScripts) {
@@ -54,9 +54,10 @@ for (const f of optionalScripts) {
   }
 }
 
-// Load scan-model.js, scan-wordlist.js, and scan-flags.js into global scope
+// Load scan-model.js, scan-wordlist.js, scan-consensus.js, and scan-flags.js into global scope
 load('web/scan-model.js');
 if (typeof sfIsKnownChoirWord === 'undefined') load('web/scan-wordlist.js');
+if (typeof sfAnalyzeCrossPartConsensus === 'undefined') load('web/scan-consensus.js');
 load('web/scan-flags.js');
 
 // Verify required global API exports
@@ -82,7 +83,8 @@ const requiredGlobals = [
   'SF_CHOIR_WORDLIST', 'sfIsKnownChoirWord',
   'sfDetectChoirPart', 'sfGetChoirVoiceRange',
   'sfRuleTenorOctaveClef', 'sfRuleChoirVoiceRange',
-  'sfRuleVocalLeaps', 'sfRuleLyricChecks', 'sfRuleVoiceCrossing'
+  'sfRuleVocalLeaps', 'sfRuleLyricChecks', 'sfRuleVoiceCrossing',
+  'sfAnalyzeCrossPartConsensus', 'sfCompareOcrRuns'
 ];
 for (const g of requiredGlobals) {
   let exists = false;
@@ -2376,6 +2378,148 @@ check('sfDetectChoirPart identifies SATB parts and rejects non-choir instruments
   sfRuleLyricChecks(sharedLyricModel.parts[0], 0, (mi, f) => sharedLyricFindings.push(f));
   check('sfRuleLyricChecks merges lyrics across voices at each onset without false missing/broken flags',
     sharedLyricFindings.length === 0);
+}
+
+// =========================================================================
+// 23. Cross-Part Consensus & Multi-Run OMR Comparison (Step 4)
+// =========================================================================
+
+// 23a. cross_part_measure_count
+{
+  const mcXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const mcModel = sfParseMusicXml(mcXml);
+  const mcRes = sfAnalyzeCrossPartConsensus(mcModel);
+  check('sfAnalyzeCrossPartConsensus flags cross_part_measure_count',
+    mcRes.findings.some(f => f.rule === 'cross_part_measure_count' && f.measureIndex === 0));
+}
+
+// 23b. cross_part_signature_mismatch (time + key)
+{
+  const sigXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+    <score-part id="P3"><part-name>Tenor</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes><note><pitch><step>G</step><octave>3</octave></pitch><duration>3</duration><type>half</type><dot/></note></measure>
+  </part>
+</score-partwise>`;
+  const sigModel = sfParseMusicXml(sigXml);
+  sigModel.parts[2].measures[0].time = { beats: 3, beatType: 4, symbol: null };
+  sigModel.parts[2].measures[0].key = { fifths: 0, mode: 'major', modeGiven: false };
+  const sigRes = sfAnalyzeCrossPartConsensus(sigModel);
+  const sigFindings = sigRes.findings.filter(f => f.rule === 'cross_part_signature_mismatch' && f.partIndex === 2);
+  check('sfAnalyzeCrossPartConsensus flags both time and key cross_part_signature_mismatch on minority part',
+    sigFindings.some(f => /time signature/i.test(f.message)) &&
+    sigFindings.some(f => /key signature/i.test(f.message)));
+}
+
+// 23c. cross_part_rhythm_mismatch + cross_part_lyric_mismatch (3 parts agree vs 1 disagrees)
+{
+  const homoXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+    <score-part id="P3"><part-name>Tenor</part-name></score-part>
+    <score-part id="P4"><part-name>Bass</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>Praise</text></lyric></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>God</text></lyric></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>Praise</text></lyric></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>God</text></lyric></note>
+    </measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef></attributes>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>Praise</text></lyric></note>
+      <note><pitch><step>B</step><octave>3</octave></pitch><duration>2</duration><type>half</type><lyric number="1"><syllabic>single</syllabic><text>God</text></lyric></note>
+    </measure>
+  </part>
+  <part id="P4">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>Sing</text></lyric></note>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>3</duration><type>half</type><dot/><lyric number="1"><syllabic>single</syllabic><text>now</text></lyric></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const homoModel = sfParseMusicXml(homoXml);
+  const homoRes = sfAnalyzeCrossPartConsensus(homoModel);
+  check('sfAnalyzeCrossPartConsensus flags minority rhythm and lyric mismatch across 4 homophonic parts',
+    homoRes.findings.some(f => f.rule === 'cross_part_rhythm_mismatch' && f.partIndex === 3) &&
+    homoRes.findings.some(f => f.rule === 'cross_part_lyric_mismatch' && f.partIndex === 3));
+}
+
+// 23d. sfCompareOcrRuns (measure count mismatch + 2-of-3 majority suggestion in sfAnalyzeFlags)
+{
+  const runPrimaryXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>F</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const runMajorityXml = runPrimaryXml.replace('<step>F</step>', '<step>E</step>');
+  const runShortXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+
+  const mPrimary = sfParseMusicXml(runPrimaryXml);
+  const mAlt1 = sfParseMusicXml(runMajorityXml);
+  const mAlt2 = sfParseMusicXml(runMajorityXml);
+  const mShort = sfParseMusicXml(runShortXml);
+
+  const cmpRes = sfCompareOcrRuns([mPrimary, mAlt1, mAlt2]);
+  const disagreeF = cmpRes.findings.find(f => f.rule === 'multi_run_disagreement' && f.measureIndex === 1);
+  check('sfCompareOcrRuns detects 2-of-3 majority disagreement with suggestion',
+    cmpRes.summary.runCount === 3 &&
+    cmpRes.summary.differingMeasures === 1 &&
+    !!disagreeF &&
+    /Most scans read: E5\(4\)/.test(disagreeF.suggestion));
+
+  const cmpShort = sfCompareOcrRuns([mPrimary, mShort]);
+  check('sfCompareOcrRuns detects multi_run_measure_count when runs have differing lengths',
+    cmpShort.summary.measureCountMismatch === true &&
+    cmpShort.findings.some(f => f.rule === 'multi_run_measure_count'));
+
+  const singleReport = sfAnalyzeFlags(mPrimary);
+  const multiReport = sfAnalyzeFlags(mPrimary, { alternateModels: [mAlt1, mAlt2] });
+  check('sfAnalyzeFlags lowers measure confidence when alternateModels disagree',
+    singleReport.measures[1].confidence === 1 &&
+    multiReport.measures[1].confidence < 1 &&
+    multiReport.measures[1].findings.some(f => f.rule === 'multi_run_disagreement'));
 }
 
 // Async tests: sfParseMxl + sfParseScoreInput
