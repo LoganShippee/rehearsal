@@ -1235,6 +1235,19 @@
             </label>
           </div>
         </div>
+        ${(() => {
+          // Scores already in Rehearsal (MusicXML only: MuseScore files can't be sent as they are).
+          const lib = (typeof spLibrary === 'function' ? spLibrary() : [])
+            .filter(x => /\.(mxl|musicxml|xml)$/i.test(S.files?.[x.id]?.name || ''));
+          return lib.length ? `
+            <label class="fld" style="margin:8px 0 0">
+              <span class="small muted">Or add a score that's already in Rehearsal</span>
+              <select data-hwt-change="practice-from-library" ${writable ? '' : 'disabled'}>
+                <option value="">Choose a score…</option>
+                ${lib.map(x => `<option value="${escHtml(x.id)}">${escHtml(x.name)}</option>`).join('')}
+              </select>
+            </label>` : '';
+        })()}
         <div class="muted small">Students can play these any time. Nothing is graded or saved.</div>
         <div class="muted small">MusicXML only. Max 10 MB. In MuseScore, use File &gt; Export &gt; MusicXML.</div>
         ${tracks.length ? tracks.map(t => `
@@ -2291,6 +2304,32 @@
         if (title === null) break;
         showToast('Uploading…');
         const res = await api.uploadPracticeTrack(S_STATE.selectedClassId, file, file.name, title.trim() || guess);
+        if (!res?.ok) { showToast(res?.error || 'Could not upload this track.'); break; }
+        await loadClassDetails(S_STATE.selectedClassId);
+        renderAll();
+        showToast('Practice track added.');
+        break;
+      }
+      case 'practice-from-library': {
+        const fid = t.value;
+        t.value = '';
+        if (!fid || !S_STATE.selectedClassId) break;
+        const meta = S.files?.[fid];
+        const fname = meta?.name || 'Score.mxl';
+        let blob = null;
+        try {
+          if (typeof memBlobs !== 'undefined' && memBlobs[fid]) blob = memBlobs[fid];
+          else if (typeof fileDirectURL === 'function') {
+            const url = fileDirectURL(fid);
+            if (url) { const r = await fetch(url); if (r.ok) blob = await r.blob(); }
+          }
+        } catch {}
+        if (!blob || !blob.size) { showToast('Could not read that score from Rehearsal.'); break; }
+        const guess = fname.replace(/\.[^.]+$/, '');
+        const title = prompt('Name for this practice track', guess);
+        if (title === null) break;
+        showToast('Uploading…');
+        const res = await api.uploadPracticeTrack(S_STATE.selectedClassId, blob, fname, title.trim() || guess);
         if (!res?.ok) { showToast(res?.error || 'Could not upload this track.'); break; }
         await loadClassDetails(S_STATE.selectedClassId);
         renderAll();
