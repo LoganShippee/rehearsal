@@ -63,6 +63,8 @@ Classic `<script>` files loaded in order by `index.html` (icons → vexflow → 
 - `app.js`: almost everything (data, schedule, Present screen, toolbar, windows, widgets, annotation, editor, actions). It's split into sections by `// ====… <name>` banner comments; grep the banners to navigate.
 - `sight.js`: sight-reading generator, VexFlow notation and playback.
 - `score.js`: score practice (OSMD rendering, piano playback, loops).
+- `scan-model.js`, `scan-flags.js`, `scan-client.js`, `scan-ui.js`, `scan.css`: Scan & Fix (MusicXML/`.mxl` editable model, consistency flagging + save gate, HTTP client for `tools/omr-service/`, split review UI).
+- `tools/omr-service/`: standalone Python stdlib HTTP wrapper around the Audiveris 5.x CLI subprocess (AGPL v3 isolated).
 - `music.js`: Tuner/drone and Metronome windows.
 - `grade.js`: grading sung/clapped/tapped performance (pitch/onset detection). This is what the tests cover.
 - `pdfview.js`: PDF viewer, including per-file PDF annotations and the "save annotated copy" PDF writer.
@@ -93,6 +95,7 @@ Classic `<script>` files loaded in order by `index.html` (icons → vexflow → 
 
 ## Conventions
 - User-facing text is for teachers: plain language, short, no jargon. Comments explain *why*, in the same plain style as the existing code.
+- See `docs/ui-conventions.md` for Rehearsal's UI, theming, layout, and component conventions.
 - The README's "What's in it" section doubles as the feature reference. Update it when adding or changing a feature.
 
 ## Working with Antigravity (`GEMINI.md`)

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "pieces": {
+    "ode-to-joy": {
+      "overall": 76.9,
+      "rawOverall": 76.9,
+      "dimensions": {
+        "structure": 83.33,
+        "pitch": 98.44,
+        "rhythm": 98.96,
+        "ties": 100.0,
+        "accidentals": 100.0,
+        "text": 0.0,
+        "flags": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "erroneousMeasures": [
+            1,
+            2,
+            4
+          ],
+          "flaggedMeasures": []
+        }
+      }
+    },
+    "band-part": {
+      "overall": 68.4,
+      "rawOverall": 68.4,
+      "dimensions": {
+        "structure": 100.0,
+        "pitch": 95.83,
+        "rhythm": 97.22,
+        "ties": 100.0,
+        "accidentals": 0.0,
+        "text": 0.0,
+        "flags": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "erroneousMeasures": [
+            1,
+            2,
+            3
+          ],
+          "flaggedMeasures": []
+        }
+      }
+    }
+  }
+}

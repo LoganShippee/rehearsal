@@ -118,7 +118,9 @@ const ICON_PATHS = {
  "menu": "<path d=\"M4 7h16\" /> <path d=\"M4 12h16\" /> <path d=\"M4 17h16\" />",
  "piano": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"M7 4v16\" /> <path d=\"M12 4v16\" /> <path d=\"M17 4v16\" /> <path d=\"M5.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" /> <path d=\"M10.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" /> <path d=\"M15.5 4v8h3V4\" fill=\"currentColor\" stroke=\"none\" />",
  "ladder": "<path d=\"M7 3v18\" /> <path d=\"M17 3v18\" /> <path d=\"M7 7h10\" /> <path d=\"M7 12h10\" /> <path d=\"M7 17h10\" />",
- "flag": "<path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\" /> <line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\" />"
+ "flag": "<path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z\" /> <line x1=\"4\" x2=\"4\" y1=\"22\" y2=\"15\" />",
+ "scan": "<path d=\"M3 7V5a2 2 0 0 1 2-2h2\" /> <path d=\"M17 3h2a2 2 0 0 1 2 2v2\" /> <path d=\"M21 17v2a2 2 0 0 1-2 2h-2\" /> <path d=\"M7 21H5a2 2 0 0 1-2-2v-2\" /> <path d=\"M7 12h10\" />",
+ "redo": "<path d=\"M15 14 20 9l-5-5\" /> <path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\" />"
 };
 function ico(name, cls = '') {
   const p = ICON_PATHS[name]; if (!p) return '';

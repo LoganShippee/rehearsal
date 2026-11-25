@@ -19,3 +19,6 @@ echo "== hw-worker-unit"; "$J" -m tests/hw-worker-unit.mjs || exit 1
 echo "== hw-schema-test"; /usr/bin/python3 tests/hw-schema-test.py || exit 1
 echo "== hw-cleanup-test"; "$J" -m tests/hw-cleanup-test.mjs || exit 1
 /usr/bin/python3 tests/hw-cleanup-test.py || exit 1
+echo "== scan-test"; "$J" tests/scan-test.js || exit 1
+echo "== omr-service-test"; /usr/bin/python3 tests/omr-service-test.py || exit 1
+echo "== omr-bench-test"; /usr/bin/python3 tests/omr-bench-test.py || exit 1

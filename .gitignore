@@ -10,3 +10,4 @@ node_modules/
 .wrangler/
 .dev.vars
 tools/hw-worker/package-lock.json
+tools/omr-service/data/

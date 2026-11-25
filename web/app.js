@@ -930,7 +930,7 @@ function stopAllPresentAudio(opts = {}) {
       if (typeof muTunerStop === 'function') muTunerStop();
       if (typeof muDroneStop === 'function') muDroneStop(0);
     }
-    if (['score', 'sight', 'res'].includes(c.kind)) { stopMusicHosts(); dropGradeCard(document.querySelector(`.win[data-win="${c.id}"]`)); }
+    if (['score', 'sight', 'res', 'files', 'scan'].includes(c.kind)) { stopMusicHosts(); dropGradeCard(document.querySelector(`.win[data-win="${c.id}"]`)); }
   } else {
     stopMusicHosts();
     try { if (typeof metStop === 'function') metStop(); } catch { }
@@ -1663,6 +1663,9 @@ function mountSightHosts(root = document) {
   if (typeof mountScore === 'function') {
     for (const h of root.querySelectorAll('[data-score-win]')) { const w = findWin(h.dataset.scoreWin); if (w?.score) mountScore(h, w.score, () => save(), 'w' + w.id); }
     for (const h of root.querySelectorAll('[data-score-res]')) { const r = findRes(h.dataset.scoreRes); if (r?.score) mountScore(h, r.score, () => save(), 'r' + r.id + (h.closest('#stage-content') ? 's' : 'w')); }
+  }
+  if (typeof mountScanFix === 'function') {
+    for (const h of root.querySelectorAll('[data-scan-win]')) { const w = findWin(h.dataset.scanWin); if (w) mountScanFix(h, (w.scan ||= {}), () => save()); }
   }
   if (typeof mountSight !== 'function') return;
   for (const h of root.querySelectorAll('[data-sr-win]')) { const w = findWin(h.dataset.srWin); if (w) { w.sr ||= srDefaults(); mountSight(h, w.sr, () => save()); } }
@@ -2464,6 +2467,7 @@ function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
+  if (w.kind === 'scan') return 'Scan & fix';
   if (w.kind === 'tuner') return 'Tuner & drone';
   if (w.kind === 'metro') return 'Metronome';
   if (w.kind === 'cal') return 'Calendar';
@@ -2488,6 +2492,7 @@ function winIcon0(w) {
   if (w.icon) return w.icon;
   if (w.kind === 'sight') return 'ico:sight';
   if (w.kind === 'score') return 'ico:score';
+  if (w.kind === 'scan') return 'ico:scan';
   if (w.kind === 'tuner') return 'ico:tuner';
   if (w.kind === 'metro') return 'ico:metro';
   if (WIDGETS[w.kind]) return WIDGETS[w.kind].icon;
@@ -2509,6 +2514,7 @@ function setSpaceTargetForWin(w) {
   else if (k === 'score') window.__spaceTarget = 'sp';
   else if (k === 'rec') window.__spaceTarget = 'rec';
   else if (k === 'metro') window.__spaceTarget = 'met';
+  else if (k === 'scan') window.__spaceTarget = 'sf';
   else if (k === 'aud') {
     window.__spaceTarget = 'aud';
     const audEl = $(`.win[data-win="${w.id}"] .aud-host`);
@@ -2577,6 +2583,7 @@ function winBodyHTML(w) {
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
+  if (w.kind === 'scan') return `<div class="sf-host" data-scan-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
   if (WIDGETS[w.kind]) return widgetHost(w.kind, '', `data-wg-win="${w.id}"`);
@@ -3748,6 +3755,7 @@ function renderWinMenu() {
     <div class="wm-grid wm-music">
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
+      ${tile('wm-scan', 'ico:scan', 'Scan & fix', 'title="Scan a PDF or photo into MusicXML and fix mistakes"')}
       ${tile('wm-piano', 'ico:piano', 'Piano')}
       ${tile('wm-solboard', 'ico:ladder', 'Solfege board')}
       ${tile('open-music', 'ico:tuner', 'Tuner', 'data-kind="tuner"')}
@@ -5699,6 +5707,12 @@ const A = {
     const pick = lib.find(x => x.id === S.settings.lastScore) || lib[0];
     if (pick) { const saved = S.scoreSettings?.[pick.id]; addWindow({ kind: 'score', score: saved ? JSON.parse(JSON.stringify(saved)) : { fileId: pick.id, name: S.files[pick.id]?.name } }); return; }
     addWindow({ kind: 'score', score: { name: 'Score Practice' } }, { w: 0.68, h: 0.8 }); },
+  'wm-scan': () => {
+    P.winMenu = false; renderWinMenu(); renderDock();
+    const ex = winList().find(w => w.kind === 'scan');
+    if (ex) { bringToFront(ex); return; }
+    addWindow({ kind: 'scan', scan: {} }, { w: 0.82, h: 0.86 });
+  },
   'wm-apps': () => { P.appPick = 'loading'; renderWinMenu(); native('listAppWindows'); },
   'wm-app': el => {
     const a = P.appPick?.windows?.[+el.dataset.i]; if (!a) return;
@@ -5778,8 +5792,19 @@ const A = {
       if (REC.state === 'rec' || REC.state === 'countin') { recStop(); return toast('Recording stopped. Save or delete it, then close the window.'); }
       if (REC.state === 'review') return toast('Save or delete the recording first.');
     }
-    if (closing) stopAllPresentAudio({ closing });
-    const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true); },
+    const finishClose = () => {
+      if (closing) stopAllPresentAudio({ closing });
+      const k = curWinKey(); S.windows[k] = winList(k).filter(w => w.id !== el.dataset.id); save(); renderWins(context(now()), true);
+    };
+    if (closing?.kind === 'scan') {
+      const sfHost = document.querySelector(`.win[data-win="${closing.id}"] [data-scan-win]`);
+      if (typeof sfHost?.__sfRequestClose === 'function') {
+        sfHost.__sfRequestClose(finishClose);
+        return;
+      }
+    }
+    finishClose();
+  },
   'win-zoom-reset': el => { const w = findWin(el.dataset.id); if (w) { w.zoom = 1; applyZoom(w); save(); } },
   'bm-open': el => {
     const b = bmFind(el.dataset.id), w = findWin(el.dataset.win); BM.open = null; renderBmMenu();
@@ -6621,6 +6646,7 @@ function mountFilesBrowser(host) {
           <span class="fb-vtitle"><span class="fb-vic">${IC(icoOf(c))}</span><b>${esc(f.name)}</b></span>
           <button class="fb-btn ${pin ? 'on' : ''}" data-fb="pin-out" data-id="${id}" title="${pin ? 'Open this file\'s pinned tab' : 'Pin this single file outside as its own class tab'}">${IC('ico:pin')} <span>${pin ? 'Open tab' : 'Pin as own tab'}</span></button>
           ${pin ? `<button class="fb-btn" data-fb="unpin" data-id="${id}" title="Unpin from ${esc(cls?.name || 'class')}">${IC('ico:close')}</button>` : ''}
+          ${c === 'score' ? `<button class="fb-btn" data-fb="editscore" data-id="${id}" title="Edit this score in Scan &amp; Fix">${IC('ico:quickedit')} <span>Edit</span></button>` : ''}
           <button class="fb-btn" data-fb="popout" data-id="${id}" title="Open this file in a separate floating window">${IC('ico:external')} <span>Pop out</span></button>
           <button class="fb-btn fb-del" data-fb="del" data-id="${id}" title="Delete this file from your library">${IC('ico:trash')}</button>
         </div>
@@ -6724,6 +6750,7 @@ function mountFilesBrowser(host) {
         st.openId = null;
         render();
       }
+      else if (act === 'editscore' && id) { const f = S.files[id]; const title = (f?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, ''); addWindow({ kind: 'scan', scan: { sourceFileId: id, title } }, { w: 0.86, h: 0.86 }); }
       else if (act === 'popout') fbOpenFileFloating(id);
       else if (act === 'del') {
         if (st.openId === id && host.querySelector('.score-host')) stopMusicHosts();

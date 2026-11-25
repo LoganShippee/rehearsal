@@ -2162,7 +2162,7 @@ function mountScore(host, st, onChange0, key) {
     <div data-ctl="mixer">${metVolSlider()}</div>
     <div data-ctl="strictness">${typeof grStrictnessSlider === 'function' ? grStrictnessSlider(st.tempo || 80) : ''}</div>
     <div class="sr-sync sp-sync" data-ctl="sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
-    <div><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button data-sp="custom">${IC('ico:eye')} Buttons to show…</button><button data-sp="editscore" title="Open this score in Scan &amp; Fix to edit notes, rhythms, lyrics, or markings">${IC('ico:quickedit')} Edit score…</button></div>
     <div class="sp-note" data-ctl="help">Speed-up starts at that percentage of the tempo slider and adds the step each time the loop repeats, until it reaches the full tempo. Repeat signs and 1st / 2nd endings are followed (D.C. / D.S. / Coda are not yet).</div>`;
   };
   // ----- geometry from the drawn score
@@ -2657,6 +2657,15 @@ function mountScore(host, st, onChange0, key) {
       if (k === 'spot-del') { st.spots = st.spots.filter(y => y.id !== b.dataset.id); onChange(); ctl.drawSpots(); }
       if (k === 'spot-save') { const x = st.spots.find(y => y.id === b.dataset.id); if (x) { Object.assign(x, { a: Math.min(st.loop.a, st.loop.b), b: Math.max(st.loop.a, st.loop.b), focus: spFoc(st).length ? [...spFoc(st)] : null, tempo: st.tempo }); onChange(); ctl.drawSpots(); toast('Spot updated'); } }
       if (k === 'assign') { if (typeof window.HW_TEACHER?.openAssignFromScore === 'function') window.HW_TEACHER.openAssignFromScore(ctl); return; }
+      if (k === 'editscore') {
+        if (st.fileId && typeof addWindow === 'function') {
+          const title = (st.name || S.files[st.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
+          addWindow({ kind: 'scan', scan: { sourceFileId: st.fileId, title } }, { w: 0.86, h: 0.86 });
+        } else {
+          toast('Open a MusicXML score first to edit it.');
+        }
+        return;
+      }
       if (k === 'settings') { const s = $q('.sp-settings'); s.hidden = !s.hidden; st.settingsOpen = !s.hidden; onChange(); if (!s.hidden) s.innerHTML = settingsHTML(); else $q('.sp-custom').hidden = true; ctl.applyCtl(); ctl.updateBar(); }
       return;
     }
