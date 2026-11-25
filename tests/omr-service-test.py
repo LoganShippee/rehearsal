@@ -1393,7 +1393,7 @@ class OMRServiceTestSuite(unittest.TestCase):
             engine_cmd=[sys.executable, self.fake_cli_path],
             job_timeout=55.0,
             subdir="data_pdf_meta",
-            preprocess=True,
+            preprocess=False,
         )
         content_stream = (
             b"BT /F1 12 Tf 72 720 Td (Allegro) Tj "
@@ -1786,6 +1786,116 @@ class OMRServiceTestSuite(unittest.TestCase):
             self.assertTrue(os.path.isdir(os.path.join(service.jobs_dir, fresh["jobId"])))
         finally:
             service.stop()
+
+    # 16. 300 DPI default rasterpdf preprocessing + parallel flagged-page multirun
+    def test_16_300dpi_default_preprocess_and_flagged_parallel_multirun(self) -> None:
+        data_dir = os.path.join(self.tmpdir.name, "data_raster_flagged")
+        os.makedirs(data_dir, exist_ok=True)
+        prep_bin = os.path.join(data_dir, "rehearsal-omr-prep")
+        with open(prep_bin, "w", encoding="utf-8") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "mode = sys.argv[1]\n"
+                "if mode == 'rasterpdf':\n"
+                "    with open(sys.argv[3], 'wb') as out:\n"
+                "        out.write(b'%PDF-1.4-RASTER-300DPI')\n"
+                "    sys.exit(0)\n"
+                "elif mode == 'pdf':\n"
+                "    out_dir = sys.argv[3]\n"
+                "    page = int(sys.argv[5]) if len(sys.argv) > 5 else 1\n"
+                "    os.makedirs(out_dir, exist_ok=True)\n"
+                "    with open(os.path.join(out_dir, f'page-{page:04d}.png'), 'wb') as out:\n"
+                "        out.write(b'\\x89PNG_PAGE')\n"
+                "    sys.exit(0)\n"
+                "elif mode == 'image':\n"
+                "    with open(sys.argv[3], 'wb') as out:\n"
+                "        out.write(b'\\x89PNG_ENHANCED')\n"
+                "    sys.exit(0)\n"
+                "sys.exit(1)\n"
+            )
+        os.chmod(prep_bin, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+
+        # Part A: Single-pass default uses 300 DPI rasterpdf while pdfTextMeta reads original.pdf
+        _srv, base = self._start_omr_server(
+            engine_cmd=[sys.executable, self.fake_cli_path],
+            job_timeout=10.0,
+            subdir="data_raster_flagged",
+            preprocess=True,
+        )
+        content_stream = b"BT /F1 12 Tf 72 700 Td (Spoken) Tj ET"
+        compressed = zlib.compress(content_stream)
+        vector_pdf = (
+            b"%PDF-1.4\n1 0 obj << /Type /Font >> endobj\n"
+            b"2 0 obj << /Type /Pages /Count 2 >> endobj\n"
+            b"3 0 obj << /Type /Page /Contents 5 0 R >> endobj\n"
+            b"4 0 obj << /Type /Page /Contents 5 0 R >> endobj\n"
+            b"5 0 obj << /Filter /FlateDecode /Length "
+            + str(len(compressed)).encode("ascii")
+            + b" >>\nstream\n"
+            + compressed
+            + b"\nendstream\nendobj\n"
+        )
+        os.environ["FAKE_OMR_MODE"] = "mxl"
+        st, _h, raw = http_request(
+            base,
+            "POST",
+            "/api/scan/jobs",
+            vector_pdf,
+            {"Content-Type": "application/pdf", "X-Filename": "choir-2p.pdf"},
+        )
+        self.assertEqual(st, 202)
+        job = self._poll_job(base, json.loads(raw.decode("utf-8"))["jobId"], timeout=10.0)
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["detectedSpokenCues"], [{"text": "spoken", "count": 1}])
+        with open(self.invocations_file, "r", encoding="utf-8") as f:
+            last_inv = [ln.strip() for ln in f if ln.strip()][-1]
+        self.assertTrue(last_inv.endswith("input-300dpi.pdf"), f"expected input-300dpi.pdf, got {last_inv}")
+
+        # Part B: multiRun=flagged runs primary v300, detects duration mismatch in m.2,
+        # and dispatches flagged-page alternates in parallel
+        bad_m2_xml_path = os.path.join(self.tmpdir.name, "bad_m2.musicxml")
+        with open(bad_m2_xml_path, "w", encoding="utf-8") as f:
+            f.write(
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<score-partwise version="3.1">'
+                '<part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>'
+                '<part id="P1">'
+                '<measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>'
+                '<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>'
+                '<measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><type>half</type></note></measure>'
+                '</part></score-partwise>'
+            )
+        prev_xml = os.environ["FAKE_OMR_XML_PATH"]
+        os.environ["FAKE_OMR_XML_PATH"] = bad_m2_xml_path
+        try:
+            body_f, ctype_f = build_multipart(
+                {"multiRun": "flagged", "skipCache": "true"},
+                ("file", "choir-flagged.pdf", "application/pdf", vector_pdf),
+            )
+            st_f, _h, created_f = http_post_raw_json(
+                base, "/api/scan/jobs", body_f, {"Content-Type": ctype_f}
+            )
+            self.assertEqual(st_f, 202)
+            job_f_id = created_f["jobId"]
+            job_f = self._poll_job(base, job_f_id, timeout=10.0)
+            self.assertEqual(job_f["status"], "completed")
+            self.assertEqual(job_f["multiRun"], "flagged")
+
+            deadline = time.time() + 5.0
+            alts: List[Dict[str, Any]] = job_f.get("alternateRuns") or []
+            while len(alts) < 2 and time.time() < deadline:
+                time.sleep(0.05)
+                _, _, latest = http_json(base, "GET", f"/api/scan/jobs/{job_f_id}")
+                alts = latest.get("alternateRuns") or []
+
+            self.assertEqual(len(alts), 2)
+            variants = {a["variant"] for a in alts}
+            self.assertTrue(any(v.startswith("v400-p") for v in variants))
+            self.assertTrue(any(v.startswith("v350c-p") for v in variants))
+            self.assertTrue(all(a["status"] == "completed" for a in alts))
+        finally:
+            os.environ["FAKE_OMR_XML_PATH"] = prev_xml
 
 
 def main() -> int:

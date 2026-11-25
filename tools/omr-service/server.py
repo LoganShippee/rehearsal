@@ -1692,6 +1692,102 @@ class OMRService:
                 pass
         return None
 
+    def _render_pdf_300dpi_default(
+        self, pdf_path: str, out_pdf_path: str, total_pages: Optional[int] = None
+    ) -> Optional[str]:
+        """Render a PDF into a single 300 DPI grayscale raster PDF (or PNG on Linux for 1 page)."""
+        if not self.config.preprocess or self.config.preprocess_mode == "off":
+            return None
+        prep_bin = self._ensure_preprocess_bin()
+        if prep_bin:
+            try:
+                res = subprocess.run(
+                    [prep_bin, "rasterpdf", pdf_path, out_pdf_path, "300", "0"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=60.0,
+                    check=False,
+                )
+                if res.returncode == 0 and os.path.isfile(out_pdf_path) and os.path.getsize(out_pdf_path) > 0:
+                    return out_pdf_path
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        if (total_pages or 1) == 1:
+            png_dir = os.path.dirname(out_pdf_path)
+            return self._render_pdf_page_for_retry(pdf_path, 1, png_dir, dpi=300)
+        return None
+
+    @staticmethod
+    def _detect_flagged_pages_from_xml(
+        xml_text: str, total_pages: Optional[int]
+    ) -> List[int]:
+        """Heuristic: identify 1-based PDF page numbers likely to have duration mismatches."""
+        pages = max(1, total_pages or 1)
+        try:
+            root = ET.fromstring(xml_text.strip())
+        except ET.ParseError:
+            return [1]
+        flagged_measure_indices: set[int] = set()
+        total_measures = 0
+        for part in root:
+            if _strip_ns(part.tag) != "part":
+                continue
+            divisions = 1.0
+            expected_q = 4.0
+            measures = [m for m in part if _strip_ns(m.tag) == "measure"]
+            total_measures = max(total_measures, len(measures))
+            for mi, m in enumerate(measures):
+                cur_q = 0.0
+                has_notes = False
+                for ch in m:
+                    t = _strip_ns(ch.tag)
+                    if t == "attributes":
+                        for sub in ch:
+                            st = _strip_ns(sub.tag)
+                            if st == "divisions" and sub.text:
+                                try:
+                                    divisions = max(1.0, float(sub.text.strip()))
+                                except ValueError:
+                                    pass
+                            elif st == "time":
+                                beats = 4.0
+                                btype = 4.0
+                                for tb in sub:
+                                    if _strip_ns(tb.tag) == "beats" and tb.text:
+                                        try:
+                                            beats = float(tb.text.strip())
+                                        except ValueError:
+                                            pass
+                                    elif _strip_ns(tb.tag) == "beat-type" and tb.text:
+                                        try:
+                                            btype = float(tb.text.strip())
+                                        except ValueError:
+                                            pass
+                                expected_q = beats * (4.0 / max(1.0, btype))
+                    elif t == "note":
+                        if any(_strip_ns(s.tag) == "grace" for s in ch):
+                            continue
+                        if any(_strip_ns(s.tag) == "chord" for s in ch):
+                            continue
+                        has_notes = True
+                        for s in ch:
+                            if _strip_ns(s.tag) == "duration" and s.text:
+                                try:
+                                    cur_q += float(s.text.strip()) / divisions
+                                except ValueError:
+                                    pass
+                if has_notes and mi > 0 and abs(cur_q - expected_q) > 0.05:
+                    flagged_measure_indices.add(mi)
+        if not flagged_measure_indices or total_measures <= 0:
+            return []
+        if pages == 1:
+            return [1]
+        flagged_pages: set[int] = set()
+        for mi in flagged_measure_indices:
+            p = min(pages, 1 + int((mi * pages) / float(total_measures)))
+            flagged_pages.add(p)
+        return sorted(flagged_pages)
+
     def _build_sub_env(self, enable_ocr: bool) -> Dict[str, str]:
         sub_env = os.environ.copy()
         legacy_sort_flag = "-Djava.util.Arrays.useLegacyMergeSort=true"
@@ -1789,22 +1885,166 @@ class OMRService:
                 if (self.config.preprocess and self.config.preprocess_mode != "off")
                 else None
             )
+            multi_run_mode = normalize_multi_run_mode(row.get("multi_run_mode"))
+            scan_mode = normalize_scan_mode(row.get("scan_mode"))
+            enable_ocr = scan_mode != "notes-only"
+            sub_env = self._build_sub_env(enable_ocr)
+            effective_timeout = self._effective_timeout(total_pages)
+
+            if multi_run_mode == "flagged":
+                primary_input = tmpdir and os.path.join(tmpdir, "input-300dpi.pdf")
+                shutil.copy2(original_path, os.path.join(tmpdir, f"input{ext or '.png'}"))
+                orig_copy = os.path.join(tmpdir, f"input{ext or '.png'}")
+                if is_pdf:
+                    rendered = self._render_pdf_300dpi_default(orig_copy, primary_input, total_pages=total_pages)
+                    primary_input = rendered if rendered else orig_copy
+                else:
+                    primary_input = orig_copy
+
+                self._update_job(
+                    job_id,
+                    progress=20,
+                    stage="running_omr",
+                    stage_detail="Running primary OMR scan…",
+                )
+                primary_result = self._run_variant_once(
+                    "v300",
+                    primary_input,
+                    os.path.join(tmpdir, "out-v300"),
+                    adapter,
+                    enable_ocr,
+                    effective_timeout,
+                    sub_env,
+                )
+                if primary_result.get("status") != "completed":
+                    self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG)
+                    return
+
+                jdir = self._job_dir(job_id)
+                raw_dest = os.path.join(jdir, "raw.mxl" if primary_result["isMxl"] else "raw.musicxml")
+                with open(raw_dest, "wb") as f:
+                    f.write(primary_result["rawBytes"])
+
+                pdf_meta: Dict[str, Any] = {}
+                spoken_cues: List[Dict[str, Any]] = []
+                if is_pdf and enable_ocr:
+                    pdf_meta = extract_pdf_text_metadata(original_path)
+                    spoken_cues = pdf_meta.get("spokenCues", [])
+
+                flagged_pages = (
+                    self._detect_flagged_pages_from_xml(primary_result["rawMusicxml"], total_pages)
+                    if is_pdf
+                    else [1]
+                )
+                self._update_job(
+                    job_id,
+                    status="completed",
+                    progress=100,
+                    stage="completed",
+                    stage_detail="Scan complete (v300).",
+                    spoken_cues_json=json.dumps(spoken_cues),
+                    pdf_text_meta_json=json.dumps(pdf_meta),
+                    alternate_runs_json=json.dumps([]),
+                    raw_path=raw_dest,
+                    raw_musicxml=primary_result["rawMusicxml"],
+                    error="",
+                    error_code="",
+                    completed_at=utc_now_iso(),
+                )
+
+                if flagged_pages:
+                    handed_off_tmpdir = True
+
+                    def _run_flagged_alternates() -> None:
+                        alt_results: List[Dict[str, Any]] = []
+                        tasks: List[Tuple[str, int, str, str]] = []
+                        for p_num in flagged_pages:
+                            for vn, dpi, contrast in (("v400", 400, False), ("v350c", 350, True)):
+                                p_dir = os.path.join(variants_root, f"{vn}-p{p_num}")
+                                os.makedirs(p_dir, exist_ok=True)
+                                if is_pdf and prep_bin:
+                                    img = self._render_pdf_page_for_retry(orig_copy, p_num, p_dir, dpi=dpi)
+                                    if img and contrast:
+                                        enh = os.path.join(p_dir, f"page-{p_num:04d}-c.png")
+                                        if self._preprocess_image(img, enh):
+                                            img = enh
+                                    in_path = img or orig_copy
+                                else:
+                                    in_path = os.path.join(p_dir, f"input{ext or '.png'}")
+                                    shutil.copy2(orig_copy, in_path)
+                                tasks.append((f"{vn}-p{p_num}", p_num, in_path, os.path.join(tmpdir, f"out-{vn}-p{p_num}")))
+
+                        max_w = max(1, min(self.config.workers, os.cpu_count() or 2, 4))
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as ex:
+                            fmap = {
+                                ex.submit(
+                                    self._run_variant_once,
+                                    vlabel,
+                                    in_p,
+                                    out_p,
+                                    adapter,
+                                    enable_ocr,
+                                    effective_timeout,
+                                    sub_env,
+                                ): (vlabel, p_num)
+                                for vlabel, p_num, in_p, out_p in tasks
+                            }
+                            try:
+                                for f in concurrent.futures.as_completed(fmap):
+                                    if self._stop_event.is_set():
+                                        break
+                                    vlabel, p_num = fmap[f]
+                                    try:
+                                        r = f.result()
+                                    except Exception as exc:
+                                        r = {"variant": vlabel, "status": "failed", "error": str(exc)}
+                                    entry = {
+                                        k: v
+                                        for k, v in r.items()
+                                        if k in ("variant", "status", "rawMusicxml", "seconds", "error")
+                                    }
+                                    entry["page"] = p_num
+                                    alt_results.append(entry)
+                                    self._update_job(
+                                        job_id,
+                                        alternate_runs_json=json.dumps(alt_results),
+                                    )
+                            finally:
+                                shutil.rmtree(tmpdir, ignore_errors=True)
+
+                    ct = threading.Thread(
+                        target=_run_flagged_alternates,
+                        name=f"omr-mr-flagged-{job_id[:8]}",
+                        daemon=True,
+                    )
+                    with self._state_lock:
+                        self._collector_threads.append(ct)
+                    ct.start()
+                return
+
             used_prep_variants = False
-            if prep_bin and (not is_pdf or (total_pages or 1) == 1):
+            if prep_bin:
                 try:
                     res = subprocess.run(
                         [prep_bin, "variants", original_path, variants_root],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        timeout=45.0,
+                        timeout=60.0,
                         check=False,
                     )
                     if res.returncode == 0:
                         cand_inputs: List[Tuple[str, str, str]] = []
-                        for vn in variant_names:
-                            p_img = os.path.join(variants_root, vn, "page-0001.png")
-                            if os.path.isfile(p_img):
-                                cand_inputs.append((vn, p_img, os.path.join(tmpdir, f"out-{vn}")))
+                        if is_pdf:
+                            for vn in variant_names:
+                                r_pdf = os.path.join(variants_root, f"{vn}.pdf")
+                                if os.path.isfile(r_pdf) and os.path.getsize(r_pdf) > 0:
+                                    cand_inputs.append((vn, r_pdf, os.path.join(tmpdir, f"out-{vn}")))
+                        if len(cand_inputs) != len(variant_names):
+                            cand_inputs = []
+                            for vn in variant_names:
+                                p_img = os.path.join(variants_root, vn, "page-0001.png")
+                                if os.path.isfile(p_img):
+                                    cand_inputs.append((vn, p_img, os.path.join(tmpdir, f"out-{vn}")))
                         if len(cand_inputs) == len(variant_names):
                             variant_inputs = cand_inputs
                             used_prep_variants = True
@@ -1988,7 +2228,12 @@ class OMRService:
 
             is_pdf = ext.lower() == ".pdf" or row.get("mime_type") == "application/pdf"
             engine_input = tmp_input
-            if not is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
+            if is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
+                prepped_pdf = os.path.join(tmpdir, "input-300dpi.pdf")
+                rendered = self._render_pdf_300dpi_default(tmp_input, prepped_pdf, total_pages=total_pages)
+                if rendered:
+                    engine_input = rendered
+            elif not is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
                 prepped_img = os.path.join(tmpdir, "input-prepped.png")
                 if self._preprocess_image(tmp_input, prepped_img):
                     engine_input = prepped_img

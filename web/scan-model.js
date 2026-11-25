@@ -3068,10 +3068,13 @@ function sfEditDirectionText(model, entryId, newText) {
 
 // ---------- Split-Part Merging (OCR System-Label Drift Fix)
 const SF_PART_ABBREVS = {
-  s: 'soprano', sop: 'soprano', sopr: 'soprano', soprano: 'soprano',
+  s: 'soprano', sop: 'soprano', sopr: 'soprano', sopran: 'soprano', soprano: 'soprano',
   a: 'alto', alt: 'alto', alto: 'alto',
-  t: 'tenor', ten: 'tenor', tenor: 'tenor',
-  b: 'bass', bas: 'bass', bass: 'bass',
+  t: 'tenor', ten: 'tenor', tenor: 'tenor', tenore: 'tenor', tenorc: 'tenor',
+  b: 'bass', bas: 'bass', bass: 'bass', basso: 'bass',
+  voice: 'voice',
+  sa: 'soprano_alto',
+  tb: 'tenor_bass',
   bar: 'baritone', bari: 'baritone', baritone: 'baritone',
   pno: 'piano', pn: 'piano', piano: 'piano',
   trp: 'trumpet', tpt: 'trumpet', trumpet: 'trumpet',
@@ -3112,6 +3115,9 @@ function sfPartNameAliasMatch(nameA, nameB) {
     const cb = SF_PART_ABBREVS[sb.base];
     if (ca && cb && ca === cb) return true;
   }
+  // Single-digit Audiveris OCR typo: '5' <-> 's' / 'soprano' (when not matched as "Part 5")
+  if (a === '5' && !sb.num && SF_PART_ABBREVS[sb.base] === 'soprano') return true;
+  if (b === '5' && !sa.num && SF_PART_ABBREVS[sa.base] === 'soprano') return true;
   return false;
 }
 
@@ -3239,6 +3245,23 @@ function sfMergeParts(model, keepIdx, mergeIdx) {
   return { ok: true, kept: betterName, merged: oldMergeName };
 }
 
+function sfEffectivePartClefSign(part) {
+  const measures = (part && part.measures) || [];
+  for (let mi = 0; mi < measures.length; mi++) {
+    const m = measures[mi];
+    if (sfMeasureHasPlayableNotes(m) && m.clefs && m.clefs[0] && m.clefs[0].sign) {
+      return m.clefs[0].sign;
+    }
+  }
+  for (let mi = 0; mi < measures.length; mi++) {
+    const m = measures[mi];
+    if (m.hasClefAttr && m.clefs && m.clefs[0] && m.clefs[0].sign) {
+      return m.clefs[0].sign;
+    }
+  }
+  return null;
+}
+
 function sfMergeSplitParts(model) {
   if (!model || !Array.isArray(model.parts) || model.parts.length < 2) {
     if (model) model.mergedParts = [];
@@ -3254,9 +3277,9 @@ function sfMergeSplitParts(model) {
         const a = parts[i], b = parts[j];
         if (!sfPartNameAliasMatch(a.name, b.name)) continue;
         if ((a.staves || 1) !== (b.staves || 1)) continue;
-        const clefA = (a.measures[0] && a.measures[0].clefs && a.measures[0].clefs[0] && a.measures[0].clefs[0].sign) || 'G';
-        const clefB = (b.measures[0] && b.measures[0].clefs && b.measures[0].clefs[0] && b.measures[0].clefs[0].sign) || 'G';
-        if (clefA !== clefB) continue;
+        const clefA = sfEffectivePartClefSign(a);
+        const clefB = sfEffectivePartClefSign(b);
+        if (clefA && clefB && clefA !== clefB) continue;
 
         let overlap = 0;
         const minLen = Math.min(a.measures.length, b.measures.length);

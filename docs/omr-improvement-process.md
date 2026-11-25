@@ -96,8 +96,11 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | Step 4 (Cross-part consensus) | 52.5% | 63.7% | 78.0% | 68.4% | 99.1% | 14.5s | Added `web/scan-consensus.js` cross-part measure-count, signature, and homophonic rhythm/lyric checks (`+6.1%` catch rate, `99.1%` precision) |
 | Step 5 (Multi-run consensus) | 60.0% *(v300 parAll)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* | 90.7% *(flaggedOnly)* | 14.1s *(1st/single)* / 31.5s *(parAll)* | Added `preprocess.swift variants`, parallel `OMR_MULTI_RUN` (`v300`/`v400`/`v350c`), fast first-result completion, and `sfCompareOcrRuns` consensus flags |
 | Step 6 (Docker + 24h cleanup) | 60.0% *(v300)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* / 68.4% *(1-run)* | 90.7% / 99.1% | 14.1s | Local Java 17 + Audiveris 5.x (`eng`+`lat`) Dockerfile, automatic 24-hour upload/job cleanup, and updated teacher docs |
+| Pre-hosting polish (9-piece) | **68.4%** | **73.5%** | **78.7%** | **70.9%** | **96.8%** | 14.5s | Fixed choir split-part merging (`S`/`5`↔`Soprano`, `S.`↔`Sopran`, `B.`↔`BASS`, active-measure clef check: `locus-iste` `5.8%→99.4%`, `sub-tuum-praesidium` `50.2%→99.2%`), switched PDF default to 300 DPI raster PDF, parallelized flagged-page reruns, and created unseen holdout folder `~/Rehearsal-Backups/omr-bench/unseen/` |
 
-### Step 5 Multi-Run Strategy Comparison (5 CPDL + Photo Pieces, 8 Pages Total)
+### Step 5 Multi-Run Strategy Comparison (5-Piece Subset Only — 8 Pages Total)
+
+*(Note: Measured on a 5-piece subset — `abide-with-me`, `abide-with-me-photo`, `locus-iste-photo`, `stille-nacht`, `stille-nacht-photo` — so single-run baseline metrics differ from the 9-piece table above; compare numbers strictly within one table.)*
 
 | Strategy | Note Acc | Rhythm Acc | Lyric Acc | Flag Catch | Flag Precision | Sec/Page (Wall) | Sec/Page (1st Result) |
 |---|---:|---:|---:|---:|---:|---:|---:|

@@ -2522,6 +2522,51 @@ check('sfDetectChoirPart identifies SATB parts and rejects non-choir instruments
     multiReport.measures[1].findings.some(f => f.rule === 'multi_run_disagreement'));
 }
 
+// =========================================================================
+// 24. Split-Part Merging Fixes (Pre-Hosting)
+// =========================================================================
+{
+  check('sfPartNameAliasMatch handles 5<->S/Soprano, S.<->Sopran, T<->Tenore/Tenorc, B.<->BASS without Part 5->Soprano',
+    sfPartNameAliasMatch('5', 'S') &&
+    sfPartNameAliasMatch('5', 'Soprano') &&
+    !sfPartNameAliasMatch('Part 5', 'Soprano') &&
+    sfPartNameAliasMatch('S.', 'Sopran') &&
+    sfPartNameAliasMatch('T', 'Tenore') &&
+    sfPartNameAliasMatch('T', 'Tenorc') &&
+    sfPartNameAliasMatch('B.', 'BASS'));
+
+  const splitChoirXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>5</part-name></score-part>
+    <score-part id="P2"><part-name>Soprano</part-name></score-part>
+    <score-part id="P3"><part-name>B.</part-name></score-part>
+    <score-part id="P4"><part-name>BASS</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions></attributes><note><rest/><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes><note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P4">
+    <measure number="1"><attributes><divisions>1</divisions></attributes><note><rest/><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><attributes><clef><sign>F</sign><line>4</line></clef></attributes><note><pitch><step>G</step><octave>2</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const splitModel = sfParseMusicXml(splitChoirXml);
+  check('sfMergeSplitParts merges 5+Soprano and B.+BASS even when split part m0 has no clef/notes',
+    splitModel.parts.length === 2 &&
+    splitModel.parts[0].name === 'Soprano' &&
+    splitModel.parts[1].name === 'BASS');
+}
+
 // Async tests: sfParseMxl + sfParseScoreInput
 const e2eMxl = sfExportMxl(e2eModel);
 const odeMxl = sfExportMxl(odeModel);

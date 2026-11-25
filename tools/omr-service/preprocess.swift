@@ -18,9 +18,9 @@ private func writePNG(_ image: CGImage, to url: URL) -> Bool {
     return CGImageDestinationFinalize(dest)
 }
 
-private func renderPDFPage(_ page: PDFPage, dpi: Double, to url: URL) -> Bool {
+private func renderPDFPageToCGImage(_ page: PDFPage, dpi: Double, contrast: Bool = false) -> CGImage? {
     let bounds = page.bounds(for: .mediaBox)
-    guard bounds.width > 0 && bounds.height > 0 else { return false }
+    guard bounds.width > 0 && bounds.height > 0 else { return nil }
     let scale = max(1.0, dpi / 72.0)
     let width = max(1, Int((bounds.width * scale).rounded()))
     let height = max(1, Int((bounds.height * scale).rounded()))
@@ -35,7 +35,7 @@ private func renderPDFPage(_ page: PDFPage, dpi: Double, to url: URL) -> Bool {
               space: colorSpace,
               bitmapInfo: CGImageAlphaInfo.none.rawValue
           ) else {
-        return false
+        return nil
     }
 
     ctx.interpolationQuality = .high
@@ -48,8 +48,47 @@ private func renderPDFPage(_ page: PDFPage, dpi: Double, to url: URL) -> Bool {
     page.draw(with: .mediaBox, to: ctx)
     ctx.restoreGState()
 
-    guard let cgImage = ctx.makeImage() else { return false }
+    guard let rawCG = ctx.makeImage() else { return nil }
+    if contrast {
+        return enhanceCIImage(CIImage(cgImage: rawCG)) ?? rawCG
+    }
+    return rawCG
+}
+
+private func renderPDFPage(_ page: PDFPage, dpi: Double, to url: URL) -> Bool {
+    guard let cgImage = renderPDFPageToCGImage(page, dpi: dpi, contrast: false) else {
+        return false
+    }
     return writePNG(cgImage, to: url)
+}
+
+private func writeRasterPDF(doc: PDFDocument, to outURL: URL, dpi: Double, contrast: Bool) -> Bool {
+    let count = doc.pageCount
+    guard count > 0, let firstPage = doc.page(at: 0) else { return false }
+    let firstBounds = firstPage.bounds(for: .mediaBox)
+    var initBox = CGRect(x: 0, y: 0, width: max(1, firstBounds.width), height: max(1, firstBounds.height))
+    guard let pdfCtx = CGContext(outURL as CFURL, mediaBox: &initBox, nil) else {
+        return false
+    }
+
+    for idx in 0..<count {
+        guard let page = doc.page(at: idx),
+              let cgImage = renderPDFPageToCGImage(page, dpi: dpi, contrast: contrast) else {
+            pdfCtx.closePDF()
+            return false
+        }
+        let bounds = page.bounds(for: .mediaBox)
+        let pageBox = CGRect(x: 0, y: 0, width: max(1, bounds.width), height: max(1, bounds.height))
+        let pageInfo: [CFString: Any] = [
+            kCGPDFContextMediaBox: pageBox.dictionaryRepresentation
+        ]
+        pdfCtx.beginPDFPage(pageInfo as CFDictionary)
+        pdfCtx.interpolationQuality = .high
+        pdfCtx.draw(cgImage, in: pageBox)
+        pdfCtx.endPDFPage()
+    }
+    pdfCtx.closePDF()
+    return true
 }
 
 private func runPDF(args: [String]) -> Int32 {
@@ -138,6 +177,23 @@ private func runImage(args: [String]) -> Int32 {
     return writePNG(cgImage, to: outURL) ? 0 : 1
 }
 
+private func runRasterPDF(args: [String]) -> Int32 {
+    guard args.count >= 2 else {
+        fputs("Usage: rehearsal-omr-prep rasterpdf <input.pdf> <out.pdf> [dpi] [contrast]\n", stderr)
+        return 2
+    }
+    let inputURL = URL(fileURLWithPath: args[0])
+    let outURL = URL(fileURLWithPath: args[1])
+    let dpi = args.count >= 3 ? (Double(args[2]) ?? 300.0) : 300.0
+    let contrast = args.count >= 4 ? ((Int(args[3]) ?? 0) != 0) : false
+
+    guard let doc = PDFDocument(url: inputURL), doc.pageCount > 0 else {
+        fputs("Failed to open PDF: \(inputURL.path)\n", stderr)
+        return 1
+    }
+    return writeRasterPDF(doc: doc, to: outURL, dpi: dpi, contrast: contrast) ? 0 : 1
+}
+
 private func runVariants(args: [String]) -> Int32 {
     guard args.count >= 2 else {
         fputs("Usage: rehearsal-omr-prep variants <input.pdf_or_img> <out_dir> [page_num]\n", stderr)
@@ -183,6 +239,11 @@ private func runVariants(args: [String]) -> Int32 {
                 _ = writePNG(enhanced, to: u350c)
             }
         }
+        if singlePage == nil {
+            if !writeRasterPDF(doc: doc, to: outDir.appendingPathComponent("v300.pdf"), dpi: 300.0, contrast: false) { return 1 }
+            if !writeRasterPDF(doc: doc, to: outDir.appendingPathComponent("v400.pdf"), dpi: 400.0, contrast: false) { return 1 }
+            if !writeRasterPDF(doc: doc, to: outDir.appendingPathComponent("v350c.pdf"), dpi: 350.0, contrast: true) { return 1 }
+        }
         return 0
     }
 
@@ -205,7 +266,7 @@ private func runVariants(args: [String]) -> Int32 {
 
 let argv = Array(CommandLine.arguments.dropFirst())
 guard let mode = argv.first else {
-    fputs("Usage: rehearsal-omr-prep <pdf|image|variants> ...\n", stderr)
+    fputs("Usage: rehearsal-omr-prep <pdf|image|rasterpdf|variants> ...\n", stderr)
     exit(2)
 }
 
@@ -215,6 +276,8 @@ case "pdf":
     exit(runPDF(args: rest))
 case "image":
     exit(runImage(args: rest))
+case "rasterpdf":
+    exit(runRasterPDF(args: rest))
 case "variants":
     exit(runVariants(args: rest))
 default:
