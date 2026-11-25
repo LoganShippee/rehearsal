@@ -124,12 +124,15 @@
       if (typeof location !== 'undefined' && location.search) {
         const qs = new URLSearchParams(location.search);
         if (qs.get('demo') === '1') return '';
-        if (qs.has('hwApi')) {
+        // A link must not point a signed-in teacher at another server (it would receive their session token).
+        const h = String(location.hostname || '').toLowerCase();
+        const mayOverride = h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.endsWith('.localhost') || h.endsWith('.test') || h === 'rehearsal-staging.pages.dev';
+        if (mayOverride && qs.has('hwApi')) {
           const v = (qs.get('hwApi') || '').trim().replace(/\/+$/, '');
           if (!v || v.toLowerCase() === DEMO_SENTINEL) return '';
           return v;
         }
-        if (qs.has('api')) {
+        if (mayOverride && qs.has('api')) {
           const v = (qs.get('api') || '').trim().replace(/\/+$/, '');
           if (!v || v.toLowerCase() === DEMO_SENTINEL) return '';
           return v;

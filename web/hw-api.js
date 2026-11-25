@@ -49,7 +49,9 @@
     try {
       const qs = new URLSearchParams(location.search);
       if (qs.get('demo') === '1') return '';
-      const paramApi = qs.get('api');
+      const h = String(location.hostname || '').toLowerCase();   // a link must not send student codes to another server
+      const mayOverride = h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.endsWith('.localhost') || h.endsWith('.test') || h === 'rehearsal-staging.pages.dev';
+      const paramApi = mayOverride ? qs.get('api') : null;
       if (paramApi !== null) {
         const clean = paramApi.trim().replace(/\/+$/, '');
         if (!clean || clean.toLowerCase() === DEMO_SENTINEL) {

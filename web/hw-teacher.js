@@ -741,7 +741,7 @@
         </label>
 
         <div class="hwt-privacy-note">
-          <b>Privacy &amp; Data Note:</b> Student login codes are protected like passwords, student audio recordings auto-delete after 90 days (or anytime you click Delete Audio Now), and your classroom setup stays private on this device.
+          <b>Privacy &amp; Data Note:</b> Student login codes are hashed for sign-in (and kept encrypted so you can show them in the roster), student audio recordings auto-delete after 90 days (or anytime you click Delete Audio Now), and your classes and rosters are stored securely on the Rehearsal homework server.
           <div class="row" style="margin-top:6px;gap:12px">
             <a href="${escHtml(api.getPublicDocUrl('privacy.html'))}" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy.html">Privacy Policy</a>
             <a href="${escHtml(api.getPublicDocUrl('privacy-sdpc.html'))}" target="_blank" rel="noopener" data-hwt="open-doc" data-href="privacy-sdpc.html">1-Page SDPC Summary</a>
@@ -1085,7 +1085,7 @@
         <div class="row">
           <div>
             <b>One-Time Student Sign-In Codes (${codeAlert.items.length})</b>
-            <div class="small">Save or print these codes now — for student security, plaintext codes are never stored and cannot be viewed again after you dismiss this box.</div>
+            <div class="small">Save or print these codes now. You can also show them later with "Show codes" in the roster; if a code isn't there, use New Code.</div>
           </div>
           <span class="grow"></span>
           <button type="button" class="btn small primary" data-hwt="print-codes">Print Student Code Sheet</button>
