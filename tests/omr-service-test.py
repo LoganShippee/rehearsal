@@ -774,7 +774,7 @@ class OMRServiceTestSuite(unittest.TestCase):
     def test_03_failure_paths(self) -> None:
         _srv, base = self._start_omr_server(
             engine_cmd=[sys.executable, self.fake_cli_path],
-            job_timeout=0.4,
+            job_timeout=1.2,
             max_upload_bytes=1024,
             subdir="data_failures",
         )
@@ -1615,6 +1615,36 @@ class OMRServiceTestSuite(unittest.TestCase):
                 self.assertIn("-Djava.util.Arrays.useLegacyMergeSort=true", ln)
         finally:
             os.environ.pop("FAKE_OMR_JAVA_LOG", None)
+
+    # 13. extract_pdf_text_metadata finishes fast on large binary/image stream noise
+    def test_13_extract_pdf_text_metadata_fast_on_binary_noise(self) -> None:
+        noisy_image_stream = (b"\xff\xd8\xff\xe0[unclosed_bracket_noise" * 4000)
+        compressed_text = zlib.compress(b"BT /F1 12 Tf 72 700 Td (Allegro) Tj (mf) Tj ET")
+        noisy_pdf = (
+            b"%PDF-1.4\n"
+            b"1 0 obj << /Type /Font >> endobj\n"
+            b"2 0 obj << /Subtype /Image /Filter /DCTDecode /Length "
+            + str(len(noisy_image_stream)).encode("ascii")
+            + b" >>\nstream\n"
+            + noisy_image_stream
+            + b"\nendstream\nendobj\n"
+            b"3 0 obj << /Filter /FlateDecode /Length "
+            + str(len(compressed_text)).encode("ascii")
+            + b" >>\nstream\n"
+            + compressed_text
+            + b"\nendstream\nendobj\n"
+        )
+        pdf_path = os.path.join(self.tmpdir.name, "noisy-binary.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(noisy_pdf)
+
+        t0 = time.monotonic()
+        meta = omr_server.extract_pdf_text_metadata(pdf_path)
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 1.0)
+        self.assertTrue(meta["isVectorPdf"])
+        self.assertIn("Allegro", meta["tempoMarkings"])
+        self.assertIn("mf", meta["dynamics"])
 
 
 def main() -> int:

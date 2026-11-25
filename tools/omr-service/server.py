@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -553,8 +554,11 @@ SPOKEN_CUE_WORDS = (
 _SPOKEN_CUE_RE = re.compile(
     r"\b(" + "|".join(SPOKEN_CUE_WORDS) + r")\b", re.IGNORECASE
 )
-_PDF_STREAM_RE = re.compile(rb"stream\r?\n(.*?)\r?\n?endstream", re.DOTALL)
-_PDF_TJ_ARRAY_RE = re.compile(rb"\[(.*?)\]\s*TJ", re.DOTALL)
+_PDF_MAX_STREAM_BYTES = 2 * 1024 * 1024
+_PDF_NON_TEXT_DICT_RE = re.compile(
+    rb"/(?:Image|DCTDecode|JPXDecode|JBIG2Decode|CCITTFaxDecode|Length1|Type1C|CIDFontType0C|OpenType)\b"
+)
+_PDF_TJ_ARRAY_RE = re.compile(rb"\[([^\]\r\n]{1,4096})\]\s*TJ")
 
 
 def _decode_pdf_literal(raw: bytes) -> str:
@@ -614,7 +618,13 @@ def _decode_pdf_hex(hex_bytes: bytes) -> str:
     return raw.decode("latin-1", errors="ignore")
 
 
-def _extract_pdf_strings_from_stream(stream_bytes: bytes) -> List[str]:
+def _extract_pdf_strings_from_stream(
+    stream_bytes: bytes, deadline: Optional[float] = None
+) -> List[str]:
+    if not stream_bytes:
+        return []
+    if b"Tj" not in stream_bytes and b"TJ" not in stream_bytes and b"BT" not in stream_bytes:
+        return []
     texts: List[str] = []
 
     def _scan_literals_and_hex(buf: bytes, sep: str = "") -> str:
@@ -622,6 +632,8 @@ def _extract_pdf_strings_from_stream(stream_bytes: bytes) -> List[str]:
         i = 0
         n = len(buf)
         while i < n:
+            if deadline is not None and (i & 4095) == 0 and time.monotonic() > deadline:
+                break
             b = buf[i]
             if b == 40:  # '('
                 depth = 1
@@ -637,10 +649,11 @@ def _extract_pdf_strings_from_stream(stream_bytes: bytes) -> List[str]:
                         if depth == 0:
                             break
                     j += 1
-                parts.append(_decode_pdf_literal(buf[i + 1 : j]))
+                if j - (i + 1) <= 8192:
+                    parts.append(_decode_pdf_literal(buf[i + 1 : j]))
                 i = j + 1
             elif b == 60 and i + 1 < n and buf[i + 1] != 60:  # '<' not '<<'
-                end = buf.find(b">", i + 1)
+                end = buf.find(b">", i + 1, min(n, i + 4096))
                 if end != -1:
                     parts.append(_decode_pdf_hex(buf[i + 1 : end]))
                     i = end + 1
@@ -652,16 +665,34 @@ def _extract_pdf_strings_from_stream(stream_bytes: bytes) -> List[str]:
 
     # Reconstruct kerned TJ arrays first so [(Spok) -15 (en)] TJ -> "Spoken"
     for m in _PDF_TJ_ARRAY_RE.finditer(stream_bytes):
+        if deadline is not None and time.monotonic() > deadline:
+            break
         joined = _scan_literals_and_hex(m.group(1), sep="")
         if joined.strip():
             texts.append(joined)
 
     # Also scan standalone Tj / ' / " text strings (space-separated across operators)
-    outside = _PDF_TJ_ARRAY_RE.sub(b" ", stream_bytes)
-    whole = _scan_literals_and_hex(outside, sep=" ")
-    if whole.strip():
-        texts.append(whole)
+    if deadline is None or time.monotonic() <= deadline:
+        outside = _PDF_TJ_ARRAY_RE.sub(b" ", stream_bytes)
+        whole = _scan_literals_and_hex(outside, sep=" ")
+        if whole.strip():
+            texts.append(whole)
     return texts
+
+
+def _safe_zlib_decompress(
+    raw_stream: bytes, max_bytes: int = _PDF_MAX_STREAM_BYTES
+) -> Optional[bytes]:
+    for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+        try:
+            d = zlib.decompressobj(wbits)
+            out = d.decompress(raw_stream, max_bytes + 1)
+            if len(out) > max_bytes:
+                return None
+            return out
+        except zlib.error:
+            continue
+    return None
 
 
 _DYNAMICS_RE = re.compile(
@@ -697,6 +728,7 @@ def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
     except OSError:
         return empty
 
+    deadline = time.monotonic() + 3.0
     has_fonts = bool(_PDF_FONT_RE.search(data))
     counts: Dict[str, int] = {}
     dynamics_seen: Dict[str, str] = {}
@@ -722,17 +754,54 @@ def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
             if len(vocab) < 800:
                 vocab.add(w)
 
-    for m in _PDF_STREAM_RE.finditer(data):
-        raw_stream = m.group(1)
-        decompressed: Optional[bytes] = None
-        for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
-            try:
-                decompressed = zlib.decompress(raw_stream, wbits)
-                break
-            except zlib.error:
+    pos = 0
+    n = len(data)
+    while pos < n:
+        if time.monotonic() > deadline:
+            break
+        s_idx = data.find(b"stream", pos)
+        if s_idx == -1:
+            break
+        after_kw = s_idx + 6
+        if s_idx > 0 and chr(data[s_idx - 1]).isalpha():
+            pos = after_kw
+            continue
+        if after_kw + 1 < n and data[after_kw : after_kw + 2] == b"\r\n":
+            body_start = after_kw + 2
+        elif after_kw < n and data[after_kw : after_kw + 1] == b"\n":
+            body_start = after_kw + 1
+        else:
+            pos = after_kw
+            continue
+
+        e_idx = data.find(b"endstream", body_start)
+        if e_idx == -1:
+            break
+        pos = e_idx + 9
+
+        dict_slice = data[max(0, s_idx - 512) : s_idx]
+        if _PDF_NON_TEXT_DICT_RE.search(dict_slice):
+            continue
+
+        raw_stream = data[body_start:e_idx]
+        if raw_stream.endswith(b"\r\n"):
+            raw_stream = raw_stream[:-2]
+        elif raw_stream.endswith(b"\n"):
+            raw_stream = raw_stream[:-1]
+
+        if not raw_stream or len(raw_stream) > _PDF_MAX_STREAM_BYTES:
+            continue
+
+        is_flate = b"/FlateDecode" in dict_slice or b"/Fl" in dict_slice
+        target: Optional[bytes] = None
+        if is_flate or raw_stream[:1] == b"\x78":
+            target = _safe_zlib_decompress(raw_stream, _PDF_MAX_STREAM_BYTES)
+        if target is None:
+            if is_flate:
                 continue
-        target = decompressed if decompressed is not None else raw_stream
-        for s in _extract_pdf_strings_from_stream(target):
+            target = raw_stream
+
+        for s in _extract_pdf_strings_from_stream(target, deadline=deadline):
             _tally(s)
 
     spoken_cues = [

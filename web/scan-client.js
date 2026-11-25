@@ -221,8 +221,18 @@
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok && data.ok !== false, status: res.status, data };
     } catch (err) {
-      const aborted = err && err.name === 'AbortError';
-      return { ok: false, status: 0, aborted, unreachable: !aborted, error: aborted ? 'Request cancelled or timed out.' : 'Could not reach the scan server.' };
+      const userAborted = !!(opts.signal && opts.signal.aborted);
+      const timedOut = !userAborted && !!(err && err.name === 'AbortError');
+      return {
+        ok: false,
+        status: 0,
+        aborted: userAborted,
+        timedOut,
+        unreachable: !userAborted,
+        error: userAborted
+          ? 'Request cancelled.'
+          : (timedOut ? 'Scan server took too long to respond.' : 'Could not reach the scan server.')
+      };
     } finally {
       if (timer) clearTimeout(timer);
       if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort);
@@ -313,12 +323,26 @@
     const intervalMs = opts.intervalMs || 850;
     const timeoutMs = opts.timeoutMs || 600000;
     const started = Date.now();
+    let consecutiveErrors = 0;
     while (true) {
       if (opts.signal && opts.signal.aborted) {
         return { ok: false, aborted: true, error: 'Scan cancelled.', errorCode: 'CANCELLED' };
       }
       const job = await getJob(jobId, opts.signal);
-      if (!job.ok) return job;
+      if (!job.ok) {
+        if (!job.aborted && (job.timedOut || job.unreachable) && consecutiveErrors < 5) {
+          consecutiveErrors += 1;
+          await new Promise((resolve) => {
+            const t = setTimeout(resolve, intervalMs);
+            if (opts.signal) {
+              opts.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+            }
+          });
+          continue;
+        }
+        return job;
+      }
+      consecutiveErrors = 0;
       if (typeof opts.onProgress === 'function') opts.onProgress(job, Date.now() - started);
       if (job.status === 'completed' || job.status === 'failed') return job;
       if (Date.now() - started > timeoutMs) {
