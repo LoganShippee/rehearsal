@@ -99,19 +99,7 @@ private func runPDF(args: [String]) -> Int32 {
     return 0
 }
 
-private func runImage(args: [String]) -> Int32 {
-    guard args.count >= 2 else {
-        fputs("Usage: rehearsal-omr-prep image <input.img> <out.png>\n", stderr)
-        return 2
-    }
-    let inputURL = URL(fileURLWithPath: args[0])
-    let outURL = URL(fileURLWithPath: args[1])
-
-    guard let srcImage = CIImage(contentsOf: inputURL) else {
-        fputs("Failed to load image: \(inputURL.path)\n", stderr)
-        return 1
-    }
-
+private func enhanceCIImage(_ srcImage: CIImage) -> CGImage? {
     var current = srcImage
     if let colorControls = CIFilter(name: "CIColorControls") {
         colorControls.setValue(current, forKey: kCIInputImageKey)
@@ -130,18 +118,94 @@ private func runImage(args: [String]) -> Int32 {
             current = out
         }
     }
-
     let ciContext = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cgImage = ciContext.createCGImage(current, from: current.extent) else {
-        fputs("Failed to render processed image\n", stderr)
+    return ciContext.createCGImage(current, from: current.extent)
+}
+
+private func runImage(args: [String]) -> Int32 {
+    guard args.count >= 2 else {
+        fputs("Usage: rehearsal-omr-prep image <input.img> <out.png>\n", stderr)
+        return 2
+    }
+    let inputURL = URL(fileURLWithPath: args[0])
+    let outURL = URL(fileURLWithPath: args[1])
+
+    guard let srcImage = CIImage(contentsOf: inputURL),
+          let cgImage = enhanceCIImage(srcImage) else {
+        fputs("Failed to process image: \(inputURL.path)\n", stderr)
         return 1
     }
     return writePNG(cgImage, to: outURL) ? 0 : 1
 }
 
+private func runVariants(args: [String]) -> Int32 {
+    guard args.count >= 2 else {
+        fputs("Usage: rehearsal-omr-prep variants <input.pdf_or_img> <out_dir> [page_num]\n", stderr)
+        return 2
+    }
+    let inputURL = URL(fileURLWithPath: args[0])
+    let outDir = URL(fileURLWithPath: args[1], isDirectory: true)
+    let singlePage: Int? = args.count >= 3 ? Int(args[2]) : nil
+
+    let v300Dir = outDir.appendingPathComponent("v300", isDirectory: true)
+    let v400Dir = outDir.appendingPathComponent("v400", isDirectory: true)
+    let v350cDir = outDir.appendingPathComponent("v350c", isDirectory: true)
+    do {
+        for d in [v300Dir, v400Dir, v350cDir] {
+            try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        }
+    } catch {
+        fputs("Failed to create variant dirs: \(error)\n", stderr)
+        return 1
+    }
+
+    if inputURL.pathExtension.lowercased() == "pdf", let doc = PDFDocument(url: inputURL) {
+        let count = doc.pageCount
+        guard count > 0 else { return 1 }
+        let pageIndices: [Int]
+        if let target = singlePage {
+            guard target >= 1 && target <= count else { return 1 }
+            pageIndices = [target - 1]
+        } else {
+            pageIndices = Array(0..<count)
+        }
+
+        for idx in pageIndices {
+            guard let page = doc.page(at: idx) else { continue }
+            let fname = String(format: "page-%04d.png", idx + 1)
+            let u300 = v300Dir.appendingPathComponent(fname)
+            let u400 = v400Dir.appendingPathComponent(fname)
+            let u350c = v350cDir.appendingPathComponent(fname)
+            if !renderPDFPage(page, dpi: 300.0, to: u300) { return 1 }
+            if !renderPDFPage(page, dpi: 400.0, to: u400) { return 1 }
+            if !renderPDFPage(page, dpi: 350.0, to: u350c) { return 1 }
+            if let ci = CIImage(contentsOf: u350c), let enhanced = enhanceCIImage(ci) {
+                _ = writePNG(enhanced, to: u350c)
+            }
+        }
+        return 0
+    }
+
+    // Image input fallback: write grayscale/contrast variants
+    guard let srcImage = CIImage(contentsOf: inputURL) else {
+        fputs("Failed to load input for variants: \(inputURL.path)\n", stderr)
+        return 1
+    }
+    let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    guard let rawCG = ciContext.createCGImage(srcImage, from: srcImage.extent),
+          let enhCG = enhanceCIImage(srcImage) else {
+        return 1
+    }
+    let fname = "page-0001.png"
+    _ = writePNG(rawCG, to: v300Dir.appendingPathComponent(fname))
+    _ = writePNG(rawCG, to: v400Dir.appendingPathComponent(fname))
+    _ = writePNG(enhCG, to: v350cDir.appendingPathComponent(fname))
+    return 0
+}
+
 let argv = Array(CommandLine.arguments.dropFirst())
 guard let mode = argv.first else {
-    fputs("Usage: rehearsal-omr-prep <pdf|image> ...\n", stderr)
+    fputs("Usage: rehearsal-omr-prep <pdf|image|variants> ...\n", stderr)
     exit(2)
 }
 
@@ -151,6 +215,8 @@ case "pdf":
     exit(runPDF(args: rest))
 case "image":
     exit(runImage(args: rest))
+case "variants":
+    exit(runVariants(args: rest))
 default:
     fputs("Unknown mode: \(mode)\n", stderr)
     exit(2)

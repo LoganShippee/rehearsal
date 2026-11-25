@@ -282,6 +282,32 @@ elif mode == "adaptive_retry_pdf":
         print(f"INFO [Book] 1 sheets in {os.path.basename(input_file)}", flush=True)
         print("WARN [input#1] Sheet input#1 flagged as invalid.", flush=True)
         sys.exit(1)
+elif mode == "multirun_variants":
+    if "v300" in input_file:
+        vtag = "v300"
+        time.sleep(0.05)
+    elif "v400" in input_file:
+        vtag = "v400"
+        time.sleep(0.35)
+    else:
+        vtag = "v350c"
+        time.sleep(0.35)
+    with open(xml_source, "r", encoding="utf-8") as f:
+        xml_text = f.read().replace(
+            "<work-title>Ode to Joy</work-title>",
+            f"<work-title>Variant {vtag}</work-title>",
+        )
+    mxl_path = os.path.join(sub, stem + ".mxl")
+    container = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<container><rootfiles>'
+        '<rootfile full-path="score.musicxml" media-type="application/vnd.recordare.musicxml+xml"/>'
+        '</rootfiles></container>'
+    )
+    with zipfile.ZipFile(mxl_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("score.musicxml", xml_text)
+    sys.exit(0)
 else:
     sys.stderr.write("unknown mode: " + mode + "\\n")
     sys.exit(3)
@@ -1645,6 +1671,66 @@ class OMRServiceTestSuite(unittest.TestCase):
         self.assertTrue(meta["isVectorPdf"])
         self.assertIn("Allegro", meta["tempoMarkings"])
         self.assertIn("mf", meta["dynamics"])
+
+    # 14. Parallel multi-run returns first fast variant and attaches alternates asynchronously
+    def test_14_parallel_multirun_returns_first_fast_and_attaches_alternates(self) -> None:
+        data_dir = os.path.join(self.tmpdir.name, "data_multirun")
+        cfg = omr_server.OMRConfig(
+            host="127.0.0.1",
+            port=0,
+            data_dir=data_dir,
+            engine_cmd=[sys.executable, self.fake_cli_path],
+            job_timeout=10.0,
+            workers=3,
+            preprocess=False,
+            multi_run_mode="all",
+        )
+        if self._use_tcp:
+            srv = omr_server.create_server(cfg)
+            self._register_server(srv)
+            base = f"http://127.0.0.1:{srv.server_address[1]}"
+        else:
+            service = omr_server.OMRService(cfg)
+            stub = _InProcServerStub(service)
+            base = f"inproc://omr-{id(stub)}"
+            _INPROC_TARGETS[base] = (omr_server.OMRRequestHandler, stub)
+            self._inproc_keys.append(base)
+
+        st_h, _h, health = http_json(base, "GET", "/health")
+        self.assertEqual(st_h, 200)
+        self.assertEqual(health["multiRun"], "all")
+
+        os.environ["FAKE_OMR_MODE"] = "multirun_variants"
+        body, ctype = build_multipart(
+            {"multiRun": "all"},
+            ("file", "multirun.png", "image/png", b"\x89PNG_MULTIRUN_TEST"),
+        )
+        st, _h, created = http_post_raw_json(base, "/api/scan/jobs", body, {"Content-Type": ctype})
+        self.assertEqual(st, 202)
+        job_id = created["jobId"]
+
+        job = self._poll_job(base, job_id, timeout=5.0)
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["multiRun"], "all")
+        self.assertIn("<work-title>Variant v300</work-title>", job["rawMusicxml"])
+
+        # Wait briefly for background collector thread to attach v400 & v350c alternates
+        deadline = time.time() + 5.0
+        alts: List[Dict[str, Any]] = job.get("alternateRuns") or []
+        while len(alts) < 2 and time.time() < deadline:
+            time.sleep(0.05)
+            _, _, latest = http_json(base, "GET", f"/api/scan/jobs/{job_id}")
+            alts = latest.get("alternateRuns") or []
+
+        self.assertEqual(len(alts), 2)
+        by_var = {a["variant"]: a for a in alts}
+        self.assertIn("v400", by_var)
+        self.assertIn("v350c", by_var)
+        self.assertEqual(by_var["v400"]["status"], "completed")
+        self.assertIn("<work-title>Variant v400</work-title>", by_var["v400"]["rawMusicxml"])
+        self.assertGreaterEqual(by_var["v400"]["seconds"], 0.25)
+        self.assertEqual(by_var["v350c"]["status"], "completed")
+        self.assertIn("<work-title>Variant v350c</work-title>", by_var["v350c"]["rawMusicxml"])
 
 
 def main() -> int:

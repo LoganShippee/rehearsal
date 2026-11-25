@@ -165,6 +165,7 @@
       errorTitle: '',
       errorMsg: '',
       model: null,
+      alternateModels: [],
       dirty: false,
       history: null,
       flagReport: null,
@@ -586,7 +587,8 @@
           else if (Array.isArray(doneJob.skippedPages) && doneJob.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${doneJob.skippedPages.join(', ')}`);
           const cueWarn = formatSpokenCuesWarning(doneJob.detectedSpokenCues);
           if (cueWarn) warnParts.push(cueWarn);
-          enterReview(model, 'Instant match — loaded previously verified scan from the server.', warnParts.join(' '), doneJob.pdfTextMeta);
+          enterReview(model, 'Instant match — loaded previously verified scan from the server.', warnParts.join(' '), doneJob.pdfTextMeta, { alternateRuns: doneJob.alternateRuns });
+          pollAlternateRunsInBackground(doneJob);
           return;
         }
       }
@@ -640,7 +642,8 @@
         else if (Array.isArray(job.skippedPages) && job.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${job.skippedPages.join(', ')}`);
         const cueWarn = formatSpokenCuesWarning(job.detectedSpokenCues);
         if (cueWarn) warnParts.push(cueWarn);
-        enterReview(model, banner, warnParts.join(' '), job.pdfTextMeta);
+        enterReview(model, banner, warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns });
+        pollAlternateRunsInBackground(job);
       } catch (err) {
         showErrorScreen('Could not read extracted MusicXML', err?.message || 'Try scanning a single clean page.');
       }
@@ -734,12 +737,61 @@
       });
     }
 
+    function parseAlternateRunModels(alternateRuns) {
+      if (!Array.isArray(alternateRuns) || !alternateRuns.length) return [];
+      const out = [];
+      for (const run of alternateRuns) {
+        if (run?.status === 'completed' && run?.rawMusicxml) {
+          try {
+            const parsed = sfParseMusicXml(run.rawMusicxml);
+            if (parsed) out.push(parsed);
+          } catch { /* ignore malformed alternate */ }
+        }
+      }
+      return out;
+    }
+
+    function pollAlternateRunsInBackground(job) {
+      if (!client || !job?.jobId || !job.multiRun || job.multiRun === 'off') return;
+      const runs = Array.isArray(job.alternateRuns) ? job.alternateRuns : [];
+      if (!runs.some(r => r?.status === 'pending' || r?.status === 'processing')) return;
+      const targetJobId = job.jobId;
+      let lastCompletedCount = runs.filter(r => r?.status === 'completed').length;
+      let attempts = 0;
+
+      const tick = async () => {
+        if (state.destroyed || state.jobId !== targetJobId || state.screen !== 'review' || attempts >= 6) return;
+        attempts += 1;
+        try {
+          const updated = await client.getJob(targetJobId);
+          if (state.destroyed || state.jobId !== targetJobId || state.screen !== 'review') return;
+          if (updated.ok && Array.isArray(updated.alternateRuns)) {
+            const completedCount = updated.alternateRuns.filter(r => r?.status === 'completed').length;
+            if (completedCount > lastCompletedCount) {
+              lastCompletedCount = completedCount;
+              state.alternateModels = parseAlternateRunModels(updated.alternateRuns);
+              analyzeAndSyncGate(undefined);
+              updateTopBarState();
+              renderFlagStrip();
+              updateMeasureOverlays();
+              if (state.drawerOpen) renderDrawer();
+            }
+            if (!updated.alternateRuns.some(r => r?.status === 'pending' || r?.status === 'processing')) return;
+          }
+        } catch { /* ignore background poll error */ }
+        if (attempts < 6 && !state.destroyed && state.jobId === targetJobId && state.screen === 'review') {
+          setTimeout(tick, 3000);
+        }
+      };
+      setTimeout(tick, 3000);
+    }
+
     // ---------- Review & Fix workspace
     function analyzeAndSyncGate(editedMeasureIndex) {
       const inst = (state.instrument === 'auto' || state.instrument === 'choir')
         ? sfDetectInstrument(state.model.parts?.[0]?.name || '')
         : state.instrument;
-      state.flagReport = sfAnalyzeFlags(state.model, { instrument: inst });
+      state.flagReport = sfAnalyzeFlags(state.model, { instrument: inst, alternateModels: state.alternateModels || [] });
       if (!state.saveGate) {
         state.saveGate = new SfSaveGate(state.flagReport);
       } else {
@@ -752,6 +804,7 @@
     function enterReview(model, cacheBanner, scanWarning, pdfTextMeta, opts) {
       state.screen = 'review';
       state.model = model;
+      state.alternateModels = parseAlternateRunModels(opts?.alternateRuns);
       state.dirty = !(opts && opts.clean);
       state.mode = 'select';
       state.eraserMode = false;
@@ -2053,12 +2106,14 @@
             const mi = entry.measureIndex;
             const fm = flagByM.get(mi);
             const ms = meterSuggByM.get(mi);
-            const reason = (fm?.findings || entry.findings || []).map(f => f.message || f.code).join(' · ') || 'Checked';
+            const findings = fm?.findings || entry.findings || [];
+            const reason = findings.map(f => f.message || f.code).join(' · ') || 'Checked';
+            const hints = [...new Set(findings.map(f => f.suggestion).filter(Boolean))];
             const stCls = entry.status === 'fixed' ? 'fixed' : entry.status === 'confirmed' ? 'confirmed' : 'pending';
             const stLbl = entry.status === 'fixed' ? 'Fixed ✓' : entry.status === 'confirmed' ? 'Confirmed ✓' : 'Needs check';
             const msLabel = ms ? (ms.label || `Set m. ${mi + 1} to ${ms.beats}/${ms.beatType}${ms.thisBarOnly ? ' (1 bar)' : ''}`) : '';
             return `<div class="sf-drawer-row ${mi === state.activeMeasure ? 'cur' : ''}" data-sf-dfm="${mi}">
-              <span><b>m. ${mi + 1}</b> — ${hEsc(reason)}</span>
+              <span><b>m. ${mi + 1}</b> — ${hEsc(reason)}${hints.map(h => `<div class="sf-flag-hint">${hEsc(h)}</div>`).join('')}</span>
               <span class="sf-banner-acts">
                 ${ms ? `<button type="button" class="sf-btn sf-btn-primary" data-sf-setmeter="${mi}" data-beats="${ms.beats}" data-btype="${ms.beatType}" data-baronly="${ms.thisBarOnly ? '1' : '0'}">${hEsc(msLabel)}</button>` : ''}
                 <span class="sf-drawer-status ${stCls}">${stLbl}</span>
@@ -3293,7 +3348,8 @@
         else if (Array.isArray(job.skippedPages) && job.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${job.skippedPages.join(', ')}`);
         const cueWarn = formatSpokenCuesWarning(job.detectedSpokenCues);
         if (cueWarn) warnParts.push(cueWarn);
-        enterReview(model, '', warnParts.join(' '), job.pdfTextMeta);
+        enterReview(model, '', warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns });
+        pollAlternateRunsInBackground(job);
       } catch {
         winState.jobId = null;
         if (typeof onChange === 'function') onChange();

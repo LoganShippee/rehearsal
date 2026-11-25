@@ -94,3 +94,14 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | Step 2 (Lyrics model) | 52.5% | 63.7% | 78.0% | 26.3% | 100.0% | 14.5s | Structured `entry.lyrics` (verse number, text, syllabic, melisma extend) round-tripped identically (`0` regression) |
 | Step 3 (Choir rules) | 52.5% | 63.7% | 78.0% | 62.3% | 100.0% | 14.5s | Choir voice ranges, tenor-8 part-level flag, vocal leaps (>12 st), onset-merged lyric checks, voice crossing; disabled noisy 7th/tritone warnings by default (+36.0% catch, 100.0% precision) |
 | Step 4 (Cross-part consensus) | 52.5% | 63.7% | 78.0% | 68.4% | 99.1% | 14.5s | Added `web/scan-consensus.js` cross-part measure-count, signature, and homophonic rhythm/lyric checks (`+6.1%` catch rate, `99.1%` precision) |
+| Step 5 (Multi-run consensus) | 60.0% *(v300 parAll)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* | 90.7% *(flaggedOnly)* | 14.1s *(1st/single)* / 31.5s *(parAll)* | Added `preprocess.swift variants`, parallel `OMR_MULTI_RUN` (`v300`/`v400`/`v350c`), fast first-result completion, and `sfCompareOcrRuns` consensus flags |
+
+### Step 5 Multi-Run Strategy Comparison (5 CPDL + Photo Pieces, 8 Pages Total)
+
+| Strategy | Note Acc | Rhythm Acc | Lyric Acc | Flag Catch | Flag Precision | Sec/Page (Wall) | Sec/Page (1st Result) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **1 run** (single pass) | 51.9% | 66.5% | 83.5% | 62.1% | 98.5% | 14.1s | 14.1s |
+| **Parallel every page** (`v300`+`v400`+`v350c`) | **60.0%** | **74.9%** | **89.4%** | 53.5% | 86.1% | 31.5s | **17.7s** |
+| **Flagged-pages-only** (1 run + rerun flagged pages) | 51.9% | 66.5% | 83.5% | **82.9%** | **90.7%** | 40.3s* | 14.1s |
+
+*\*4 of 5 test pieces had flags on every page; on typical mostly-clean multi-page scores where only 1–2 pages need review, `flagged-pages-only` stays ~14–22s/page.*

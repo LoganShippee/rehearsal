@@ -264,7 +264,10 @@
     const base = getBaseUrl();
     const r = await fetchJson(base + '/api/scan/cache/' + encodeURIComponent(uploadHash), { method: 'GET' }, 5000);
     if (!r.ok) return { ok: false, hit: false };
-    return Object.assign({ ok: true }, r.data);
+    return Object.assign({ ok: true }, r.data, {
+      alternateRuns: Array.isArray(r.data?.alternateRuns) ? r.data.alternateRuns : [],
+      multiRun: r.data?.multiRun || 'off'
+    });
   }
 
   async function createJob(file, opts = {}) {
@@ -274,6 +277,7 @@
     if (opts.instrument) fd.append('instrument', String(opts.instrument));
     if (opts.title) fd.append('title', String(opts.title));
     if (opts.scanMode) fd.append('scanMode', String(opts.scanMode));
+    if (opts.multiRun != null) fd.append('multiRun', String(opts.multiRun));
     if (opts.skipCache) fd.append('skipCache', '1');
     const auth = getMemberAuth();
     const headers = {};
@@ -316,7 +320,10 @@
         errorCode: r.data?.errorCode || 'POLL_FAILED'
       };
     }
-    return Object.assign({ ok: true }, r.data);
+    return Object.assign({ ok: true }, r.data, {
+      alternateRuns: Array.isArray(r.data?.alternateRuns) ? r.data.alternateRuns : [],
+      multiRun: r.data?.multiRun || 'off'
+    });
   }
 
   async function pollJob(jobId, opts = {}) {
@@ -381,7 +388,10 @@
         errorCode: r.data?.errorCode || (r.status === 401 ? 'UNAUTHORIZED' : 'CONFIRM_FAILED')
       };
     }
-    return Object.assign({ ok: true }, r.data);
+    return Object.assign({ ok: true }, r.data, {
+      alternateRuns: Array.isArray(r.data?.alternateRuns) ? r.data.alternateRuns : [],
+      multiRun: r.data?.multiRun || 'off'
+    });
   }
 
   function originalUrl(jobId) {

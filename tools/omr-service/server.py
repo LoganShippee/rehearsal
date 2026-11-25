@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import collections
+import concurrent.futures
 import datetime
 import hashlib
 import io
@@ -45,6 +46,7 @@ SERVICE_NAME = "rehearsal-omr"
 SERVICE_VERSION = "1.0.0"
 
 VALID_SCAN_MODES = ("full", "notes-lyrics", "notes-only")
+VALID_MULTI_RUN_MODES = ("off", "all", "flagged")
 
 
 def normalize_scan_mode(val: Optional[str]) -> str:
@@ -52,6 +54,13 @@ def normalize_scan_mode(val: Optional[str]) -> str:
     if cleaned in VALID_SCAN_MODES:
         return cleaned
     return "full"
+
+
+def normalize_multi_run_mode(val: Optional[str]) -> str:
+    cleaned = (val or "").strip().lower()
+    if cleaned in VALID_MULTI_RUN_MODES:
+        return cleaned
+    return "off"
 
 
 def scan_cache_key(upload_hash: str, scan_mode: str) -> str:
@@ -186,6 +195,7 @@ class OMRConfig:
     auth_timeout: float = 8.0
     preprocess_mode: str = "auto"  # "auto" | "off"
     preprocess: bool = True
+    multi_run_mode: str = "off"  # "off" | "all" | "flagged"
 
     def resolved_engine_cmd(self) -> Optional[List[str]]:
         if self.engine_cmd is not None:
@@ -308,6 +318,7 @@ def load_config_from_env() -> OMRConfig:
         cors_origins=os.environ.get("OMR_CORS_ORIGINS", "*").strip() or "*",
         preprocess_mode=prep_mode,
         preprocess=(prep_mode != "off"),
+        multi_run_mode=normalize_multi_run_mode(os.environ.get("OMR_MULTI_RUN")),
     )
 
 
@@ -1066,6 +1077,7 @@ class OMRService:
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._stop_event = threading.Event()
         self._workers: List[threading.Thread] = []
+        self._collector_threads: List[threading.Thread] = []
 
         self._init_db()
         self._start_workers()
@@ -1097,6 +1109,8 @@ class OMRService:
                         instrument TEXT NOT NULL DEFAULT '',
                         title TEXT NOT NULL DEFAULT '',
                         scan_mode TEXT NOT NULL DEFAULT 'full',
+                        multi_run_mode TEXT NOT NULL DEFAULT 'off',
+                        alternate_runs_json TEXT NOT NULL DEFAULT '[]',
                         original_path TEXT NOT NULL DEFAULT '',
                         raw_path TEXT NOT NULL DEFAULT '',
                         raw_musicxml TEXT NOT NULL DEFAULT '',
@@ -1140,6 +1154,8 @@ class OMRService:
                 }
                 for col_name, col_def in (
                     ("scan_mode", "TEXT NOT NULL DEFAULT 'full'"),
+                    ("multi_run_mode", "TEXT NOT NULL DEFAULT 'off'"),
+                    ("alternate_runs_json", "TEXT NOT NULL DEFAULT '[]'"),
                     ("stage_detail", "TEXT NOT NULL DEFAULT ''"),
                     ("current_page", "INTEGER"),
                     ("total_pages", "INTEGER"),
@@ -1170,6 +1186,10 @@ class OMRService:
         self._stop_event.set()
         for t in self._workers:
             t.join(timeout=2.0)
+        with self._state_lock:
+            collectors = list(self._collector_threads)
+        for ct in collectors:
+            ct.join(timeout=5.0)
 
     def preprocess_available(self) -> bool:
         if not self.config.preprocess or self.config.preprocess_mode == "off":
@@ -1195,6 +1215,7 @@ class OMRService:
             "ocrAvailable": bool(self.config.tessdata_dir),
             "tessdataDir": self.config.tessdata_dir,
             "preprocessAvailable": self.preprocess_available(),
+            "multiRun": self.config.multi_run_mode,
             "queueDepth": self._queue.qsize(),
             "activeJobs": active,
             "authMode": self.config.auth_mode,
@@ -1228,8 +1249,12 @@ class OMRService:
         title: str = "",
         skip_cache: bool = False,
         scan_mode: str = "full",
+        multi_run_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         norm_mode = normalize_scan_mode(scan_mode)
+        eff_multi_run = normalize_multi_run_mode(
+            multi_run_mode if multi_run_mode is not None else self.config.multi_run_mode
+        )
         upload_hash = hashlib.sha256(data).hexdigest()
         cache_key = scan_cache_key(upload_hash, norm_mode)
         job_id = uuid.uuid4().hex
@@ -1304,9 +1329,9 @@ class OMRService:
                     """
                     INSERT INTO scan_jobs (
                         job_id, status, progress, stage, stage_detail, cache_hit, upload_hash,
-                        filename, mime_type, instrument, title, scan_mode,
+                        filename, mime_type, instrument, title, scan_mode, multi_run_mode,
                         original_path, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job_id,
@@ -1321,6 +1346,7 @@ class OMRService:
                         instrument.strip(),
                         eff_title,
                         norm_mode,
+                        eff_multi_run,
                         original_path,
                         now,
                         now,
@@ -1371,6 +1397,12 @@ class OMRService:
                 pdf_text_meta = {}
         except Exception:
             pdf_text_meta = {}
+        try:
+            alternate_runs = json.loads(row.get("alternate_runs_json") or "[]")
+            if not isinstance(alternate_runs, list):
+                alternate_runs = []
+        except Exception:
+            alternate_runs = []
         raw_exists = bool(row.get("raw_path") and os.path.isfile(row["raw_path"]))
         mxl_exists = bool(
             row.get("verified")
@@ -1393,6 +1425,8 @@ class OMRService:
             "instrument": row["instrument"],
             "title": row["title"],
             "scanMode": normalize_scan_mode(row.get("scan_mode")),
+            "multiRun": normalize_multi_run_mode(row.get("multi_run_mode")),
+            "alternateRuns": alternate_runs,
             "verified": bool(row["verified"]),
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
@@ -1568,6 +1602,254 @@ class OMRService:
                 pass
         return None
 
+    def _build_sub_env(self, enable_ocr: bool) -> Dict[str, str]:
+        sub_env = os.environ.copy()
+        legacy_sort_flag = "-Djava.util.Arrays.useLegacyMergeSort=true"
+        existing_java_opts = sub_env.get("JAVA_TOOL_OPTIONS", "").strip()
+        if legacy_sort_flag not in existing_java_opts:
+            sub_env["JAVA_TOOL_OPTIONS"] = (
+                f"{existing_java_opts} {legacy_sort_flag}".strip()
+                if existing_java_opts
+                else legacy_sort_flag
+            )
+        if enable_ocr and self.config.tessdata_dir:
+            sub_env["TESSDATA_PREFIX"] = self.config.tessdata_dir
+        elif not enable_ocr:
+            sub_env.pop("TESSDATA_PREFIX", None)
+        return sub_env
+
+    def _run_variant_once(
+        self,
+        variant: str,
+        input_path: str,
+        out_dir: str,
+        adapter: EngineAdapter,
+        enable_ocr: bool,
+        timeout_sec: float,
+        sub_env: Dict[str, str],
+    ) -> Dict[str, Any]:
+        t0 = time.monotonic()
+        os.makedirs(out_dir, exist_ok=True)
+        cmd = adapter.build_command(input_path, out_dir, enable_ocr=enable_ocr)
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout_sec,
+                check=False,
+                env=sub_env,
+            )
+        except subprocess.TimeoutExpired:
+            return {"variant": variant, "status": "failed", "error": "timeout", "seconds": round(time.monotonic() - t0, 3)}
+        except OSError as exc:
+            return {"variant": variant, "status": "failed", "error": str(exc), "seconds": round(time.monotonic() - t0, 3)}
+
+        elapsed = round(time.monotonic() - t0, 3)
+        if proc.returncode != 0:
+            return {"variant": variant, "status": "failed", "error": f"exit {proc.returncode}", "seconds": elapsed}
+
+        stem = os.path.splitext(os.path.basename(input_path))[0]
+        exp = adapter.find_output(out_dir, input_stem=stem)
+        if not exp or not os.path.isfile(exp):
+            return {"variant": variant, "status": "failed", "error": "no output", "seconds": elapsed}
+
+        try:
+            with open(exp, "rb") as f:
+                raw_bytes = f.read()
+            is_mxl = exp.lower().endswith(".mxl")
+            xml_text = extract_musicxml_from_mxl_bytes(raw_bytes) if is_mxl else decode_xml_bytes(raw_bytes)
+            ok, reason = validate_musicxml(xml_text)
+            if not ok:
+                return {"variant": variant, "status": "failed", "error": reason, "seconds": elapsed}
+            return {
+                "variant": variant,
+                "status": "completed",
+                "rawMusicxml": xml_text,
+                "rawBytes": raw_bytes,
+                "isMxl": is_mxl,
+                "seconds": elapsed,
+            }
+        except Exception as exc:
+            return {"variant": variant, "status": "failed", "error": str(exc), "seconds": elapsed}
+
+    def _process_job_multi_run(
+        self,
+        job_id: str,
+        row: Dict[str, Any],
+        adapter: EngineAdapter,
+        original_path: str,
+        ext: str,
+        total_pages: Optional[int],
+    ) -> None:
+        tmpdir = tempfile.mkdtemp(prefix="rehearsal-omr-mr-")
+        handed_off_tmpdir = False
+        try:
+            variants_root = os.path.join(tmpdir, "variants")
+            os.makedirs(variants_root, exist_ok=True)
+            is_pdf = ext.lower() == ".pdf" or row.get("mime_type") == "application/pdf"
+            variant_names = ("v300", "v400", "v350c")
+            variant_inputs: List[Tuple[str, str, str]] = []
+
+            prep_bin = (
+                self._ensure_preprocess_bin()
+                if (self.config.preprocess and self.config.preprocess_mode != "off")
+                else None
+            )
+            used_prep_variants = False
+            if prep_bin and (not is_pdf or (total_pages or 1) == 1):
+                try:
+                    res = subprocess.run(
+                        [prep_bin, "variants", original_path, variants_root],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=45.0,
+                        check=False,
+                    )
+                    if res.returncode == 0:
+                        cand_inputs: List[Tuple[str, str, str]] = []
+                        for vn in variant_names:
+                            p_img = os.path.join(variants_root, vn, "page-0001.png")
+                            if os.path.isfile(p_img):
+                                cand_inputs.append((vn, p_img, os.path.join(tmpdir, f"out-{vn}")))
+                        if len(cand_inputs) == len(variant_names):
+                            variant_inputs = cand_inputs
+                            used_prep_variants = True
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+
+            if not used_prep_variants:
+                for vn in variant_names:
+                    vdir = os.path.join(variants_root, vn)
+                    os.makedirs(vdir, exist_ok=True)
+                    dst = os.path.join(vdir, f"input{ext or '.png'}")
+                    shutil.copy2(original_path, dst)
+                    variant_inputs.append((vn, dst, os.path.join(tmpdir, f"out-{vn}")))
+
+            scan_mode = normalize_scan_mode(row.get("scan_mode"))
+            enable_ocr = scan_mode != "notes-only"
+            sub_env = self._build_sub_env(enable_ocr)
+            effective_timeout = self._effective_timeout(total_pages)
+            max_workers = max(1, min(self.config.workers, os.cpu_count() or 2, 3))
+
+            self._update_job(
+                job_id,
+                progress=20,
+                stage="running_omr",
+                stage_detail="Running multi-variant OMR scan…",
+            )
+
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+            fut_to_var = {
+                executor.submit(
+                    self._run_variant_once,
+                    vn,
+                    vin,
+                    vout,
+                    adapter,
+                    enable_ocr,
+                    effective_timeout,
+                    sub_env,
+                ): vn
+                for vn, vin, vout in variant_inputs
+            }
+
+            primary_result: Optional[Dict[str, Any]] = None
+            finished_alternates: List[Dict[str, Any]] = []
+            pending_futs: List[concurrent.futures.Future[Dict[str, Any]]] = []
+
+            for fut in concurrent.futures.as_completed(fut_to_var):
+                res = fut.result()
+                if primary_result is None and res.get("status") == "completed":
+                    primary_result = res
+                    # Collect any others that happen to already be done; leave rest for background
+                    pending_futs = [f for f in fut_to_var if not f.done()]
+                    break
+                else:
+                    finished_alternates.append(
+                        {
+                            k: v
+                            for k, v in res.items()
+                            if k in ("variant", "status", "rawMusicxml", "seconds", "error")
+                        }
+                    )
+
+            if primary_result is None:
+                executor.shutdown(wait=True)
+                self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG)
+                return
+
+            jdir = self._job_dir(job_id)
+            raw_dest = os.path.join(jdir, "raw.mxl" if primary_result["isMxl"] else "raw.musicxml")
+            with open(raw_dest, "wb") as f:
+                f.write(primary_result["rawBytes"])
+
+            pdf_meta: Dict[str, Any] = {}
+            spoken_cues: List[Dict[str, Any]] = []
+            if is_pdf and enable_ocr:
+                pdf_meta = extract_pdf_text_metadata(original_path)
+                spoken_cues = pdf_meta.get("spokenCues", [])
+
+            self._update_job(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="completed",
+                stage_detail=f"Scan complete ({primary_result['variant']}).",
+                spoken_cues_json=json.dumps(spoken_cues),
+                pdf_text_meta_json=json.dumps(pdf_meta),
+                alternate_runs_json=json.dumps(finished_alternates),
+                raw_path=raw_dest,
+                raw_musicxml=primary_result["rawMusicxml"],
+                error="",
+                error_code="",
+                completed_at=utc_now_iso(),
+            )
+
+            if pending_futs:
+                handed_off_tmpdir = True
+
+                def _collect_remaining() -> None:
+                    try:
+                        for f in concurrent.futures.as_completed(pending_futs):
+                            if self._stop_event.is_set():
+                                break
+                            try:
+                                r = f.result()
+                            except Exception as exc:
+                                r = {"variant": fut_to_var[f], "status": "failed", "error": str(exc)}
+                            finished_alternates.append(
+                                {
+                                    k: v
+                                    for k, v in r.items()
+                                    if k in ("variant", "status", "rawMusicxml", "seconds", "error")
+                                }
+                            )
+                            self._update_job(
+                                job_id,
+                                alternate_runs_json=json.dumps(finished_alternates),
+                            )
+                    finally:
+                        executor.shutdown(wait=True)
+                        shutil.rmtree(tmpdir, ignore_errors=True)
+
+                ct = threading.Thread(
+                    target=_collect_remaining,
+                    name=f"omr-mr-collect-{job_id[:8]}",
+                    daemon=True,
+                )
+                with self._state_lock:
+                    self._collector_threads.append(ct)
+                ct.start()
+            else:
+                executor.shutdown(wait=True)
+        finally:
+            if not handed_off_tmpdir:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
     def _process_job(self, job_id: str) -> None:
         row = self.get_job_row(job_id)
         if not row:
@@ -1601,6 +1883,11 @@ class OMRService:
         adapter = build_engine_adapter(self.config)
         if not adapter.is_available():
             self._fail_job(job_id, "ENGINE_UNAVAILABLE", ENGINE_UNAVAILABLE_MSG)
+            return
+
+        multi_run_mode = normalize_multi_run_mode(row.get("multi_run_mode"))
+        if multi_run_mode != "off":
+            self._process_job_multi_run(job_id, row, adapter, original_path, ext, total_pages)
             return
 
         with tempfile.TemporaryDirectory(prefix="rehearsal-omr-") as tmpdir:
@@ -2654,6 +2941,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             instrument = fields.get("instrument", "")
             title = fields.get("title", "")
             scan_mode = fields.get("scanMode", "") or (qs.get("scanMode") or [""])[0]
+            multi_run = fields.get("multiRun") or (qs.get("multiRun") or [None])[0]
             skip_cache = _parse_bool(fields.get("skipCache")) or _parse_bool(
                 (qs.get("skipCache") or [None])[0]
             )
@@ -2664,6 +2952,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             instrument = self.headers.get("X-Instrument", "")
             title = self.headers.get("X-Title", "")
             scan_mode = self.headers.get("X-Scan-Mode", "") or (qs.get("scanMode") or [""])[0]
+            multi_run = self.headers.get("X-Multi-Run") or (qs.get("multiRun") or [None])[0]
             skip_cache = _parse_bool(self.headers.get("X-Skip-Cache")) or _parse_bool(
                 (qs.get("skipCache") or [None])[0]
             )
@@ -2691,6 +2980,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             title=title,
             skip_cache=skip_cache,
             scan_mode=scan_mode,
+            multi_run_mode=multi_run,
         )
         self._send_json(202, result)
 
