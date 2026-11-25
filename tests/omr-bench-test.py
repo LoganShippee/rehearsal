@@ -134,6 +134,44 @@ class OMRBenchTestSuite(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(captured, "raw.musicxml")))
             self.assertTrue(os.path.isfile(os.path.join(captured, "gold.mxl")))
 
+    def test_06_sf_analyze_flags_format_counts_and_lyric_accuracy(self) -> None:
+        gold_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<score-partwise version="3.1">'
+            '<part-list><score-part id="P1"><part-name>Alto</part-name></score-part></part-list>'
+            '<part id="P1">'
+            '<measure number="1">'
+            '<attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>'
+            '<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><lyric><text>Win</text></lyric></note>'
+            '<note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><lyric><text>ter</text></lyric></note>'
+            '<note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>half</type><lyric><text>song</text></lyric></note>'
+            '</measure></part></score-partwise>'
+        )
+        cand_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<score-partwise version="3.1">'
+            '<part-list><score-part id="P1"><part-name>Alto</part-name></score-part></part-list>'
+            '<part id="P1">'
+            '<measure number="1">'
+            '<attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>'
+            '<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><lyric><text>W1n</text></lyric></note>'
+            '<note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type><lyric><text>ter</text></lyric></note>'
+            '</measure></part></score-partwise>'
+        )
+        flag_report = {
+            "measures": [
+                {"measureIndex": 0, "measureNumber": "1", "flagged": True, "reasons": ["duration_mismatch"]}
+            ]
+        }
+        res = omr_bench.grade_score(cand_xml, gold_xml, flag_report=flag_report)
+        self.assertEqual(res["dimensions"]["flags"]["recall"], 100.0)
+        self.assertEqual(res["dimensions"]["flags"]["precision"], 100.0)
+        self.assertLess(res["dimensions"]["lyric"], 100.0)
+        self.assertEqual(res["counts"]["pitch_errors"], 1)
+        self.assertEqual(res["counts"]["missing_notes"], 1)
+        self.assertEqual(res["counts"]["rhythm_errors"], 1)
+        self.assertEqual(res["counts"]["lyric_syllable_errors"], 2)
+
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(OMRBenchTestSuite)

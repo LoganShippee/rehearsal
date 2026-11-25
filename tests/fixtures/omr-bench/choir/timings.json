@@ -1,0 +1,47 @@
+{
+  "abide-with-me": {
+    "seconds": 21.13,
+    "pages": 2,
+    "secondsPerPage": 10.57
+  },
+  "abide-with-me-photo": {
+    "seconds": 23.79,
+    "pages": 2,
+    "secondsPerPage": 11.9
+  },
+  "ave-verum-corpus": {
+    "seconds": 31.23,
+    "pages": 2,
+    "secondsPerPage": 15.62
+  },
+  "locus-iste": {
+    "seconds": 29.64,
+    "pages": 2,
+    "secondsPerPage": 14.82
+  },
+  "locus-iste-photo": {
+    "seconds": 35.26,
+    "pages": 2,
+    "secondsPerPage": 17.63
+  },
+  "sicut-cervus": {
+    "seconds": 39.87,
+    "pages": 3,
+    "secondsPerPage": 13.29
+  },
+  "stille-nacht": {
+    "seconds": 14.42,
+    "pages": 1,
+    "secondsPerPage": 14.42
+  },
+  "stille-nacht-photo": {
+    "seconds": 15.82,
+    "pages": 1,
+    "secondsPerPage": 15.82
+  },
+  "sub-tuum-praesidium": {
+    "seconds": 65.31,
+    "pages": 4,
+    "secondsPerPage": 16.33
+  }
+}

@@ -81,3 +81,13 @@ python3 tools/omr-bench/grade.py --update-baseline
 | `accidentals` | Written sharp/flat/natural accuracy |
 | `text` | Lyrics, dynamics, tempo markings, and spoken cues |
 | `flags` | Precision & recall of `scan-flags.js` suspicious-measure flags against actual OMR errors |
+
+---
+
+## Choir Benchmark Progress
+
+Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-bench/choir/`):
+
+| Step | Note Acc | Rhythm Acc | Lyric Acc | Flag Catch | Flag Precision | Sec/Page | Notes |
+|---|---|---|---|---|---|---|---|
+| Baseline (Step 1) | 52.5% | 63.7% | 78.0% | 26.3% | 100.0% | 14.5s | 6 CPDL pieces + 3 degraded photo variants; postprocess via baseline `scan-model.js` + `scan-flags.js` |

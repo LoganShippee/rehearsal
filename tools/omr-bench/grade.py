@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -331,8 +332,16 @@ def grade_score(
     cand_ties_list: List[Tuple[str, int, str]] = []
     gold_acc_list: List[Tuple[str, str, int, int]] = []
     cand_acc_list: List[Tuple[str, str, int, int]] = []
+    gold_lyric_tokens: List[str] = []
+    cand_lyric_tokens: List[str] = []
     gold_text_tokens: List[str] = []
     cand_text_tokens: List[str] = []
+
+    pitch_errors = 0
+    rhythm_errors = 0
+    missing_notes = 0
+    extra_notes = 0
+    lyric_syllable_errors = 0
 
     for pi in range(aligned_parts):
         gp = g_parts[pi]
@@ -375,7 +384,9 @@ def grade_score(
                 pitch_ratios.append(sm_p.ratio())
                 for tag, i1, i2, j1, j2 in sm_p.get_opcodes():
                     if tag == "replace":
-                        for k in range(min(i2 - i1, j2 - j1)):
+                        n_rep = min(i2 - i1, j2 - j1)
+                        pitch_errors += n_rep
+                        for k in range(n_rep):
                             g_n = g_pitches[i1 + k]
                             c_n = c_pitches[j1 + k]
                             if g_n[0] == c_n[0] and g_n[2] == c_n[2] and g_n[1] != c_n[1]:
@@ -384,14 +395,26 @@ def grade_score(
                                 add_issue("missed_accidental", pname, m_num, f"{g_n[0]}{g_n[1]}(alter={g_n[2]})", f"{c_n[0]}{c_n[1]}(alter={c_n[2]})")
                             else:
                                 add_issue("wrong_pitch", pname, m_num, f"{g_n[0]}{g_n[1]}", f"{c_n[0]}{c_n[1]}")
+                        if (i2 - i1) > n_rep:
+                            missing_notes += (i2 - i1) - n_rep
+                            for k in range(i1 + n_rep, i2):
+                                g_n = g_pitches[k]
+                                add_issue("missing_note", pname, m_num, f"{g_n[0]}{g_n[1]}", "missing")
+                        if (j2 - j1) > n_rep:
+                            extra_notes += (j2 - j1) - n_rep
+                            for k in range(j1 + n_rep, j2):
+                                c_n = c_pitches[k]
+                                add_issue("extra_note", pname, m_num, "none", f"{c_n[0]}{c_n[1]}")
                     elif tag == "delete":
+                        missing_notes += i2 - i1
                         for k in range(i1, i2):
                             g_n = g_pitches[k]
-                            add_issue("wrong_pitch", pname, m_num, f"{g_n[0]}{g_n[1]}", "missing")
+                            add_issue("missing_note", pname, m_num, f"{g_n[0]}{g_n[1]}", "missing")
                     elif tag == "insert":
+                        extra_notes += j2 - j1
                         for k in range(j1, j2):
                             c_n = c_pitches[k]
-                            add_issue("wrong_pitch", pname, m_num, "none", f"{c_n[0]}{c_n[1]}")
+                            add_issue("extra_note", pname, m_num, "none", f"{c_n[0]}{c_n[1]}")
 
             # Rhythm comparison (all notes/rests)
             g_rhy = [(n["is_rest"], n["duration_q"]) for n in gm["notes"]]
@@ -401,7 +424,9 @@ def grade_score(
                 rhythm_ratios.append(sm_r.ratio())
                 for tag, i1, i2, j1, j2 in sm_r.get_opcodes():
                     if tag == "replace":
-                        for k in range(min(i2 - i1, j2 - j1)):
+                        n_rep = min(i2 - i1, j2 - j1)
+                        rhythm_errors += max(i2 - i1, j2 - j1)
+                        for k in range(n_rep):
                             gr = g_rhy[i1 + k]
                             cr = c_rhy[j1 + k]
                             if abs(gr[1] - cr[1] * 1.5) < 1e-3:
@@ -411,8 +436,11 @@ def grade_score(
                             else:
                                 add_issue("wrong_duration", pname, m_num, f"{gr[1]}q", f"{cr[1]}q")
                     elif tag == "delete":
+                        rhythm_errors += i2 - i1
                         for k in range(i1, i2):
                             add_issue("wrong_duration", pname, m_num, f"{g_rhy[k][1]}q", "missing")
+                    elif tag == "insert":
+                        rhythm_errors += j2 - j1
 
             # Ties
             g_tie_set: Set[Tuple[str, int, str]] = set()
@@ -462,14 +490,25 @@ def grade_score(
             # Lyrics
             g_lyrics = [ly for n in gm["notes"] for ly in n["lyrics"]]
             c_lyrics = [ly for n in cm["notes"] for ly in n["lyrics"]]
+            gold_lyric_tokens.extend(g_lyrics)
+            cand_lyric_tokens.extend(c_lyrics)
             gold_text_tokens.extend(g_lyrics)
             cand_text_tokens.extend(c_lyrics)
-            for li in range(min(len(g_lyrics), len(c_lyrics))):
-                if g_lyrics[li] != c_lyrics[li]:
-                    add_issue("lyric_ocr_typo", pname, m_num, g_lyrics[li], c_lyrics[li])
-            if len(g_lyrics) > len(c_lyrics):
-                for ly in g_lyrics[len(c_lyrics) :]:
-                    add_issue("lyric_ocr_typo", pname, m_num, ly, "missing")
+            if g_lyrics or c_lyrics:
+                sm_l = difflib.SequenceMatcher(None, g_lyrics, c_lyrics)
+                for tag, i1, i2, j1, j2 in sm_l.get_opcodes():
+                    if tag == "replace":
+                        lyric_syllable_errors += max(i2 - i1, j2 - j1)
+                        for k in range(min(i2 - i1, j2 - j1)):
+                            add_issue("lyric_ocr_typo", pname, m_num, g_lyrics[i1 + k], c_lyrics[j1 + k])
+                    elif tag == "delete":
+                        lyric_syllable_errors += i2 - i1
+                        for k in range(i1, i2):
+                            add_issue("lyric_ocr_typo", pname, m_num, g_lyrics[k], "missing")
+                    elif tag == "insert":
+                        lyric_syllable_errors += j2 - j1
+                        for k in range(j1, j2):
+                            add_issue("lyric_ocr_typo", pname, m_num, "none", c_lyrics[k])
 
             # Dynamics & words
             gold_text_tokens.extend(gm["dynamics"])
@@ -499,12 +538,16 @@ def grade_score(
     rhythm_score = round(100.0 * (sum(rhythm_ratios) / len(rhythm_ratios) if rhythm_ratios else 1.0), 2)
     ties_score = _f1_multiset(cand_ties_list, gold_ties_list)
     acc_score = _f1_multiset(cand_acc_list, gold_acc_list)
+    lyric_accuracy = _f1_multiset(cand_lyric_tokens, gold_lyric_tokens)
     text_score = _f1_multiset(cand_text_tokens, gold_text_tokens)
 
     flags_metrics: Optional[Dict[str, Any]] = None
     if flag_report is not None:
         flagged_nums: Set[int] = set()
-        for f in flag_report.get("flaggedMeasures", []):
+        raw_flagged = list(flag_report.get("flaggedMeasures", []))
+        if not raw_flagged and isinstance(flag_report.get("measures"), list):
+            raw_flagged = [m for m in flag_report["measures"] if m.get("flagged")]
+        for f in raw_flagged:
             try:
                 flagged_nums.add(int(f.get("measureNumber", f.get("measureIndex", 0) + 1)))
             except (TypeError, ValueError):
@@ -558,8 +601,16 @@ def grade_score(
             "rhythm": rhythm_score,
             "ties": ties_score,
             "accidentals": acc_score,
+            "lyric": lyric_accuracy,
             "text": text_score,
             "flags": flags_metrics,
+        },
+        "counts": {
+            "pitch_errors": pitch_errors,
+            "rhythm_errors": rhythm_errors,
+            "missing_notes": missing_notes,
+            "extra_notes": extra_notes,
+            "lyric_syllable_errors": lyric_syllable_errors,
         },
         "issues": issues,
         "issueSummary": issue_summary,
@@ -587,8 +638,15 @@ def postprocess_with_jsc(
         with open(vocab_path, "w", encoding="utf-8") as f:
             json.dump(pdf_vocab or [], f)
 
+        wordlist_path = os.path.join(ROOT, "web", "scan-wordlist.js")
+        wordlist_load = (
+            f"load({json.dumps(wordlist_path)});\n"
+            if os.path.isfile(wordlist_path)
+            else ""
+        )
         driver_js = (
             f"load({json.dumps(os.path.join(ROOT, 'web', 'scan-model.js'))});\n"
+            f"{wordlist_load}"
             f"load({json.dumps(os.path.join(ROOT, 'web', 'scan-flags.js'))});\n"
             f"var xml = readFile({json.dumps(in_path)});\n"
             f"var vocab = JSON.parse(readFile({json.dumps(vocab_path)}));\n"
@@ -804,10 +862,23 @@ def run_benchmark(
         with open(baseline_path, "r", encoding="utf-8") as f:
             baseline = json.load(f)
 
+    timings: Dict[str, Any] = {}
+    timings_path = os.path.join(bench_dir, "timings.json")
+    if os.path.isfile(timings_path):
+        with open(timings_path, "r", encoding="utf-8") as f:
+            timings = json.load(f)
+
     results: List[Dict[str, Any]] = []
     for pair in pairs:
         raw_xml = load_musicxml(pair["rawPath"])
         gold_xml = load_musicxml(pair["goldPath"])
+        sec_per_page: Optional[float] = None
+        t_info = timings.get(pair["name"])
+        if isinstance(t_info, dict):
+            if t_info.get("secondsPerPage") is not None:
+                sec_per_page = float(t_info["secondsPerPage"])
+            elif t_info.get("seconds") is not None and t_info.get("pages"):
+                sec_per_page = round(float(t_info["seconds"]) / max(1.0, float(t_info["pages"])), 2)
 
         if run_omr and pair.get("originalPath"):
             # Optional live re-scan via tools/omr-service/server.py
@@ -819,7 +890,13 @@ def run_benchmark(
                 with tempfile.TemporaryDirectory(prefix="omr-bench-live-") as td:
                     out_d = os.path.join(td, "out")
                     os.makedirs(out_d, exist_ok=True)
+                    t0 = time.monotonic()
                     subprocess.run(adapter.build_command(pair["originalPath"], out_d), check=False)
+                    elapsed = time.monotonic() - t0
+                    pages = 1
+                    if pair["originalPath"].lower().endswith(".pdf"):
+                        pages = omr_srv.detect_pdf_page_count(pair["originalPath"]) or 1
+                    sec_per_page = round(elapsed / max(1, pages), 2)
                     exp = adapter.find_output(out_d)
                     if exp:
                         raw_xml = load_musicxml(exp)
@@ -836,28 +913,66 @@ def run_benchmark(
         final_grade["name"] = pair["name"]
         final_grade["rawOverall"] = raw_grade["overall"]
         final_grade["postprocessDelta"] = delta_vs_raw
+        final_grade["secondsPerPage"] = sec_per_page
         results.append(final_grade)
 
-    # Print table
+    # Print Choir summary table
     header = (
-        f"{'piece':<16} | {'overall':>7} | {'struct':>6} | {'pitch':>6} | "
-        f"{'rhythm':>6} | {'ties':>6} | {'text':>6} | {'flag-rec':>8} | {'delta':>7}"
+        f"{'piece':<16} | {'overall':>7} | {'note':>6} | {'rhythm':>6} | {'lyric':>6} | "
+        f"{'catch':>6} | {'prec':>6} | {'s/pg':>5} | {'p_err':>5} | {'r_err':>5} | "
+        f"{'miss':>4} | {'extra':>5} | {'lyr_err':>7} | {'delta':>7}"
     )
     print(header)
     print("-" * len(header))
     agg_issues: Dict[str, int] = {}
+    tot_p_err = tot_r_err = tot_miss = tot_extra = tot_lyr_err = 0
+    spg_vals: List[float] = []
+    catch_vals: List[float] = []
+    prec_vals: List[float] = []
     for r in results:
         d = r["dimensions"]
-        f_rec = f"{d['flags']['recall']:.1f}%" if d.get("flags") else "  n/a"
+        c = r["counts"]
+        fl = d.get("flags")
+        f_rec = f"{fl['recall']:5.1f}%" if fl else "   n/a"
+        f_prec = f"{fl['precision']:5.1f}%" if fl else "   n/a"
+        if fl:
+            catch_vals.append(fl["recall"])
+            prec_vals.append(fl["precision"])
+        spg = r.get("secondsPerPage")
+        spg_str = f"{spg:5.1f}" if spg is not None else "  n/a"
+        if spg is not None:
+            spg_vals.append(spg)
         base_ov = baseline.get("pieces", {}).get(r["name"], {}).get("overall")
         delta_str = f"{r['overall'] - base_ov:+.2f}" if base_ov is not None else "  new"
+        tot_p_err += c["pitch_errors"]
+        tot_r_err += c["rhythm_errors"]
+        tot_miss += c["missing_notes"]
+        tot_extra += c["extra_notes"]
+        tot_lyr_err += c["lyric_syllable_errors"]
         print(
-            f"{r['name']:<16} | {r['overall']:7.2f} | {d['structure']:6.1f} | "
-            f"{d['pitch']:6.1f} | {d['rhythm']:6.1f} | {d['ties']:6.1f} | "
-            f"{d['text']:6.1f} | {f_rec:>8} | {delta_str:>7}"
+            f"{r['name']:<16} | {r['overall']:7.2f} | {d['pitch']:6.1f} | {d['rhythm']:6.1f} | "
+            f"{d['lyric']:6.1f} | {f_rec:>6} | {f_prec:>6} | {spg_str:>5} | "
+            f"{c['pitch_errors']:5d} | {c['rhythm_errors']:5d} | {c['missing_notes']:4d} | "
+            f"{c['extra_notes']:5d} | {c['lyric_syllable_errors']:7d} | {delta_str:>7}"
         )
         for iss in r["issueSummary"]:
             agg_issues[iss["category"]] = agg_issues.get(iss["category"], 0) + iss["count"]
+
+    n_res = max(1, len(results))
+    mean_ov = sum(r["overall"] for r in results) / n_res
+    mean_note = sum(r["dimensions"]["pitch"] for r in results) / n_res
+    mean_rhy = sum(r["dimensions"]["rhythm"] for r in results) / n_res
+    mean_lyr = sum(r["dimensions"]["lyric"] for r in results) / n_res
+    mean_catch = f"{sum(catch_vals) / len(catch_vals):5.1f}%" if catch_vals else "   n/a"
+    mean_prec = f"{sum(prec_vals) / len(prec_vals):5.1f}%" if prec_vals else "   n/a"
+    mean_spg = f"{sum(spg_vals) / len(spg_vals):5.1f}" if spg_vals else "  n/a"
+    print("-" * len(header))
+    print(
+        f"{'OVERALL':<16} | {mean_ov:7.2f} | {mean_note:6.1f} | {mean_rhy:6.1f} | "
+        f"{mean_lyr:6.1f} | {mean_catch:>6} | {mean_prec:>6} | {mean_spg:>5} | "
+        f"{tot_p_err:5d} | {tot_r_err:5d} | {tot_miss:4d} | "
+        f"{tot_extra:5d} | {tot_lyr_err:7d} | {'':>7}"
+    )
 
     if agg_issues:
         print("\nTop Issues:")
@@ -872,6 +987,8 @@ def run_benchmark(
                     "overall": r["overall"],
                     "rawOverall": r["rawOverall"],
                     "dimensions": r["dimensions"],
+                    "counts": r["counts"],
+                    "secondsPerPage": r.get("secondsPerPage"),
                 }
                 for r in results
             },
@@ -883,11 +1000,23 @@ def run_benchmark(
         print(f"\nUpdated baseline at {baseline_path}")
 
     if report_path:
-        lines = ["# OMR Benchmark Report\n", "| Piece | Overall | Structure | Pitch | Rhythm | Ties | Text |", "|---|---|---|---|---|---|---|"]
+        lines = [
+            "# OMR Benchmark Report\n",
+            "| Piece | Overall | Note | Rhythm | Lyric | Catch | Prec | s/pg | p_err | r_err | miss | extra | lyr_err |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
         for r in results:
             d = r["dimensions"]
+            c = r["counts"]
+            fl = d.get("flags")
+            f_rec = f"{fl['recall']:.1f}%" if fl else "n/a"
+            f_prec = f"{fl['precision']:.1f}%" if fl else "n/a"
+            spg = f"{r['secondsPerPage']:.1f}" if r.get("secondsPerPage") is not None else "n/a"
             lines.append(
-                f"| {r['name']} | {r['overall']:.2f} | {d['structure']:.1f} | {d['pitch']:.1f} | {d['rhythm']:.1f} | {d['ties']:.1f} | {d['text']:.1f} |"
+                f"| {r['name']} | {r['overall']:.2f} | {d['pitch']:.1f} | {d['rhythm']:.1f} | "
+                f"{d['lyric']:.1f} | {f_rec} | {f_prec} | {spg} | "
+                f"{c['pitch_errors']} | {c['rhythm_errors']} | {c['missing_notes']} | "
+                f"{c['extra_notes']} | {c['lyric_syllable_errors']} |"
             )
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
