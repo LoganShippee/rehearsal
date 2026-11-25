@@ -94,8 +94,530 @@ const SF_FLAG_WEIGHTS = {
   out_of_range: 0.35,
   implausible_leap: 0.30,
   accidental_anomaly: 0.25,
-  rhythm_density_anomaly: 0.25
+  rhythm_density_anomaly: 0.25,
+  tenor_octave_clef: 0.45,
+  vocal_leap: 0.30,
+  vocal_leap_check: 0.15,
+  lyric_missing_syllable: 0.20,
+  lyric_broken_hyphen: 0.25,
+  lyric_unknown_word: 0.18,
+  voice_crossing: 0.30
 };
+
+// ---------- Choir Voice Ranges & Modular Choir Rules
+const SF_CHOIR_RANGES = {
+  soprano: { min: 60, max: 81, label: 'Soprano' }, // C4-A5
+  alto:    { min: 55, max: 74, label: 'Alto' },    // G3-D5
+  tenor:   { min: 48, max: 67, label: 'Tenor' },   // C3-G4 (sounding)
+  bass:    { min: 40, max: 62, label: 'Bass' }     // E2-D4
+};
+
+const SF_NON_CHOIR_PART_RE = /\b(bass\s*clarinet|bassoon|baritone\s*sax(?:ophone)?|piano|pno|keyboard|keys|organ|accomp|harp|guitar|reductio|reduction|trumpet|trombone|euphonium|tuba|flute|piccolo|oboe|clarinet|sax(?:ophone)?|horn|mallets|percussion|violin|viola|cello|contrabass|drum)\b/i;
+
+function sfGetChoirVoiceRange(voiceKey) {
+  return SF_CHOIR_RANGES[voiceKey] || null;
+}
+
+function sfDetectChoirPart(partName, measure0) {
+  const name = String(partName || '').trim();
+  if (!name) return null;
+  if (SF_NON_CHOIR_PART_RE.test(name)) return null;
+
+  // Shared staves first
+  if (/\b(?:s\s*[/&+,-]?\s*a|sop(?:rano)?\s*[/&+,-]?\s*alt(?:o)?|women|female|treble\s*choir)\b/i.test(name)) {
+    return 'soprano_alto';
+  }
+  if (/\b(?:t\s*[/&+,-]?\s*b|ten(?:or)?\s*[/&+,-]?\s*bas(?:s)?|men|male)\b/i.test(name)) {
+    return 'tenor_bass';
+  }
+
+  // Single voice parts
+  if (/^(?:s|sop\.?|sopr\.?|sopran|soprano)(?:\s*\d+)?$/i.test(name) || /\bsop(?:rano|ran|r)?\b/i.test(name)) {
+    return 'soprano';
+  }
+  if (/^(?:a|alt\.?|alto)(?:\s*\d+)?$/i.test(name) || /\b(?:alto|alt\.?)\b/i.test(name)) {
+    return 'alto';
+  }
+  if (/^(?:t|ten\.?|tenor|tenore)(?:\s*\d+)?$/i.test(name) || /\b(?:tenore|tenor|ten\.?)\b/i.test(name)) {
+    return 'tenor';
+  }
+  if (/^(?:b|bas\.?|basso|bass|bar\.?|baritone)(?:\s*\d+)?$/i.test(name) || /\b(?:basso|bass|baritone)\b/i.test(name)) {
+    return 'bass';
+  }
+  if (/\b(?:voice|vocal|choir|choral|sing(?:er|ers)?|cantus|chorus)\b/i.test(name)) {
+    return 'voice_generic';
+  }
+  return null;
+}
+
+function sfRuleTenorOctaveClef(part, pi, choirKey, addFinding) {
+  if (choirKey !== 'tenor') return false;
+  const clefs0 = (part && part.measures && part.measures[0] && part.measures[0].clefs) || [];
+  if (clefs0.some(c => c.sign === 'G' && c.octaveChange === -1)) return false;
+  const pitched = [];
+  for (const m of (part && part.measures) || []) {
+    for (const e of m.entries || []) {
+      if (e.kind === 'note' && !e.isRest && !e.isCue && !e.spoken && isFinite(e.midi)) {
+        pitched.push(e);
+      }
+    }
+  }
+  if (pitched.length < 5) return false;
+  let highCount = 0;
+  for (const e of pitched) {
+    const sMidi = (e.soundingMidi != null && isFinite(e.soundingMidi)) ? e.soundingMidi : e.midi;
+    if (sMidi > 67 && sMidi <= 81) highCount++;
+  }
+  if (highCount / pitched.length >= 0.65) {
+    addFinding(0, {
+      rule: 'tenor_octave_clef',
+      severity: 'high',
+      weight: SF_FLAG_WEIGHTS.tenor_octave_clef,
+      partIndex: pi,
+      voice: '1',
+      noteId: pitched[0].id,
+      partLevel: true,
+      suggestedFix: 'octave_down_part',
+      message: 'Tenor part looks an octave too high — shift the whole part down an octave.'
+    });
+    return true;
+  }
+  return false;
+}
+
+function sfRuleChoirVoiceRange(part, pi, choirKey, addFinding) {
+  const measures = (part && part.measures) || [];
+  let effectiveKey = choirKey;
+  if (effectiveKey === 'bass') {
+    const voiceIds = new Set();
+    let hasSimultaneous = false;
+    for (const m of measures) {
+      const onsetCounts = {};
+      for (const e of m.entries || []) {
+        if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
+        voiceIds.add(e.voice || '1');
+        const ok = Math.round((e.onsetQ || 0) * 1000);
+        onsetCounts[ok] = (onsetCounts[ok] || 0) + 1;
+        if (onsetCounts[ok] > 1) hasSimultaneous = true;
+      }
+    }
+    if (voiceIds.size > 1 || hasSimultaneous) {
+      effectiveKey = 'tenor_bass';
+    }
+  }
+  if (effectiveKey === 'soprano_alto' || effectiveKey === 'tenor_bass') {
+    const upperKey = effectiveKey === 'soprano_alto' ? 'soprano' : 'tenor';
+    const lowerKey = effectiveKey === 'soprano_alto' ? 'alto' : 'bass';
+    const upperRange = SF_CHOIR_RANGES[upperKey];
+    const lowerRange = SF_CHOIR_RANGES[lowerKey];
+
+    for (let mi = 0; mi < measures.length; mi++) {
+      const m = measures[mi];
+      const byOnset = {};
+      for (const e of m.entries || []) {
+        if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
+        const ok = Math.round((e.onsetQ || 0) * 1000);
+        (byOnset[ok] || (byOnset[ok] = [])).push(e);
+      }
+      for (const ok of Object.keys(byOnset)) {
+        const group = byOnset[ok].slice().sort((a, b) => {
+          const ma = (a.soundingMidi != null ? a.soundingMidi : a.midi);
+          const mb = (b.soundingMidi != null ? b.soundingMidi : b.midi);
+          return ma - mb;
+        });
+        if (group.length === 1) {
+          const e = group[0];
+          const sMidi = e.soundingMidi != null ? e.soundingMidi : e.midi;
+          if (sMidi < lowerRange.min || sMidi > upperRange.max) {
+            const dir = sMidi < lowerRange.min ? 'below' : 'above';
+            addFinding(mi, {
+              rule: 'out_of_range',
+              severity: 'high',
+              weight: SF_FLAG_WEIGHTS.out_of_range,
+              partIndex: pi,
+              voice: e.voice || '1',
+              noteId: e.id,
+              message: `${sfFormatMidiNote(sMidi)} is ${dir} the ${upperRange.label}/${lowerRange.label} range.`
+            });
+          }
+        } else {
+          const lo = group[0];
+          const hi = group[group.length - 1];
+          const loMidi = lo.soundingMidi != null ? lo.soundingMidi : lo.midi;
+          const hiMidi = hi.soundingMidi != null ? hi.soundingMidi : hi.midi;
+          if (loMidi < lowerRange.min || loMidi > lowerRange.max) {
+            const dir = loMidi < lowerRange.min ? 'below' : 'above';
+            addFinding(mi, {
+              rule: 'out_of_range',
+              severity: 'high',
+              weight: SF_FLAG_WEIGHTS.out_of_range,
+              partIndex: pi,
+              voice: lo.voice || '1',
+              noteId: lo.id,
+              message: `${sfFormatMidiNote(loMidi)} is ${dir} the practical ${lowerRange.label} range.`
+            });
+          }
+          if (hiMidi < upperRange.min || hiMidi > upperRange.max) {
+            const dir = hiMidi < upperRange.min ? 'below' : 'above';
+            addFinding(mi, {
+              rule: 'out_of_range',
+              severity: 'high',
+              weight: SF_FLAG_WEIGHTS.out_of_range,
+              partIndex: pi,
+              voice: hi.voice || '1',
+              noteId: hi.id,
+              message: `${sfFormatMidiNote(hiMidi)} is ${dir} the practical ${upperRange.label} range.`
+            });
+          }
+        }
+      }
+    }
+    return;
+  }
+
+  const range = sfGetChoirVoiceRange(effectiveKey);
+  if (!range) return;
+  for (let mi = 0; mi < measures.length; mi++) {
+    for (const e of measures[mi].entries || []) {
+      if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
+      const sMidi = e.soundingMidi != null ? e.soundingMidi : e.midi;
+      if (sMidi < range.min || sMidi > range.max) {
+        const dir = sMidi < range.min ? 'below' : 'above';
+        addFinding(mi, {
+          rule: 'out_of_range',
+          severity: 'high',
+          weight: SF_FLAG_WEIGHTS.out_of_range,
+          partIndex: pi,
+          voice: e.voice || '1',
+          noteId: e.id,
+          message: `${sfFormatMidiNote(sMidi)} is ${dir} the practical ${range.label} range.`
+        });
+      }
+    }
+  }
+}
+
+function sfRuleVocalLeaps(part, pi, addFinding) {
+  const measures = (part && part.measures) || [];
+  const prevByStaffVoice = {};
+  for (let mi = 0; mi < measures.length; mi++) {
+    const m = measures[mi];
+    const beats = (m.time && m.time.beats) || 4;
+    const bt = (m.time && m.time.beatType) || 4;
+    const expectedQ = beats * 4 / bt;
+    for (const e of m.entries || []) {
+      if (e.isGrace) continue;
+      const key = `${e.staff || 1}:${e.voice || '1'}`;
+      if (e.kind === 'rest') {
+        if (e.measureRest || (e.durationQ || 0) >= expectedQ - 0.01) {
+          prevByStaffVoice[key] = null;
+        }
+        continue;
+      }
+      if (e.kind !== 'note' || e.isRest || e.isChord || e.spoken || !isFinite(e.midi)) continue;
+      const prev = prevByStaffVoice[key];
+      if (prev && isFinite(prev.midi)) {
+        const leap = Math.abs(e.midi - prev.midi);
+        if (leap > 12) {
+          addFinding(mi, {
+            rule: 'vocal_leap',
+            severity: 'high',
+            weight: SF_FLAG_WEIGHTS.vocal_leap,
+            partIndex: pi,
+            voice: e.voice || '1',
+            noteId: e.id,
+            message: `Large vocal jump (${leap} semitones, ${sfFormatMidiNote(prev.midi)} to ${sfFormatMidiNote(e.midi)}).`
+          });
+        } else if (leap === 6 || leap === 10 || leap === 11) {
+          addFinding(mi, {
+            rule: 'vocal_leap_check',
+            severity: 'low',
+            weight: SF_FLAG_WEIGHTS.vocal_leap_check,
+            partIndex: pi,
+            voice: e.voice || '1',
+            noteId: e.id,
+            message: `Check this leap (${sfFormatMidiNote(prev.midi)} to ${sfFormatMidiNote(e.midi)}).`
+          });
+        }
+      }
+      prevByStaffVoice[key] = e;
+    }
+  }
+}
+
+function sfExtractEntryPrimaryLyric(e) {
+  if (Array.isArray(e.lyrics) && e.lyrics.length) {
+    return e.lyrics[0];
+  }
+  if (typeof sfGetNoteLyric === 'function') {
+    const txt = sfGetNoteLyric(e, 1);
+    if (txt) {
+      const hasDash = txt.endsWith('-');
+      return { text: hasDash ? txt.slice(0, -1) : txt, syllabic: hasDash ? 'begin' : 'single', extend: false };
+    }
+  }
+  return null;
+}
+
+function sfRuleLyricChecks(part, pi, addFinding, opts) {
+  const options = opts || {};
+  const checkMissing = options.checkMissing !== false;
+  const checkBrokenHyphen = options.checkBrokenHyphen !== false;
+  const checkUnknownWord = options.checkUnknownWord !== false;
+
+  const measures = (part && part.measures) || [];
+  // Choose primary vocal voice (prefer '1', else first voice with lyrics)
+  let primaryVoice = '1';
+  let hasV1Lyrics = false;
+  let firstLyricVoice = null;
+  for (const m of measures) {
+    for (const e of m.entries || []) {
+      if (e.kind === 'note' && !e.isRest && sfExtractEntryPrimaryLyric(e)) {
+        const v = e.voice || '1';
+        if (v === '1') hasV1Lyrics = true;
+        if (!firstLyricVoice) firstLyricVoice = v;
+      }
+    }
+  }
+  if (!hasV1Lyrics && firstLyricVoice) primaryVoice = firstLyricVoice;
+  if (!hasV1Lyrics && !firstLyricVoice) return;
+
+  // Flatten timeline across voices per (measure, staff, onset) so shared staves
+  // where lyrics alternate between voice 1 and voice 2 merge cleanly.
+  const seq = [];
+  for (let mi = 0; mi < measures.length; mi++) {
+    const byStaff = {};
+    for (const e of measures[mi].entries || []) {
+      if ((e.kind !== 'note' && e.kind !== 'rest') || e.isGrace || e.isChord) continue;
+      const st = e.staff || 1;
+      (byStaff[st] || (byStaff[st] = [])).push(e);
+    }
+    const staffKeys = Object.keys(byStaff).sort((a, b) => Number(a) - Number(b));
+    for (const st of staffKeys) {
+      const byOnset = {};
+      for (const e of byStaff[st]) {
+        const ok = Math.round((e.onsetQ || 0) * 1000);
+        (byOnset[ok] || (byOnset[ok] = [])).push(e);
+      }
+      const onsetKeys = Object.keys(byOnset).sort((a, b) => Number(a) - Number(b));
+      for (const ok of onsetKeys) {
+        const group = byOnset[ok];
+        const pitched = group.filter(e => e.kind === 'note' && !e.isRest);
+        if (pitched.length > 0) {
+          const withLyric = pitched.filter(e => !!sfExtractEntryPrimaryLyric(e));
+          const pool = withLyric.length > 0 ? withLyric : pitched;
+          pool.sort((a, b) => {
+            const va = a.voice || '1';
+            const vb = b.voice || '1';
+            if (va === primaryVoice && vb !== primaryVoice) return -1;
+            if (vb === primaryVoice && va !== primaryVoice) return 1;
+            return Number(va) - Number(vb);
+          });
+          seq.push({ mi, e: pool[0] });
+        } else {
+          // Only rests at this onset: include if primaryVoice (or any voice) has a >=1 beat or measureRest
+          const rest = group.find(e => (e.voice || '1') === primaryVoice) || group[0];
+          if (rest) seq.push({ mi, e: rest });
+        }
+      }
+    }
+  }
+
+  let openHyphen = null;
+  let inSlur = false;
+  let prevHadExtend = false;
+  let sawTextInPhrase = false;
+
+  for (let i = 0; i < seq.length; i++) {
+    const { mi, e } = seq[i];
+    if (e.kind === 'rest' || e.isRest) {
+      if ((e.durationQ || 0) >= 1 - 1e-6 || e.measureRest) {
+        if (openHyphen && checkBrokenHyphen) {
+          addFinding(openHyphen.mi, {
+            rule: 'lyric_broken_hyphen',
+            severity: 'medium',
+            weight: SF_FLAG_WEIGHTS.lyric_broken_hyphen,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: openHyphen.e.id,
+            message: `Hyphenated syllable "${openHyphen.textParts.join('')}-" is never finished before the rest.`
+          });
+        }
+        openHyphen = null;
+        sawTextInPhrase = false;
+        prevHadExtend = false;
+        inSlur = false;
+      }
+      continue;
+    }
+
+    const extra = e.extraXml || '';
+    const slurStarts = /<slur\b[^>]*type=["']start["']/.test(extra);
+    const slurStops = /<slur\b[^>]*type=["']stop["']/.test(extra);
+    const wasInSlur = inSlur || slurStarts;
+
+    const lyr = sfExtractEntryPrimaryLyric(e);
+    if (lyr && lyr.text) {
+      const syl = lyr.syllabic || 'single';
+      const txt = lyr.text.trim();
+      sawTextInPhrase = true;
+
+      if (syl === 'begin') {
+        if (openHyphen && checkBrokenHyphen) {
+          addFinding(openHyphen.mi, {
+            rule: 'lyric_broken_hyphen',
+            severity: 'medium',
+            weight: SF_FLAG_WEIGHTS.lyric_broken_hyphen,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: openHyphen.e.id,
+            message: `Hyphenated syllable "${openHyphen.textParts.join('')}-" was not finished.`
+          });
+        }
+        openHyphen = { mi, e, textParts: [txt] };
+      } else if (syl === 'middle') {
+        if (openHyphen) openHyphen.textParts.push(txt);
+        else openHyphen = { mi, e, textParts: [txt] };
+      } else if (syl === 'end') {
+        const fullWord = openHyphen ? (openHyphen.textParts.join('') + txt) : txt;
+        openHyphen = null;
+        const lettersOnly = fullWord.replace(/[^a-zA-Zäöüßéèêàâîïôûùç]/g, '');
+        if (checkUnknownWord && lettersOnly.length >= 3 && typeof sfIsKnownChoirWord === 'function' && !sfIsKnownChoirWord(fullWord)) {
+          addFinding(mi, {
+            rule: 'lyric_unknown_word',
+            severity: 'low',
+            weight: SF_FLAG_WEIGHTS.lyric_unknown_word,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: e.id,
+            message: `Check lyric word "${fullWord}" (possible OCR typo).`
+          });
+        }
+      } else {
+        if (openHyphen && checkBrokenHyphen) {
+          addFinding(openHyphen.mi, {
+            rule: 'lyric_broken_hyphen',
+            severity: 'medium',
+            weight: SF_FLAG_WEIGHTS.lyric_broken_hyphen,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: openHyphen.e.id,
+            message: `Hyphenated syllable "${openHyphen.textParts.join('')}-" was not finished.`
+          });
+          openHyphen = null;
+        }
+        const lettersOnly = txt.replace(/[^a-zA-Zäöüßéèêàâîïôûùç]/g, '');
+        if (checkUnknownWord && lettersOnly.length >= 3 && typeof sfIsKnownChoirWord === 'function' && !sfIsKnownChoirWord(txt)) {
+          addFinding(mi, {
+            rule: 'lyric_unknown_word',
+            severity: 'low',
+            weight: SF_FLAG_WEIGHTS.lyric_unknown_word,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: e.id,
+            message: `Check lyric word "${txt}" (possible OCR typo).`
+          });
+        }
+      }
+      prevHadExtend = !!lyr.extend;
+    } else {
+      // Untexted pitched note
+      const isTiedStop = Array.isArray(e.ties) && e.ties.includes('stop');
+      if (checkMissing && sawTextInPhrase && !isTiedStop && !wasInSlur && !prevHadExtend) {
+        // Check if another texted note follows in the same phrase before a rest >= 1 beat
+        let hasLaterTextInPhrase = false;
+        for (let k = i + 1; k < seq.length; k++) {
+          const ne = seq[k].e;
+          if (ne.kind === 'rest' || ne.isRest) {
+            if ((ne.durationQ || 0) >= 1 - 1e-6 || ne.measureRest) break;
+            continue;
+          }
+          if (sfExtractEntryPrimaryLyric(ne)) { hasLaterTextInPhrase = true; break; }
+        }
+        if (openHyphen || hasLaterTextInPhrase) {
+          addFinding(mi, {
+            rule: 'lyric_missing_syllable',
+            severity: 'medium',
+            weight: SF_FLAG_WEIGHTS.lyric_missing_syllable,
+            partIndex: pi,
+            voice: primaryVoice,
+            noteId: e.id,
+            message: 'Missing lyric syllable on note inside texted phrase.'
+          });
+        }
+      }
+      if (!isTiedStop && !wasInSlur) prevHadExtend = false;
+    }
+
+    if (slurStarts && !slurStops) inSlur = true;
+    if (slurStops) inSlur = false;
+  }
+
+  if (openHyphen && checkBrokenHyphen) {
+    addFinding(openHyphen.mi, {
+      rule: 'lyric_broken_hyphen',
+      severity: 'medium',
+      weight: SF_FLAG_WEIGHTS.lyric_broken_hyphen,
+      partIndex: pi,
+      voice: primaryVoice,
+      noteId: openHyphen.e.id,
+      message: `Hyphenated syllable "${openHyphen.textParts.join('')}-" is never finished.`
+    });
+  }
+}
+
+function sfRuleVoiceCrossing(part, pi, choirKey, addFinding) {
+  if (choirKey !== 'soprano_alto' && choirKey !== 'tenor_bass') return;
+  const measures = (part && part.measures) || [];
+  for (let mi = 0; mi < measures.length; mi++) {
+    const m = measures[mi];
+    const byOnset = {};
+    for (const e of m.entries || []) {
+      if (e.kind !== 'note' || e.isRest || e.spoken || !isFinite(e.midi)) continue;
+      const ok = Math.round((e.onsetQ || 0) * 1000);
+      (byOnset[ok] || (byOnset[ok] = [])).push(e);
+    }
+
+    let crossAttacks = 0;
+    let crossBeats = 0;
+    let wideSpread = false;
+    let firstCrossingNote = null;
+
+    for (const ok of Object.keys(byOnset)) {
+      const group = byOnset[ok];
+      const byVoice = {};
+      for (const e of group) {
+        const v = e.voice || '1';
+        if (!byVoice[v]) byVoice[v] = e;
+      }
+      const vKeys = Object.keys(byVoice).sort((a, b) => Number(a) - Number(b));
+      if (vKeys.length < 2) continue;
+      const upper = byVoice[vKeys[0]];
+      const lower = byVoice[vKeys[1]];
+      if (upper.midi < lower.midi) {
+        crossAttacks++;
+        crossBeats += Math.min(upper.durationQ || 0, lower.durationQ || 0);
+        if (!firstCrossingNote) firstCrossingNote = upper;
+      }
+      if (Math.abs(upper.midi - lower.midi) > 12) {
+        wideSpread = true;
+        if (!firstCrossingNote) firstCrossingNote = upper;
+      }
+    }
+
+    if (crossAttacks >= 3 || crossBeats >= 2 - 1e-6 || wideSpread) {
+      addFinding(mi, {
+        rule: 'voice_crossing',
+        severity: 'high',
+        weight: SF_FLAG_WEIGHTS.voice_crossing,
+        partIndex: pi,
+        voice: (firstCrossingNote && firstCrossingNote.voice) || '1',
+        noteId: firstCrossingNote ? firstCrossingNote.id : null,
+        message: 'Voices cross or drift over an octave apart on this shared staff — check part assignment.'
+      });
+    }
+  }
+}
 
 const SF_FLAG_NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
@@ -165,12 +687,48 @@ function sfAnalyzeFlags(model, opts) {
     }
   }
 
+  const isRuleEnabled = ruleName => {
+    if (!options.rules) return true;
+    if (Array.isArray(options.rules)) return options.rules.includes(ruleName);
+    if (typeof options.rules === 'object') return options.rules[ruleName] !== false;
+    return true;
+  };
+
   for (let pi = 0; pi < parts.length; pi++) {
     const part = parts[pi];
     const measures = part.measures || [];
     const instKey = (options.instrument && options.instrument !== 'auto' && SF_INSTRUMENT_RANGES[options.instrument])
       ? options.instrument
       : sfDetectInstrument(part.name);
+    const choirKey = (!options.instrument || options.instrument === 'auto')
+      ? sfDetectChoirPart(part.name, measures[0])
+      : null;
+
+    let suppressNoteRangeForTenor = false;
+    if (choirKey && isRuleEnabled('tenor_octave_clef')) {
+      suppressNoteRangeForTenor = sfRuleTenorOctaveClef(part, pi, choirKey, addFinding);
+    }
+    if (choirKey && !suppressNoteRangeForTenor && isRuleEnabled('out_of_range')) {
+      sfRuleChoirVoiceRange(part, pi, choirKey, addFinding);
+    }
+    const leapCheckOn = Array.isArray(options.rules)
+      ? options.rules.includes('vocal_leap_check')
+      : !!(options.rules && typeof options.rules === 'object' && options.rules.vocal_leap_check === true);
+    if (choirKey && (isRuleEnabled('vocal_leap') || leapCheckOn)) {
+      sfRuleVocalLeaps(part, pi, (mi, f) => {
+        if (f.rule === 'vocal_leap_check' ? leapCheckOn : isRuleEnabled(f.rule)) addFinding(mi, f);
+      });
+    }
+    if (choirKey && (isRuleEnabled('lyric_missing_syllable') || isRuleEnabled('lyric_broken_hyphen') || isRuleEnabled('lyric_unknown_word'))) {
+      sfRuleLyricChecks(part, pi, addFinding, {
+        checkMissing: isRuleEnabled('lyric_missing_syllable'),
+        checkBrokenHyphen: isRuleEnabled('lyric_broken_hyphen'),
+        checkUnknownWord: isRuleEnabled('lyric_unknown_word')
+      });
+    }
+    if (choirKey && isRuleEnabled('voice_crossing')) {
+      sfRuleVoiceCrossing(part, pi, choirKey, addFinding);
+    }
 
     // Precompute pitched non-chord note counts for Rule 4 (rhythm_density_anomaly)
     const densityMeta = measures.map(m => {
@@ -263,17 +821,19 @@ function sfAnalyzeFlags(model, opts) {
         const badPickup = isPickup && diff > 0.01;
         const badNormal = !isPickup && (diff > 0.01 || (diff < -0.01 && !staffComplete.has(v.staff || 1)));
         if (badPickup || badNormal) {
-          const actualBeats = actualQ * bt / 4;
-          const lastItem = v.items[v.items.length - 1];
-          addFinding(mi, {
-            rule: 'duration_mismatch',
-            severity: 'high',
-            weight: SF_FLAG_WEIGHTS.duration_mismatch,
-            partIndex: pi,
-            voice: vid,
-            noteId: lastItem ? lastItem.id : null,
-            message: `Measure ${m.number} adds up to ${sfFormatBeats(actualBeats)} beats instead of ${beats}.`
-          });
+          if (isRuleEnabled('duration_mismatch')) {
+            const actualBeats = actualQ * bt / 4;
+            const lastItem = v.items[v.items.length - 1];
+            addFinding(mi, {
+              rule: 'duration_mismatch',
+              severity: 'high',
+              weight: SF_FLAG_WEIGHTS.duration_mismatch,
+              partIndex: pi,
+              voice: vid,
+              noteId: lastItem ? lastItem.id : null,
+              message: `Measure ${m.number} adds up to ${sfFormatBeats(actualBeats)} beats instead of ${beats}.`
+            });
+          }
         }
       }
 
@@ -299,7 +859,7 @@ function sfAnalyzeFlags(model, opts) {
           } else if (fifths >= 2 && curAlt < 0 && e.accidental === 'flat') {
             reason = `Flat on ${e.step}${e.octave} clashes with a sharp key signature (${fifths} sharps).`;
           }
-          if (reason) {
+          if (reason && isRuleEnabled('accidental_anomaly')) {
             addFinding(mi, {
               rule: 'accidental_anomaly',
               severity: 'medium',
@@ -317,23 +877,25 @@ function sfAnalyzeFlags(model, opts) {
         }
       }
 
-      // ----- Rule 3: out_of_range
-      for (const e of entries) {
-        if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
-        const range = (instKey !== 'auto' && SF_INSTRUMENT_RANGES[instKey])
-          ? SF_INSTRUMENT_RANGES[instKey]
-          : sfClefFallbackRange(m, e.staff || 1);
-        if (e.midi < range.min || e.midi > range.max) {
-          const dir = e.midi < range.min ? 'below' : 'above';
-          addFinding(mi, {
-            rule: 'out_of_range',
-            severity: 'high',
-            weight: SF_FLAG_WEIGHTS.out_of_range,
-            partIndex: pi,
-            voice: e.voice || '1',
-            noteId: e.id,
-            message: `${sfFormatMidiNote(e.midi)} is ${dir} the practical ${range.label} range.`
-          });
+      // ----- Rule 3: out_of_range (skip if handled by choir voice range / tenor octave clef)
+      if (!choirKey && isRuleEnabled('out_of_range')) {
+        for (const e of entries) {
+          if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
+          const range = (instKey !== 'auto' && SF_INSTRUMENT_RANGES[instKey])
+            ? SF_INSTRUMENT_RANGES[instKey]
+            : sfClefFallbackRange(m, e.staff || 1);
+          if (e.midi < range.min || e.midi > range.max) {
+            const dir = e.midi < range.min ? 'below' : 'above';
+            addFinding(mi, {
+              rule: 'out_of_range',
+              severity: 'high',
+              weight: SF_FLAG_WEIGHTS.out_of_range,
+              partIndex: pi,
+              voice: e.voice || '1',
+              noteId: e.id,
+              message: `${sfFormatMidiNote(e.midi)} is ${dir} the practical ${range.label} range.`
+            });
+          }
         }
       }
 
@@ -354,7 +916,7 @@ function sfAnalyzeFlags(model, opts) {
           const tooSparse = med >= 8 && curMeta.count > 0 && curMeta.count <= 0.25 * med &&
             !curMeta.isWholeBarRest && !curMeta.isWholeNoteCadence && !curMeta.isCleanPhraseEnding;
 
-          if (tooDense || tooSparse) {
+          if ((tooDense || tooSparse) && isRuleEnabled('rhythm_density_anomaly')) {
             const firstNote = curMeta.pitched[0] || null;
             addFinding(mi, {
               rule: 'rhythm_density_anomaly',
@@ -386,7 +948,7 @@ function sfAnalyzeFlags(model, opts) {
         const prev = prevByVoice[vid];
         if (prev && isFinite(prev.midi)) {
           const leap = Math.abs(e.midi - prev.midi);
-          if (leap > 24) {
+          if (leap > 24 && isRuleEnabled('implausible_leap')) {
             addFinding(mi, {
               rule: 'implausible_leap',
               severity: 'high',

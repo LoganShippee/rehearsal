@@ -26,7 +26,7 @@ function tryRead(path) {
 print('==== scan-test');
 
 // 1. Syntax-check Scan & Fix scripts
-const requiredScripts = ['web/scan-model.js', 'web/scan-flags.js'];
+const requiredScripts = ['web/scan-model.js', 'web/scan-wordlist.js', 'web/scan-flags.js'];
 const optionalScripts = ['web/scan-client.js', 'web/scan-ui.js'];
 
 for (const f of requiredScripts) {
@@ -54,8 +54,9 @@ for (const f of optionalScripts) {
   }
 }
 
-// Load scan-model.js and scan-flags.js into global scope
+// Load scan-model.js, scan-wordlist.js, and scan-flags.js into global scope
 load('web/scan-model.js');
+if (typeof sfIsKnownChoirWord === 'undefined') load('web/scan-wordlist.js');
 load('web/scan-flags.js');
 
 // Verify required global API exports
@@ -77,7 +78,11 @@ const requiredGlobals = [
   'sfGetMeasureTempo', 'sfSetMeasureTempo', 'sfRemoveMeasureTempo',
   'sfGetEffectiveKeySig', 'sfSetMeasureKeySig', 'sfRemoveMeasureKeySig',
   'sfCloneModel', 'SfHistory', 'sfBuildTapMap',
-  'SF_INSTRUMENT_RANGES', 'sfDetectInstrument', 'sfAnalyzeFlags', 'SfSaveGate'
+  'SF_INSTRUMENT_RANGES', 'sfDetectInstrument', 'sfAnalyzeFlags', 'SfSaveGate',
+  'SF_CHOIR_WORDLIST', 'sfIsKnownChoirWord',
+  'sfDetectChoirPart', 'sfGetChoirVoiceRange',
+  'sfRuleTenorOctaveClef', 'sfRuleChoirVoiceRange',
+  'sfRuleVocalLeaps', 'sfRuleLyricChecks', 'sfRuleVoiceCrossing'
 ];
 for (const g of requiredGlobals) {
   let exists = false;
@@ -2171,6 +2176,206 @@ check('pitch change breaks stale tie on both notes',
   sfFilterScoreByMode(mvRe, 'notes-only');
   check('sfFilterScoreByMode("notes-only") clears entry.lyrics to []',
     mvReNotes.every(n => Array.isArray(n.lyrics) && n.lyrics.length === 0));
+}
+
+// =========================================================================
+// 22. Choir Word List + Modular Choir Rules (Step 3)
+// =========================================================================
+
+// 22a. sfIsKnownChoirWord
+check('sfIsKnownChoirWord accepts sacred, Latin, English, inflected, and contracted words',
+  sfIsKnownChoirWord('Hallelujah') &&
+  sfIsKnownChoirWord('Kyrie') &&
+  sfIsKnownChoirWord('eleison') &&
+  sfIsKnownChoirWord('"Praise,') &&
+  sfIsKnownChoirWord('1.Glory') &&
+  sfIsKnownChoirWord('singing') &&
+  sfIsKnownChoirWord("don't") &&
+  sfIsKnownChoirWord('bide!') &&
+  sfIsKnownChoirWord('stille') &&
+  sfIsKnownChoirWord('nacht') &&
+  sfIsKnownChoirWord('A-'));
+check('sfIsKnownChoirWord rejects OCR gibberish',
+  !sfIsKnownChoirWord('xzqpt') &&
+  !sfIsKnownChoirWord('blargle') &&
+  !sfIsKnownChoirWord('h@llelujah'));
+
+// 22b. sfDetectChoirPart
+check('sfDetectChoirPart identifies SATB parts and rejects non-choir instruments',
+  sfDetectChoirPart('Soprano') === 'soprano' &&
+  sfDetectChoirPart('Alto II') === 'alto' &&
+  sfDetectChoirPart('Tenor') === 'tenor' &&
+  sfDetectChoirPart('Bass') === 'bass' &&
+  sfDetectChoirPart('S/A') === 'soprano_alto' &&
+  sfDetectChoirPart('T/B') === 'tenor_bass' &&
+  sfDetectChoirPart('Voice') === 'voice_generic' &&
+  sfDetectChoirPart('Choir') === 'voice_generic' &&
+  sfDetectChoirPart('Bass Clarinet') === null &&
+  sfDetectChoirPart('Baritone Saxophone') === null &&
+  sfDetectChoirPart('Bassoon') === null &&
+  sfDetectChoirPart('Piano') === null);
+
+// 22c. sfRuleTenorOctaveClef
+{
+  const tenorPlainXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Tenor</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>G</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const tenorPlain = sfParseMusicXml(tenorPlainXml);
+  const plainFindings = [];
+  const flagged = sfRuleTenorOctaveClef(tenorPlain.parts[0], 0, 'tenor', (mi, f) => plainFindings.push(f));
+  check('sfRuleTenorOctaveClef flags Tenor written an octave too high (G4-A5)',
+    flagged === true && plainFindings.some(f => f.rule === 'tenor_octave_clef' && f.suggestedFix === 'octave_down_part'));
+
+  const tenorOctXml = tenorPlainXml.replace('<clef><sign>G</sign><line>2</line></clef>', '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>');
+  const tenorOct = sfParseMusicXml(tenorOctXml);
+  const octFindings = [];
+  const octFlagged = sfRuleTenorOctaveClef(tenorOct.parts[0], 0, 'tenor', (mi, f) => octFindings.push(f));
+  check('sfRuleTenorOctaveClef does not flag Tenor with clef-octave-change -1',
+    octFlagged === false && octFindings.length === 0);
+}
+
+// 22d. sfRuleChoirVoiceRange + sfRuleVocalLeaps
+{
+  const choirRulesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>Sing</text></lyric></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>to</text></lyric></note>
+      <note><pitch><step>D</step><octave>6</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>God</text></lyric></note>
+      <note><rest/><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const choirRulesModel = sfParseMusicXml(choirRulesXml);
+  const rangeFindings = [];
+  sfRuleChoirVoiceRange(choirRulesModel.parts[0], 0, 'soprano', (mi, f) => rangeFindings.push(f));
+  check('sfRuleChoirVoiceRange flags Soprano note D6 above range',
+    rangeFindings.some(f => f.rule === 'out_of_range'));
+
+  const leapFindings = [];
+  sfRuleVocalLeaps(choirRulesModel.parts[0], 0, (mi, f) => leapFindings.push(f));
+  check('sfRuleVocalLeaps emits vocal_leap_check and vocal_leap; sfAnalyzeFlags disables vocal_leap_check by default',
+    leapFindings.some(f => f.rule === 'vocal_leap_check') &&
+    leapFindings.some(f => f.rule === 'vocal_leap') &&
+    !(sfAnalyzeFlags(choirRulesModel).measures || []).flatMap(m => m.findings || []).some(f => f.rule === 'vocal_leap_check') &&
+    (sfAnalyzeFlags(choirRulesModel, { rules: { vocal_leap_check: true } }).measures || []).flatMap(m => m.findings || []).some(f => f.rule === 'vocal_leap_check'));
+}
+
+// 22e. sfRuleLyricChecks
+{
+  const lyricCheckXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Alto</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>Kyrie</text></lyric></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>begin</syllabic><text>Al</text></lyric></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type><lyric number="1"><syllabic>single</syllabic><text>xzqpt</text></lyric></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const lyricCheckModel = sfParseMusicXml(lyricCheckXml);
+  const lyricFindings = [];
+  sfRuleLyricChecks(lyricCheckModel.parts[0], 0, (mi, f) => lyricFindings.push(f));
+  check('sfRuleLyricChecks flags missing syllable, broken hyphen, and unknown OCR word while allowing Kyrie',
+    lyricFindings.some(f => f.rule === 'lyric_missing_syllable') &&
+    lyricFindings.some(f => f.rule === 'lyric_broken_hyphen') &&
+    lyricFindings.some(f => f.rule === 'lyric_unknown_word') &&
+    !lyricFindings.some(f => /Kyrie/i.test(f.message)));
+}
+
+// 22f. sfRuleVoiceCrossing + opts.rules gating
+{
+  const crossingXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>S/A</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>2</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><type>half</type><voice>1</voice><lyric number="1"><syllabic>single</syllabic><text>Sing</text></lyric></note>
+      <backup><duration>2</duration></backup>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><type>half</type><voice>2</voice><lyric number="1"><syllabic>single</syllabic><text>Sing</text></lyric></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const crossingModel = sfParseMusicXml(crossingXml);
+  const crossFindings = [];
+  sfRuleVoiceCrossing(crossingModel.parts[0], 0, 'soprano_alto', (mi, f) => crossFindings.push(f));
+  check('sfRuleVoiceCrossing detects voice 2 above voice 1 for 2+ beats',
+    crossFindings.some(f => f.rule === 'voice_crossing'));
+
+  const gatedResult = sfAnalyzeFlags(crossingModel, { rules: { voice_crossing: false } });
+  const gatedAllFindings = (gatedResult.measures || []).flatMap(m => m.findings || []);
+  check('sfAnalyzeFlags respects opts.rules.voice_crossing = false',
+    !gatedAllFindings.some(f => f.rule === 'voice_crossing'));
+}
+
+// 22g. 2-voice Bass-clef fallback + multi-voice shared-staff lyric merging
+{
+  const twoVoiceBassXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>B.</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>2</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><type>half</type><voice>1</voice></note>
+      <backup><duration>2</duration></backup>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>2</duration><type>half</type><voice>2</voice></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const twoVoiceBass = sfParseMusicXml(twoVoiceBassXml);
+  const tbFindings = [];
+  sfRuleChoirVoiceRange(twoVoiceBass.parts[0], 0, 'bass', (mi, f) => tbFindings.push(f));
+  check('sfRuleChoirVoiceRange treats multi-voice Bass part as tenor_bass (E4 in Tenor range)',
+    tbFindings.length === 0);
+
+  const singleVoiceBassXml = twoVoiceBassXml.replace('<backup><duration>2</duration></backup>\n      <note><pitch><step>G</step><octave>2</octave></pitch><duration>2</duration><type>half</type><voice>2</voice></note>', '');
+  const singleVoiceBass = sfParseMusicXml(singleVoiceBassXml);
+  const sbFindings = [];
+  sfRuleChoirVoiceRange(singleVoiceBass.parts[0], 0, 'bass', (mi, f) => sbFindings.push(f));
+  check('sfRuleChoirVoiceRange flags single-voice Bass E4 as out_of_range',
+    sbFindings.some(f => f.rule === 'out_of_range'));
+
+  const sharedLyricXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>S/A</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>2</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><voice>1</voice></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><voice>1</voice><lyric number="1"><syllabic>end</syllabic><text>bide</text></lyric></note>
+      <backup><duration>2</duration></backup>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><voice>2</voice><lyric number="1"><syllabic>begin</syllabic><text>a</text></lyric></note>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type><voice>2</voice></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const sharedLyricModel = sfParseMusicXml(sharedLyricXml);
+  const sharedLyricFindings = [];
+  sfRuleLyricChecks(sharedLyricModel.parts[0], 0, (mi, f) => sharedLyricFindings.push(f));
+  check('sfRuleLyricChecks merges lyrics across voices at each onset without false missing/broken flags',
+    sharedLyricFindings.length === 0);
 }
 
 // Async tests: sfParseMxl + sfParseScoreInput
