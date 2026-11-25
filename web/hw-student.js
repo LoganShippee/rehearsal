@@ -1463,7 +1463,6 @@ async function hwOpenFreePractice(kind) {
     ex: {}, settingsOpen: false,
   };
   if (st.mode !== 'rhythm' && st.mode !== 'solfege') st.mode = kind === 'solfege' ? 'solfege' : 'rhythm';
-  if (st.playhead === 'beat') st.playhead = 'off';   // saved from before the new default
   HW_STATE.srState = st;
   // practice always grades at Standard (the sliders are hidden); assignments set their own when opened
   S.settings.gradeStrictRhythm = 25; S.settings.gradeStrictPitch = 25; S.settings.gradeStrictness = 25;
@@ -1605,7 +1604,6 @@ async function hwPopulateRunnerFromAssignment(a, scoreLoader, submissions = []) 
       ex: incomingSr.ex ? JSON.parse(JSON.stringify(incomingSr.ex)) : {},
     };
     hwFixSrEx(HW_STATE.srState.ex);
-    if (HW_STATE.srState.playhead === 'beat') HW_STATE.srState.playhead = 'off';   // old default; students no longer get the moving playhead
     if (a.excerptLocked && !HW_STATE.previewMode) {
       HW_STATE.srState.ex = {};
     }
@@ -1897,11 +1895,11 @@ function hwSightViewState(st) {
   }
   if (st.mode === 'solfege' && st.solRhythm && st.ex?.solfege) {
     return {
-      mode: 'rhythm', show: !!st.show, showCounts, playhead: st.playhead === 'beat' ? 'off' : (st.playhead ?? 'off'), startM: st.startM || 0,
+      mode: 'rhythm', show: !!st.show, showCounts, playhead: st.playhead ?? 'beat', startM: st.startM || 0,
       rhythm: st.solfege, ex: { rhythm: { rhythm: (st.ex.solfege.parts?.[0] || st.ex.solfege).rhythm } },
     };
   }
-  return { ...st, showCounts, playhead: st.playhead === 'beat' ? 'off' : (st.playhead ?? 'off') };
+  return { ...st, showCounts, playhead: st.playhead ?? 'beat' };
 }
 
 function hwStartSightGradingDirect(host, st, actionBtn, inputMode) {

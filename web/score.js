@@ -793,7 +793,7 @@ function spStop() {
   if (typeof grStopListen === 'function') grStopListen();
 }
 function spDefaults(st) {
-  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= true; st.pitches ??= 'none'; st.playhead ??= 'off'; st.nums ??= true;
+  st.tempo ??= 100; st.countIn ??= 1; st.metronome ??= true; st.pitches ??= 'none'; st.playhead ??= 'beat'; st.nums ??= true;
   st.loop ||= { on: false, a: 0, b: 0 }; st.speed ||= { on: false, start: 70, step: 5 }; st.parts ||= {}; st.zoom ??= 0.8;
   st.recMode ??= false; st.recHeadphones ??= false;
   st.recGuide ??= true; st.recMetro ??= false; st.recSelfGuide ??= false; st.gradeGuide ??= false;
@@ -2115,7 +2115,7 @@ function mountScore(host, st, onChange0, key) {
     if (zEl) zEl.textContent = `${Math.round((st.zoom || 1) * 100)}%`;
     const phBtn = $q('[data-sp="playhead"]');
     if (phBtn) {
-      const pm = st.playhead ?? 'off';
+      const pm = st.playhead ?? 'beat';
       phBtn.classList.toggle('on', pm !== 'off');
       phBtn.innerHTML = `${IC('ico:playhead')} <b>${({ beat: 'Beat', notes: 'Note', off: 'Off' })[pm] || 'Off'}</b>`;
     }
@@ -2273,7 +2273,8 @@ function mountScore(host, st, onChange0, key) {
     const P = ctl.sc.perf, ms = ctl.sc.measures;
     let pi = P.findIndex(m => q >= m.start - 1e-9 && q < m.start + m.len - 1e-9); if (pi < 0) pi = P.length - 1;
     const mi = P[pi].w, r = BOX[mi], ph = $q('.sp-ph'); if (!r || !ph) { if (ph) ph.hidden = true; return; }
-    const phMode = st.playhead ?? 'off';
+    // no moving playhead while a take is graded; everywhere else it follows the button (Beat by default)
+    const phMode = (typeof GR !== 'undefined' && GR.on && GR.host === ctl.host) ? 'off' : (st.playhead ?? 'beat');
     if (phMode === 'off') { ph.hidden = true; return; }
     const m = ms[mi], dq = q - P[pi].start;
     let x;
@@ -2622,7 +2623,7 @@ function mountScore(host, st, onChange0, key) {
         return;
       }
       if (k === 'grrecent') { if (typeof grShowRecent === 'function') grShowRecent(ctl.host); return; }
-      if (k === 'playhead') { st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead ?? 'off']; onChange(); ctl.updateBar(); if (st.playhead === 'off') ctl.hidePlayhead(); return; }
+      if (k === 'playhead') { st.playhead = ({ beat: 'notes', notes: 'off', off: 'beat' })[st.playhead ?? 'beat']; onChange(); ctl.updateBar(); if (st.playhead === 'off') ctl.hidePlayhead(); return; }
       if (k === 'pitch') spGivePitch(ctl, b.dataset.w);
       if (k === 'layout') {
         st.layout = st.layout === 'h' ? 'v' : 'h'; onChange(); ctl.updateBar();

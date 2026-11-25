@@ -257,7 +257,7 @@
               mode: 'solfege',
               show: false,
               showCounts: false,
-              playhead: 'off',
+              playhead: 'beat',
               solfege: {
                 key: 'C',
                 scale: 'major',
@@ -297,7 +297,7 @@
               mode: 'rhythm',
               show: true,
               showCounts: true,
-              playhead: 'off',
+              playhead: 'beat',
               rhythm: {
                 ts: '4/4',
                 measures: 4,
