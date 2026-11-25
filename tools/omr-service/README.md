@@ -40,6 +40,8 @@ Audiveris uses Tesseract OCR to read **lyrics, titles, tempo markings, dynamics,
 | `TESSDATA_PREFIX` | auto-detect | Directory containing Tesseract `*.traineddata` (e.g. `eng.traineddata`) so Audiveris OCR reads lyrics, titles, tempo words, and dynamics |
 | `OMR_ENGINE_CMD` | *(unset)* | Optional override command prefix for testing or pluggable CLI engines (`CustomCmdAdapter`) |
 | `OMR_PREPROCESS` | `auto` | `auto` compiles `preprocess.swift` on macOS (or uses `pdftoppm`) for image contrast cleanup and 400 DPI per-page retry; `off` disables preprocessing |
+| `OMR_MULTI_RUN` | `off` | `off` (default), `all`, or `flagged` — runs up to 3 preprocessing variants (`v300`, `v400`, `v350c`) in parallel and attaches `alternateRuns` for consensus checking |
+| `OMR_RETENTION_HOURS` | `24` | Automatically deletes completed/failed scan jobs and uploaded files older than this many hours (`0` disables cleanup) |
 | `OMR_JOB_TIMEOUT` | `55` | Subprocess timeout in seconds (keeps single-page scans under 60s) |
 | `OMR_WORKERS` | `2` | Background worker thread count |
 | `OMR_MAX_UPLOAD_BYTES` | `20971520` (20 MB) | Maximum upload size in bytes |
@@ -71,3 +73,18 @@ Audiveris uses Tesseract OCR to read **lyrics, titles, tempo markings, dynamics,
 ```
 
 The test suite exercises the real HTTP server, SQLite persistence, async worker queue, subprocess boundary (via a fake CLI script), all failure modes, unverified scan isolation, teacher + student member auth, server-side save gate enforcement, and SHA-256 verified cache hits using ephemeral localhost ports and temporary directories.
+
+## Running Locally with Docker
+
+```bash
+docker build -t rehearsal-omr tools/omr-service
+docker run --rm -p 8788:8788 rehearsal-omr
+```
+
+(On Apple Silicon Macs, pass `--platform linux/amd64` to `docker build` / `docker run` to run the official x86_64 Audiveris `.deb` release.)
+
+Then open Rehearsal with `?omrApi=http://127.0.0.1:8788` (or set it in Scan & Fix's Server URL box).
+
+## Credits & Attribution
+
+- **Audiveris (AGPL v3)**: Optical Music Recognition is powered by [Audiveris](https://github.com/Audiveris/audiveris), invoked strictly as an external CLI subprocess (`audiveris -batch ...`) with zero GPL/AGPL code linked or bundled into Rehearsal.

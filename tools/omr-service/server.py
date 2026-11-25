@@ -196,6 +196,7 @@ class OMRConfig:
     preprocess_mode: str = "auto"  # "auto" | "off"
     preprocess: bool = True
     multi_run_mode: str = "off"  # "off" | "all" | "flagged"
+    retention_hours: float = 24.0
 
     def resolved_engine_cmd(self) -> Optional[List[str]]:
         if self.engine_cmd is not None:
@@ -319,6 +320,7 @@ def load_config_from_env() -> OMRConfig:
         preprocess_mode=prep_mode,
         preprocess=(prep_mode != "off"),
         multi_run_mode=normalize_multi_run_mode(os.environ.get("OMR_MULTI_RUN")),
+        retention_hours=float(os.environ.get("OMR_RETENTION_HOURS", "24")),
     )
 
 
@@ -1078,9 +1080,12 @@ class OMRService:
         self._stop_event = threading.Event()
         self._workers: List[threading.Thread] = []
         self._collector_threads: List[threading.Thread] = []
+        self._cleanup_thread: Optional[threading.Thread] = None
 
         self._init_db()
+        self.cleanup_expired_jobs()
         self._start_workers()
+        self._start_cleanup_thread()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -1182,10 +1187,94 @@ class OMRService:
             t.start()
             self._workers.append(t)
 
+    def _start_cleanup_thread(self) -> None:
+        if self.config.retention_hours <= 0:
+            return
+        t = threading.Thread(
+            target=self._cleanup_loop,
+            name="omr-cleanup",
+            daemon=True,
+        )
+        t.start()
+        self._cleanup_thread = t
+
+    def _cleanup_loop(self) -> None:
+        while not self._stop_event.wait(3600.0):
+            try:
+                self.cleanup_expired_jobs()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _parse_iso_ts(ts_str: str) -> Optional[float]:
+        if not ts_str:
+            return None
+        try:
+            dt = datetime.datetime.strptime(ts_str.strip(), "%Y-%m-%dT%H:%M:%SZ")
+            return dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+        except ValueError:
+            return None
+
+    def cleanup_expired_jobs(self, now_ts: Optional[float] = None) -> int:
+        """Delete scan_jobs rows and job folders older than retention_hours (skipping active jobs)."""
+        if self.config.retention_hours <= 0:
+            return 0
+        now_val = now_ts if now_ts is not None else time.time()
+        cutoff = now_val - (self.config.retention_hours * 3600.0)
+        deleted = 0
+        expired_ids: List[str] = []
+        active_ids: set[str] = set()
+
+        with self._db_lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT job_id, status, created_at, updated_at FROM scan_jobs"
+                ).fetchall()
+                for r in rows:
+                    jid = r["job_id"]
+                    if r["status"] in ("queued", "processing"):
+                        active_ids.add(jid)
+                        continue
+                    ts = self._parse_iso_ts(r["updated_at"] or "") or self._parse_iso_ts(r["created_at"] or "")
+                    if ts is not None and ts < cutoff:
+                        expired_ids.append(jid)
+                for jid in expired_ids:
+                    conn.execute("DELETE FROM scan_jobs WHERE job_id = ?", (jid,))
+                if expired_ids:
+                    conn.commit()
+            finally:
+                conn.close()
+
+        for jid in expired_ids:
+            jdir = os.path.join(self.jobs_dir, jid)
+            if os.path.isdir(jdir):
+                shutil.rmtree(jdir, ignore_errors=True)
+            deleted += 1
+
+        # Also clean up orphaned job folders older than cutoff
+        if os.path.isdir(self.jobs_dir):
+            expired_set = set(expired_ids)
+            for name in os.listdir(self.jobs_dir):
+                if name in active_ids or name in expired_set:
+                    continue
+                jdir = os.path.join(self.jobs_dir, name)
+                if not os.path.isdir(jdir):
+                    continue
+                try:
+                    if os.path.getmtime(jdir) < cutoff:
+                        shutil.rmtree(jdir, ignore_errors=True)
+                        deleted += 1
+                except OSError:
+                    pass
+        return deleted
+
     def stop(self) -> None:
         self._stop_event.set()
         for t in self._workers:
             t.join(timeout=2.0)
+        if self._cleanup_thread is not None:
+            self._cleanup_thread.join(timeout=2.0)
         with self._state_lock:
             collectors = list(self._collector_threads)
         for ct in collectors:
@@ -1216,6 +1305,7 @@ class OMRService:
             "tessdataDir": self.config.tessdata_dir,
             "preprocessAvailable": self.preprocess_available(),
             "multiRun": self.config.multi_run_mode,
+            "retentionHours": self.config.retention_hours,
             "queueDepth": self._queue.qsize(),
             "activeJobs": active,
             "authMode": self.config.auth_mode,

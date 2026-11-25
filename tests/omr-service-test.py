@@ -687,6 +687,7 @@ class OMRServiceTestSuite(unittest.TestCase):
         self.assertIsInstance(data["ocrAvailable"], bool)
         self.assertIn("tessdataDir", data)
         self.assertIsInstance(data["preprocessAvailable"], bool)
+        self.assertEqual(data["retentionHours"], 24.0)
         self.assertEqual(data["authMode"], "optional")
         self.assertEqual(data["version"], "1.0.0")
         self.assertIsInstance(data["queueDepth"], int)
@@ -1731,6 +1732,60 @@ class OMRServiceTestSuite(unittest.TestCase):
         self.assertGreaterEqual(by_var["v400"]["seconds"], 0.25)
         self.assertEqual(by_var["v350c"]["status"], "completed")
         self.assertIn("<work-title>Variant v350c</work-title>", by_var["v350c"]["rawMusicxml"])
+
+    # 15. 24-hour auto-cleanup deletes expired jobs and preserves fresh jobs
+    def test_15_cleanup_expired_jobs_deletes_after_24h(self) -> None:
+        data_dir = os.path.join(self.tmpdir.name, "data_cleanup")
+        cfg = omr_server.OMRConfig(
+            host="127.0.0.1",
+            port=0,
+            data_dir=data_dir,
+            engine_cmd=[sys.executable, self.fake_cli_path],
+            job_timeout=10.0,
+            workers=1,
+            preprocess=False,
+            retention_hours=24.0,
+        )
+        service = omr_server.OMRService(cfg)
+        try:
+            os.environ["FAKE_OMR_MODE"] = "mxl"
+            expired = service.create_job(
+                "old.png", "image/png", ".png", b"\x89PNG_OLD_JOB"
+            )
+            fresh = service.create_job(
+                "new.png", "image/png", ".png", b"\x89PNG_FRESH_JOB"
+            )
+            # Wait for both to settle
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                r1 = service.get_job_row(expired["jobId"])
+                r2 = service.get_job_row(fresh["jobId"])
+                if r1 and r2 and r1["status"] == "completed" and r2["status"] == "completed":
+                    break
+                time.sleep(0.05)
+
+            old_ts = "2020-01-01T00:00:00Z"
+            with service._db_lock:
+                conn = service._connect()
+                try:
+                    conn.execute(
+                        "UPDATE scan_jobs SET created_at = ?, updated_at = ? WHERE job_id = ?",
+                        (old_ts, old_ts, expired["jobId"]),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+            exp_dir = os.path.join(service.jobs_dir, expired["jobId"])
+            os.utime(exp_dir, (1577836800, 1577836800))
+
+            deleted = service.cleanup_expired_jobs()
+            self.assertEqual(deleted, 1)
+            self.assertIsNone(service.get_job_row(expired["jobId"]))
+            self.assertFalse(os.path.exists(exp_dir))
+            self.assertIsNotNone(service.get_job_row(fresh["jobId"]))
+            self.assertTrue(os.path.isdir(os.path.join(service.jobs_dir, fresh["jobId"])))
+        finally:
+            service.stop()
 
 
 def main() -> int:

@@ -95,6 +95,7 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | Step 3 (Choir rules) | 52.5% | 63.7% | 78.0% | 62.3% | 100.0% | 14.5s | Choir voice ranges, tenor-8 part-level flag, vocal leaps (>12 st), onset-merged lyric checks, voice crossing; disabled noisy 7th/tritone warnings by default (+36.0% catch, 100.0% precision) |
 | Step 4 (Cross-part consensus) | 52.5% | 63.7% | 78.0% | 68.4% | 99.1% | 14.5s | Added `web/scan-consensus.js` cross-part measure-count, signature, and homophonic rhythm/lyric checks (`+6.1%` catch rate, `99.1%` precision) |
 | Step 5 (Multi-run consensus) | 60.0% *(v300 parAll)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* | 90.7% *(flaggedOnly)* | 14.1s *(1st/single)* / 31.5s *(parAll)* | Added `preprocess.swift variants`, parallel `OMR_MULTI_RUN` (`v300`/`v400`/`v350c`), fast first-result completion, and `sfCompareOcrRuns` consensus flags |
+| Step 6 (Docker + 24h cleanup) | 60.0% *(v300)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* / 68.4% *(1-run)* | 90.7% / 99.1% | 14.1s | Local Java 17 + Audiveris 5.x (`eng`+`lat`) Dockerfile, automatic 24-hour upload/job cleanup, and updated teacher docs |
 
 ### Step 5 Multi-Run Strategy Comparison (5 CPDL + Photo Pieces, 8 Pages Total)
 
