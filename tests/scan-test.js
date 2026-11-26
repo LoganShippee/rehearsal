@@ -1632,7 +1632,7 @@ check('pitch change breaks stale tie on both notes',
   // M1: missing dot (quarter G4 + eighth A4 + half B4 = 3.5 beats -> add dot to G4)
   // M2: extra dot (dotted quarter C5 + quarter D5 + half E5 = 4.5 beats -> remove dot from C5)
   // M3: wrong duration (eighth F4 + quarter G4 + half A4 = 3.5 beats -> change F4 to quarter)
-  // M4: trailing rest fill (half G4 + quarter A4 = 3.0 beats -> add quarter rest)
+  // M4: trailing rest fill (3 quarter notes = 3.0 beats -> add quarter rest; not a missing-dot bar)
   const rhyXml = makeXml([
     '<note><pitch><step>C</step><octave>5</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type></note>',
     '<note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>' +
@@ -1644,10 +1644,24 @@ check('pitch change breaks stale tie on both notes',
     '<note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>eighth</type></note>' +
     '<note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>' +
     '<note><pitch><step>A</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>',
-    '<note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>' +
-    '<note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>'
+    '<note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>' +
+    '<note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>' +
+    '<note><pitch><step>B</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>quarter</type></note>'
   ], { partName: 'Soprano' });
   const rm = sfParseMusicXml(rhyXml);
+  // Revert M1 and M3's auto-repaired dots so we also test manual sfSuggestRhythmFixes('add_dot', 'change_duration')
+  const rmM1 = rm.parts[0].measures[1];
+  const rmM1N0 = rmM1.entries.find(e => e.kind === 'note');
+  rmM1N0.dots = 0;
+  rmM1N0.durationDivs = rmM1.divisions;
+  rmM1N0.durationQ = 1;
+  sfRecalcMeasureOnsets(rmM1);
+  const rmM3 = rm.parts[0].measures[3];
+  const rmM3N1 = rmM3.entries.filter(e => e.kind === 'note')[1];
+  rmM3N1.dots = 0;
+  rmM3N1.durationDivs = rmM3.divisions;
+  rmM3N1.durationQ = 1;
+  sfRecalcMeasureOnsets(rmM3);
   const rFlags0 = sfAnalyzeFlags(rm);
   const sugs = sfSuggestRhythmFixes(rm, rFlags0);
 
@@ -2565,6 +2579,260 @@ check('sfDetectChoirPart identifies SATB parts and rejects non-choir instruments
     splitModel.parts.length === 2 &&
     splitModel.parts[0].name === 'Soprano' &&
     splitModel.parts[1].name === 'BASS');
+}
+
+// =========================================================================
+// 25. Deterministic Missing-Dot Auto-Repair (sfAutoFixMissingDots)
+// =========================================================================
+{
+  const dotCasesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <!-- M1 (pickup, mi=0): should stay untouched -->
+    <measure number="0" implicit="yes">
+      <attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>half</type></note>
+    </measure>
+    <!-- M2: 4/4 N2 N0.5 N0.5 -> N3. N0.5 N0.5 -->
+    <measure number="1">
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>half</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+    </measure>
+    <!-- M3: 4/4 N1.5. N0.5 N1 N0.5 -> N1.5. N0.5 N1.5. N0.5 -->
+    <measure number="2">
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>3</duration><type>quarter</type><dot/></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+    </measure>
+    <!-- M4: 4/4 paired N1 N0.5 N1 N0.5 -> N1.5. N0.5 N1.5. N0.5 -->
+    <measure number="3">
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>eighth</type></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+    </measure>
+    <!-- M5: 3/4 N2 -> N3. -->
+    <measure number="4">
+      <attributes><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>half</type></note>
+    </measure>
+    <!-- M6: 6/8 N1 N1 -> N1.5. N1.5. -->
+    <measure number="5">
+      <attributes><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><type>quarter</type></note>
+    </measure>
+    <!-- M7: odd durationDivs (divisions=1, half=2, quarter=1 -> actually 3/4 chord half+odd) -->
+    <measure number="6">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>half</type></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+    <!-- M8: ambiguous bar (4/4 N1 N1 N1 = 3.0, deficit=1.0, baseQ=2.0, no N2) -> untouched -->
+    <measure number="7">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const dotModel = sfParseMusicXml(dotCasesXml);
+  const ms = dotModel.parts[0].measures;
+  const notesOf = m => m.entries.filter(e => e.kind === 'note' && !e.isRest);
+
+  check('sfAutoFixMissingDots skips pickup bar (mi=0)',
+    notesOf(ms[0])[0].durationQ === 2 && !notesOf(ms[0])[0].dots);
+  check('sfAutoFixMissingDots repairs 4/4 N2 N0.5 N0.5 -> N3. N0.5 N0.5',
+    notesOf(ms[1])[0].durationQ === 3 && notesOf(ms[1])[0].dots === 1);
+  check('sfAutoFixMissingDots repairs 4/4 N1.5. N0.5 N1 N0.5 -> N1.5. N0.5 N1.5. N0.5',
+    notesOf(ms[2])[2].durationQ === 1.5 && notesOf(ms[2])[2].dots === 1);
+  check('sfAutoFixMissingDots repairs paired 4/4 N1 N0.5 N1 N0.5',
+    notesOf(ms[3])[0].durationQ === 1.5 && notesOf(ms[3])[2].durationQ === 1.5);
+  check('sfAutoFixMissingDots repairs 3/4 N2 -> N3.',
+    notesOf(ms[4])[0].durationQ === 3 && notesOf(ms[4])[0].dots === 1);
+  check('sfAutoFixMissingDots repairs compound 6/8 N1 N1 -> N1.5. N1.5.',
+    notesOf(ms[5])[0].durationQ === 1.5 && notesOf(ms[5])[1].durationQ === 1.5);
+  check('sfAutoFixMissingDots leaves ambiguous 4/4 N1 N1 N1 untouched and records autoRepairs',
+    notesOf(ms[7]).every(n => n.durationQ === 1 && !n.dots) &&
+    dotModel.autoFixedDots === 7 &&
+    Array.isArray(dotModel.autoRepairs) &&
+    dotModel.autoRepairs.some(r => r.kind === 'missing_dot'));
+
+  // Explicit odd durationDivs + chord test (4/4: chord N1 + N1 + N1 + N0.5 -> chord N1.5. + N1 + N1 + N0.5? Wait: N1 + N0.5 + N2 with divisions=2 where N1 has durationDivs=1 at divisions=1 -> 4/4 N0.5? Better: 3/4 with divisions=1: N1 (odd!) + chord N1 + N1 + N0.5 -> wait: 3/4 with divisions=2: N1(divs=2) + N1(divs=2) -> use divisions=1, 4/4: N1(divs=1) + chord N1(divs=1) + N2(divs=2) + N0.5? Let's test divisions=1 in 3/8: beats=3, bt=8 (expectedQ=1.5): N1(divs=1) + chord N1(divs=1) -> deficit=0.5, baseQ=1.0 -> dots chord to N1.5. and doubles divisions 1->2!)
+  const oddChordXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>8</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><chord/><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const oddChordModel = sfParseMusicXml(oddChordXml);
+  const om1 = oddChordModel.parts[0].measures[1];
+  const om1Notes = om1.entries.filter(e => e.kind === 'note');
+  check('sfAutoFixMissingDots doubles odd divisions and dots both anchor and chord note',
+    om1.divisions === 2 &&
+    om1Notes[0].durationDivs === 3 && om1Notes[0].durationQ === 1.5 && om1Notes[0].dots === 1 &&
+    om1Notes[1].durationDivs === 3 && om1Notes[1].durationQ === 1.5 && om1Notes[1].dots === 1);
+}
+
+// =========================================================================
+// 26. Dedupe Doubled Identical Chord Heads (sfDedupeChordNotes)
+// =========================================================================
+{
+  const dedupeXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <!-- C4 + E5 + E5 (duplicate chord head) + G4 in voice 1 -->
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <backup><duration>4</duration></backup>
+      <!-- Genuine unison E5 in voice 2 must be kept -->
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>2</voice><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const ddModel = sfParseMusicXml(dedupeXml);
+  const ddNotes = ddModel.parts[0].measures[0].entries.filter(e => e.kind === 'note');
+  const v1Notes = ddNotes.filter(e => e.voice === '1');
+  const v2Notes = ddNotes.filter(e => e.voice === '2');
+  check('sfDedupeChordNotes removes duplicate E5+E5 chord head while keeping C4+E5+G4 and v2 unison E5',
+    ddModel.dedupedChords === 1 &&
+    v1Notes.length === 3 &&
+    v1Notes.map(n => n.step + n.octave).join(',') === 'C4,E5,G4' &&
+    v2Notes.length === 1 &&
+    v2Notes[0].step === 'E' && v2Notes[0].octave === 5);
+}
+
+// =========================================================================
+// 27. Key-Signature Flicker Stabilization & Unmarked Pitch Reconciliation
+// =========================================================================
+{
+  const flickerXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Part 1</part-name></score-part>
+    <score-part id="P2"><part-name>Part 2</part-name></score-part>
+    <score-part id="P3"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>-1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <attributes><key><fifths>-2</fifths></key></attributes>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><type>half</type></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><accidental>natural</accidental><type>half</type></note>
+    </measure>
+    <measure number="3">
+      <attributes><key><fifths>-3</fifths></key></attributes>
+      <note><pitch><step>A</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="4">
+      <attributes><key><fifths>-2</fifths></key></attributes>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>-3</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>E</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>E</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <attributes><key><fifths>-2</fifths></key></attributes>
+      <note><pitch><step>E</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="4">
+      <attributes><key><fifths>-3</fifths></key></attributes>
+      <note><pitch><step>E</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P3">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>-1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <attributes><key><fifths>-3</fifths></key></attributes>
+      <note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <attributes><key><fifths>-3</fifths></key></attributes>
+      <note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="4">
+      <attributes><key><fifths>-3</fifths></key></attributes>
+      <note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const flModel = sfParseMusicXml(flickerXml);
+  const p1m2Notes = flModel.parts[0].measures[1].entries.filter(e => e.kind === 'note');
+  const allFifths = new Set();
+  for (const p of flModel.parts) for (const m of p.measures) allFifths.add(m.key.fifths);
+  check('sfStabilizeKeySignatures stabilizes -1/-2/-3 flicker to -3, clears mid-score hasKeyAttr, and reconciles unmarked pitches',
+    flModel.stabilizedKeyMeasures > 0 &&
+    allFifths.size === 1 && allFifths.has(-3) &&
+    flModel.parts[0].measures[0].hasKeyAttr === true &&
+    flModel.parts[0].measures.slice(1).every(m => !m.hasKeyAttr) &&
+    p1m2Notes[0].alter === -1 && p1m2Notes[0].midi === 68 &&
+    p1m2Notes[1].accidental === 'natural' && p1m2Notes[1].alter === 0 && p1m2Notes[1].midi === 69);
+
+  const modXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+    <score-part id="P3"><part-name>Tenor</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="3"><attributes><key><fifths>4</fifths></key></attributes><note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="4"><note><pitch><step>D</step><alter>1</alter><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="3"><attributes><key><fifths>4</fifths></key></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="4"><note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>1</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>B</step><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>B</step><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="3"><attributes><key><fifths>4</fifths></key></attributes><note><pitch><step>G</step><alter>1</alter><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="4"><note><pitch><step>A</step><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const modModel = sfParseMusicXml(modXml);
+  check('sfStabilizeKeySignatures preserves genuine unanimous modulation (1 -> 4 sharps)',
+    modModel.stabilizedKeyMeasures === 0 &&
+    modModel.parts[0].measures[0].key.fifths === 1 &&
+    modModel.parts[0].measures[1].key.fifths === 1 &&
+    modModel.parts[0].measures[2].key.fifths === 4 &&
+    modModel.parts[0].measures[3].key.fifths === 4);
 }
 
 // Async tests: sfParseMxl + sfParseScoreInput

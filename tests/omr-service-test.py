@@ -1787,7 +1787,7 @@ class OMRServiceTestSuite(unittest.TestCase):
         finally:
             service.stop()
 
-    # 16. 300 DPI default rasterpdf preprocessing + parallel flagged-page multirun
+    # 16. Default PDF passes original vector PDF directly + parallel flagged-page multirun
     def test_16_300dpi_default_preprocess_and_flagged_parallel_multirun(self) -> None:
         data_dir = os.path.join(self.tmpdir.name, "data_raster_flagged")
         os.makedirs(data_dir, exist_ok=True)
@@ -1850,7 +1850,7 @@ class OMRServiceTestSuite(unittest.TestCase):
         self.assertEqual(job["detectedSpokenCues"], [{"text": "spoken", "count": 1}])
         with open(self.invocations_file, "r", encoding="utf-8") as f:
             last_inv = [ln.strip() for ln in f if ln.strip()][-1]
-        self.assertTrue(last_inv.endswith("input-300dpi.pdf"), f"expected input-300dpi.pdf, got {last_inv}")
+        self.assertTrue(last_inv.endswith("input.pdf"), f"expected native input.pdf, got {last_inv}")
 
         # Part B: multiRun=flagged runs primary v300, detects duration mismatch in m.2,
         # and dispatches flagged-page alternates in parallel

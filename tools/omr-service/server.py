@@ -1892,14 +1892,13 @@ class OMRService:
             effective_timeout = self._effective_timeout(total_pages)
 
             if multi_run_mode == "flagged":
-                primary_input = tmpdir and os.path.join(tmpdir, "input-300dpi.pdf")
-                shutil.copy2(original_path, os.path.join(tmpdir, f"input{ext or '.png'}"))
                 orig_copy = os.path.join(tmpdir, f"input{ext or '.png'}")
-                if is_pdf:
-                    rendered = self._render_pdf_300dpi_default(orig_copy, primary_input, total_pages=total_pages)
-                    primary_input = rendered if rendered else orig_copy
-                else:
-                    primary_input = orig_copy
+                shutil.copy2(original_path, orig_copy)
+                primary_input = orig_copy
+                if not is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
+                    prepped_img = os.path.join(tmpdir, "input-prepped.png")
+                    if self._preprocess_image(orig_copy, prepped_img):
+                        primary_input = prepped_img
 
                 self._update_job(
                     job_id,
@@ -2228,12 +2227,7 @@ class OMRService:
 
             is_pdf = ext.lower() == ".pdf" or row.get("mime_type") == "application/pdf"
             engine_input = tmp_input
-            if is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
-                prepped_pdf = os.path.join(tmpdir, "input-300dpi.pdf")
-                rendered = self._render_pdf_300dpi_default(tmp_input, prepped_pdf, total_pages=total_pages)
-                if rendered:
-                    engine_input = rendered
-            elif not is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
+            if not is_pdf and self.config.preprocess and self.config.preprocess_mode != "off":
                 prepped_img = os.path.join(tmpdir, "input-prepped.png")
                 if self._preprocess_image(tmp_input, prepped_img):
                     engine_input = prepped_img

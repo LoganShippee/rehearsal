@@ -1041,7 +1041,10 @@ function sfParseMusicXml(xmlString) {
   };
   sfNormalizeMusicalMarkings(model);
   sfMergeSplitParts(model);
+  sfStabilizeKeySignatures(model);
   sfAlignPartSignatures(model);
+  sfDedupeChordNotes(model);
+  sfAutoFixMissingDots(model);
   sfAutoInferTimeSigChanges(model);
   return model;
 }
@@ -4732,9 +4735,136 @@ function sfCleanOcrLyrics(model, pdfVocabulary) {
   return { fixedCount: fixes.length, fixes };
 }
 
+function sfReconcileMeasureUnmarkedPitches(m, oldFifths, newFifths, partTranspose) {
+  if (oldFifths === newFifths || !m || !Array.isArray(m.entries)) return 0;
+  const trSemis = m.activeTranspose ? sfTransposeSemis(m.activeTranspose) : sfTransposeSemis(partTranspose);
+  let updated = 0;
+  for (const e of m.entries) {
+    if (e.kind !== 'note' || e.isRest || e.spoken || !e.step || !isFinite(e.octave)) continue;
+    if (!e.accidental && (e.alter || 0) === sfKeyAlterForStep(oldFifths, e.step)) {
+      e.alter = sfKeyAlterForStep(newFifths, e.step);
+      e.midi = sfPitchToMidi(e.step, e.octave, e.alter);
+      e.soundingMidi = e.midi !== null ? e.midi + trSemis : null;
+      updated++;
+    }
+  }
+  return updated;
+}
+
+function sfStabilizeKeySignatures(model) {
+  if (!model || !Array.isArray(model.parts)) return 0;
+  if (!Array.isArray(model.autoRepairs)) model.autoRepairs = [];
+  model.stabilizedKeyMeasures = 0;
+  if (!model.parts.length) return 0;
+
+  const byTrans = new Map();
+  for (const part of model.parts) {
+    const trChrom = (part.transpose && part.transpose.chromatic) || 0;
+    if (!byTrans.has(trChrom)) byTrans.set(trChrom, []);
+    byTrans.get(trChrom).push(part);
+  }
+
+  let repairedCount = 0;
+  for (const group of byTrans.values()) {
+    let maxMeasures = 0;
+    for (const part of group) {
+      if (part.measures && part.measures.length > maxMeasures) maxMeasures = part.measures.length;
+    }
+    if (!maxMeasures) continue;
+
+    const counts = {};
+    let totalPM = 0;
+    const distinctFifths = new Set();
+    let disagreementMeasures = 0;
+
+    for (let mi = 0; mi < maxMeasures; mi++) {
+      const barFifths = new Set();
+      for (const part of group) {
+        const m = part.measures && part.measures[mi];
+        if (!m || !m.key) continue;
+        const f = m.key.fifths || 0;
+        counts[f] = (counts[f] || 0) + 1;
+        totalPM++;
+        distinctFifths.add(f);
+        barFifths.add(f);
+      }
+      if (barFifths.size >= 2) disagreementMeasures++;
+    }
+
+    if (distinctFifths.size < 2 || totalPM === 0) continue;
+
+    let revisitCount = 0;
+    for (const part of group) {
+      const visited = new Set();
+      let prev = null;
+      const measures = part.measures || [];
+      for (let mi = 0; mi < measures.length; mi++) {
+        const m = measures[mi];
+        if (!m || !m.key) continue;
+        const f = m.key.fifths || 0;
+        if (f !== prev) {
+          if (visited.has(f)) revisitCount++;
+          visited.add(f);
+          prev = f;
+        }
+      }
+    }
+
+    const uniq = Array.from(distinctFifths);
+    const allNonPos = uniq.every(f => f <= 0);
+    const allNonNeg = uniq.every(f => f >= 0);
+    if (!(allNonPos || allNonNeg)) continue;
+
+    if (group.length >= 2) {
+      if (!(disagreementMeasures >= 1 && (revisitCount >= 1 || disagreementMeasures >= 2))) continue;
+    } else {
+      if (!(revisitCount >= 2)) continue;
+    }
+
+    const qualified = uniq.filter(f => counts[f] >= totalPM * 0.20);
+    let targetFifths;
+    if (qualified.length) {
+      qualified.sort((a, b) => (Math.abs(b) - Math.abs(a)) || (counts[b] - counts[a]));
+      targetFifths = qualified[0];
+    } else {
+      uniq.sort((a, b) => (counts[b] - counts[a]) || (Math.abs(b) - Math.abs(a)));
+      targetFifths = uniq[0];
+    }
+
+    for (const part of group) {
+      const measures = part.measures || [];
+      for (let mi = 0; mi < measures.length; mi++) {
+        const m = measures[mi];
+        if (!m || !m.key) continue;
+        const oldFifths = m.key.fifths || 0;
+        if (oldFifths !== targetFifths) {
+          m.key = Object.assign({}, m.key, { fifths: targetFifths });
+          sfReconcileMeasureUnmarkedPitches(m, oldFifths, targetFifths, part.transpose);
+          repairedCount++;
+          model.autoRepairs.push({
+            kind: 'key_signature_stabilize',
+            measureNumber: m.number || String(mi + 1),
+            partName: part.name || 'Part',
+            detail: `Stabilized key signature ${oldFifths} -> ${targetFifths} fifths`
+          });
+        }
+        m.hasKeyAttr = (mi === 0);
+      }
+    }
+  }
+
+  model.stabilizedKeyMeasures = repairedCount;
+  return repairedCount;
+}
+
+if (typeof window !== 'undefined') {
+  window.sfReconcileMeasureUnmarkedPitches = sfReconcileMeasureUnmarkedPitches;
+  window.sfStabilizeKeySignatures = sfStabilizeKeySignatures;
+}
+
 function sfAlignPartSignatures(model) {
   if (!model || !Array.isArray(model.parts)) return model;
-  model.autoRepairs = [];
+  if (!Array.isArray(model.autoRepairs)) model.autoRepairs = [];
   if (model.parts.length < 2) return model;
 
   let maxMeasures = 0;
@@ -4825,6 +4955,7 @@ function sfAlignPartSignatures(model) {
             const oldFifths = it.fifths;
             it.m.key.fifths = bestFifths;
             it.m.hasKeyAttr = true;
+            sfReconcileMeasureUnmarkedPitches(it.m, oldFifths, bestFifths, it.part.transpose);
             model.autoRepairs.push({
               kind: 'key_signature',
               measureNumber: it.m.number,
@@ -5807,4 +5938,220 @@ function sfRemoveMeasureKeySig(model, measureIndex) {
     }
   }
   return true;
+}
+
+// ---------- Dedupe Doubled Identical Chord Heads
+function sfDedupeChordNotes(model) {
+  if (!model || !Array.isArray(model.parts)) return 0;
+  let removed = 0;
+  for (let pi = 0; pi < model.parts.length; pi++) {
+    const part = model.parts[pi];
+    for (let mi = 0; mi < (part.measures || []).length; mi++) {
+      const m = part.measures[mi];
+      if (!m || !Array.isArray(m.entries) || !m.entries.length) continue;
+      const seen = new Set();
+      const kept = [];
+      let changed = false;
+      for (const e of m.entries) {
+        if (e.kind === 'note' && !e.isRest && !e.isGrace && e.step && isFinite(e.octave)) {
+          const onsetKey = isFinite(e.onsetQ) ? Math.round(e.onsetQ * 1000) : 0;
+          const key = `${e.staff || 1}:${e.voice || '1'}:${onsetKey}:${e.step}:${e.octave}:${e.alter || 0}`;
+          if (e.isChord && seen.has(key)) {
+            removed++;
+            changed = true;
+            continue;
+          }
+          seen.add(key);
+        }
+        kept.push(e);
+      }
+      if (changed) {
+        m.entries = kept;
+      }
+    }
+  }
+  model.dedupedChords = removed;
+  return removed;
+}
+
+if (typeof window !== 'undefined') {
+  window.sfDedupeChordNotes = sfDedupeChordNotes;
+}
+
+// ---------- Deterministic Missing-Dot Auto-Repair
+function sfSameMeasureDottedOnsets(model, mi, partIndex, staff, targetQ) {
+  const onsets = new Set();
+  const parts = (model && model.parts) || [];
+  for (let pi = 0; pi < parts.length; pi++) {
+    const m = parts[pi] && parts[pi].measures && parts[pi].measures[mi];
+    if (!m) continue;
+    for (const e of m.entries || []) {
+      if (e.kind !== 'note' || e.isRest || e.isChord || e.isGrace) continue;
+      if (pi === partIndex && String(e.staff || 1) === String(staff)) continue;
+      if ((e.dots || 0) > 0 && Math.abs((e.durationQ || 0) - targetQ) < 0.01 && isFinite(e.onsetQ)) {
+        onsets.add(Math.round(e.onsetQ * 1000));
+      }
+    }
+  }
+  return onsets;
+}
+
+function sfApplyDotToAnchor(measure, anchorObj) {
+  const targets = [anchorObj.anchor].concat(anchorObj.chords || []);
+  const needsDouble = targets.some(e => isFinite(e.durationDivs) && (Math.round(e.durationDivs) % 2 !== 0));
+  if (needsDouble) {
+    measure.divisions = (measure.divisions || 1) * 2;
+    for (const e of measure.entries || []) {
+      if (isFinite(e.durationDivs)) {
+        e.durationDivs = Math.round(e.durationDivs) * 2;
+      }
+    }
+  }
+  const divs = measure.divisions || 1;
+  for (const e of targets) {
+    e.dots = (e.dots || 0) + 1;
+    if (isFinite(e.durationDivs)) {
+      e.durationDivs = Math.round(e.durationDivs * 1.5);
+      e.durationQ = e.durationDivs / divs;
+    } else if (isFinite(e.durationQ)) {
+      e.durationQ = e.durationQ * 1.5;
+    }
+  }
+}
+
+function sfAutoFixMissingDots(model) {
+  if (!model || !Array.isArray(model.parts)) return 0;
+  model.autoRepairs = model.autoRepairs || [];
+  let totalFixed = 0;
+
+  for (let pi = 0; pi < model.parts.length; pi++) {
+    const part = model.parts[pi];
+    const measures = part.measures || [];
+    for (let mi = 0; mi < measures.length; mi++) {
+      const m = measures[mi];
+      if (!m || mi === 0 || m.implicit || String(m.number) === '0') continue;
+      const beats = (m.time && m.time.beats) || 4;
+      const bt = (m.time && m.time.beatType) || 4;
+      const expectedQ = beats * 4 / bt;
+
+      // Group non-grace entries per (staff, voice)
+      const voiceGroups = {};
+      for (const e of m.entries || []) {
+        if (e.isGrace) continue;
+        if (e.kind !== 'note' && e.kind !== 'rest' && e.kind !== 'forward') continue;
+        const st = e.staff || 1;
+        const v = e.voice || '1';
+        const key = `${st}:${v}`;
+        (voiceGroups[key] || (voiceGroups[key] = { staff: st, voice: v, entries: [] })).entries.push(e);
+      }
+
+      let measureFixed = 0;
+      for (const gk of Object.keys(voiceGroups)) {
+        const g = voiceGroups[gk];
+        if (g.entries.some(e => e.kind === 'forward' || e.timeModification)) continue;
+
+        const anchors = [];
+        for (const e of g.entries) {
+          if (e.kind === 'note' && e.isChord) {
+            if (anchors.length) anchors[anchors.length - 1].chords.push(e);
+          } else {
+            anchors.push({ anchor: e, chords: [] });
+          }
+        }
+        if (!anchors.length) continue;
+        if (anchors.length === 1 && (anchors[0].anchor.measureRest || (anchors[0].anchor.kind === 'rest' && anchors[0].anchor.type === 'whole'))) {
+          continue;
+        }
+
+        const sumQ = anchors.reduce((acc, x) => acc + (x.anchor.durationQ || 0), 0);
+        const deficit = expectedQ - sumQ;
+        if (deficit <= 0.01) continue;
+
+        let chosen = [];
+
+        // Rule A: Single missing dot (deficit near 0.25, 0.5, 1.0, or 2.0)
+        const singleDeficits = [0.25, 0.5, 1.0, 2.0];
+        const matchedDef = singleDeficits.find(d => Math.abs(deficit - d) < 0.01);
+        if (matchedDef != null) {
+          const baseQ = matchedDef * 2;
+          const candidates = anchors.filter(x =>
+            x.anchor.kind === 'note' && !x.anchor.isRest && !(x.anchor.dots > 0) &&
+            Math.abs((x.anchor.durationQ || 0) - baseQ) < 0.01
+          );
+          if (candidates.length === 1) {
+            chosen = candidates;
+          } else if (candidates.length > 1 && (baseQ === 1.0 || baseQ === 0.5)) {
+            const halfFollow = candidates.filter(c => {
+              const idx = anchors.indexOf(c);
+              const nxt = anchors[idx + 1];
+              return nxt && Math.abs((nxt.anchor.durationQ || 0) - baseQ / 2) < 0.01;
+            });
+            if (halfFollow.length === 1) {
+              chosen = halfFollow;
+            } else {
+              const dottedOnsets = sfSameMeasureDottedOnsets(model, mi, pi, g.staff, baseQ * 1.5);
+              const onsetMatches = candidates.filter(c => isFinite(c.anchor.onsetQ) && dottedOnsets.has(Math.round(c.anchor.onsetQ * 1000)));
+              if (onsetMatches.length === 1) chosen = onsetMatches;
+            }
+          }
+        }
+
+        // Rule B: Paired missing dots & compound meter
+        if (!chosen.length && Math.abs(deficit - 1.0) < 0.01) {
+          const pairs = anchors.filter((x, idx) => {
+            if (x.anchor.kind !== 'note' || x.anchor.isRest || (x.anchor.dots > 0)) return false;
+            if (Math.abs((x.anchor.durationQ || 0) - 1.0) >= 0.01) return false;
+            const nxt = anchors[idx + 1];
+            return nxt && Math.abs((nxt.anchor.durationQ || 0) - 0.5) < 0.01;
+          });
+          if (pairs.length === 2) chosen = pairs;
+        }
+        if (!chosen.length && Math.abs(deficit - 0.5) < 0.01) {
+          const pairs = anchors.filter((x, idx) => {
+            if (x.anchor.kind !== 'note' || x.anchor.isRest || (x.anchor.dots > 0)) return false;
+            if (Math.abs((x.anchor.durationQ || 0) - 0.5) >= 0.01) return false;
+            const nxt = anchors[idx + 1];
+            return nxt && Math.abs((nxt.anchor.durationQ || 0) - 0.25) < 0.01;
+          });
+          if (pairs.length === 2) chosen = pairs;
+        }
+        if (!chosen.length && bt === 8 && beats % 3 === 0) {
+          const k = beats / 3;
+          if (Math.abs(k * 0.5 - deficit) < 0.01) {
+            const cands = anchors.filter(x =>
+              x.anchor.kind === 'note' && !x.anchor.isRest && !(x.anchor.dots > 0) &&
+              Math.abs((x.anchor.durationQ || 0) - 1.0) < 0.01
+            );
+            if (cands.length === k) chosen = cands;
+          }
+        }
+
+        if (chosen.length) {
+          for (const c of chosen) {
+            sfApplyDotToAnchor(m, c);
+            measureFixed++;
+            totalFixed++;
+          }
+        }
+      }
+
+      if (measureFixed > 0) {
+        sfRecalcMeasureOnsets(m);
+        sfSyncMeasureBackups(m);
+        model.autoRepairs.push({
+          kind: 'missing_dot',
+          measureNumber: m.number || String(mi + 1),
+          partName: part.name || ('Part ' + (pi + 1)),
+          detail: `Added ${measureFixed} missing augmentation dot${measureFixed > 1 ? 's' : ''}`
+        });
+      }
+    }
+  }
+
+  model.autoFixedDots = totalFixed;
+  return totalFixed;
+}
+
+if (typeof window !== 'undefined') {
+  window.sfAutoFixMissingDots = sfAutoFixMissingDots;
 }
