@@ -1029,6 +1029,9 @@
           if (!curCells.some(c => tbl[c])) {
             o.cells = isComp ? ['dq', 'eee', 'qe', 'dh'] : ['q', 'h', 'ee', 'qr'];
           }
+        } else if (typeof srCellTable === 'function') {   // melodies: swap to choices that fit the new meter
+          const tbl = srCellTable('solfege', o.ts);
+          if (!(Array.isArray(o.cells) ? o.cells : []).some(c => tbl[c])) o.cells = SIGHT_METERS[o.ts]?.[1] === 'compound' ? ['dq', 'qe', 'dh'] : ['q', 'h', 'w'];
         }
         needRegen = true;
       } else if (key === 'sr-cell') {
@@ -1526,10 +1529,13 @@
     const isTrue = D.assignMode === 'true_sight_read';
     const isRhythmOnly = eff === 'rhythm';
     const tempo = Number(o.tempo || (curMode === 'rhythm' ? 80 : 72));
-    const meters = curMode === 'rhythm' ? Object.keys(SIGHT_METERS) : ['2/4', '3/4', '4/4'];
+    // melodies can use compound meters too (sight.js srCellTable gives each meter's singable choices)
+    const hasMelCompound = typeof srCellTable === 'function';
+    const meters = curMode === 'rhythm' || hasMelCompound ? Object.keys(SIGHT_METERS) : ['2/4', '3/4', '4/4'];
     const isComp = SIGHT_METERS[o.ts || '4/4']?.[1] === 'compound';
     const cellTable = curMode === 'rhythm'
       ? (isComp ? SIGHT_COMPOUND : SIGHT_SIMPLE)
+      : hasMelCompound ? srCellTable('solfege', o.ts || '4/4')
       : Object.fromEntries(SIGHT_MEL_KEYS.map(k => [k, SIGHT_SIMPLE[k]]).filter(([, v]) => v));
     const activeCells = new Set(Array.isArray(o.cells) ? o.cells : ['q', 'h', 'w']);
     const showPreviewBox = isBuildMode || !!D.showPreview;
