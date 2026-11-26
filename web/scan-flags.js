@@ -843,43 +843,38 @@ function sfAnalyzeFlags(model, opts) {
         }
       }
 
-      // ----- Rule 2: accidental_anomaly
-      const accState = {}; // key: `${staff}:${step}:${octave}` -> { activeAlter, explicitCount }
+      // ----- Rule 2: accidental_anomaly (only double accidentals or written accidental contradicting pitch <alter>)
+      const accToAlter = {
+        sharp: 1,
+        flat: -1,
+        natural: 0,
+        'double-sharp': 2,
+        'flat-flat': -2,
+        'double-flat': -2
+      };
       for (const e of entries) {
         if (e.kind !== 'note' || e.isRest || e.spoken || !e.step || !isFinite(e.octave)) continue;
-        const key = `${e.staff || 1}:${e.step}:${e.octave}`;
-        const keyAlt = sfFlagsKeyAlter(fifths, e.step);
-        const st = accState[key] || (accState[key] = { activeAlter: keyAlt, explicitCount: 0 });
+        if (!e.accidental) continue;
         const curAlt = Number(e.alter) || 0;
-
-        if (e.accidental) {
-          let reason = null;
-          if (Math.abs(curAlt) >= 2 || e.accidental === 'double-sharp' || e.accidental === 'flat-flat' || e.accidental === 'double-flat') {
-            reason = `Unusual double accidental (${e.accidental}) on ${e.step}${e.octave}.`;
-          } else if (st.explicitCount === 0 && curAlt === keyAlt) {
-            reason = `Redundant ${e.accidental} on ${e.step}${e.octave} already matches the key signature.`;
-          } else if (st.explicitCount > 0 && curAlt === st.activeAlter) {
-            reason = `Repeated ${e.accidental} on ${e.step}${e.octave} in the same measure.`;
-          } else if (fifths <= -2 && curAlt > 0 && e.accidental === 'sharp') {
-            reason = `Sharp on ${e.step}${e.octave} clashes with a flat key signature (${Math.abs(fifths)} flats).`;
-          } else if (fifths >= 2 && curAlt < 0 && e.accidental === 'flat') {
-            reason = `Flat on ${e.step}${e.octave} clashes with a sharp key signature (${fifths} sharps).`;
-          }
-          if (reason && isRuleEnabled('accidental_anomaly')) {
-            addFinding(mi, {
-              rule: 'accidental_anomaly',
-              severity: 'medium',
-              weight: SF_FLAG_WEIGHTS.accidental_anomaly,
-              partIndex: pi,
-              voice: e.voice || '1',
-              noteId: e.id,
-              message: reason
-            });
-          }
-          st.activeAlter = curAlt;
-          st.explicitCount++;
-        } else {
-          st.activeAlter = curAlt;
+        const expectedAlt = Object.prototype.hasOwnProperty.call(accToAlter, e.accidental)
+          ? accToAlter[e.accidental]
+          : null;
+        let reason = null;
+        if (Math.abs(curAlt) >= 2 || e.accidental === 'double-sharp' || e.accidental === 'flat-flat' || e.accidental === 'double-flat') {
+          reason = `Unusual double accidental (${e.accidental}) on ${e.step}${e.octave}.`;
+        } else if (expectedAlt !== null && curAlt !== expectedAlt) {
+          reason = `Accidental (${e.accidental}) disagrees with pitch alteration on ${e.step}${e.octave}.`;
+        }
+        if (reason && isRuleEnabled('accidental_anomaly')) {
+          addFinding(mi, {
+            rule: 'accidental_anomaly',
+            severity: 'medium',
+            weight: SF_FLAG_WEIGHTS.accidental_anomaly,
+            partIndex: pi,
+            voice: e.voice || '1',
+            noteId: e.id,
+            message: reason
+          });
         }
       }
 

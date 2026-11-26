@@ -361,44 +361,51 @@ check('detect unknown -> auto', sfDetectInstrument('Voice Part') === 'auto');
   check('Rule 1 POS: over-full M2 flagged', rPos.measures[2].findings.some(f => f.rule === 'duration_mismatch'));
 }
 
-// Rule 2: accidental_anomaly
+// Rule 2: accidental_anomaly (only double accidentals and XML pitch/accidental contradictions)
 {
-  // Positive A: redundant sharp on F# in G major (fifths=1) on first occurrence
-  const posRedundant = makeXml([
-    '<note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>' +
-    '<note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>'
-  ], { fifths: 1 });
-  const rRed = sfAnalyzeFlags(sfParseMusicXml(posRedundant), { instrument: 'trumpet' });
-  check('Rule 2 POS: redundant sharp matching key sig flagged',
-    rRed.measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
-
-  // Positive B: repeated identical accidental in same measure
-  const posRepeat = makeXml([
-    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>' +
-    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>'
-  ], { fifths: 0 });
-  const rRep = sfAnalyzeFlags(sfParseMusicXml(posRepeat), { instrument: 'trumpet' });
-  check('Rule 2 POS: repeated identical sharp in same bar flagged',
-    rRep.measures[0].findings.filter(f => f.rule === 'accidental_anomaly').length === 1);
-
-  // Positive C: sharp in flat key (fifths=-2) & flat in sharp key (fifths=+2) & double-sharp
-  const posClashFlatKey = makeXml([
-    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>sharp</accidental></note>'
-  ], { fifths: -2 });
-  const posClashSharpKey = makeXml([
-    '<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>flat</accidental></note>'
-  ], { fifths: 2 });
+  // Positive A: double-sharp flagged
   const posDouble = makeXml([
     '<note><pitch><step>F</step><alter>2</alter><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>double-sharp</accidental></note>'
   ], { fifths: 0 });
-  check('Rule 2 POS: sharp in Bb major (fifths=-2) flagged',
-    sfAnalyzeFlags(sfParseMusicXml(posClashFlatKey), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
-  check('Rule 2 POS: flat in D major (fifths=+2) flagged',
-    sfAnalyzeFlags(sfParseMusicXml(posClashSharpKey), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
   check('Rule 2 POS: double-sharp flagged',
     sfAnalyzeFlags(sfParseMusicXml(posDouble), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
 
-  // Negative: valid C# followed by C-natural in C major
+  // Positive B: contradictory written accidental vs pitch <alter>
+  const posMismatch = makeXml([
+    '<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>sharp</accidental></note>'
+  ], { fifths: 0 });
+  check('Rule 2 POS: accidental sharp disagreeing with alter=-1 flagged',
+    sfAnalyzeFlags(sfParseMusicXml(posMismatch), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
+
+  // Negative A: courtesy/cautionary sharp matching G major key sig (fifths=1) is valid
+  const negCourtesy = makeXml([
+    '<note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>' +
+    '<note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>half</type></note>'
+  ], { fifths: 1 });
+  check('Rule 2 NEG: courtesy sharp matching key sig -> 0 accidental flags',
+    !sfAnalyzeFlags(sfParseMusicXml(negCourtesy), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
+
+  // Negative B: repeated identical accidental in same measure (e.g. tied/tied-look or courtesy) -> 0 flags
+  const negRepeat = makeXml([
+    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>' +
+    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>'
+  ], { fifths: 0 });
+  check('Rule 2 NEG: repeated identical sharp in same bar -> 0 accidental flags',
+    !sfAnalyzeFlags(sfParseMusicXml(negRepeat), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
+
+  // Negative C: chromatic sharp in flat key (fifths=-2) & flat in sharp key (fifths=+2) -> 0 flags
+  const negClashFlatKey = makeXml([
+    '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>sharp</accidental></note>'
+  ], { fifths: -2 });
+  const negClashSharpKey = makeXml([
+    '<note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>whole</type><accidental>flat</accidental></note>'
+  ], { fifths: 2 });
+  check('Rule 2 NEG: chromatic sharp in Bb major (fifths=-2) -> 0 accidental flags',
+    !sfAnalyzeFlags(sfParseMusicXml(negClashFlatKey), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
+  check('Rule 2 NEG: chromatic flat in D major (fifths=+2) -> 0 accidental flags',
+    !sfAnalyzeFlags(sfParseMusicXml(negClashSharpKey), { instrument: 'trumpet' }).measures[0].findings.some(f => f.rule === 'accidental_anomaly'));
+
+  // Negative D: valid C# followed by C-natural in C major -> 0 flags
   const negAcc = makeXml([
     '<note><pitch><step>C</step><alter>1</alter><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>sharp</accidental></note>' +
     '<note><pitch><step>C</step><octave>5</octave></pitch><duration>8</duration><voice>1</voice><type>half</type><accidental>natural</accidental></note>'
