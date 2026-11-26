@@ -917,7 +917,8 @@ details.ev-cls label { display: flex; gap: 6px; align-items: center; font-size: 
 .sr-from b { position: absolute; left: -3px; bottom: calc(100% + 4px); font: 700 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: #1f6fd1; padding: 3px 7px; border-radius: 999px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
 
 /* sight reading: ✏️ Build */
-.sr-build { flex: 0 0 auto; margin: 6px 14px 0; padding: 8px 10px; background: #ffffff; border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 12px; display: flex; flex-direction: column; gap: 6px; color: #1d2330; }
+/* shrinks (and scrolls) along with the settings above it, so neither squeezes the other to nothing */
+.sr-build { flex: 0 1 auto; min-height: 0; overflow-y: auto; margin: 6px 14px 0; padding: 8px 10px; background: #ffffff; border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); border-radius: 12px; display: flex; flex-direction: column; gap: 6px; color: #1d2330; }
 .sr-build .sb-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .sr-build .sb-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #6a7080; min-width: 64px; }
 .sr-build button { border: 1px solid #d3d7e0; background: #ffffff; border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; color: #1d2330; }
