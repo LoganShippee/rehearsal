@@ -1310,6 +1310,13 @@ function srSettingsHTML(st, host = null) {
         <label class="srchk" title="Sometimes hold a note over the bar line with a tie"><input type="checkbox" data-k="ties" ${o.ties ? 'checked' : ''}> Tied notes</label>
         <label class="srchk" title="Show measure numbers above the staff"><input type="checkbox" data-k="measureNums" ${o.measureNums ? 'checked' : ''}> Measure #</label>
       </div>
+      <div class="sr-scard-hd sr-scard-sub">Rhythms</div>
+      <div class="sr-scard-bd sr-cells">
+        ${Object.entries(table).map(([k, c]) => {
+          const on = o.cells.includes(k);
+          return `<label class="srchk sr-rhy-pill ${on ? 'on' : ''}"><input type="checkbox" data-cell="${k}" ${on ? 'checked' : ''}> ${c.label}</label>`;
+        }).join('')}
+      </div>
     </div>`;
   const playCard = `<div class="sr-scard">
       <div class="sr-scard-hd">Playback &amp; Grading</div>
@@ -1325,16 +1332,8 @@ function srSettingsHTML(st, host = null) {
         <div class="sr-sync" title="If the playhead is ahead of or behind the sound on this device, slide this, or press Calibrate and tap along with 8 clicks.">Playhead sync <span><input type="range" min="-200" max="600" step="10" value="${avDelayMs()}" data-action-input="av-delay"><b class="av-v">${avDelayMs()} ms</b><button type="button" data-action="av-cal">Calibrate…</button></span></div>
       </div>
     </div>`;
-  const cells = `<div class="sr-scard sr-scard-rhy">
-      <div class="sr-scard-bd sr-cells">
-        <span class="sr-scard-inl">Rhythms</span>
-        ${Object.entries(table).map(([k, c]) => {
-          const on = o.cells.includes(k);
-          return `<label class="srchk sr-rhy-pill ${on ? 'on' : ''}"><input type="checkbox" data-cell="${k}" ${on ? 'checked' : ''}> ${c.label}</label>`;
-        }).join('')}
-      </div>
-    </div>`;
-  return `${presetsCard}<div class="sr-scards ${m === 'rhythm' ? 'is-two' : ''}">${pitchCard}${meterCard}${playCard}</div>${cells}`;
+  // the Rhythms choices live inside the Meter & Counting card (they depend on the time signature)
+  return `${presetsCard}<div class="sr-scards ${m === 'rhythm' ? 'is-two' : ''}">${pitchCard}${meterCard}${playCard}</div>`;
 }
 
 // ---------- a rhythm block drawn as music (for buttons and choices), cached
