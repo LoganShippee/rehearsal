@@ -738,7 +738,8 @@ body.dock-dragging iframe { pointer-events: none; }
 
 /* two pages side by side */
 .pdfv-pages.two { gap: 12px; }
-.pdfv-pages.scroll.two { flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: flex-start; }
+/* two pages per row: a grid, because the strip is as wide as its content and a wrapping row never wrapped (every page sat in one line) */
+.pdfv-pages.scroll.two { display: grid; grid-template-columns: repeat(2, max-content); justify-content: center; align-content: start; }
 .pdfv-bar [data-pdf="two"].on { background: var(--accent, #e76f51); color: #fff; }
 
 /* pinned tab shown as a full browser: the real web view sits underneath */

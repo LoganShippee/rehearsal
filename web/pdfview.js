@@ -49,7 +49,11 @@ function mountPdf(host, src, st, onChange, opts = {}) {
   };
   const pairStart = n => n - ((n - 1) % 2);          // 1–2, 3–4, …
   host.__pdf = ctl;
-  host.addEventListener('focusin', () => { PDF_ACTIVE = ctl; });
+  // The same host is re-used when another file opens in that spot. End the previous viewer's
+  // listeners, or its buttons keep acting on the old file (and show the old page count, e.g. "3 / 11").
+  host.__pdfLife?.abort();
+  const life = host.__pdfLife = new AbortController(), signal = life.signal;
+  host.addEventListener('focusin', () => { PDF_ACTIVE = ctl; }, { signal });
   const bar = () => {
     const two = st.two && doc && st.mode === 'page' && st.page < doc.numPages;
     const numEl = host.querySelector('.pdfv-num');
@@ -263,8 +267,8 @@ function mountPdf(host, src, st, onChange, opts = {}) {
       }
       syncAnnotClass(); bar(); abarRender();
     }
-  });
-  host.addEventListener('pointerdown', () => { PDF_ACTIVE = ctl; });
+  }, { signal });
+  host.addEventListener('pointerdown', () => { PDF_ACTIVE = ctl; }, { signal });
   let zoomTimer = null;
   const reRenderSharp = () => {
     if (!doc) return;
@@ -369,7 +373,7 @@ function mountPdf(host, src, st, onChange, opts = {}) {
     clearTimeout(rt); rt = setTimeout(() => { if (host.isConnected) draw(); else ro.disconnect(); }, 150);
   });
   ro.observe(view);
-  pdfDoc(src).then(d => { doc = d; st.page = Math.min(st.page, d.numPages); draw(); })
+  pdfDoc(src).then(d => { if (signal.aborted) return; doc = d; st.page = Math.min(st.page, d.numPages); draw(); })
     .catch(err => { host.innerHTML = `<div class="res-fallback">Couldn't open this PDF (${esc(err.message || err)}).</div>`; });
   bar();
 }
