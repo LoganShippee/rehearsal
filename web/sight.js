@@ -35,6 +35,16 @@ const SR_COMPOUND = {
 };
 const SR_METERS = { '2/4': [2, 'simple'], '3/4': [3, 'simple'], '4/4': [4, 'simple'], '6/8': [2, 'compound'], '9/8': [3, 'compound'], '12/8': [4, 'compound'] };
 const SR_MEL_CELLS = ['w', 'hd', 'h', 'q', 'ee', 'qde', 'qr', 'hr', 'ssss', 'syn'];
+const SR_MEL_CELLS_COMPOUND = ['dh', 'dq', 'eee', 'qe', 'eq', 'dqr', 'desse'];   // singable choices in 6/8, 9/8, 12/8
+// the rhythm choices offered for this mode and meter (melodies get a shorter, singable list)
+function srCellTable(mode, ts) {
+  const t = srCellsFor(ts);
+  if (mode === 'rhythm') return t;
+  const ids = SR_METERS[ts][1] === 'compound' ? SR_MEL_CELLS_COMPOUND : SR_MEL_CELLS;
+  return Object.fromEntries(ids.map(k => [k, t[k]]));
+}
+// the chosen rhythms that fit the current meter (a melody's settings may still hold the other meter's choices)
+const srMelAllowed = o => o.cells.filter(id => srCellsFor(o.ts)[id]);
 
 // ---------- solfege
 const SR_KEYS = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab'];
@@ -232,7 +242,7 @@ function srSpell(key, scale, d, clef) {
 }
 function srGenMelody(o) {
   const nM = Math.max(1, Math.min(16, Math.round(Number(o.measures)) || 1));   // whole number only (new Array(2.5) throws)
-  const rhythm = srGenRhythm(o.ts, nM, o.cells.filter(id => SR_SIMPLE[id]), o.ties);
+  const rhythm = srGenRhythm(o.ts, nM, srMelAllowed(o), o.ties);
   const [, lo, hi] = SR_RANGES[o.range] || SR_RANGES['do-sol'];
   const maxLeap = { step: 1, third: 2, triad: 4, fifth: 4, octave: 7 }[o.leap] || 1;
   const triad = new Set([0, 2, 4, 7, -3, -5, 9]);
@@ -383,8 +393,8 @@ function srGenHarmony(o, P) {
     chords.push(best.n);
   }
   const at = (ss, t) => { const s = ss.find(x => !x.rest && t >= x.t - 1e-6 && t < x.t + x.len - 1e-6); return s ? s.a : null; };
-  const allowed = o.cells.filter(id => SR_SIMPLE[id]);
-  const calm = allowed.filter(id => ['w', 'hd', 'h', 'q', 'qr', 'hr'].includes(id));
+  const allowed = srMelAllowed(o);
+  const calm = allowed.filter(id => ['w', 'hd', 'h', 'q', 'qr', 'hr', 'dh', 'dq', 'dqr'].includes(id));
   const parts = [{ rhythm: top.rhythm, pitches: top.pitches, clef: topClef }];
   for (let p = 1; p < P; p++) {
     const clef = srPartClef(o, p), off = srAbsOff(clef, o.key), isBass = p === P - 1 && (P === 3 || clef === 'bass');
@@ -457,15 +467,17 @@ function srGenHarmony(o, P) {
 }
 function srGenCanon(o, P) {
   const delay = Math.max(1, Math.min(2, Number(o.canonDelay) || 1));
-  const rhythm = srGenRhythm(o.ts, o.measures, o.cells.filter(id => SR_SIMPLE[id]));
+  const rhythm = srGenRhythm(o.ts, o.measures, srMelAllowed(o));
   const [, lo, hi] = SR_RANGES[o.range] || SR_RANGES['do-sol'];
   // a round works when every beat lands on the home chord (do–mi–sol); the notes between just step
   const triad = [-7, -5, -3, 0, 2, 4, 7, 9].filter(d => d >= lo && d <= hi);
   const near = c => triad.reduce((a, b) => Math.abs(b - c) < Math.abs(a - c) ? b : a, triad[0] ?? 0);
   const notes = srSlots(rhythm).filter(s => !s.rest), pitches = [];
+  const [beats, kind] = SR_METERS[o.ts], beatQ = kind === 'compound' ? 1.5 : 1;   // a compound beat is a dotted quarter
+  const isBeat = p => Math.abs(p / beatQ - Math.round(p / beatQ)) < 1e-6;
   let cur = 0;
   notes.forEach((s, i) => {
-    const onBeat = Math.abs(s.pos - Math.round(s.pos)) < 1e-6, nextOnBeat = notes[i + 1] && Math.abs(notes[i + 1].pos - Math.round(notes[i + 1].pos)) < 1e-6;
+    const onBeat = isBeat(s.pos), nextOnBeat = notes[i + 1] && isBeat(notes[i + 1].pos);
     let cand;
     if (i === 0) cand = o.startDo ? [0] : triad.filter(d => [0, 2, 4].includes(d));
     else if (i === notes.length - 1) cand = [0, 7].filter(d => d >= lo && d <= hi);
@@ -475,8 +487,9 @@ function srGenCanon(o, P) {
     cur = srRand(cand.flatMap(d => Math.abs(d - cur) <= 1 ? [d, d, d] : [d]));
     pitches.push(cur);
   });
-  const beats = SR_METERS[o.ts][0];
-  const restM = () => [{ id: 'rest', ev: [[beats === 4 ? 'w' : beats === 3 ? 'hd' : 'h', beats, 1]] }];
+  const restM = () => kind === 'compound'
+    ? [{ id: 'rest', ev: Array.from({ length: beats }, () => ['qd', 1.5, 1]) }]   // one dotted-quarter rest per beat
+    : [{ id: 'rest', ev: [[beats === 4 ? 'w' : beats === 3 ? 'hd' : 'h', beats, 1]] }];
   const total = rhythm.length + delay * (P - 1), parts = [];
   for (let p = 0; p < P; p++) {
     const r = [];
@@ -1269,8 +1282,8 @@ function srAnimate(host, st, getTimeline, clock) {
 function srSettingsHTML(st, host = null) {
   const o = st[st.mode], m = st.mode;
   const opt = (v, cur, label = v) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${label}</option>`;
-  const meters = m === 'rhythm' ? Object.keys(SR_METERS) : ['2/4', '3/4', '4/4'];
-  const table = m === 'rhythm' ? srCellsFor(o.ts) : Object.fromEntries(SR_MEL_CELLS.map(k => [k, SR_SIMPLE[k]]));
+  const meters = Object.keys(SR_METERS);
+  const table = srCellTable(m, o.ts);
   const presets = srSavedPresets().filter(p => p.mode === m);
   const savingPreset = !!host?.__savingPreset;
   const presetsCard = `<div class="sr-scard sr-scard-pre">
@@ -2331,8 +2344,10 @@ function mountSight(host, st, onChange) {
       }
       o[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? clamp(k === 'measures' ? Math.round(Number(el.value) || 1) : Number(el.value) || 1, Number(el.min), Number(el.max)) : k === 'countIn' ? Number(el.value) : el.value;
       if (k === 'countIn' && o.countIn === 0 && st.mode === 'solfege') o.countPitch = 'none';
-      if (k === 'ts' && st.mode === 'rhythm') {   // switching simple ↔ compound swaps the note choices
-        const table = srCellsFor(o.ts); if (!o.cells.some(c => table[c])) o.cells = SR_METERS[o.ts][1] === 'compound' ? ['dq', 'eee', 'qe', 'dh'] : ['q', 'h', 'ee', 'qr'];
+      if (k === 'ts' && (st.mode === 'rhythm' || st.mode === 'solfege')) {   // switching simple ↔ compound swaps the note choices
+        const table = srCellTable(st.mode, o.ts);
+        if (!o.cells.some(c => table[c])) o.cells = SR_METERS[o.ts][1] === 'compound' ? (st.mode === 'rhythm' ? ['dq', 'eee', 'qe', 'dh'] : ['dq', 'qe', 'dh'])
+          : (st.mode === 'rhythm' ? ['q', 'h', 'ee', 'qr'] : ['q', 'h', 'w']);
       }
     } else return;
     if (isBuild()) {
