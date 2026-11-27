@@ -54,16 +54,7 @@
       try { localStorage.setItem(DEMO_SERVER_KEY, JSON.stringify(next)); } catch { }
       return { ok: true, status: 200, rev: next.rev };
     }
-    if (api.isOffline()) return { ok: false, offline: true, status: 0 };
-    try {
-      const res = await fetch(`${api.getApiBase()}/api/teacher/data`, {
-        method,
-        headers: { Authorization: `Bearer ${api.getToken()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      const j = await res.json().catch(() => ({}));
-      return { ok: res.ok, status: res.status, ...j };
-    } catch { return { ok: false, offline: true, status: 0 }; }
+    return api.liveFetch('/api/teacher/data', { method, json: body });
   }
 
   // ---------- push (debounced, called from saveNow)

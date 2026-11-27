@@ -3,10 +3,12 @@
 
 import {
   AUDIO_RETENTION_DAYS, DAY_MS, MAX_AUDIO_BYTES,
-  clamp, cleanText, corsHeaders, csvCell, errResponse, jsonResponse,
-  makeId, nowMs, parseRangeHeader, readJsonBody, safeJsonParse,
+  bestEffortDeleteR2Key, clamp, cleanText, corsHeaders, csvCell, errResponse,
+  formatAttemptStart, jsonResponse, makeId, nowMs, parseRangeHeader, readJsonBody,
+  requireOwnedAssignment, requireOwnedClass, requireOwnedSubmission,
+  requirePublishedAssignment, safeJsonParse,
 } from './util.js';
-import { requireStudent, requireTeacher } from './auth.js';
+import { requireTeacherOrStudent } from './auth.js';
 import { assertClassTeacherWritable, assertTeacherWritable } from './billing.js';
 
 const VALID_NOTE_STATUSES = new Set(['ok', 'timing', 'pitch', 'wrong', 'missed']);
@@ -38,18 +40,6 @@ function audioExtFromMime(rawMime) {
 function isFiniteNumeric(val) {
   if (val === null || val === undefined || val === '' || typeof val === 'boolean') return false;
   return Number.isFinite(Number(val));
-}
-
-function formatAttemptStart(row) {
-  return {
-    id: row.id,
-    assignmentId: row.assignment_id,
-    attemptNum: row.attempt_num,
-    startedAt: row.started_at,
-    studySeconds: row.study_seconds,
-    expectedSec: row.expected_sec,
-    consumedAt: row.consumed_at ?? null,
-  };
 }
 
 function effectiveSubmissionScore(sub) {
@@ -281,13 +271,8 @@ export function validateAndRecomputeSubmission({
 // ---------- POST /api/student/assignments/:id/start
 export async function handleStartAttempt(request, env, auth, assignmentId) {
   const student = auth.student;
-  const assignment = await env.DB.prepare(
-    `SELECT * FROM assignments
-     WHERE id = ? AND class_id = ? AND published = 1 AND archived_at IS NULL`
-  ).bind(assignmentId, student.class_id).first();
-  if (!assignment) {
-    return errResponse('Assignment not found', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-  }
+  const { assignment, error: asgnErr } = await requirePublishedAssignment(request, env, assignmentId, student.class_id);
+  if (asgnErr) return asgnErr;
 
   const writable = await assertClassTeacherWritable(student.class_id, request, env);
   if (writable.error) return writable.error;
@@ -313,7 +298,7 @@ export async function handleStartAttempt(request, env, auth, assignmentId) {
       return jsonResponse({
         ok: true,
         reused: true,
-        attemptStart: formatAttemptStart(active),
+        attemptStart: formatAttemptStart(active, { includeMeta: true }),
         config,
       }, 200, request, env);
     }
@@ -363,7 +348,7 @@ export async function handleStartAttempt(request, env, auth, assignmentId) {
   return jsonResponse({
     ok: true,
     reused: false,
-    attemptStart: formatAttemptStart(created),
+    attemptStart: formatAttemptStart(created, { includeMeta: true }),
     config,
   }, 200, request, env);
 }
@@ -371,13 +356,8 @@ export async function handleStartAttempt(request, env, auth, assignmentId) {
 // ---------- POST /api/student/assignments/:id/submissions
 export async function handleSubmitAttempt(request, env, auth, assignmentId) {
   const student = auth.student;
-  const assignment = await env.DB.prepare(
-    `SELECT * FROM assignments
-     WHERE id = ? AND class_id = ? AND published = 1 AND archived_at IS NULL`
-  ).bind(assignmentId, student.class_id).first();
-  if (!assignment) {
-    return errResponse('Assignment not found', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-  }
+  const { assignment, error: asgnErr } = await requirePublishedAssignment(request, env, assignmentId, student.class_id);
+  if (asgnErr) return asgnErr;
 
   const writable = await assertClassTeacherWritable(student.class_id, request, env);
   if (writable.error) return writable.error;
@@ -541,9 +521,7 @@ export async function handleSubmitAttempt(request, env, auth, assignmentId) {
       now
     ).run();
   } catch (err) {
-    if (audioKey && env.BUCKET) {
-      await env.BUCKET.delete(audioKey).catch(() => {});
-    }
+    await bestEffortDeleteR2Key(env, audioKey);
     const msg = String(err?.message || '');
     if (msg.toLowerCase().includes('unique')) {
       return errResponse('This attempt was already submitted.', 409, 'DUPLICATE_ATTEMPT', request, env);
@@ -574,19 +552,8 @@ export async function handleSubmitAttempt(request, env, auth, assignmentId) {
 
 // ---------- GET /api/submissions/:id/audio (owning teacher OR submitting student; read-only allowed)
 export async function handleStreamSubmissionAudio(request, env, submissionId) {
-  let actor = null;
-  const tAuth = await requireTeacher(request, env);
-  if (!tAuth.error) {
-    actor = { role: 'teacher', teacher: tAuth.teacher };
-  } else {
-    const sAuth = await requireStudent(request, env);
-    if (!sAuth.error) {
-      actor = { role: 'student', student: sAuth.student };
-    }
-  }
-  if (!actor) {
-    return errResponse('Sign in required', 401, 'UNAUTHORIZED', request, env);
-  }
+  const actor = await requireTeacherOrStudent(request, env);
+  if (actor.error) return actor.error;
 
   const sub = await env.DB.prepare(
     `SELECT s.*, c.teacher_id
@@ -667,10 +634,8 @@ export async function handleStreamSubmissionAudio(request, env, submissionId) {
 
 // ---------- GET /api/classes/:classId/gradebook (allowed in read-only mode)
 export async function handleGetGradebook(request, env, auth, classId) {
-  const cls = await env.DB.prepare(
-    'SELECT * FROM classes WHERE id = ? AND teacher_id = ?'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found', 404, 'CLASS_NOT_FOUND', request, env);
+  const { cls, error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id);
+  if (clsErr) return clsErr;
 
   const studentsRes = await env.DB.prepare(
     `SELECT id, display_name, email, part, archived_at
@@ -789,15 +754,8 @@ export async function handleGetGradebook(request, env, auth, classId) {
 
 // ---------- GET /api/assignments/:id/submissions (teacher view; allowed in read-only mode)
 export async function handleListAssignmentSubmissions(request, env, auth, assignmentId) {
-  const assignment = await env.DB.prepare(
-    `SELECT a.*, c.name AS class_name
-     FROM assignments a
-     JOIN classes c ON c.id = a.class_id
-     WHERE a.id = ? AND a.teacher_id = ?`
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!assignment) {
-    return errResponse('Assignment not found', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-  }
+  const { assignment, error: asgnErr } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id, { withClass: true });
+  if (asgnErr) return asgnErr;
 
   const rowsRes = await env.DB.prepare(
     `SELECT s.*, st.display_name AS student_name, st.email AS student_email, st.part AS student_part, st.is_test AS student_is_test
@@ -866,13 +824,8 @@ export async function handleGradeSubmission(request, env, auth, submissionId) {
   const planErr = assertTeacherWritable(auth.teacher, request, env);
   if (planErr) return planErr;
 
-  const sub = await env.DB.prepare(
-    `SELECT s.*, c.teacher_id
-     FROM submissions s
-     JOIN classes c ON c.id = s.class_id
-     WHERE s.id = ? AND c.teacher_id = ?`
-  ).bind(submissionId, auth.teacher.id).first();
-  if (!sub) return errResponse('Submission not found', 404, 'SUBMISSION_NOT_FOUND', request, env);
+  const { sub, error: subErr } = await requireOwnedSubmission(request, env, submissionId, auth.teacher.id);
+  if (subErr) return subErr;
 
   const body = await readJsonBody(request);
   if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
@@ -936,17 +889,10 @@ export async function handleGradeSubmission(request, env, auth, submissionId) {
 
 // ---------- DELETE /api/submissions/:id/audio (allowed in read-only mode; keeps grades)
 export async function handleDeleteSubmissionAudio(request, env, auth, submissionId) {
-  const sub = await env.DB.prepare(
-    `SELECT s.*, c.teacher_id
-     FROM submissions s
-     JOIN classes c ON c.id = s.class_id
-     WHERE s.id = ? AND c.teacher_id = ?`
-  ).bind(submissionId, auth.teacher.id).first();
-  if (!sub) return errResponse('Submission not found', 404, 'SUBMISSION_NOT_FOUND', request, env);
+  const { sub, error: subErr } = await requireOwnedSubmission(request, env, submissionId, auth.teacher.id);
+  if (subErr) return subErr;
 
-  if (sub.audio_r2_key && env.BUCKET) {
-    await env.BUCKET.delete(sub.audio_r2_key).catch(() => {});
-  }
+  await bestEffortDeleteR2Key(env, sub.audio_r2_key);
 
   const now = nowMs(env);
   await env.DB.prepare(
@@ -963,17 +909,10 @@ export async function handleDeleteSubmissionAudio(request, env, auth, submission
 
 // ---------- DELETE /api/submissions/:id (allowed in read-only mode)
 export async function handleDeleteSubmission(request, env, auth, submissionId) {
-  const sub = await env.DB.prepare(
-    `SELECT s.*, c.teacher_id
-     FROM submissions s
-     JOIN classes c ON c.id = s.class_id
-     WHERE s.id = ? AND c.teacher_id = ?`
-  ).bind(submissionId, auth.teacher.id).first();
-  if (!sub) return errResponse('Submission not found', 404, 'SUBMISSION_NOT_FOUND', request, env);
+  const { sub, error: subErr } = await requireOwnedSubmission(request, env, submissionId, auth.teacher.id);
+  if (subErr) return subErr;
 
-  if (sub.audio_r2_key && env.BUCKET) {
-    await env.BUCKET.delete(sub.audio_r2_key).catch(() => {});
-  }
+  await bestEffortDeleteR2Key(env, sub.audio_r2_key);
 
   await env.DB.prepare('DELETE FROM submissions WHERE id = ?').bind(sub.id).run();
   return jsonResponse({ ok: true, deleted: true, submissionId: sub.id }, 200, request, env);
@@ -981,10 +920,8 @@ export async function handleDeleteSubmission(request, env, auth, submissionId) {
 
 // ---------- GET /api/classes/:classId/gradebook.csv (allowed in read-only mode)
 export async function handleExportGradebookCsv(request, env, auth, classId) {
-  const cls = await env.DB.prepare(
-    'SELECT * FROM classes WHERE id = ? AND teacher_id = ?'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found', 404, 'CLASS_NOT_FOUND', request, env);
+  const { cls, error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id);
+  if (clsErr) return clsErr;
 
   const url = new URL(request.url);
   const filterAssignmentId = cleanText(url.searchParams.get('assignmentId') || '', 64);

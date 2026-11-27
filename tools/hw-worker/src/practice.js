@@ -1,9 +1,9 @@
 // Practice tracks: MusicXML files a teacher shares with a whole class for free practice.
 // Not graded, never saved as a submission. Zero external dependencies.
 
-import { cleanText, errResponse, jsonResponse, makeId, nowMs, readJsonBody } from './util.js';
+import { bestEffortDeleteR2Key, cleanText, errResponse, jsonResponse, makeId, nowMs, readJsonBody, requireOwnedClass } from './util.js';
 import { assertTeacherWritable } from './billing.js';
-import { requireStudent, requireTeacher } from './auth.js';
+import { requireTeacherOrStudent } from './auth.js';
 import { readValidatedScoreUpload, streamAssignmentScoreResponse } from './assignments.js';
 
 // Each track can be up to 10 MB, so cap how many one class can hold.
@@ -38,10 +38,8 @@ export async function handleUploadPracticeTrack(request, env, auth, classId) {
   const blocked = assertTeacherWritable(auth.teacher, request, env);
   if (blocked) return blocked;
 
-  const cls = await env.DB.prepare(
-    'SELECT id FROM classes WHERE id = ? AND teacher_id = ? AND archived_at IS NULL'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found or archived.', 404, 'CLASS_NOT_FOUND', request, env);
+  const { error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id, { activeOnly: true });
+  if (clsErr) return clsErr;
 
   // Check the limit first so a full class doesn't read a 10 MB file for nothing.
   const countRow = await env.DB.prepare(
@@ -73,7 +71,7 @@ export async function handleUploadPracticeTrack(request, env, auth, classId) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).bind(id, classId, title, r2Key, safeFilename, bytes.byteLength, now).run();
   } catch (err) {
-    try { await env.BUCKET.delete(r2Key); } catch {}
+    await bestEffortDeleteR2Key(env, r2Key);
     throw err;
   }
 
@@ -87,10 +85,8 @@ export async function handleUploadPracticeTrack(request, env, auth, classId) {
 }
 
 export async function handleListClassPracticeTracks(request, env, auth, classId) {
-  const cls = await env.DB.prepare(
-    'SELECT id FROM classes WHERE id = ? AND teacher_id = ?'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found.', 404, 'CLASS_NOT_FOUND', request, env);
+  const { error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id);
+  if (clsErr) return clsErr;
 
   const includeArchived = new URL(request.url).searchParams.get('includeArchived') === '1';
   const sql = includeArchived
@@ -138,9 +134,7 @@ export async function handleDeletePracticeTrack(request, env, auth, trackId) {
 
   // Row first: if the file delete fails we only leave an orphan file, never a track students can see but can't open.
   await env.DB.prepare('DELETE FROM practice_tracks WHERE id = ?').bind(trackId).run();
-  if (env.BUCKET && existing.score_r2_key) {
-    try { await env.BUCKET.delete(existing.score_r2_key); } catch {}
-  }
+  await bestEffortDeleteR2Key(env, existing.score_r2_key);
 
   return jsonResponse({ ok: true, deleted: true, id: trackId }, 200, request, env);
 }
@@ -157,20 +151,14 @@ export async function handleStudentListPracticeTracks(request, env, auth) {
 }
 
 export async function handleDownloadPracticeTrackScore(request, env, trackId) {
-  let track = null;
+  const actor = await requireTeacherOrStudent(request, env);
+  if (actor.error) return actor.error;
 
-  const teacherAuth = await requireTeacher(request, env);
-  if (!teacherAuth.error) {
-    track = await getOwnedTrack(env, trackId, teacherAuth.teacher.id);
-  } else {
-    const studentAuth = await requireStudent(request, env);
-    if (studentAuth.error) {
-      return errResponse('Sign in required.', 401, 'UNAUTHORIZED', request, env);
-    }
-    track = await env.DB.prepare(
-      'SELECT * FROM practice_tracks WHERE id = ? AND class_id = ? AND archived_at IS NULL'
-    ).bind(trackId, studentAuth.student.class_id).first();
-  }
+  const track = actor.role === 'teacher'
+    ? await getOwnedTrack(env, trackId, actor.teacher.id)
+    : await env.DB.prepare(
+        'SELECT * FROM practice_tracks WHERE id = ? AND class_id = ? AND archived_at IS NULL'
+      ).bind(trackId, actor.student.class_id).first();
   // Same answer whether the track is missing or belongs to another class.
   if (!track) return trackNotFound(request, env);
 

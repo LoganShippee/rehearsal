@@ -159,6 +159,18 @@ export async function requireStudent(request, env) {
   return { student: row, sessionId: row.session_id };
 }
 
+export async function requireTeacherOrStudent(request, env) {
+  const tAuth = await requireTeacher(request, env);
+  if (!tAuth.error) {
+    return { role: 'teacher', teacher: tAuth.teacher, sessionId: tAuth.sessionId, ephemeral: tAuth.ephemeral };
+  }
+  const sAuth = await requireStudent(request, env);
+  if (!sAuth.error) {
+    return { role: 'student', student: sAuth.student, sessionId: sAuth.sessionId };
+  }
+  return { error: errResponse('Sign in required.', 401, 'UNAUTHORIZED', request, env) };
+}
+
 // ---------- Teacher 6-digit Email-Code Auth (Resend or DEV_MODE)
 async function sendTeacherCodeEmail(env, email, code) {
   if (isDevMode(env)) {
