@@ -20,7 +20,11 @@ const IS_MAC_OS = /Mac/i.test(navigator.platform || navigator.userAgent || '') &
 // what to call this device in messages ("saved on this iPad")
 const DEVICE = IS_NATIVE ? (window.__REHEARSAL_PLATFORM === 'windows' ? 'PC' : 'Mac') : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
 function toast(msg, ms = 2600) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  const t = document.createElement('div'); t.className = 'toast';
+  const span = document.createElement('span'); span.textContent = msg; t.appendChild(span);
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'toast-x'; x.setAttribute('aria-label', 'Dismiss'); x.title = 'Dismiss'; x.textContent = '×';
+  x.onclick = () => t.remove();
+  t.appendChild(x);
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
   return t;
 }
@@ -31,7 +35,7 @@ function undoToast(msg, onUndo, ms = 4500) {
   b.textContent = 'Undo';
   b.style.cssText = 'margin-left:10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;font-weight:700';
   b.onclick = () => { onUndo(); el.remove(); };
-  el.appendChild(b);
+  el.insertBefore(b, el.querySelector('.toast-x'));
   return el;
 }
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -663,6 +667,7 @@ function runAutomations(t) {
   const due = (key, at) => { const dt = ms - at; if (dt >= 0 && dt < 30000 && !P.fired.has(key)) { P.fired.add(key); return true; } return false; };
   for (const p of periodsFor(t)) {
     if (!p.cls) continue;
+    if (P.pinned && p.cls.id !== P.pinned) continue;
     for (const a of p.cls.automations) {
       if (a.enabled === false) continue;
       const off = (Number(a.offset) || 0) * 60000;
@@ -782,7 +787,7 @@ function tickOverlay() {
   if (P.overlay && Date.now() > P.overlay.until) { P.overlay = null; el.classList.remove('on'); el.innerHTML = ''; }
   if (!P.overlay && P.overlayQ.length) {
     P.overlay = P.overlayQ.shift(); P.overlay.until = Date.now() + P.overlay.seconds * 1000;
-    el.innerHTML = `<div class="p-msg">${esc(P.overlay.text)}<div class="sub">click to dismiss</div></div>`;
+    el.innerHTML = `<div class="p-msg"><button type="button" class="pop-x msg-x" data-action="overlay-dismiss" aria-label="Dismiss" title="Dismiss">×</button>${esc(P.overlay.text)}<div class="sub">click to dismiss</div></div>`;
     el.classList.add('on');
   }
 }
@@ -998,6 +1003,10 @@ function themeImgURL(img) {
 }
 function applyTheme(el, theme) {
   const th = theme || THEMES[0];
+  const imgUrl = th.image ? themeImgURL(th.image) : '';
+  const sig = `${th.bg}|${th.accent}|${th.text || '#fff'}|${th.titleText || ''}|${th.clockText || ''}|${th.panel ?? ''}|${th.sideLinked ?? ''}|${th.sideFont ?? ''}|${th.sidePanel ?? ''}|${th.dim ?? 0.25}|${imgUrl}`;
+  if (el._themeSig === sig) return;
+  el._themeSig = sig;
   // panel opacity: panels take the class background colour at the chosen strength (default = light tint)
   if (th.panel != null) { el.style.setProperty('--card', hexA(th.bg, th.panel)); el.style.setProperty('--panel-blur', th.panel > 0.4 ? '0px' : '8px'); }
   else { el.style.removeProperty('--card'); el.style.removeProperty('--panel-blur'); }
@@ -1413,7 +1422,9 @@ function tick() {
   root.classList.toggle('editing', !!P.editMode);
   root.classList.toggle('stage-max', !!P.stageMax && ctx.mode === 'class');
   setHTML('#p-clock', `<div class="time">${fmtClock(t)}</div><div class="left">${left}</div>`);
-  $('#p-bar').style.width = (clamp(frac, 0, 1) * 100).toFixed(2) + '%';
+  const pBar = $('#p-bar');
+  const pBarW = (clamp(frac, 0, 1) * 100).toFixed(2) + '%';
+  if (pBar && pBar._w !== pBarW) { pBar.style.width = pBarW; pBar._w = pBarW; }
 
   // body
   const layoutKey = ctx.mode + '|' + (ctx.cls?.id || '') + '|' + ctx.key;
@@ -1423,8 +1434,19 @@ function tick() {
 
   // signal
   const sg = $('#p-signal');
-  if (P.signal) { sg.textContent = P.signal.text; sg.style.background = P.signal.color; sg.style.color = '#fff'; sg.classList.add('on'); }
-  else sg.classList.remove('on');
+  if (P.signal) {
+    const sigKey = `${P.signal.text}|${P.signal.color}`;
+    if (sg._sig !== sigKey) {
+      sg._sig = sigKey;
+      sg.innerHTML = `<span>${esc(P.signal.text)}</span><button type="button" class="pop-x" data-action="signal-clear" aria-label="Dismiss" title="Dismiss">×</button>`;
+      sg.style.background = P.signal.color;
+      sg.style.color = '#fff';
+    }
+    sg.classList.add('on');
+  } else {
+    sg._sig = '';
+    sg.classList.remove('on');
+  }
 
   renderWins(ctx);
   tickTimers(); tickOverlay(); tickNoise(); syncNative();

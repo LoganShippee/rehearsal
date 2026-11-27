@@ -926,6 +926,8 @@
       let grooveStyle = 'electro';
       let autoRestartOnMiss = true;
       let autoRestartTimer = null;
+      let hadInputThisRun = false;
+      let noInputFailStreak = 0;
       let showCounts = true;
 
       let phase = 'idle'; // 'idle' | 'echo_listen' | 'countin' | 'live' | 'read_slow' | 'turbo_dash' | 'crashed'
@@ -1461,6 +1463,8 @@
         portalBarOffset = 0;
         justWarpedPortal = false;
         if (calState && calState.timer) { clearTimeout(calState.timer); calState = null; }
+        hadInputThisRun = false;
+        noInputFailStreak = 0;
         particles = [];
         shockwaves = [];
         popups = [];
@@ -1508,6 +1512,7 @@
         crashInfo = null;
         justWarpedPortal = fromPortal;
         if (!fromPortal) {
+          hadInputThisRun = false;
           cubeTrail = [];
           cubeY = 0;
           cubeVy = 0;
@@ -1557,6 +1562,8 @@
       function startRun() {
         ensureAudio();
         if (calState && calState.timer) { clearTimeout(calState.timer); calState = null; }
+        hadInputThisRun = false;
+        noInputFailStreak = 0;
         particles = [];
         shockwaves = [];
         popups = [];
@@ -1623,6 +1630,20 @@
         playCrashSfx();
         recordRunToProg();
 
+        if (!hadInputThisRun) noInputFailStreak += 1;
+        else noInputFailStreak = 0;
+        if (noInputFailStreak >= 3) {
+          noInputFailStreak = 0;
+          if (autoRestartTimer) { clearTimeout(autoRestartTimer); autoRestartTimer = null; }
+          phase = 'idle';
+          playBtn.textContent = 'Start';
+          statusText.textContent = 'Stopped after 3 runs with no input · Press Start or Space';
+          syncFocusChrome();
+          updateHud();
+          drawAll();
+          return;
+        }
+
         if (isOverdriveRun()) {
           overdriveBest = Math.max(overdriveBest, overdrivePortals);
           phase = 'cooldown';
@@ -1661,6 +1682,8 @@
       function handlePress() {
         ensureAudio();
         isPointerOrKeyDown = true;
+        hadInputThisRun = true;
+        noInputFailStreak = 0;
 
         if (calState) {
           const tNow = nowClockSec();
@@ -1907,8 +1930,9 @@
       }
 
       // ---------- Continuous Loop ----------
-      function tick() {
-        const now = performance.now();
+      function tick(rafTs) {
+        const perfNow = performance.now();
+        const now = (typeof rafTs === 'number' && isFinite(rafTs) && Math.abs(rafTs - perfNow) < 250) ? rafTs : perfNow;
         const dtSec = lastTickPerf ? Math.min(0.05, Math.max(0, (now - lastTickPerf) / 1000)) : 0.016;
         lastTickPerf = now;
         const dh = ((targetStageHue - stageHue + 540) % 360) - 180;
@@ -1918,7 +1942,7 @@
         }
         const t = getTheme();
 
-        const nowSec = nowClockSec();
+        const nowSec = now / 1000;
         if (phase === 'echo_listen') {
           const leadQ = echoLeadQ();
           const curQps = qps(1.0);
@@ -2234,7 +2258,7 @@
         }
 
         drawGame();
-        if (isStreamMode() || hadPopups || notationDirty || phase !== lastNotationPhase) {
+        if (isStreamMode() || notationDirty || phase !== lastNotationPhase) {
           drawNotation();
           notationDirty = false;
           lastNotationPhase = phase;
@@ -2253,11 +2277,18 @@
       let cachedSkyGrad = null;
       let cachedGlazeKey = '';
       let cachedGlazeGrad = null;
+      const badgeSprite = document.createElement('canvas');
+      const badgeCtx = badgeSprite.getContext('2d');
+      let badgeSpriteKey = '';
+      let badgeSpriteW = 0;
+      const shieldSprite = document.createElement('canvas');
+      const shieldCtx = shieldSprite.getContext('2d');
+      let shieldSpriteKey = '';
       function measureCanvas(canvas) {
         const rawDpr = window.devicePixelRatio || 1;
         // In WebKit/WKWebView (macOS app & Safari), non-integer 1.5x DPR triggers expensive resampling;
         // integer 1x on the animated gameCanvas keeps 60fps locked while notationCanvas stays crisp.
-        const maxDpr = (canvas === gameCanvas && IS_WEBKIT_ENGINE) ? 1 : (canvas === notationCanvas ? 2 : 1.5);
+        const maxDpr = (canvas === gameCanvas && IS_WEBKIT_ENGINE) ? 1 : 1.5;
         const dpr = Math.min(rawDpr, maxDpr);
         const rect = canvas.getBoundingClientRect();
         const w = Math.max(320, Math.round(rect.width));
@@ -2297,7 +2328,8 @@
 
       function drawGame() {
         const { w, h } = prepCanvas(gameCanvas, gCtx);
-        const camScale = Math.max(1.0, Math.min(1.85, h / 230));
+        // Quantize camScale to 0.25 steps so Apple CoreText glyph caching stays warm in WKWebView
+        const camScale = Math.round(Math.max(1.0, Math.min(1.75, h / 230)) * 4) / 4;
         const vw = w / camScale;
         const vh = h / camScale;
         PLAYER_X = Math.round(Math.max(115, Math.min(200, vw * 0.25)));
@@ -2778,14 +2810,12 @@
                     gCtx.fillStyle = 'rgba(102, 255, 136, 0.10)';
                     gCtx.fillRect(safeX, tunnelY - 14, rx2 - safeX, 28);
                     gCtx.strokeStyle = '#66ff88';
-                    gCtx.globalAlpha = 0.72;
-                    gCtx.setLineDash([3, 3]);
-                    gCtx.lineWidth = 2.6;
+                    gCtx.globalAlpha = 0.52;
+                    gCtx.lineWidth = 2.2;
                     gCtx.beginPath();
                     gCtx.moveTo(safeX, tunnelY - 14); gCtx.lineTo(rx2, tunnelY - 14);
                     gCtx.moveTo(safeX, tunnelY + 14); gCtx.lineTo(rx2, tunnelY + 14);
                     gCtx.stroke();
-                    gCtx.setLineDash([]);
                     gCtx.globalAlpha = 1;
                   }
                   gCtx.fillStyle = '#66ff88';
@@ -2881,14 +2911,12 @@
                     gCtx.fillStyle = 'rgba(102, 255, 136, 0.11)';
                     gCtx.fillRect(safeX, tunnelY - 14, rx2 - safeX, 28);
                     gCtx.strokeStyle = '#66ff88';
-                    gCtx.globalAlpha = 0.72;
-                    gCtx.setLineDash([3, 3]);
-                    gCtx.lineWidth = 2.6;
+                    gCtx.globalAlpha = 0.52;
+                    gCtx.lineWidth = 2.2;
                     gCtx.beginPath();
                     gCtx.moveTo(safeX, tunnelY - 14); gCtx.lineTo(rx2, tunnelY - 14);
                     gCtx.moveTo(safeX, tunnelY + 14); gCtx.lineTo(rx2, tunnelY + 14);
                     gCtx.stroke();
-                    gCtx.setLineDash([]);
                     gCtx.globalAlpha = 1;
                   }
                   gCtx.fillStyle = '#66ff88';
@@ -3123,14 +3151,7 @@
               const safeX = Math.max(rx1 + 16, wx(e.beat + e.dur - holdGraceQ(e)));
               const mistHold = tricksActive && e.result === null;
               const railEndX = mistHold ? Math.min(safeX, rx1 + Math.max(28, (safeX - rx1) * 0.48)) : safeX;
-              let railStroke = col;
-              if (mistHold) {
-                const grad = gCtx.createLinearGradient(rx1, ry, railEndX, ry);
-                grad.addColorStop(0, col);
-                grad.addColorStop(0.65, col);
-                grad.addColorStop(1, 'rgba(96, 239, 255, 0)');
-                railStroke = grad;
-              }
+              const railStroke = col;
               gCtx.save();
               gCtx.lineCap = 'round';
               // Outer neon glow halo
@@ -3171,17 +3192,17 @@
               gCtx.beginPath();
               gCtx.arc(rx1, ry, 3, 0, Math.PI * 2);
               gCtx.fill();
-              // Forward chevrons (>) along the active dash rail
+              // Forward chevrons (>) along the active hold rail (batched)
               gCtx.strokeStyle = col;
               gCtx.lineWidth = 1.6;
               gCtx.globalAlpha = 0.85;
+              gCtx.beginPath();
               for (let cx = rx1 + 14; cx < railEndX - 10; cx += 24) {
-                gCtx.beginPath();
                 gCtx.moveTo(cx - 3, ry - 4);
                 gCtx.lineTo(cx + 2, ry);
                 gCtx.lineTo(cx - 3, ry + 4);
-                gCtx.stroke();
               }
+              gCtx.stroke();
               gCtx.restore();
 
               if (!mistHold) {
@@ -3408,21 +3429,28 @@
             gCtx.fillStyle = 'rgba(12, 10, 22, 0.92)';
             gCtx.fillRect(rx1, 22, rw, blockH);
 
-            // Diagonal crimson caution stripes clipped inside the crusher block (batched)
-            gCtx.save();
-            gCtx.beginPath();
-            gCtx.rect(rx1 + 1, 23, Math.max(0, rw - 2), Math.max(0, blockH - 2));
-            gCtx.clip();
-            gCtx.strokeStyle = col;
-            gCtx.globalAlpha = 0.28;
-            gCtx.lineWidth = 4;
-            gCtx.beginPath();
-            for (let sx = rx1 - blockH; sx < rx2 + blockH; sx += 12) {
-              gCtx.moveTo(sx, 22);
-              gCtx.lineTo(sx + blockH, 22 + blockH);
+            // Diagonal crimson caution stripes clamped mathematically (no clip()/save()/restore() overhead in WebKit)
+            const xMin = rx1 + 2;
+            const xMax = rx2 - 2;
+            const yTop = 23;
+            const yBot = 22 + blockH - 1;
+            if (xMax > xMin && yBot > yTop) {
+              gCtx.strokeStyle = col;
+              gCtx.globalAlpha = 0.24;
+              gCtx.lineWidth = 3.5;
+              gCtx.beginPath();
+              for (let sx = rx1 - blockH; sx < rx2 + blockH; sx += 14) {
+                let ax = sx, ay = yTop, bx = sx + (yBot - yTop), by = yBot;
+                if (ax < xMin) { ay += (xMin - ax); ax = xMin; }
+                if (bx > xMax) { by -= (bx - xMax); bx = xMax; }
+                if (ax < bx && ay < by) {
+                  gCtx.moveTo(ax, ay);
+                  gCtx.lineTo(bx, by);
+                }
+              }
+              gCtx.stroke();
+              gCtx.globalAlpha = 1;
             }
-            gCtx.stroke();
-            gCtx.restore();
 
             // Crisp hazard border around the ceiling block
             gCtx.strokeStyle = col;
@@ -3493,14 +3521,12 @@
         gCtx.lineTo(vw, groundY);
         gCtx.stroke();
 
-        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-        gCtx.setLineDash([4, 4]);
+        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
         gCtx.lineWidth = 1;
         gCtx.beginPath();
         gCtx.moveTo(PLAYER_X, 24);
         gCtx.lineTo(PLAYER_X, groundY);
         gCtx.stroke();
-        gCtx.setLineDash([]);
 
         if (hideObstacles) {
           const fogStart = Math.max(PLAYER_X + 10, phase === 'echo_listen' ? wx(0) - 18 : PLAYER_X + 10);
@@ -3867,6 +3893,17 @@
           gCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
           gCtx.stroke();
         }
+        if (popups.length) {
+          gCtx.font = 'bold 11px system-ui, sans-serif';
+          gCtx.textAlign = 'center';
+          for (const p of popups) {
+            const px = wx(p.beat);
+            if (px < -40 || px > vw + 40) continue;
+            gCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
+            gCtx.fillStyle = p.color;
+            gCtx.fillText(p.text, px, Math.max(36, cubeRenderY - 26 - (1 - p.life) * 18));
+          }
+        }
         gCtx.globalAlpha = 1;
 
         // On-cube micro timing feedback bar right beneath the cube
@@ -3932,99 +3969,97 @@
           bCol = '#ff6b81';
         }
 
-        // Compact top-left status pill (keeps center sky completely unobstructed)
-        gCtx.font = 'bold 10px system-ui, sans-serif';
-        if (badge !== lastBadgeText) {
-          lastBadgeText = badge;
-          lastBadgeW = gCtx.measureText(badge).width + 16;
+        // Compact top-left status pill (cached to offscreen sprite so WebKit CoreText isn't called 60x/sec)
+        const bKey = `${badge}|${bCol}`;
+        if (bKey !== badgeSpriteKey) {
+          badgeSpriteKey = bKey;
+          badgeCtx.font = 'bold 10px system-ui, sans-serif';
+          badgeSpriteW = Math.ceil(badgeCtx.measureText(badge).width + 16);
+          badgeSprite.width = Math.max(16, badgeSpriteW * 2);
+          badgeSprite.height = 32;
+          badgeCtx.setTransform(2, 0, 0, 2, 0, 0);
+          badgeCtx.clearRect(0, 0, badgeSpriteW, 16);
+          badgeCtx.fillStyle = 'rgba(6, 9, 18, 0.56)';
+          badgeCtx.fillRect(0, 0, badgeSpriteW, 16);
+          badgeCtx.font = 'bold 10px system-ui, sans-serif';
+          badgeCtx.fillStyle = bCol;
+          badgeCtx.textAlign = 'left';
+          badgeCtx.fillText(badge, 8, 11);
         }
-        const tw = lastBadgeW;
-        gCtx.fillStyle = 'rgba(6, 9, 18, 0.56)';
-        gCtx.fillRect(8, 5, tw, 16);
-        gCtx.fillStyle = bCol;
-        gCtx.textAlign = 'left';
-        gCtx.fillText(badge, 16, 16);
+        gCtx.drawImage(badgeSprite, 8, 5, badgeSpriteW, 16);
 
-        // High-visibility Sky Shield & Streak-to-Shield HUD in upper-right sky
+        // High-visibility Sky Shield & Streak-to-Shield HUD in upper-right sky (cached offscreen sprite)
         const shW = 146;
         const shH = 28;
         const shX = vw - shW - 8;
         const shY = 5;
         const liveAcc = totalJudged > 0 ? Math.round((totalHits / totalJudged) * 100) : 100;
-        gCtx.fillStyle = 'rgba(6, 9, 18, 0.62)';
-        gCtx.fillRect(shX, shY, shW, shH);
-        gCtx.strokeStyle = (extraLives > 0 || shieldFlash > 0.05) ? '#60efff' : 'rgba(148, 163, 184, 0.35)';
-        gCtx.lineWidth = (extraLives > 0 || shieldFlash > 0.05) ? (1.4 + shieldFlash * 1.6) : 1;
-        gCtx.strokeRect(shX, shY, shW, shH);
-        // 2 shield slot diamonds
-        for (let si = 0; si < 2; si++) {
-          const dcx = shX + 12 + si * 13;
-          const dcy = shY + 8.5;
-          const filled = si < extraLives;
-          gCtx.beginPath();
-          gCtx.moveTo(dcx, dcy - 4.4);
-          gCtx.lineTo(dcx + 4.2, dcy - 1.2);
-          gCtx.lineTo(dcx + 3.2, dcy + 3.2);
-          gCtx.lineTo(dcx, dcy + 4.8);
-          gCtx.lineTo(dcx - 3.2, dcy + 3.2);
-          gCtx.lineTo(dcx - 4.2, dcy - 1.2);
-          gCtx.closePath();
-          if (filled) {
-            gCtx.fillStyle = '#60efff';
-            gCtx.fill();
-            gCtx.strokeStyle = '#ffffff';
-            gCtx.lineWidth = 0.9;
-            gCtx.stroke();
-          } else {
-            gCtx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
-            gCtx.lineWidth = 1.1;
-            gCtx.stroke();
+        const flashBucket = shieldFlash > 0.05 ? Math.round(shieldFlash * 5) : 0;
+        const sKey = `${extraLives}|${streak < 4 ? streak : 4}|${Math.round(shieldCharge)}|${liveAcc}|${flashBucket}`;
+        if (sKey !== shieldSpriteKey) {
+          shieldSpriteKey = sKey;
+          if (shieldSprite.width !== shW * 2 || shieldSprite.height !== shH * 2) {
+            shieldSprite.width = shW * 2;
+            shieldSprite.height = shH * 2;
           }
+          shieldCtx.setTransform(2, 0, 0, 2, 0, 0);
+          shieldCtx.clearRect(0, 0, shW, shH);
+          shieldCtx.fillStyle = 'rgba(6, 9, 18, 0.62)';
+          shieldCtx.fillRect(0, 0, shW, shH);
+          shieldCtx.strokeStyle = (extraLives > 0 || flashBucket > 0) ? '#60efff' : 'rgba(148, 163, 184, 0.35)';
+          shieldCtx.lineWidth = (extraLives > 0 || flashBucket > 0) ? (1.4 + (flashBucket / 5) * 1.6) : 1;
+          shieldCtx.strokeRect(0.5, 0.5, shW - 1, shH - 1);
+          for (let si = 0; si < 2; si++) {
+            const dcx = 12 + si * 13;
+            const dcy = 8.5;
+            const filled = si < extraLives;
+            shieldCtx.beginPath();
+            shieldCtx.moveTo(dcx, dcy - 4.4);
+            shieldCtx.lineTo(dcx + 4.2, dcy - 1.2);
+            shieldCtx.lineTo(dcx + 3.2, dcy + 3.2);
+            shieldCtx.lineTo(dcx, dcy + 4.8);
+            shieldCtx.lineTo(dcx - 3.2, dcy + 3.2);
+            shieldCtx.lineTo(dcx - 4.2, dcy - 1.2);
+            shieldCtx.closePath();
+            if (filled) {
+              shieldCtx.fillStyle = '#60efff';
+              shieldCtx.fill();
+              shieldCtx.strokeStyle = '#ffffff';
+              shieldCtx.lineWidth = 0.9;
+              shieldCtx.stroke();
+            } else {
+              shieldCtx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+              shieldCtx.lineWidth = 1.1;
+              shieldCtx.stroke();
+            }
+          }
+          const shTitle = extraLives >= 2 ? 'SHIELD ×2' : extraLives === 1 ? 'SHIELD READY' : 'NO SHIELD';
+          shieldCtx.font = 'bold 9.5px system-ui, sans-serif';
+          shieldCtx.fillStyle = extraLives > 0 ? '#60efff' : '#94a3b8';
+          shieldCtx.textAlign = 'left';
+          shieldCtx.fillText(shTitle, 35, 11.5);
+          const barX = 8, barY = 14.5, barW = 130, barH = 3.2;
+          shieldCtx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+          shieldCtx.fillRect(barX, barY, barW, barH);
+          let fillPct = 0, fillCol = '#34d399', subText = '', subCol = '#cbd5e1';
+          if (extraLives >= 2) {
+            fillPct = 1; fillCol = '#60efff'; subText = 'MAX SHIELDS'; subCol = '#60efff';
+          } else if (streak < 4) {
+            fillPct = Math.max(0, Math.min(1, streak / 4)); fillCol = '#fbbf24'; subText = `STREAK ${streak}/4 → SHIELD`; subCol = '#cbd5e1';
+          } else if (liveAcc < 85) {
+            fillPct = Math.max(0, Math.min(1, shieldCharge / 100)); fillCol = '#94a3b8'; subText = `NEED 85%+ ACC (${liveAcc}%)`; subCol = '#fbbf24';
+          } else {
+            fillPct = Math.max(0, Math.min(1, shieldCharge / 100)); fillCol = '#34d399'; subText = `CHARGING ${Math.round(shieldCharge)}% · ${liveAcc}% ACC`; subCol = '#6ee7b7';
+          }
+          if (fillPct > 0) {
+            shieldCtx.fillStyle = fillCol;
+            shieldCtx.fillRect(barX, barY, Math.round(barW * fillPct), barH);
+          }
+          shieldCtx.font = 'bold 7.5px system-ui, sans-serif';
+          shieldCtx.fillStyle = subCol;
+          shieldCtx.fillText(subText, barX, 25.5);
         }
-        const shTitle = extraLives >= 2 ? 'SHIELD ×2' : extraLives === 1 ? 'SHIELD READY' : 'NO SHIELD';
-        gCtx.font = 'bold 9.5px system-ui, sans-serif';
-        gCtx.fillStyle = extraLives > 0 ? '#60efff' : '#94a3b8';
-        gCtx.textAlign = 'left';
-        gCtx.fillText(shTitle, shX + 35, shY + 11.5);
-        // Horizontal charge bar (130px wide) + status line
-        const barX = shX + 8;
-        const barY = shY + 14.5;
-        const barW = 130;
-        const barH = 3.2;
-        gCtx.fillStyle = 'rgba(30, 41, 59, 0.9)';
-        gCtx.fillRect(barX, barY, barW, barH);
-        let fillPct = 0;
-        let fillCol = '#34d399';
-        let subText = '';
-        let subCol = '#cbd5e1';
-        if (extraLives >= 2) {
-          fillPct = 1;
-          fillCol = '#60efff';
-          subText = 'MAX SHIELDS';
-          subCol = '#60efff';
-        } else if (streak < 4) {
-          fillPct = Math.max(0, Math.min(1, streak / 4));
-          fillCol = '#fbbf24';
-          subText = `STREAK ${streak}/4 → SHIELD`;
-          subCol = '#cbd5e1';
-        } else if (liveAcc < 85) {
-          fillPct = Math.max(0, Math.min(1, shieldCharge / 100));
-          fillCol = '#94a3b8';
-          subText = `NEED 85%+ ACC (${liveAcc}%)`;
-          subCol = '#fbbf24';
-        } else {
-          fillPct = Math.max(0, Math.min(1, shieldCharge / 100));
-          fillCol = '#34d399';
-          subText = `CHARGING ${Math.round(shieldCharge)}% · ${liveAcc}% ACC`;
-          subCol = '#6ee7b7';
-        }
-        if (fillPct > 0) {
-          gCtx.fillStyle = fillCol;
-          gCtx.fillRect(barX, barY, Math.round(barW * fillPct), barH);
-        }
-        gCtx.font = 'bold 7.5px system-ui, sans-serif';
-        gCtx.fillStyle = subCol;
-        gCtx.fillText(subText, barX, shY + 25.5);
+        gCtx.drawImage(shieldSprite, shX, shY, shW, shH);
 
         gCtx.restore();
       }

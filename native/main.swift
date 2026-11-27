@@ -398,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
         let wv = HoleWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: cfg)
         wv.customUserAgent = safariUA
-        wv.makeTransparent()
+        wv.setTransparent(false)
         wv.autoresizingMask = [.width, .height]
         let container = FlippedView(frame: wv.frame)
         container.addSubview(wv)
