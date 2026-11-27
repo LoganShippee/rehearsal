@@ -330,154 +330,6 @@ function spSvg(kind) {
   return `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind] || ''}</svg>`;
 }
 
-// ---------- Idempotent CSS injection for Score Practice Vocal Recording & Looper Grading
-function spInjectVoiceGradeCSS() {
-  if (typeof document === 'undefined' || !document.head || document.getElementById('sp-voice-grade-css')) return;
-  const s = document.createElement('style');
-  s.id = 'sp-voice-grade-css';
-  s.textContent = `
-    /* Split playhead matching Sight Reading (blue for playback, orange for loops) */
-    .sp-ph { background: none !important; box-shadow: none !important; width: 4px !important; margin-left: -2px !important; z-index: 6; pointer-events: none; }
-    .sp-ph .seg { position: absolute; left: 0; width: 100%; border-radius: 4px; box-shadow: 0 0 10px rgba(231,111,81,.55); }
-    .sp-ph .seg.top { top: 0; background: linear-gradient(to bottom, rgba(231,111,81,0), #e76f51 45%); }
-    .sp-ph .seg.bot { background: linear-gradient(to bottom, #e76f51 55%, rgba(231,111,81,0)); }
-    .sp-ph.is-play .seg { box-shadow: 0 0 10px rgba(31,111,209,.55); }
-    .sp-ph.is-play .seg.top { background: linear-gradient(to bottom, rgba(31,111,209,0), #1f6fd1 45%); }
-    .sp-ph.is-play .seg.bot { background: linear-gradient(to bottom, #1f6fd1 55%, rgba(31,111,209,0)); }
-    .sp-ph.pulse { animation: srpulse .5s ease-in-out infinite alternate; }
-    /* Clean straight vertical lines + borderless wash (orange for loops, blue fading to clear for playback) */
-    .sp-sel i { background: rgba(231,111,81,.09) !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
-    .sp-sel i.start { border-left: 3px solid #e76f51 !important; }
-    .sp-sel i.end { border-right: 3px solid #e76f51 !important; }
-    .sp-sel.off i { background: rgba(31,111,209,.12) !important; }
-    .sp-sel.off i.start { border-left-color: #1f6fd1 !important; }
-    .sp-sel.off i.end { border-right: 0 !important; background: linear-gradient(90deg, rgba(31,111,209,.12) 0%, rgba(31,111,209,.12) 72%, rgba(31,111,209,0) 100%) !important; }
-    .sp-sel.off i b { background: #1f6fd1 !important; color: #fff !important; }
-    .sp-sel i b { top: auto !important; bottom: calc(100% + 4px) !important; left: -3px !important;
-      font: 700 11px/1 -apple-system, system-ui, sans-serif; padding: 3px 7px !important; z-index: 7; }
-
-    /* Score Practice Looper Grading: note-by-note OSMD SVG color feedback (overrides part colors) */
-    .sp-osmd .gr-n-ok path, .sp-osmd .gr-n-ok rect, .sp-osmd .gr-n-ok polygon,
-    .sp-osmd.sp-colored .gr-n-ok path, .sp-osmd.sp-colored .gr-n-ok rect, .sp-osmd.sp-colored .gr-n-ok polygon { fill: #1b7a2a !important; stroke: #1b7a2a !important; opacity: 1 !important; }
-    .sp-osmd .gr-n-timing path, .sp-osmd .gr-n-timing rect, .sp-osmd .gr-n-timing polygon,
-    .sp-osmd.sp-colored .gr-n-timing path, .sp-osmd.sp-colored .gr-n-timing rect, .sp-osmd.sp-colored .gr-n-timing polygon { fill: #d9822b !important; stroke: #d9822b !important; opacity: 1 !important; }
-    .sp-osmd .gr-n-pitch path, .sp-osmd .gr-n-pitch rect, .sp-osmd .gr-n-pitch polygon,
-    .sp-osmd.sp-colored .gr-n-pitch path, .sp-osmd.sp-colored .gr-n-pitch rect, .sp-osmd.sp-colored .gr-n-pitch polygon { fill: #7b3fbf !important; stroke: #7b3fbf !important; opacity: 1 !important; }
-    .sp-osmd .gr-n-missed path, .sp-osmd .gr-n-missed rect, .sp-osmd .gr-n-missed polygon,
-    .sp-osmd.sp-colored .gr-n-missed path, .sp-osmd.sp-colored .gr-n-missed rect, .sp-osmd.sp-colored .gr-n-missed polygon { fill: #c62828 !important; stroke: #c62828 !important; opacity: 1 !important; }
-
-    /* Score overlay grading marks & floating action chips */
-    .sp-grov { position: absolute; left: 0; top: 0; right: 0; height: 0; pointer-events: none; z-index: 5; }
-    .sp-grov svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-    .sp-grov .gr-lane { stroke: #c9ccd6; stroke-width: 1; stroke-dasharray: 2 4; }
-    .sp-grov .gr-tick { stroke: #8a90a2; stroke-width: 1.5; }
-    .sp-grov .gr-dot { stroke: #fff; stroke-width: 1.5; }
-    .sp-grov .gr-dot.ok { fill: #1b7a2a; }
-    .sp-grov .gr-dot.timing { fill: #d9822b; }
-    .sp-grov .gr-off { stroke-width: 3; stroke-linecap: round; }
-    .sp-grov .gr-off.ok { stroke: #1b7a2a; }
-    .sp-grov .gr-off.timing { stroke: #d9822b; }
-    .sp-grov .gr-ring { fill: none; stroke: #c62828; stroke-width: 2; stroke-dasharray: 4 3; }
-    .sp-grov .gr-extra { stroke: #8a90a2; stroke-width: 2; stroke-linecap: round; }
-    .sp-grov text.gr-lbl { fill: #7b3fbf; font: bold 11.5px -apple-system, system-ui, Arial, sans-serif; }
-    .sp-grov text.gr-lbl.soft { fill: #8a90a2; font-weight: normal; font-style: italic; }
-    .sp-score .gr-chips-wrap { position: sticky; left: 0; top: 6px; width: 100%; height: 0; z-index: 14; pointer-events: none; display: flex; justify-content: flex-end; padding-right: 10px; box-sizing: border-box; }
-    .sp-score .gr-chips { position: static; margin: 0; z-index: 14; display: inline-flex; gap: 5px; flex-wrap: wrap; pointer-events: auto; align-items: center; }
-
-    /* Count-in card matching Sight Reading (clean bottom-right glass card) & live recording banner */
-    .sp-count-wrap { position: sticky; bottom: 12px; left: 0; width: 100%; height: 0; z-index: 15; pointer-events: none; display: flex; justify-content: flex-end; align-items: flex-end; padding-right: 14px; box-sizing: border-box; }
-    .sp-count { pointer-events: none; text-align: right; padding: 6px 16px 8px; border-radius: 14px;
-      background: rgba(255,255,255,.94); color: rgba(29,35,48,.88); box-shadow: 0 6px 22px rgba(0,0,0,.18); }
-    .sp-count.one { color: #e76f51; }
-    .sp-count-n { font-size: clamp(44px, 8vmin, 96px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
-    .sp-count-cue { font-size: clamp(13px, 1.7vmin, 18px); font-weight: 700; color: #1d2330; margin-top: 2px; white-space: nowrap; }
-    .sp-count-cue b { color: #e76f51; }
-    .sp-count.rec-live { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; background: rgba(24,28,38,.92); color: #fff; border: 1.5px solid var(--accent, #e76f51); }
-    .sp-count.rec-live .sp-count-cue { color: #fff; font-size: 13px; margin-top: 0; }
-    .sp-count.rec-live .sp-count-cue b { color: var(--accent, #ffd166); }
-    .sp-empty-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-      margin: 28px auto; max-width: 480px; padding: 34px 24px; text-align: center;
-      border: 2px dashed #c8cedb; border-radius: 16px; background: #f8f9fc; color: #1d2330; }
-    .sp-empty-drop.drag { border-color: #1f6fd1; background: #eef4ff; }
-    .sp-empty-drop h4 { margin: 0; font-size: 16px; }
-    .sp-empty-drop p { margin: 0; font-size: 13px; color: #5b6475; line-height: 1.45; }
-    .sp-empty-drop button { background: #1f6fd1; color: #fff; border: 0; border-radius: 9px; padding: 9px 16px; font-weight: 700; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-    .sp-vwarn { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: #b45309; background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.4); border-radius: 7px; padding: 2px 7px; }
-    .sp-vwarn button { border: 0; background: #b45309; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
-    .sp-hint-btn { margin-left: 8px; border: 1px solid var(--accent, #1f6fd1); background: color-mix(in srgb, var(--accent, #1f6fd1) 16%, transparent); color: inherit; border-radius: 6px; padding: 1px 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
-    .sp-bpm-inp { width: 44px; text-align: center; font: 700 13px/1 inherit; border: 1px solid var(--accent); border-radius: 4px; background: #fff; color: #1d2330; padding: 2px; }
-    .sp-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; display: inline-block; animation: sprecpulse 1s infinite; }
-    .sp-beat-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px;
-      background: rgba(255,255,255,.16); color: #fff; font-weight: 800; font-size: 12px; font-variant-numeric: tabular-nums; }
-    .sp-beat-pill.one { background: var(--accent, #ffd166); color: #1d2330; }
-    @keyframes sprecpulse { 50% { opacity: .25; transform: scale(.85); } }
-
-    /* Grade split button & options menu */
-    .sp-grade-ctl { display: inline-flex; align-items: stretch; gap: 0 !important; }
-    .sp-top .sp-grade-ctl > button[data-sp="grade"] { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-    .sp-top .sp-grade-ctl > button[data-sp="grade-menu"] { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 6px !important; min-width: 22px; }
-    .sp-grmenu { position: fixed; z-index: 9100; box-sizing: border-box; width: min(310px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 6px; padding: 10px;
-      background: #ffffff; color: #1d2330; border: 1px solid #d3d9e6; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.25); font-size: 13px; }
-    .sp-grmenu .sp-grm-sec { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7385; margin-top: 2px; }
-    .sp-grmenu select { width: 100%; background: #f7f9fc; color: #1d2330; border: 1px solid #cfd6e3; border-radius: 7px; padding: 5px 8px; font-size: 13px; font-weight: 600; }
-    .sp-grmenu .sp-grm-btn { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 7px 9px; border: 1px solid #e1e6f0; border-radius: 8px; background: #fff; color: #1d2330; cursor: pointer; font-size: 13px; }
-    .sp-grmenu .sp-grm-btn:hover { background: #eef4ff; border-color: #3b6cf6; }
-    .sp-grmenu .sp-grm-btn.last { border-color: #3b6cf6; background: #f4f8ff; }
-    .sp-grmenu .sp-grm-btn small { display: block; color: #636b7d; font-size: 11.5px; font-weight: 400; }
-    .sp-grmenu label.sp-grm-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #333a48; cursor: pointer; padding: 2px 2px; }
-
-    /* Idea 3A: Compact single-row Voice Pills + Built-in Pitch Bells + Collapsible Vocal Recording */
-    .sp-voices { --v-h: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; padding: 5px 10px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12));
-      background: color-mix(in srgb, var(--text, #1d2330) 4%, transparent); color: var(--text, #1d2330); flex: 0 0 auto; }
-    .sp-voices[hidden] { display: none !important; }
-    .sp-choir { display: none !important; }
-    .sp-vbar-sep { width: 1px; height: 18px; background: var(--line, rgba(0,0,0,.18)); flex: none; margin: 0 2px; }
-    .sp-parts { display: flex; flex-wrap: wrap; gap: 5px 6px; align-items: center; }
-    .sp-part { display: inline-flex; align-items: center; gap: 4px; height: var(--v-h); box-sizing: border-box; background: color-mix(in srgb, var(--text, #1d2330) 6%, transparent);
-      border: 1px solid var(--line, rgba(0,0,0,.15)); border-radius: 7px; padding: 0 6px; font-size: 12px; transition: border-color .15s, background .15s; }
-    .sp-part.is-sung { border-color: color-mix(in srgb, var(--accent, #e76f51) 65%, var(--line, transparent)); background: color-mix(in srgb, var(--accent, #e76f51) 12%, transparent); }
-    .sp-part.is-rec { border-color: #e5484d; background: rgba(229, 72, 77, 0.14); }
-    .sp-part-lbl { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 600; white-space: nowrap; }
-    .sp-part input[type=range] { width: 44px; cursor: pointer; }
-    .sp-pitch-btn { border: 1px solid transparent; background: transparent; color: var(--text, #1d2330); border-radius: 6px;
-      padding: 0 4px !important; height: 20px !important; font-size: 11.5px !important; font-weight: 600; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 3px; opacity: .78; line-height: 1; white-space: nowrap; }
-    .sp-pitch-btn:hover { opacity: 1; background: color-mix(in srgb, var(--text, #1d2330) 12%, transparent); border-color: var(--line, rgba(0,0,0,.15)); }
-    .sp-pitch-btn .ico { width: 13px; height: 13px; flex: none; }
-    .sp-pitch-grp, .sp-voices > .sp-vfoc-btn, .sp-vrec-btn, .sp-metro-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 7%, transparent);
-      color: var(--text, #1d2330); border-radius: 7px; padding: 0 8px !important; height: var(--v-h) !important; box-sizing: border-box; font-size: 12px !important; font-weight: 600;
-      cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1; }
-    .sp-pitch-grp:hover, .sp-voices > .sp-vfoc-btn:hover, .sp-vrec-btn:hover, .sp-metro-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 15%, transparent); }
-    .sp-pitch-grp .ico, .sp-vrec-btn .ico, .sp-metro-btn .ico { width: 13px; height: 13px; flex: none; }
-    .sp-part .sp-vfoc-btn, .sp-vdel-btn { border: 1px solid var(--line, rgba(0,0,0,.18)); background: color-mix(in srgb, var(--text, #1d2330) 8%, transparent);
-      color: var(--text, #1d2330); border-radius: 5px; padding: 0 6px !important; height: 20px !important; font-size: 11px !important; font-weight: 600;
-      cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; line-height: 1; }
-    .sp-vdel-btn .ico { width: 12px; height: 12px; flex: none; }
-    .sp-part .sp-vfoc-btn:hover, .sp-vdel-btn:hover { background: color-mix(in srgb, var(--text, #1d2330) 16%, transparent); }
-    .sp-vbar-end select { height: var(--v-h) !important; box-sizing: border-box; border-radius: 7px; padding: 0 7px !important; font-size: 12px !important; }
-    .sp-vrec-btn.rec-on { background: #e5484d !important; color: #fff !important; border-color: #e5484d !important; animation: sprecpulse 1s infinite; }
-    .sp-vfoc-btn.on, .sp-metro-btn.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; border-color: transparent !important; }
-    .sp-vfoc-btn.solo.on { background: #1f6fd1 !important; color: #fff !important; border-color: transparent !important; }
-    .sp-vdel-btn { padding: 2px 4px !important; opacity: .8; }
-    .sp-vdel-btn:hover { opacity: 1; background: rgba(229, 72, 77, 0.2); border-color: #e5484d; }
-    .sp-vsrc-seg { display: inline-flex; border: 1px solid var(--line, rgba(0,0,0,.2)); border-radius: 6px; overflow: hidden; height: 22px; box-sizing: border-box; }
-    .sp-vsrc-seg button { border: 0 !important; border-radius: 0 !important; padding: 0 6px !important; height: 100% !important; font-size: 10.5px !important; font-weight: 700;
-      background: transparent; color: var(--text, #1d2330); opacity: .7; cursor: pointer; }
-    .sp-vsrc-seg button + button { border-left: 1px solid var(--line, rgba(0,0,0,.18)) !important; }
-    .sp-vsrc-seg button.on { background: var(--accent, #e76f51) !important; color: var(--bg, #fff) !important; opacity: 1; }
-    .sp-vsrc-seg button:disabled { opacity: .35; cursor: default; }
-    .sp-vmeta { font-size: 10px; opacity: .72; white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .sp-sung-badge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 99px; background: var(--accent, #e76f51); color: var(--bg, #fff); line-height: 1.3; }
-    .sp-vbar-end { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; font-size: 11.5px; }
-    .sp-vbar-end label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; opacity: .9; }
-    .sp-vbar-end select { font-size: 11.5px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line, rgba(0,0,0,.2)); background: color-mix(in srgb, var(--text, #1d2330) 7%, transparent); color: var(--text, #1d2330); }
-    .sp-vrec-row { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 4px; border-top: 1px dashed var(--line, rgba(0,0,0,.14)); font-size: 11.5px; }
-    .sp-vrec-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
-    .sp-vrec-note { opacity: .78; font-size: 11px; }
-  `;
-  document.head.appendChild(s);
-}
-
 // ---------- Sung-Voice Audio Recording & IndexedDB Persistence (16-bit PCM WAV + Float32 AudioBuffer)
 const SP_VOCAL_MEM = new Map(); // in-memory cache keyed by `${fileId}:${lineIdx}`
 let SP_VOCAL_IDB = null;
@@ -755,23 +607,12 @@ async function spStartVocalRec(ctl, lineIdx) {
 // ---------- the player
 const SP_PLAY = { ctl: null, timer: null, raf: 0, master: null };
 // the audio-clock time of the sound reaching your ears right now
-function spAvDelay() { return avDelayMs() / 1000; }
-function spHeardTime(c) {
-  return spHeardRaw(c) - spAvDelay();
-}
+function spAvDelay() { return (typeof avDelayMs === 'function' ? avDelayMs() : 0) / 1000; }
+function spHeardTime(c) { return spHeardRaw(c) - spAvDelay(); }
 function spHeardRaw(c) {
-  const cur = c.currentTime;
+  if (typeof srHeard0 === 'function') return srHeard0(c);
   const lat = Math.max(0, Math.min(0.6, Number(c.outputLatency || c.baseLatency) || 0));
-  try {
-    const ts = c.getOutputTimestamp && c.getOutputTimestamp();
-    if (ts && isFinite(ts.contextTime) && isFinite(ts.performanceTime) && ts.contextTime > 0 && ts.performanceTime > 0) {
-      const dt = (performance.now() - ts.performanceTime) / 1000;
-      const est = ts.contextTime + dt;
-      // Reject stale or mismatched-clock timestamps (e.g. after sleep/background on iPadOS WebKit).
-      if (Math.abs(dt) < 1 && isFinite(est) && est <= cur + 0.05 && est >= cur - 0.8) return est;
-    }
-  } catch { }
-  return cur - lat;
+  return c.currentTime - lat;
 }
 let SP_ACTIVE = null;          // the score Space bar plays/stops
 function spStop() {
@@ -1456,7 +1297,6 @@ function spApplyAll() { Object.values(SP_CACHE).forEach(c => c.root?.isConnected
 const SP_BARCFG = { key: 'spBar', ctl: true, defaults: ['file', 'play', 'tempo', 'metronome', 'loop', 'range', 'spots', 'grade', 'voices', 'nums', 'solfege', 'counts', 'layout', 'gap', 'zoom', 'settings'], groups: ['play', 'nums', 'grade'], breaks: ['nums'] };
 const SP_CACHE = {};
 function mountScore(host, st, onChange0, key) {
-  spInjectVoiceGradeCSS();
   spDefaults(st);
   // every change is also remembered per score, so reopening or switching back restores it
   const onChange = () => { try { (S.scoreSettings ||= {})[st.fileId] = JSON.parse(JSON.stringify(st)); } catch { } onChange0 && onChange0(); };
@@ -2395,21 +2235,14 @@ function mountScore(host, st, onChange0, key) {
   const spCount = (dq, m, dur = 1) => {
     const compound = m.bt === 8 && m.beats % 3 === 0 && m.beats > 3, bu = compound ? 1.5 : 4 / m.bt;
     const sys = typeof rhythmSys === 'function' ? rhythmSys() : (S.settings?.rhythmSystem || 'numbers');
-    if (sys !== 'numbers' && typeof rhythmSyllable === 'function') {
+    if (typeof rhythmSyllable === 'function') {
       const p = compound ? dq : (bu === 1 ? dq : dq / bu);
       return rhythmSyllable(p, compound ? 'compound' : 'simple', false, dur, null, 0, sys);
     }
-    const beat = Math.floor(dq / bu + 1e-6), f = dq / bu - beat, n = String(beat + 1), near = x => Math.abs(f - x) < 0.02;
-    if (near(0)) return n;
+    const beat = Math.floor(dq / bu + 1e-6), f = dq / bu - beat, near = x => Math.abs(f - x) < 0.02;
+    if (near(0)) return String(beat + 1);
     if (compound) return near(1 / 3) ? 'la' : near(2 / 3) ? 'li' : near(1 / 6) || near(0.5) || near(5 / 6) ? 'ta' : '·';
-    if (bu === 1 || bu === 0.5) {
-      if (near(0.5)) return '&';
-      if (near(0.25)) return 'e';
-      if (near(0.75)) return 'a';
-      if (near(1 / 3)) return 'trip';
-      if (near(2 / 3)) return 'let';
-    }
-    return '·';
+    return (bu === 1 || bu === 0.5) ? (near(0.5) ? '&' : near(0.25) ? 'e' : near(0.75) ? 'a' : near(1 / 3) ? 'trip' : near(2 / 3) ? 'let' : '·') : '·';
   };
   ctl.drawLabels = () => {
     const box = $q('.sp-lbls'); if (!box) return;   // this score's window is gone

@@ -462,87 +462,60 @@
         return masterGain || (audioCtx && audioCtx.destination);
       }
 
-      function playKick(v = 1, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(140, t0);
-        osc.frequency.exponentialRampToValueAtTime(46, t0 + 0.1);
-        g.gain.setValueAtTime(0.25 * v, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.13);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.14);
-      }
-
-      function playSnare(at = null) {
-        if (!audioCtx || !noiseBuffer) return;
-        const t0 = toAudioTime(at);
-        const src = audioCtx.createBufferSource();
-        src.buffer = noiseBuffer;
-        const f = audioCtx.createBiquadFilter();
-        f.type = 'bandpass'; f.frequency.value = 1850;
-        const g = audioCtx.createGain();
-        g.gain.setValueAtTime(0.13, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
-        src.connect(f); f.connect(g); g.connect(audioDest());
-        src.start(t0); src.stop(t0 + 0.09);
-      }
-
-      function playHiHat(loud = false, at = null) {
-        if (!audioCtx || !noiseBuffer) return;
-        const t0 = toAudioTime(at);
-        const src = audioCtx.createBufferSource();
-        src.buffer = noiseBuffer;
-        const f = audioCtx.createBiquadFilter();
-        f.type = 'highpass'; f.frequency.value = 6000;
-        const g = audioCtx.createGain();
-        g.gain.setValueAtTime(loud ? 0.06 : 0.028, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
-        src.connect(f); f.connect(g); g.connect(audioDest());
-        src.start(t0); src.stop(t0 + 0.04);
-      }
-
-      function playClick(accent = false, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(accent ? 1140 : 800, t0);
-        osc.frequency.exponentialRampToValueAtTime(accent ? 520 : 390, t0 + 0.04);
-        g.gain.setValueAtTime(accent ? 0.17 : 0.09, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.048);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.05);
-      }
-
-      function playVoiceNote(freq, dur = 0.18, type = 'sine', vol = 0.18, at = null) {
+      function playOsc({ type = 'sine', freq, freqEnd = null, freqRampDur = 0, vol = 0.15, dur = 0.15, endVol = 0.001, stopPad = 0.02, stopAt = null, lpFreq = 0, at = null }) {
         if (!audioCtx) return;
         const t0 = toAudioTime(at);
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, t0);
+        if (freqEnd != null) osc.frequency.exponentialRampToValueAtTime(freqEnd, t0 + (freqRampDur || dur));
         g.gain.setValueAtTime(vol, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + dur + 0.02);
+        g.gain.exponentialRampToValueAtTime(endVol, t0 + dur);
+        if (lpFreq) {
+          const lp = audioCtx.createBiquadFilter();
+          lp.type = 'lowpass'; lp.frequency.value = lpFreq;
+          osc.connect(lp); lp.connect(g);
+        } else {
+          osc.connect(g);
+        }
+        g.connect(audioDest());
+        osc.start(t0); osc.stop(t0 + (stopAt != null ? stopAt : dur + stopPad));
       }
 
-      function playPortalWarp() {
+      function playNoise({ filterType = 'bandpass', filterFreq = 1850, vol = 0.13, dur = 0.08, stopPad = 0.01, at = null }) {
+        if (!audioCtx || !noiseBuffer) return;
+        const t0 = toAudioTime(at);
+        const src = audioCtx.createBufferSource();
+        src.buffer = noiseBuffer;
+        const f = audioCtx.createBiquadFilter();
+        f.type = filterType; f.frequency.value = filterFreq;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(vol, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        src.connect(f); f.connect(g); g.connect(audioDest());
+        src.start(t0); src.stop(t0 + dur + stopPad);
+      }
+
+      function playChord(freqs, opts) {
         if (!audioCtx) return;
-        const base = nowClockSec();
-        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
-          playVoiceNote(f, 0.18, 'triangle', 0.12, base + i * 0.038);
+        freqs.forEach((f, idx) => {
+          const vol = typeof opts.vol === 'function' ? opts.vol(f, idx) : opts.vol;
+          playOsc(Object.assign({}, opts, { freq: f, vol }));
         });
       }
 
-      function playCrashSfx() {
-        playVoiceNote(130, 0.18, 'sawtooth', 0.22);
-        playSnare();
+      const playKick = (v = 1, at = null) => playOsc({ type: 'sine', freq: 140, freqEnd: 46, freqRampDur: 0.1, vol: 0.25 * v, dur: 0.13, stopPad: 0.01, at });
+      const playSnare = (at = null) => playNoise({ filterType: 'bandpass', filterFreq: 1850, vol: 0.13, dur: 0.08, stopPad: 0.01, at });
+      const playHiHat = (loud = false, at = null) => playNoise({ filterType: 'highpass', filterFreq: 6000, vol: loud ? 0.06 : 0.028, dur: 0.035, stopPad: 0.005, at });
+      const playClick = (accent = false, at = null) => playOsc({ type: 'triangle', freq: accent ? 1140 : 800, freqEnd: accent ? 520 : 390, freqRampDur: 0.04, vol: accent ? 0.17 : 0.09, dur: 0.048, stopPad: 0.002, at });
+      const playVoiceNote = (freq, dur = 0.18, type = 'sine', vol = 0.18, at = null) => playOsc({ type, freq, vol, dur, stopPad: 0.02, at });
+      function playPortalWarp() {
+        if (!audioCtx) return;
+        const base = nowClockSec();
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playVoiceNote(f, 0.18, 'triangle', 0.12, base + i * 0.038));
       }
+      const playCrashSfx = () => { playVoiceNote(130, 0.18, 'sawtooth', 0.22); playSnare(); };
 
       const PROG_ROOTS = [130.81, 98.0, 110.0, 87.31]; // C3, G2, A2, F2
       const PROG_CHORDS = [
@@ -553,109 +526,13 @@
       ];
       const ARP_OFFSETS = [2, 2.5, 3, 4, 3, 2.5, 2, 1.5]; // octave/fifth shimmer ratios
 
-      function playBassNote(freq, dur = 0.24, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const f = audioCtx.createBiquadFilter();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq * 0.5, t0);
-        f.type = 'lowpass'; f.frequency.value = 380;
-        g.gain.setValueAtTime(0.18, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-        osc.connect(f); f.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + dur + 0.02);
-      }
-
-      function playChordPad(freqs, dur = 0.34, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        freqs.forEach((freq) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, t0);
-          g.gain.setValueAtTime(0.045, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.02);
-        });
-      }
-
-      function playArpNote(freq, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, t0);
-        g.gain.setValueAtTime(0.055, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.12);
-      }
-
-      function playRide(accent = false, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        [2480, 3690, 5120].forEach((f, idx) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(f, t0);
-          g.gain.setValueAtTime((accent ? 0.024 : 0.014) / (idx + 1), t0);
-          g.gain.exponentialRampToValueAtTime(0.0005, t0 + (accent ? 0.16 : 0.09));
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + 0.18);
-        });
-      }
-
-      function playTom(freq, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq * 1.25, t0);
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.72, t0 + 0.11);
-        g.gain.setValueAtTime(0.20, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.15);
-      }
-
-      function playRhodes(freqs, dur = 0.55, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        freqs.forEach((freq) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, t0);
-          g.gain.setValueAtTime(0.048, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.03);
-        });
-      }
-
-      function playPowerGuitar(freq, dur = 0.18, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        [freq, freq * 1.498].forEach((f, idx) => {
-          const osc = audioCtx.createOscillator();
-          const lp = audioCtx.createBiquadFilter();
-          const g = audioCtx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(f, t0);
-          lp.type = 'lowpass'; lp.frequency.value = 920;
-          g.gain.setValueAtTime(idx === 0 ? 0.075 : 0.055, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(lp); lp.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.02);
-        });
-      }
+      const playBassNote = (freq, dur = 0.24, at = null) => playOsc({ type: 'triangle', freq: freq * 0.5, lpFreq: 380, vol: 0.18, dur, stopPad: 0.02, at });
+      const playChordPad = (freqs, dur = 0.34, at = null) => playChord(freqs, { type: 'sine', vol: 0.045, dur, stopPad: 0.02, at });
+      const playArpNote = (freq, at = null) => playOsc({ type: 'triangle', freq, vol: 0.055, dur: 0.11, stopPad: 0.01, at });
+      const playRide = (accent = false, at = null) => playChord([2480, 3690, 5120], { type: 'triangle', vol: (f, i) => (accent ? 0.024 : 0.014) / (i + 1), dur: accent ? 0.16 : 0.09, endVol: 0.0005, stopAt: 0.18, at });
+      const playTom = (freq, at = null) => playOsc({ type: 'sine', freq: freq * 1.25, freqEnd: freq * 0.72, freqRampDur: 0.11, vol: 0.20, dur: 0.14, stopPad: 0.01, at });
+      const playRhodes = (freqs, dur = 0.55, at = null) => playChord(freqs, { type: 'sine', vol: 0.048, dur, stopPad: 0.03, at });
+      const playPowerGuitar = (freq, dur = 0.18, at = null) => playChord([freq, freq * 1.498], { type: 'sawtooth', lpFreq: 920, vol: (f, i) => (i === 0 ? 0.075 : 0.055), dur, stopPad: 0.02, at });
 
       function triggerGroove(subIdx, isCountIn, at = null) {
         const { beats, kind, subsPerBar } = meterInfo();
@@ -1343,6 +1220,13 @@
         renderBoardUI();
       }
 
+      function refreshAllUI(reset = true) {
+        renderWorldsUI();
+        renderSkinsUI();
+        renderBoardUI();
+        if (reset) resetToIdle();
+      }
+
       function selectWorld(w) {
         activeWorldId = w.id;
         userSpeedOverride = false;
@@ -1363,10 +1247,7 @@
           rouletteSelect.value = 'overdrive';
         }
         renderRhythmChips();
-        renderWorldsUI();
-        renderSkinsUI();
-        renderBoardUI();
-        resetToIdle();
+        refreshAllUI();
         bpm = w.bpm;
         updateHud();
         statusText.textContent = `World ${w.num}: ${w.name} (${w.gimmickLabel} · ${w.ts} · ${w.bpm} BPM) · Press Start or Space`;
@@ -4490,10 +4371,7 @@
       rouletteSelect.addEventListener('change', () => {
         rouletteSelect.blur();
         rouletteSetting = rouletteSelect.value;
-        renderWorldsUI();
-        renderSkinsUI();
-        renderBoardUI();
-        resetToIdle();
+        refreshAllUI();
       });
 
       readModeBtn.addEventListener('click', () => {
@@ -4594,10 +4472,7 @@
         tsSelect.blur();
         currentTs = tsSelect.value;
         renderRhythmChips();
-        renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+        refreshAllUI();
       });
 
       rhySysSelect.addEventListener('change', () => {
@@ -4645,10 +4520,7 @@
           (map[p] || ['q', 'h', 'ee', 'qr']).forEach((id) => selectedSimple.add(id));
         }
         renderRhythmChips();
-        renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+        refreshAllUI();
       });
 
       grooveSelect.addEventListener('change', () => {
@@ -4718,15 +4590,18 @@
         playBtn.blur();
         try { window.focus(); document.body.focus(); } catch {}
         if (['echo_listen', 'countin', 'live', 'cooldown'].includes(phase)) {
-          renderWorldsUI();
-          renderSkinsUI();
-          renderBoardUI();
-          resetToIdle();
+          refreshAllUI();
         } else {
           startRun();
         }
       });
 
+      const onPointerDone = (e) => {
+        if (activePointerId === null || e.pointerId !== activePointerId) return;
+        activePointerId = null;
+        setPadDown(false);
+        handleRelease();
+      };
       [gameCanvas, notationCanvas, touchPad].forEach((c) => {
         if (!c) return;
         c.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4741,31 +4616,9 @@
           setPadDown(true);
           handlePress();
         });
-        c.addEventListener('pointerup', (e) => {
-          if (e.pointerId !== activePointerId) return;
-          activePointerId = null;
-          setPadDown(false);
-          handleRelease();
-        });
-        c.addEventListener('pointercancel', (e) => {
-          if (e.pointerId !== activePointerId) return;
-          activePointerId = null;
-          setPadDown(false);
-          handleRelease();
-        });
+        ['pointerup', 'pointercancel'].forEach((ev) => c.addEventListener(ev, onPointerDone));
       });
-      window.addEventListener('pointerup', (e) => {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        setPadDown(false);
-        handleRelease();
-      });
-      window.addEventListener('pointercancel', (e) => {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        setPadDown(false);
-        handleRelease();
-      });
+      ['pointerup', 'pointercancel'].forEach((ev) => window.addEventListener(ev, onPointerDone));
       window.addEventListener('blur', () => {
         if (activePointerId !== null || isPointerOrKeyDown) {
           activePointerId = null;
@@ -4823,9 +4676,7 @@
           avOffsetSlider.value = String(avOffsetMs);
           avOffsetVal.textContent = `${avOffsetMs > 0 ? '+' : ''}${avOffsetMs} ms`;
           updateAccountSaveBadge();
-          renderWorldsUI();
-          renderSkinsUI();
-          renderBoardUI();
+          refreshAllUI(false);
           drawAll();
           return;
         }
@@ -4843,9 +4694,6 @@
       window.addEventListener('resize', () => { measureCanvas(gameCanvas); measureCanvas(notationCanvas); drawAll(); });
 
       updateAccountSaveBadge();
-      renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+      refreshAllUI();
     })();
   

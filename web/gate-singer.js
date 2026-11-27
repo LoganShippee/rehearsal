@@ -2351,6 +2351,23 @@
     ['cfgBoostDur',       'valBoostDur',       'boostDur',       v => `${v} s`],
   ];
 
+  const BOOL_BINDINGS = [
+    ['cfgShowContour',  'showContour'],
+    ['cfgLookRock',     'lookRock'],
+    ['cfgLookCrystal',  'lookCrystal'],
+    ['cfgLookIron',     'lookIron'],
+    ['cfgLookIce',      'lookIce'],
+    ['cfgExactOctave',  'exactOctave',  true],
+    ['cfgSoundMaster',  'soundMaster',  true, () => { if (!CFG.soundMaster && G.droneOn) stopDrone(); syncDrawerFromCfg(); }],
+    ['cfgSoundMusic',   'soundMusic',   true, () => syncDrawerFromCfg()],
+    ['cfgSoundCharge',  'soundCharge',  true, () => syncDrawerFromCfg()],
+    ['cfgSoundClear',   'soundClear',   true, () => syncDrawerFromCfg()],
+    ['cfgSoundFanfare', 'soundFanfare', true, () => syncDrawerFromCfg()],
+    ['cfgPlayMissModel','playMissModel'],
+    ['cfgPoolAll',      'poolAll',      false, () => syncHud()],
+    ['cfgCustomOnly',   'customOnly',   false, () => syncHud()],
+  ];
+
   function renderPatternToggles() {
     const disabled = new Set(CFG.disabledPatterns || []);
     const syls = SR_SYL[scaleSel.value] || SR_SYL.major;
@@ -2371,25 +2388,15 @@
       if (inp) inp.value = String(CFG[key]);
       if (val) val.textContent = fmt(CFG[key]);
     });
-    document.getElementById('cfgShowContour').checked = !!CFG.showContour;
-    document.getElementById('cfgLookRock').checked = !!CFG.lookRock;
-    document.getElementById('cfgLookCrystal').checked = !!CFG.lookCrystal;
-    document.getElementById('cfgLookIron').checked = !!CFG.lookIron;
-    document.getElementById('cfgLookIce').checked = !!CFG.lookIce;
+    BOOL_BINDINGS.forEach(([id, key, defTrue]) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = defTrue ? CFG[key] !== false : !!CFG[key];
+    });
     document.getElementById('cfgPipeLabels').value = CFG.pipeLabels || 'auto';
-    document.getElementById('cfgExactOctave').checked = CFG.exactOctave !== false;
-    document.getElementById('cfgSoundMaster').checked = CFG.soundMaster !== false;
-    document.getElementById('cfgSoundMusic').checked = CFG.soundMusic !== false;
-    document.getElementById('cfgSoundCharge').checked = CFG.soundCharge !== false;
-    document.getElementById('cfgSoundClear').checked = CFG.soundClear !== false;
-    document.getElementById('cfgSoundFanfare').checked = CFG.soundFanfare !== false;
-    document.getElementById('cfgPlayMissModel').checked = !!CFG.playMissModel;
+    document.getElementById('cfgCustomPatterns').value = CFG.customPatterns || '';
     G.musicOn = CFG.soundMusic !== false;
     musicBtn.classList.toggle('active', G.musicOn && CFG.soundMaster !== false);
     if (sfxBtn) sfxBtn.classList.toggle('active', CFG.soundMaster !== false && (CFG.soundCharge || CFG.soundClear || CFG.soundFanfare));
-    document.getElementById('cfgPoolAll').checked = !!CFG.poolAll;
-    document.getElementById('cfgCustomPatterns').value = CFG.customPatterns || '';
-    document.getElementById('cfgCustomOnly').checked = !!CFG.customOnly;
     renderPatternToggles();
     syncHud();
   }
@@ -2412,10 +2419,9 @@
       if (data[k] !== undefined) clean[k] = data[k];
     }
     CFG = clean;
-    if (data.uiMode && [...modeSel.options].some(o => o.value === data.uiMode)) modeSel.value = data.uiMode;
-    if (data.uiKey && [...keySel.options].some(o => o.value === data.uiKey)) keySel.value = data.uiKey;
-    if (data.uiScale && [...scaleSel.options].some(o => o.value === data.uiScale)) scaleSel.value = data.uiScale;
-    if (data.uiVoice && [...voiceSel.options].some(o => o.value === data.uiVoice)) voiceSel.value = data.uiVoice;
+    [[modeSel, data.uiMode], [keySel, data.uiKey], [scaleSel, data.uiScale], [voiceSel, data.uiVoice]].forEach(([sel, val]) => {
+      if (val && [...sel.options].some(o => o.value === val)) sel.value = val;
+    });
     if (data.uiSpeedMult != null) {
       const match = [...speedSel.options].find(o => Math.abs(Number(o.value) - Number(data.uiSpeedMult)) < 0.05);
       if (match) speedSel.value = match.value;
@@ -2448,26 +2454,17 @@
     });
   });
 
-  document.getElementById('cfgShowContour').addEventListener('change', e => { CFG.showContour = e.target.checked; saveCfg(); });
-  ['cfgLookRock', 'cfgLookCrystal', 'cfgLookIron', 'cfgLookIce'].forEach((id, i) => {
-    const key = ['lookRock', 'lookCrystal', 'lookIron', 'lookIce'][i];
-    document.getElementById(id).addEventListener('change', e => { CFG[key] = e.target.checked; saveCfg(); });
-  });
-  document.getElementById('cfgPipeLabels').addEventListener('change', e => { CFG.pipeLabels = e.target.value; saveCfg(); });
-  document.getElementById('cfgExactOctave').addEventListener('change', e => { CFG.exactOctave = e.target.checked; saveCfg(); });
-  ['cfgSoundMaster', 'cfgSoundMusic', 'cfgSoundCharge', 'cfgSoundClear', 'cfgSoundFanfare'].forEach((id, i) => {
-    const key = ['soundMaster', 'soundMusic', 'soundCharge', 'soundClear', 'soundFanfare'][i];
-    document.getElementById(id).addEventListener('change', e => {
+  BOOL_BINDINGS.forEach(([id, key, , onChange]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', e => {
       CFG[key] = e.target.checked;
-      if (key === 'soundMaster' && !CFG.soundMaster && G.droneOn) stopDrone();
       saveCfg();
-      syncDrawerFromCfg();
+      if (onChange) onChange();
     });
   });
-  document.getElementById('cfgPlayMissModel').addEventListener('change', e => { CFG.playMissModel = e.target.checked; saveCfg(); });
-  document.getElementById('cfgPoolAll').addEventListener('change', e => { CFG.poolAll = e.target.checked; saveCfg(); syncHud(); });
+  document.getElementById('cfgPipeLabels').addEventListener('change', e => { CFG.pipeLabels = e.target.value; saveCfg(); });
   document.getElementById('cfgCustomPatterns').addEventListener('input', e => { CFG.customPatterns = e.target.value; saveCfg(); });
-  document.getElementById('cfgCustomOnly').addEventListener('change', e => { CFG.customOnly = e.target.checked; saveCfg(); syncHud(); });
 
   patToggleList.addEventListener('change', e => {
     const id = e.target?.dataset?.patId;
