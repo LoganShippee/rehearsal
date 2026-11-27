@@ -2463,6 +2463,7 @@ document.addEventListener('keydown', e => {
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
+  if (w.kind === 'dash') return 'Rhythm Dash';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
   if (w.kind === 'tuner') return 'Tuner & drone';
   if (w.kind === 'metro') return 'Metronome';
@@ -2487,6 +2488,7 @@ function winIcon(w) {
 function winIcon0(w) {
   if (w.icon) return w.icon;
   if (w.kind === 'sight') return 'ico:sight';
+  if (w.kind === 'dash') return 'ico:sight';
   if (w.kind === 'score') return 'ico:score';
   if (w.kind === 'tuner') return 'ico:tuner';
   if (w.kind === 'metro') return 'ico:metro';
@@ -2576,6 +2578,7 @@ function winBodyHTML(w) {
   if (w.id === '__tour_win') return `<div class="win-start"><div><b>Floating Window Preview</b><br><span style="font-size:13px;color:#6b7385">Use <b>Pin</b> (${IC('ico:pin')}) in the top bar to save any tool or web page as a class tab, or <b>Tile</b> (${IC('ico:tile')}) to snap it to part of the screen.</span></div></div>`;
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
+  if (w.kind === 'dash') return `<iframe class="dash-frame" src="rhythm-dash.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'res' && winRes(w)?.score) return `<div class="score-host" data-score-res="${w.resId}"></div>`;
   if (w.kind === 'tuner' || w.kind === 'metro') return `<div class="mu-host" data-mu-win="${w.id}"></div>`;
@@ -3747,6 +3750,7 @@ function renderWinMenu() {
     <div class="wm-head">Music</div>
     <div class="wm-grid wm-music">
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
+      ${tile('wm-dash', 'ico:sight', 'Rhythm Dash', 'title="Sight-reading rhythm game (touch & keyboard)"')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
       ${tile('wm-piano', 'ico:piano', 'Piano')}
       ${tile('wm-solboard', 'ico:ladder', 'Solfege board')}
@@ -5768,6 +5772,7 @@ const A = {
   },
   'wm-prog': () => { const ex = winList().find(w => w.kind === 'prog'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
+  'wm-dash': () => { const w = addWindow({ kind: 'dash' }); w.w = 0.72; w.h = 0.82; save(); applyWinGeom(); },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },
