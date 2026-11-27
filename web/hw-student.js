@@ -1456,10 +1456,20 @@ function hwOpenRhythmDash() {
   const body = $('#hw-runner-body');
   if (!body) return;
   body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
-  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Dash" src="rhythm-dash.html" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
+  const stu = HW_STATE.session?.student;
+  const qs = stu && stu.id ? `?studentId=${encodeURIComponent(stu.id)}&studentName=${encodeURIComponent(stu.name || '')}` : '';
+  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Dash" src="rhythm-dash.html${qs}" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
   const fr = $('#hw-dash-frame');
   if (fr) {
-    fr.addEventListener('load', () => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} });
+    fr.addEventListener('load', () => {
+      try {
+        fr.focus(); fr.contentWindow?.focus();
+        if (stu && stu.id) {
+          const savedRaw = localStorage.getItem('rehearsal-rhythm-dash-prog-v1:' + stu.id);
+          fr.contentWindow?.postMessage({ type: 'rd-account', studentId: stu.id, studentName: stu.name || '', prog: savedRaw ? JSON.parse(savedRaw) : null }, '*');
+        }
+      } catch {}
+    });
     setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} }, 120);
   }
   if (!window.__hwDashKeysWired) {
@@ -1476,6 +1486,13 @@ function hwOpenRhythmDash() {
     };
     window.addEventListener('keydown', (e) => forwardDash('down', e), true);
     window.addEventListener('keyup', (e) => forwardDash('up', e), true);
+    window.addEventListener('message', (ev) => {
+      const d = ev.data;
+      if (!d || d.type !== 'rd-prog-save' || !d.prog) return;
+      const sid = d.studentId || HW_STATE.session?.student?.id;
+      if (!sid) return;
+      try { localStorage.setItem('rehearsal-rhythm-dash-prog-v1:' + sid, JSON.stringify(d.prog)); } catch {}
+    });
   }
 }
 

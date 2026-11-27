@@ -79,6 +79,7 @@
     /* Self-contained offline utility classes (zero external CDN required) */
     .hidden { display: none !important; }
     .block { display: block; }
+    .inline-block { display: inline-block; }
     .flex { display: flex; }
     .inline-flex { display: inline-flex; }
     .grid { display: grid; }
@@ -105,6 +106,7 @@
     .transition-all { transition: all 120ms ease; }
     .transition-colors { transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease; }
     .duration-75 { transition-duration: 75ms; }
+    .duration-150 { transition-duration: 150ms; }
     .duration-300 { transition-duration: 300ms; }
     .focus\:outline-none:focus { outline: none; }
     .hover\:opacity-85:hover { opacity: 0.85; }
@@ -142,6 +144,7 @@
     .w-px { width: 1px; }
     .w-2 { width: 8px; }
     .w-4 { width: 16px; }
+    .w-12 { width: 48px; }
     .w-20 { width: 80px; }
     .w-24 { width: 96px; }
     .w-28 { width: 112px; }
@@ -201,10 +204,14 @@
     .text-sky-300 { color: #7dd3fc; }
     .text-zinc-400 { color: #a1a1aa; }
     .accent-\[var\(--primary\)\] { accent-color: var(--primary); }
+    #topChrome { transition: opacity 220ms ease; }
+    #topChrome.is-playing { opacity: 0.36; }
+    #topChrome.is-playing:hover, #topChrome.is-playing:focus-within { opacity: 1; }
   </style>
 </head>
 <body class="text-[var(--foreground)] antialiased select-none" tabindex="-1">
   <div id="rdRoot">
+    <div id="topChrome" class="space-y-1.5">
     <!-- Row 1: Speed Difficulty, Portal Mode Roulette, Active Badge, HUD, Start/Stop -->
     <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
       <div class="flex flex-wrap items-center gap-1.5">
@@ -216,14 +223,13 @@
         </select>
 
         <select id="rouletteSelect" class="bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded px-2 py-1 text-xs font-medium focus:outline-none">
+          <option value="overdrive" selected>Mode: 🔥 Endless Overdrive</option>
+          <option value="stream">Mode: ∞ Endless Stream</option>
           <option value="random">Portal Mode: 🎲 Random</option>
           <option value="live">Lock: Live Sight</option>
           <option value="blind">Lock: Pure Sight (Hidden Track)</option>
-          <option value="track">Lock: Track Only (No Notation)</option>
-          <option value="echo">Lock: Memory Echo (1-Bar)</option>
+          <option value="echo">Lock: Memory Echo (2-Bar)</option>
           <option value="turbo">Lock: Turbo Dash (4-Bar Fast)</option>
-          <option value="overdrive">Mode: 🔥 Endless Overdrive</option>
-          <option value="stream">Mode: ∞ Endless Stream</option>
         </select>
 
         <span id="activeModeBadge" class="px-2 py-0.5 rounded border text-[11px] font-bold tracking-wide">
@@ -236,6 +242,12 @@
           <span class="text-[var(--muted-foreground)]"><strong id="bpmHud" class="text-[var(--foreground)]">86</strong> BPM</span>
           <span class="text-[var(--muted-foreground)]">Acc <strong id="accHud" class="text-[var(--foreground)]">100%</strong></span>
           <span class="text-[var(--muted-foreground)]">Streak <strong id="streakHud" class="text-[var(--success)]">0</strong></span>
+          <span id="shieldHud" class="inline-flex items-center gap-1" title="Accuracy Shield: sustain 85%+ accuracy to charge an extra life that saves you from a miss">
+            <span id="shieldLives" class="font-bold text-[var(--primary)]">🛡0</span>
+            <span class="relative inline-block w-12 h-2 rounded-full bg-[var(--card)] border border-[var(--border)] overflow-hidden">
+              <span id="shieldBar" class="block h-full bg-[var(--success)] transition-all duration-150" style="width: 0%;"></span>
+            </span>
+          </span>
           <span id="layerPills" class="inline-flex items-center gap-0.5" title="Adaptive Band Layers (unlocks Bass at 5, Chords at 10, Arp at 15 streak)">
             <span class="px-1 rounded border text-[10px] font-bold">D</span>
             <span class="px-1 rounded border text-[10px] font-bold">B</span>
@@ -265,7 +277,7 @@
           🏆 Board
         </button>
         <select id="grooveSelect" class="bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded px-1.5 py-0.5 text-xs font-medium focus:outline-none" title="Choose Web Audio backing groove style">
-          <option value="electro" selected>Groove: GD Electro</option>
+          <option value="electro" selected>Groove: Neon Synth</option>
           <option value="funk">Groove: Funky Pocket</option>
           <option value="lofi">Groove: Lo-Fi Chill</option>
           <option value="rock">Groove: Driving Rock</option>
@@ -280,12 +292,6 @@
         <button id="readModeBtn" type="button" class="px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:opacity-85 transition cursor-pointer" title="Tricks = fake spikes on rests, pop-up stealth spikes, and mist-end holds (forces reading!); Pure = fog curtain hides all obstacles; Visual = open track">
           Read: <span id="readModeLabel" class="font-semibold text-[var(--primary)]">Tricks</span>
         </button>
-        <button id="playheadBtn" type="button" class="px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:opacity-85 transition cursor-pointer" title="Difficulty setting: hide the scrolling playhead on the staff (+25% score) so students track the beat with their eyes">
-          Playhead: <span id="playheadLabel" class="font-semibold text-[var(--success)]">On</span>
-        </button>
-        <button id="longModeBtn" type="button" class="px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:opacity-85 transition cursor-pointer" title="Hold = hold long glide rails until near the end (release early = crash!); Tap = single-tap auto-glide">
-          Long: <span id="longModeLabel" class="font-semibold text-[var(--warning)]">Hold</span>
-        </button>
         <button id="restartBtn" type="button" class="px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:opacity-85 transition cursor-pointer" title="Auto-restart current pattern on mistake vs Keep Going">
           On Miss: <span id="restartLabel" class="font-semibold text-[var(--warning)]">Restart</span>
         </button>
@@ -294,6 +300,7 @@
           <span>Counts</span>
         </label>
       </div>
+    </div>
     </div>
 
     <!-- Collapsible Full Sight-Reading Meter & Rhythms Panel (borrowed from Rehearsal web/sight.js) -->
@@ -367,6 +374,10 @@
       </div>
       <div id="worldsGrid" class="grid grid-cols-2 sm:grid-cols-4 gap-1.5"></div>
       <div id="skinsArea" class="hidden space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] px-2 py-1 rounded bg-[var(--background)] border border-[var(--border)]">
+          <span class="text-[var(--muted-foreground)]">⭐ <strong class="text-[var(--foreground)]">How to unlock:</strong> Clear 4 portals in a row in any World — <strong class="text-[var(--warning)]">1★</strong> (85%+ acc), <strong class="text-[var(--warning)]">2★</strong> (92%+ in Tricks/Pure), <strong class="text-[var(--warning)]">3★</strong> (95%+ in Pure Fog).</span>
+          <span id="accountSaveStatus" class="font-medium text-[var(--success)]">💾 Saved locally</span>
+        </div>
         <div class="flex flex-wrap items-center gap-1.5" id="skinsRow"></div>
         <div class="flex flex-wrap items-center gap-1.5" id="trailsRow"></div>
       </div>
@@ -410,14 +421,14 @@
       <div id="boardRows" class="divide-y divide-[var(--card-border)] text-[11px]"></div>
     </div>
 
-    <!-- Continuous Forward Side-Scrolling Geometry Dash Course -->
+    <!-- Continuous Forward Side-Scrolling Rhythm Runner Course -->
     <div id="gameWrap" class="w-full rounded border border-[var(--card-border)] bg-[var(--card)] overflow-hidden">
       <canvas id="gameCanvas" class="block w-full cursor-pointer touch-none"></canvas>
     </div>
 
     <!-- Synced Western Notation Strip (Anchored at Bottom) -->
     <div class="w-full rounded border border-[var(--card-border)] bg-[var(--card)] overflow-hidden transition-colors" id="notationWrap">
-      <canvas id="notationCanvas" class="block w-full cursor-pointer touch-none" style="height: 104px;"></canvas>
+      <canvas id="notationCanvas" class="block w-full cursor-pointer touch-none" style="height: 128px;"></canvas>
     </div>
 
     <!-- Dedicated Touch / Tap & Hold Pad (phones, iPads, touchscreen Chromebooks & desktop click) -->
