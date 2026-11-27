@@ -1433,7 +1433,7 @@ function hwRenderPracticeButtons() {
   if (!box) return;
   box.innerHTML = `
     <button type="button" class="hw-practice-btn" id="hw-practice-sr">Sight reading</button>
-    <button type="button" class="hw-practice-btn" id="hw-practice-dash">Rhythm Dash</button>
+    <button type="button" class="hw-practice-btn" id="hw-practice-dash">Rhythm Rush</button>
     <button type="button" class="hw-practice-btn" id="hw-practice-rocket">Solfege Rocket</button>
     <button type="button" class="hw-practice-btn" id="hw-practice-tracks">Practice tracks</button>`;
   $('#hw-practice-sr').onclick = () => hwOpenFreePractice('rhythm');
@@ -1477,14 +1477,14 @@ function hwOpenRhythmDash() {
   const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
   hwSetView('runner');
   hwRenderRunnerHeaderBar();
-  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Rhythm Dash';
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Rhythm Rush';
   const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
   const body = $('#hw-runner-body');
   if (!body) return;
   body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
   const stu = HW_STATE.session?.student;
   const qs = stu && stu.id ? `?studentId=${encodeURIComponent(stu.id)}&studentName=${encodeURIComponent(stu.name || '')}` : '';
-  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Dash" src="rhythm-dash.html${qs}" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
+  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Rush" src="rhythm-dash.html${qs}" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
   const fr = $('#hw-dash-frame');
   if (fr) {
     fr.addEventListener('load', () => {

@@ -2466,7 +2466,7 @@ document.addEventListener('keydown', e => {
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
-  if (w.kind === 'dash') return 'Rhythm Dash';
+  if (w.kind === 'dash') return 'Rhythm Rush';
   if (w.kind === 'rocket') return 'Solfege Rocket';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
   if (w.kind === 'scan') return 'Scan & fix';
@@ -3760,7 +3760,7 @@ function renderWinMenu() {
     <div class="wm-head">Music</div>
     <div class="wm-grid wm-music">
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
-      ${tile('wm-dash', 'ico:sight', 'Rhythm Dash', 'title="Sight-reading rhythm game (touch & keyboard)"')}
+      ${tile('wm-dash', 'ico:sight', 'Rhythm Rush', 'title="Sight-reading rhythm game (touch & keyboard)"')}
       ${tile('wm-rocket', 'ico:sight', 'Solfege Rocket', 'title="Solfege singing space game (microphone & keyboard)"')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
       ${tile('wm-scan', 'ico:scan', 'Scan & fix', 'title="Scan a PDF or photo into MusicXML and fix mistakes"')}
