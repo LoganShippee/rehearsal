@@ -59,6 +59,7 @@
       width: 100%;
       height: 100%;
       display: block;
+      transform: translateZ(0);
     }
     button, select, input { font: inherit; color: inherit; }
     button { background: transparent; border: 0; }
@@ -229,7 +230,7 @@
           <option value="live">Lock: Live Sight</option>
           <option value="blind">Lock: Pure Sight (Hidden Track)</option>
           <option value="echo">Lock: Memory Echo (2-Bar)</option>
-          <option value="turbo">Lock: Turbo Dash (4-Bar Fast)</option>
+          <option value="turbo">Lock: Turbo Rush (4-Bar Fast)</option>
         </select>
 
         <span id="activeModeBadge" class="px-2 py-0.5 rounded border text-[11px] font-bold tracking-wide">
@@ -451,6 +452,6 @@
       <span id="statusText" class="font-mono text-[var(--foreground)]">Ready · Tap or press Space</span>
     </div>
   </div>
-  <script src="rhythm-dash.js"></script>
+  <script src="rhythm-rush.js"></script>
 </body>
 </html>

@@ -140,7 +140,7 @@
       }
 
       const WORLDS = [
-        { id: 'w1', num: 1, name: 'Pulse City',          ts: '4/4', bpm: 76,  ties: false, cells: ['q', 'h', 'w', 'qr'],                          biome: 'grid',      hue: 218, gimmick: 'classic',    gimmickLabel: '⚡ Classic Dash',   desc: 'Quarter, half, whole & rest' },
+        { id: 'w1', num: 1, name: 'Pulse City',          ts: '4/4', bpm: 76,  ties: false, cells: ['q', 'h', 'w', 'qr'],                          biome: 'grid',      hue: 218, gimmick: 'classic',    gimmickLabel: '⚡ Classic Rush',   desc: 'Quarter, half, whole & rest' },
         { id: 'w2', num: 2, name: 'Eighth Alley',        ts: '4/4', bpm: 84,  ties: false, cells: ['q', 'h', 'ee', 'qr', 'hr'],                   biome: 'stage',     hue: 320, gimmick: 'bounce',     gimmickLabel: '🦘 Hyper Bounce',   desc: 'Bouncy jump pads + 8ths' },
         { id: 'w3', num: 3, name: 'Waltz Heights',       ts: '3/4', bpm: 86,  ties: true,  cells: ['q', 'h', 'hd', 'ee', 'qr'],                   biome: 'mountains', hue: 270, gimmick: 'fly',        gimmickLabel: '✈ Sky Ship',        desc: '3/4 flying ship mode & ties' },
         { id: 'w4', num: 4, name: 'Syncopation Station', ts: '4/4', bpm: 88,  ties: false, cells: ['q', 'h', 'ee', 'qr', 'qde', 'er', 'syn'],     biome: 'grid',      hue: 165, gimmick: 'flip',       gimmickLabel: '↕ Gravity Flip',    desc: 'Upside-down ceiling flips each bar' },
@@ -166,7 +166,8 @@
         { id: 'nova',     name: 'Supernova Flame 🔥', stars: 21 }
       ];
       const BIOMES = ['grid', 'mountains', 'sonar', 'starfield', 'stage'];
-      const PROG_KEY_BASE = 'rehearsal-rhythm-dash-prog-v1';
+      const PROG_KEY_BASE = 'rehearsal-rhythm-rush-prog-v1';
+      const LEGACY_PROG_KEY_BASE = 'rehearsal-rhythm-dash-prog-v1';
       const urlParams = new URLSearchParams(window.location.search || '');
       let accountId = (urlParams.get('studentId') || '').trim();
       let accountName = (urlParams.get('studentName') || '').trim();
@@ -238,8 +239,11 @@
 
       function loadProg() {
         try {
-          const raw = localStorage.getItem(progStorageKey());
+          const key = progStorageKey();
+          const legacyKey = accountId ? `${LEGACY_PROG_KEY_BASE}:${accountId}` : LEGACY_PROG_KEY_BASE;
+          const raw = localStorage.getItem(key) || localStorage.getItem(legacyKey);
           if (raw) {
+            if (!localStorage.getItem(key)) { try { localStorage.setItem(key, raw); } catch {} }
             const p = JSON.parse(raw);
             if (p && typeof p === 'object') {
               return {
@@ -391,8 +395,9 @@
       const gameCanvas = document.getElementById('gameCanvas');
       const notationCanvas = document.getElementById('notationCanvas');
       const touchPad = document.getElementById('touchPad');
-      const gCtx = gameCanvas.getContext('2d');
-      const nCtx = notationCanvas.getContext('2d');
+      const gCtx = gameCanvas.getContext('2d', { alpha: false });
+      const nCtx = notationCanvas.getContext('2d', { alpha: false });
+      const IS_WEBKIT_ENGINE = /AppleWebKit/i.test(navigator.userAgent || '') && !/Chrome|Chromium|Edg/i.test(navigator.userAgent || '');
 
       let cachedTheme = null;
       function getTheme() {
@@ -462,87 +467,60 @@
         return masterGain || (audioCtx && audioCtx.destination);
       }
 
-      function playKick(v = 1, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(140, t0);
-        osc.frequency.exponentialRampToValueAtTime(46, t0 + 0.1);
-        g.gain.setValueAtTime(0.25 * v, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.13);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.14);
-      }
-
-      function playSnare(at = null) {
-        if (!audioCtx || !noiseBuffer) return;
-        const t0 = toAudioTime(at);
-        const src = audioCtx.createBufferSource();
-        src.buffer = noiseBuffer;
-        const f = audioCtx.createBiquadFilter();
-        f.type = 'bandpass'; f.frequency.value = 1850;
-        const g = audioCtx.createGain();
-        g.gain.setValueAtTime(0.13, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
-        src.connect(f); f.connect(g); g.connect(audioDest());
-        src.start(t0); src.stop(t0 + 0.09);
-      }
-
-      function playHiHat(loud = false, at = null) {
-        if (!audioCtx || !noiseBuffer) return;
-        const t0 = toAudioTime(at);
-        const src = audioCtx.createBufferSource();
-        src.buffer = noiseBuffer;
-        const f = audioCtx.createBiquadFilter();
-        f.type = 'highpass'; f.frequency.value = 6000;
-        const g = audioCtx.createGain();
-        g.gain.setValueAtTime(loud ? 0.06 : 0.028, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
-        src.connect(f); f.connect(g); g.connect(audioDest());
-        src.start(t0); src.stop(t0 + 0.04);
-      }
-
-      function playClick(accent = false, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(accent ? 1140 : 800, t0);
-        osc.frequency.exponentialRampToValueAtTime(accent ? 520 : 390, t0 + 0.04);
-        g.gain.setValueAtTime(accent ? 0.17 : 0.09, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.048);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.05);
-      }
-
-      function playVoiceNote(freq, dur = 0.18, type = 'sine', vol = 0.18, at = null) {
+      function playOsc({ type = 'sine', freq, freqEnd = null, freqRampDur = 0, vol = 0.15, dur = 0.15, endVol = 0.001, stopPad = 0.02, stopAt = null, lpFreq = 0, at = null }) {
         if (!audioCtx) return;
         const t0 = toAudioTime(at);
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, t0);
+        if (freqEnd != null) osc.frequency.exponentialRampToValueAtTime(freqEnd, t0 + (freqRampDur || dur));
         g.gain.setValueAtTime(vol, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + dur + 0.02);
+        g.gain.exponentialRampToValueAtTime(endVol, t0 + dur);
+        if (lpFreq) {
+          const lp = audioCtx.createBiquadFilter();
+          lp.type = 'lowpass'; lp.frequency.value = lpFreq;
+          osc.connect(lp); lp.connect(g);
+        } else {
+          osc.connect(g);
+        }
+        g.connect(audioDest());
+        osc.start(t0); osc.stop(t0 + (stopAt != null ? stopAt : dur + stopPad));
       }
 
-      function playPortalWarp() {
+      function playNoise({ filterType = 'bandpass', filterFreq = 1850, vol = 0.13, dur = 0.08, stopPad = 0.01, at = null }) {
+        if (!audioCtx || !noiseBuffer) return;
+        const t0 = toAudioTime(at);
+        const src = audioCtx.createBufferSource();
+        src.buffer = noiseBuffer;
+        const f = audioCtx.createBiquadFilter();
+        f.type = filterType; f.frequency.value = filterFreq;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(vol, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        src.connect(f); f.connect(g); g.connect(audioDest());
+        src.start(t0); src.stop(t0 + dur + stopPad);
+      }
+
+      function playChord(freqs, opts) {
         if (!audioCtx) return;
-        const base = nowClockSec();
-        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
-          playVoiceNote(f, 0.18, 'triangle', 0.12, base + i * 0.038);
+        freqs.forEach((f, idx) => {
+          const vol = typeof opts.vol === 'function' ? opts.vol(f, idx) : opts.vol;
+          playOsc(Object.assign({}, opts, { freq: f, vol }));
         });
       }
 
-      function playCrashSfx() {
-        playVoiceNote(130, 0.18, 'sawtooth', 0.22);
-        playSnare();
+      const playKick = (v = 1, at = null) => playOsc({ type: 'sine', freq: 140, freqEnd: 46, freqRampDur: 0.1, vol: 0.25 * v, dur: 0.13, stopPad: 0.01, at });
+      const playSnare = (at = null) => playNoise({ filterType: 'bandpass', filterFreq: 1850, vol: 0.13, dur: 0.08, stopPad: 0.01, at });
+      const playHiHat = (loud = false, at = null) => playNoise({ filterType: 'highpass', filterFreq: 6000, vol: loud ? 0.06 : 0.028, dur: 0.035, stopPad: 0.005, at });
+      const playClick = (accent = false, at = null) => playOsc({ type: 'triangle', freq: accent ? 1140 : 800, freqEnd: accent ? 520 : 390, freqRampDur: 0.04, vol: accent ? 0.17 : 0.09, dur: 0.048, stopPad: 0.002, at });
+      const playVoiceNote = (freq, dur = 0.18, type = 'sine', vol = 0.18, at = null) => playOsc({ type, freq, vol, dur, stopPad: 0.02, at });
+      function playPortalWarp() {
+        if (!audioCtx) return;
+        const base = nowClockSec();
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => playVoiceNote(f, 0.18, 'triangle', 0.12, base + i * 0.038));
       }
+      const playCrashSfx = () => { playVoiceNote(130, 0.18, 'sawtooth', 0.22); playSnare(); };
 
       const PROG_ROOTS = [130.81, 98.0, 110.0, 87.31]; // C3, G2, A2, F2
       const PROG_CHORDS = [
@@ -553,109 +531,13 @@
       ];
       const ARP_OFFSETS = [2, 2.5, 3, 4, 3, 2.5, 2, 1.5]; // octave/fifth shimmer ratios
 
-      function playBassNote(freq, dur = 0.24, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const f = audioCtx.createBiquadFilter();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq * 0.5, t0);
-        f.type = 'lowpass'; f.frequency.value = 380;
-        g.gain.setValueAtTime(0.18, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-        osc.connect(f); f.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + dur + 0.02);
-      }
-
-      function playChordPad(freqs, dur = 0.34, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        freqs.forEach((freq) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, t0);
-          g.gain.setValueAtTime(0.045, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.02);
-        });
-      }
-
-      function playArpNote(freq, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, t0);
-        g.gain.setValueAtTime(0.055, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.12);
-      }
-
-      function playRide(accent = false, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        [2480, 3690, 5120].forEach((f, idx) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(f, t0);
-          g.gain.setValueAtTime((accent ? 0.024 : 0.014) / (idx + 1), t0);
-          g.gain.exponentialRampToValueAtTime(0.0005, t0 + (accent ? 0.16 : 0.09));
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + 0.18);
-        });
-      }
-
-      function playTom(freq, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq * 1.25, t0);
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.72, t0 + 0.11);
-        g.gain.setValueAtTime(0.20, t0);
-        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
-        osc.connect(g); g.connect(audioDest());
-        osc.start(t0); osc.stop(t0 + 0.15);
-      }
-
-      function playRhodes(freqs, dur = 0.55, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        freqs.forEach((freq) => {
-          const osc = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, t0);
-          g.gain.setValueAtTime(0.048, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.03);
-        });
-      }
-
-      function playPowerGuitar(freq, dur = 0.18, at = null) {
-        if (!audioCtx) return;
-        const t0 = toAudioTime(at);
-        [freq, freq * 1.498].forEach((f, idx) => {
-          const osc = audioCtx.createOscillator();
-          const lp = audioCtx.createBiquadFilter();
-          const g = audioCtx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(f, t0);
-          lp.type = 'lowpass'; lp.frequency.value = 920;
-          g.gain.setValueAtTime(idx === 0 ? 0.075 : 0.055, t0);
-          g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-          osc.connect(lp); lp.connect(g); g.connect(audioDest());
-          osc.start(t0); osc.stop(t0 + dur + 0.02);
-        });
-      }
+      const playBassNote = (freq, dur = 0.24, at = null) => playOsc({ type: 'triangle', freq: freq * 0.5, lpFreq: 380, vol: 0.18, dur, stopPad: 0.02, at });
+      const playChordPad = (freqs, dur = 0.34, at = null) => playChord(freqs, { type: 'sine', vol: 0.045, dur, stopPad: 0.02, at });
+      const playArpNote = (freq, at = null) => playOsc({ type: 'triangle', freq, vol: 0.055, dur: 0.11, stopPad: 0.01, at });
+      const playRide = (accent = false, at = null) => playChord([2480, 3690, 5120], { type: 'triangle', vol: (f, i) => (accent ? 0.024 : 0.014) / (i + 1), dur: accent ? 0.16 : 0.09, endVol: 0.0005, stopAt: 0.18, at });
+      const playTom = (freq, at = null) => playOsc({ type: 'sine', freq: freq * 1.25, freqEnd: freq * 0.72, freqRampDur: 0.11, vol: 0.20, dur: 0.14, stopPad: 0.01, at });
+      const playRhodes = (freqs, dur = 0.55, at = null) => playChord(freqs, { type: 'sine', vol: 0.048, dur, stopPad: 0.03, at });
+      const playPowerGuitar = (freq, dur = 0.18, at = null) => playChord([freq, freq * 1.498], { type: 'sawtooth', lpFreq: 920, vol: (f, i) => (i === 0 ? 0.075 : 0.055), dur, stopPad: 0.02, at });
 
       function triggerGroove(subIdx, isCountIn, at = null) {
         const { beats, kind, subsPerBar } = meterInfo();
@@ -1286,7 +1168,7 @@
 
       function refreshModeBadge() {
         const t = getTheme();
-        let label = 'TURBO DASH';
+        let label = 'TURBO RUSH';
         let col = t.warning;
         if (activePortalMode === 'live') { label = 'LIVE SIGHT'; col = t.primary; }
         else if (activePortalMode === 'blind') { label = 'PURE SIGHT'; col = t.success; }
@@ -1343,6 +1225,13 @@
         renderBoardUI();
       }
 
+      function refreshAllUI(reset = true) {
+        renderWorldsUI();
+        renderSkinsUI();
+        renderBoardUI();
+        if (reset) resetToIdle();
+      }
+
       function selectWorld(w) {
         activeWorldId = w.id;
         userSpeedOverride = false;
@@ -1363,10 +1252,7 @@
           rouletteSelect.value = 'overdrive';
         }
         renderRhythmChips();
-        renderWorldsUI();
-        renderSkinsUI();
-        renderBoardUI();
-        resetToIdle();
+        refreshAllUI();
         bpm = w.bpm;
         updateHud();
         statusText.textContent = `World ${w.num}: ${w.name} (${w.gimmickLabel} · ${w.ts} · ${w.bpm} BPM) · Press Start or Space`;
@@ -1650,7 +1536,7 @@
           phaseStartSec = nowSec - (carryQ / qps(modeSpeedMult()));
           phaseBeat = -countInQ + carryQ;
           lastSubStep = Math.floor(-countInQ * 2) - 1;
-          statusText.textContent = `TURBO DASH (4 bars @ ${effectiveBpm()} BPM): Simple rhythms, fast tempo!`;
+          statusText.textContent = `TURBO RUSH (4 bars @ ${effectiveBpm()} BPM): Simple rhythms, fast tempo!`;
         } else {
           phase = 'countin';
           phaseStartPerf = now - (carryQ / qps(1.0)) * 1000;
@@ -2094,7 +1980,7 @@
               const macro = Math.max(1, Math.min(mi.beats, Math.floor((s + countInQ * 2) / macroSub) + 1));
               const odPrefix = isOverdriveRun() ? `🔥 OVERDRIVE (${bpm} BPM · Portal ${overdrivePortals + 1}) · ` : '';
               if (activePortalMode === 'turbo') {
-                statusText.textContent = `⚡ TURBO DASH (4 bars @ ${effectiveBpm()} BPM) · Count in ${macro}`;
+                statusText.textContent = `⚡ TURBO RUSH (4 bars @ ${effectiveBpm()} BPM) · Count in ${macro}`;
               } else if (activePortalMode === 'blind') {
                 statusText.textContent = `${odPrefix}PURE SIGHT (${bpm} BPM) · Count in ${macro}`;
               } else if (activePortalMode === 'stream') {
@@ -2115,7 +2001,7 @@
             const odPrefix = isOverdriveRun() ? `🔥 OVERDRIVE (${bpm} BPM · Best ${overdriveBest}) · ` : '';
             if (activePortalMode === 'turbo') {
               notationWrap.style.borderColor = t.warning;
-              statusText.textContent = `⚡ TURBO DASH (4 bars @ ${effectiveBpm()} BPM) — Go fast!`;
+              statusText.textContent = `⚡ TURBO RUSH (4 bars @ ${effectiveBpm()} BPM) — Go fast!`;
             } else if (activePortalMode === 'blind') {
               notationWrap.style.borderColor = isOverdriveRun() && overdriveIntensity() > 0.05 ? odHue(0) : t.success;
               statusText.textContent = `${odPrefix}PURE SIGHT (${bpm} BPM) — Read the music! Obstacles reveal as you pass!`;
@@ -2363,8 +2249,16 @@
       // ---------- Canvas Rendering (Cached Sizes & DPR Cap for Smooth 60fps) ----------
       const canvasMetrics = new WeakMap();
       let gameGroundY = 166;
+      let cachedSkyKey = '';
+      let cachedSkyGrad = null;
+      let cachedGlazeKey = '';
+      let cachedGlazeGrad = null;
       function measureCanvas(canvas) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        const rawDpr = window.devicePixelRatio || 1;
+        // In WebKit/WKWebView (macOS app & Safari), non-integer 1.5x DPR triggers expensive resampling;
+        // integer 1x on the animated gameCanvas keeps 60fps locked while notationCanvas stays crisp.
+        const maxDpr = (canvas === gameCanvas && IS_WEBKIT_ENGINE) ? 1 : (canvas === notationCanvas ? 2 : 1.5);
+        const dpr = Math.min(rawDpr, maxDpr);
         const rect = canvas.getBoundingClientRect();
         const w = Math.max(320, Math.round(rect.width));
         const h = Math.max(88, Math.round(rect.height));
@@ -2408,7 +2302,6 @@
         const vh = h / camScale;
         PLAYER_X = Math.round(Math.max(115, Math.min(200, vw * 0.25)));
         const t = getTheme();
-        gCtx.clearRect(0, 0, w, h);
 
         gCtx.save();
         gCtx.scale(camScale, camScale);
@@ -2464,13 +2357,19 @@
         }
 
         // Dark-rich neon sky gradient + softer parallax biomes for strong figure-ground separation
-        const skyGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
-        skyGrad.addColorStop(0, gdSkyTop(od, beatPulse));
-        skyGrad.addColorStop(1, gdSkyBot(od, beatPulse));
-        gCtx.fillStyle = skyGrad;
+        const skyTopCol = gdSkyTop(od, beatPulse);
+        const skyBotCol = gdSkyBot(od, beatPulse);
+        const skyKey = `${skyTopCol}|${skyBotCol}|${Math.round(groundY)}`;
+        if (skyKey !== cachedSkyKey) {
+          cachedSkyKey = skyKey;
+          cachedSkyGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
+          cachedSkyGrad.addColorStop(0, skyTopCol);
+          cachedSkyGrad.addColorStop(1, skyBotCol);
+        }
+        gCtx.fillStyle = cachedSkyGrad;
         gCtx.fillRect(0, 0, vw, groundY);
 
-        // Dynamic Beat-Synced Biomes (dimmed ~40% so foreground hazards pop cleanly)
+        // Dynamic Beat-Synced Biomes (batched paths for 60fps in WebKit/WKWebView)
         const biome = BIOMES[biomeIdx % BIOMES.length];
         if (biome === 'grid') {
           const wallTile = 68;
@@ -2478,24 +2377,27 @@
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.10)';
           gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.03 + beatPulse * 0.025).toFixed(3)})`;
           gCtx.lineWidth = 1.1;
+          gCtx.beginPath();
           for (let wy = groundY - wallTile; wy > -wallTile; wy -= wallTile) {
             for (let wxBg = wallOff - wallTile; wxBg < vw + wallTile; wxBg += wallTile) {
-              gCtx.fillRect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
-              gCtx.strokeRect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
+              gCtx.rect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
             }
           }
+          gCtx.fill();
+          gCtx.stroke();
           const bgCount = 8;
           const bgSlot = (vw + 160) / bgCount;
           const bgShift = ((worldScrollBeat * pxPerQ * 0.08) % bgSlot + bgSlot) % bgSlot;
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+          gCtx.beginPath();
           for (let bi = -1; bi <= bgCount; bi++) {
             const bxBg = bi * bgSlot - bgShift;
             const baseBH = 22 + ((bi * 37 + 19) % 44);
             const pulseBH = baseBH + beatPulse * (4 + od * 8);
-            gCtx.fillRect(bxBg, groundY - pulseBH, bgSlot * 0.62, pulseBH);
+            gCtx.rect(bxBg, groundY - pulseBH, bgSlot * 0.62, pulseBH);
           }
+          gCtx.fill();
         } else if (biome === 'mountains') {
-          gCtx.save();
           gCtx.fillStyle = 'rgba(255, 210, 90, 0.09)';
           gCtx.beginPath();
           gCtx.arc(vw * 0.72, groundY - 46, 32 + beatPulse * 4, 0, Math.PI * 2);
@@ -2505,99 +2407,91 @@
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.18)';
           gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.07 + beatPulse * 0.06).toFixed(3)})`;
           gCtx.lineWidth = 1.2;
+          gCtx.beginPath();
           for (let mi = -1; mi <= Math.ceil(vw / mSlot) + 1; mi++) {
             const mx = mi * mSlot - mOff;
             const mh = 42 + ((mi * 29 + 13) % 34) + beatPulse * 5;
-            gCtx.beginPath();
             gCtx.moveTo(mx - 20, groundY);
             gCtx.lineTo(mx + mSlot * 0.5, groundY - mh);
             gCtx.lineTo(mx + mSlot + 20, groundY);
             gCtx.closePath();
-            gCtx.fill();
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.fill();
+          gCtx.stroke();
         } else if (biome === 'sonar') {
-          gCtx.save();
           gCtx.strokeStyle = 'rgba(120, 240, 255, 0.13)';
           gCtx.lineWidth = 1.1;
+          gCtx.beginPath();
           for (let bi = 0; bi < 14; bi++) {
             const bx = ((bi * 97 - worldScrollBeat * pxPerQ * 0.22) % (vw + 40) + vw + 40) % (vw + 40) - 20;
             const by = groundY - 12 - (((bi * 31 + nowMs * 0.025) % (groundY - 24)));
-            gCtx.beginPath();
-            gCtx.arc(bx, by, 3 + (bi % 4) * 2, 0, Math.PI * 2);
-            gCtx.stroke();
+            const br = 3 + (bi % 4) * 2;
+            gCtx.moveTo(bx + br, by);
+            gCtx.arc(bx, by, br, 0, Math.PI * 2);
           }
-          gCtx.restore();
+          gCtx.stroke();
         } else if (biome === 'starfield') {
-          gCtx.save();
+          gCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+          gCtx.lineWidth = 1.2;
+          gCtx.beginPath();
           for (let si = 0; si < 26; si++) {
             const sx = ((si * 67 - worldScrollBeat * pxPerQ * (0.18 + (si % 3) * 0.12)) % vw + vw) % vw;
             const sy = 14 + ((si * 43) % (groundY - 26));
             const len = 4 + (si % 3) * 5 + beatPulse * 5;
-            gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.11 + (si % 3) * 0.07).toFixed(2)})`;
-            gCtx.lineWidth = 1.2;
-            gCtx.beginPath();
             gCtx.moveTo(sx, sy);
             gCtx.lineTo(sx - len, sy);
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.stroke();
         } else {
-          gCtx.save();
+          gCtx.fillStyle = `rgba(255, 255, 255, ${(0.045 + beatPulse * 0.035).toFixed(3)})`;
+          gCtx.beginPath();
           for (let li = 0; li < 4; li++) {
             const lx = (vw / 5) * (li + 1);
-            const sway = Math.sin(performance.now() * 0.0018 + li * 1.4) * 52;
-            const grad = gCtx.createLinearGradient(lx, 0, lx + sway, groundY);
-            grad.addColorStop(0, `rgba(255, 255, 255, ${(0.09 + beatPulse * 0.07).toFixed(3)})`);
-            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            gCtx.fillStyle = grad;
-            gCtx.beginPath();
+            const sway = Math.sin(nowMs * 0.0018 + li * 1.4) * 52;
             gCtx.moveTo(lx - 6, 0);
             gCtx.lineTo(lx + 6, 0);
             gCtx.lineTo(lx + sway + 34, groundY);
             gCtx.lineTo(lx + sway - 34, groundY);
             gCtx.closePath();
-            gCtx.fill();
           }
-          gCtx.restore();
+          gCtx.fill();
         }
         // Subtle atmospheric depth glaze so foreground obstacles and the runner always pop
-        const depthGlaze = gCtx.createLinearGradient(0, 0, 0, groundY);
-        depthGlaze.addColorStop(0, gimmick === 'underwater' ? 'rgba(6, 54, 72, 0.34)' : 'rgba(4, 7, 16, 0.24)');
-        depthGlaze.addColorStop(1, gimmick === 'underwater' ? 'rgba(8, 72, 88, 0.16)' : 'rgba(4, 7, 16, 0.08)');
-        gCtx.fillStyle = depthGlaze;
+        const glazeKey = `${isUnderwater ? 1 : 0}|${Math.round(groundY)}`;
+        if (glazeKey !== cachedGlazeKey) {
+          cachedGlazeKey = glazeKey;
+          cachedGlazeGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
+          cachedGlazeGrad.addColorStop(0, isUnderwater ? 'rgba(6, 54, 72, 0.34)' : 'rgba(4, 7, 16, 0.24)');
+          cachedGlazeGrad.addColorStop(1, isUnderwater ? 'rgba(8, 72, 88, 0.16)' : 'rgba(4, 7, 16, 0.08)');
+        }
+        gCtx.fillStyle = cachedGlazeGrad;
         gCtx.fillRect(0, 0, vw, groundY);
-        if (gimmick === 'underwater') {
-          gCtx.save();
-          const nowT = performance.now() * 0.0012;
+        if (isUnderwater) {
+          const nowT = nowMs * 0.0012;
+          gCtx.fillStyle = 'rgba(120, 245, 255, 0.07)';
+          gCtx.beginPath();
           for (let ci = 0; ci < 5; ci++) {
             const cx = ((ci * 135 + Math.sin(nowT + ci) * 26) % (vw + 60)) - 30;
-            const cGrad = gCtx.createLinearGradient(cx, 0, cx + 28, groundY);
-            cGrad.addColorStop(0, 'rgba(120, 245, 255, 0.14)');
-            cGrad.addColorStop(1, 'rgba(120, 245, 255, 0)');
-            gCtx.fillStyle = cGrad;
-            gCtx.beginPath();
             gCtx.moveTo(cx - 10, 0);
             gCtx.lineTo(cx + 14, 0);
             gCtx.lineTo(cx + 44, groundY);
             gCtx.lineTo(cx + 10, groundY);
             gCtx.closePath();
-            gCtx.fill();
           }
+          gCtx.fill();
           // Swaying underwater kelp fronds along the seabed
           const kelpOff = -(((worldScrollBeat * pxPerQ * 0.35) % 90 + 90) % 90);
           gCtx.strokeStyle = 'rgba(45, 212, 191, 0.28)';
           gCtx.lineWidth = 3;
           gCtx.lineCap = 'round';
+          gCtx.beginPath();
           for (let kx = kelpOff; kx < vw + 90; kx += 90) {
             const sway = Math.sin(nowT * 2 + kx * 0.05) * 8;
-            gCtx.beginPath();
             gCtx.moveTo(kx, groundY);
             gCtx.quadraticCurveTo(kx + sway, groundY - 18, kx - sway * 0.6, groundY - 36);
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.stroke();
+          gCtx.lineCap = 'butt';
         }
         if (isGravityWorld || isSkyShip || isUnderwater) {
           // Top ceiling rail / ocean surface for Gravity Flip, Sky Ship & Underwater corridors
@@ -3514,7 +3408,7 @@
             gCtx.fillStyle = 'rgba(12, 10, 22, 0.92)';
             gCtx.fillRect(rx1, 22, rw, blockH);
 
-            // Diagonal crimson caution stripes clipped inside the crusher block
+            // Diagonal crimson caution stripes clipped inside the crusher block (batched)
             gCtx.save();
             gCtx.beginPath();
             gCtx.rect(rx1 + 1, 23, Math.max(0, rw - 2), Math.max(0, blockH - 2));
@@ -3522,12 +3416,12 @@
             gCtx.strokeStyle = col;
             gCtx.globalAlpha = 0.28;
             gCtx.lineWidth = 4;
+            gCtx.beginPath();
             for (let sx = rx1 - blockH; sx < rx2 + blockH; sx += 12) {
-              gCtx.beginPath();
               gCtx.moveTo(sx, 22);
               gCtx.lineTo(sx + blockH, 22 + blockH);
-              gCtx.stroke();
             }
+            gCtx.stroke();
             gCtx.restore();
 
             // Crisp hazard border around the ceiling block
@@ -3572,7 +3466,7 @@
           gCtx.restore();
         }
 
-        // Authentic scrolling GD ground deck with 28x28 tiles + glowing white horizon
+        // Authentic scrolling ground deck with 28x28 tiles (batched path) + glowing white horizon
         gCtx.fillStyle = gdGroundCol(od);
         gCtx.fillRect(0, groundY, vw, vh - groundY);
         const gTile = 28;
@@ -3580,10 +3474,12 @@
         gCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
         gCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
         gCtx.lineWidth = 1;
+        gCtx.beginPath();
         for (let gx = (PLAYER_X % gTile) + gOff - gTile; gx < vw + gTile; gx += gTile) {
-          gCtx.fillRect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
-          gCtx.strokeRect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
+          gCtx.rect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
         }
+        gCtx.fill();
+        gCtx.stroke();
         gCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
         gCtx.lineWidth = 6;
         gCtx.beginPath();
@@ -4012,7 +3908,7 @@
           const mi = meterInfo();
           const macro = Math.max(1, Math.min(mi.beats, Math.floor((phaseBeat + countInQ) / mi.beatQ) + 1));
           badge = activePortalMode === 'turbo'
-            ? `⚡ TURBO DASH (4 BARS @ ${effectiveBpm()} BPM) · COUNT-IN: ${macro}`
+            ? `⚡ TURBO RUSH (4 BARS @ ${effectiveBpm()} BPM) · COUNT-IN: ${macro}`
             : activePortalMode === 'blind'
               ? `${odBannerPrefix}PURE SIGHT (${bpm} BPM) · COUNT-IN: ${macro}`
               : activePortalMode === 'stream'
@@ -4024,7 +3920,7 @@
           badge = activePortalMode === 'echo'
             ? `${odBannerPrefix}${gimTag}MEMORY ECHO (2 BARS) — JUMP FROM MEMORY!`
             : activePortalMode === 'turbo'
-              ? `⚡ TURBO DASH (4 BARS @ ${effectiveBpm()} BPM) — GO FAST!`
+              ? `⚡ TURBO RUSH (4 BARS @ ${effectiveBpm()} BPM) — GO FAST!`
               : activePortalMode === 'blind'
                 ? `${odBannerPrefix}${gimTag}PURE SIGHT (${bpm} BPM) — TRACK REVEALS BEHIND YOU`
                 : activePortalMode === 'stream'
@@ -4118,10 +4014,7 @@
           subCol = '#fbbf24';
         } else {
           fillPct = Math.max(0, Math.min(1, shieldCharge / 100));
-          const chGrad = gCtx.createLinearGradient(barX, barY, barX + barW, barY);
-          chGrad.addColorStop(0, '#34d399');
-          chGrad.addColorStop(1, '#60efff');
-          fillCol = chGrad;
+          fillCol = '#34d399';
           subText = `CHARGING ${Math.round(shieldCharge)}% · ${liveAcc}% ACC`;
           subCol = '#6ee7b7';
         }
@@ -4139,7 +4032,8 @@
       function drawNotation() {
         const { w, h } = prepCanvas(notationCanvas, nCtx);
         const t = getTheme();
-        nCtx.clearRect(0, 0, w, h);
+        nCtx.fillStyle = t.card;
+        nCtx.fillRect(0, 0, w, h);
 
         const gateX = 56;
         const portalX = w - 28;
@@ -4309,11 +4203,8 @@
               const code = e.durCode || '';
               const isWhole = code === 'w' || (!e.tiedToNext && e.dur >= 3.99);
               const isOpen = isWhole || code === 'h' || code === 'hd' || (!e.tiedToNext && e.dur >= 1.99);
-              nCtx.save();
-              nCtx.translate(x, staffY);
-              nCtx.rotate(isWhole ? 0 : -0.28);
               nCtx.beginPath();
-              nCtx.ellipse(0, 0, isWhole ? 7.8 : 6.6, isWhole ? 5.2 : 4.6, 0, 0, Math.PI * 2);
+              nCtx.ellipse(x, staffY, isWhole ? 7.8 : 6.6, isWhole ? 5.2 : 4.6, isWhole ? 0 : -0.28, 0, Math.PI * 2);
               if (isOpen) {
                 nCtx.fillStyle = t.card;
                 nCtx.fill();
@@ -4324,7 +4215,6 @@
                 nCtx.fillStyle = col;
                 nCtx.fill();
               }
-              nCtx.restore();
 
               if (e.dot) {
                 nCtx.fillStyle = col;
@@ -4490,10 +4380,7 @@
       rouletteSelect.addEventListener('change', () => {
         rouletteSelect.blur();
         rouletteSetting = rouletteSelect.value;
-        renderWorldsUI();
-        renderSkinsUI();
-        renderBoardUI();
-        resetToIdle();
+        refreshAllUI();
       });
 
       readModeBtn.addEventListener('click', () => {
@@ -4594,10 +4481,7 @@
         tsSelect.blur();
         currentTs = tsSelect.value;
         renderRhythmChips();
-        renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+        refreshAllUI();
       });
 
       rhySysSelect.addEventListener('change', () => {
@@ -4645,10 +4529,7 @@
           (map[p] || ['q', 'h', 'ee', 'qr']).forEach((id) => selectedSimple.add(id));
         }
         renderRhythmChips();
-        renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+        refreshAllUI();
       });
 
       grooveSelect.addEventListener('change', () => {
@@ -4718,15 +4599,18 @@
         playBtn.blur();
         try { window.focus(); document.body.focus(); } catch {}
         if (['echo_listen', 'countin', 'live', 'cooldown'].includes(phase)) {
-          renderWorldsUI();
-          renderSkinsUI();
-          renderBoardUI();
-          resetToIdle();
+          refreshAllUI();
         } else {
           startRun();
         }
       });
 
+      const onPointerDone = (e) => {
+        if (activePointerId === null || e.pointerId !== activePointerId) return;
+        activePointerId = null;
+        setPadDown(false);
+        handleRelease();
+      };
       [gameCanvas, notationCanvas, touchPad].forEach((c) => {
         if (!c) return;
         c.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4741,31 +4625,9 @@
           setPadDown(true);
           handlePress();
         });
-        c.addEventListener('pointerup', (e) => {
-          if (e.pointerId !== activePointerId) return;
-          activePointerId = null;
-          setPadDown(false);
-          handleRelease();
-        });
-        c.addEventListener('pointercancel', (e) => {
-          if (e.pointerId !== activePointerId) return;
-          activePointerId = null;
-          setPadDown(false);
-          handleRelease();
-        });
+        ['pointerup', 'pointercancel'].forEach((ev) => c.addEventListener(ev, onPointerDone));
       });
-      window.addEventListener('pointerup', (e) => {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        setPadDown(false);
-        handleRelease();
-      });
-      window.addEventListener('pointercancel', (e) => {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        setPadDown(false);
-        handleRelease();
-      });
+      ['pointerup', 'pointercancel'].forEach((ev) => window.addEventListener(ev, onPointerDone));
       window.addEventListener('blur', () => {
         if (activePointerId !== null || isPointerOrKeyDown) {
           activePointerId = null;
@@ -4784,9 +4646,10 @@
 
       function onKeyDown(e) {
         if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
-          if (e.repeat) return;
           if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
           e.preventDefault();
+          e.stopPropagation();
+          if (e.repeat) return;
           setPadDown(true);
           handlePress();
         }
@@ -4823,9 +4686,7 @@
           avOffsetSlider.value = String(avOffsetMs);
           avOffsetVal.textContent = `${avOffsetMs > 0 ? '+' : ''}${avOffsetMs} ms`;
           updateAccountSaveBadge();
-          renderWorldsUI();
-          renderSkinsUI();
-          renderBoardUI();
+          refreshAllUI(false);
           drawAll();
           return;
         }
@@ -4843,9 +4704,6 @@
       window.addEventListener('resize', () => { measureCanvas(gameCanvas); measureCanvas(notationCanvas); drawAll(); });
 
       updateAccountSaveBadge();
-      renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+      refreshAllUI();
     })();
   

@@ -2466,7 +2466,7 @@ document.addEventListener('keydown', e => {
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
-  if (w.kind === 'dash') return 'Rhythm Rush';
+  if (w.kind === 'rush' || w.kind === 'dash') return 'Rhythm Rush';
   if (w.kind === 'rocket') return 'Solfege Rocket';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
   if (w.kind === 'scan') return 'Scan & fix';
@@ -2493,7 +2493,7 @@ function winIcon(w) {
 function winIcon0(w) {
   if (w.icon) return w.icon;
   if (w.kind === 'sight') return 'ico:sight';
-  if (w.kind === 'dash') return 'ico:sight';
+  if (w.kind === 'rush' || w.kind === 'dash') return 'ico:sight';
   if (w.kind === 'rocket') return 'ico:sight';
   if (w.kind === 'score') return 'ico:score';
   if (w.kind === 'scan') return 'ico:scan';
@@ -2586,7 +2586,7 @@ function winBodyHTML(w) {
   if (w.id === '__tour_win') return `<div class="win-start"><div><b>Floating Window Preview</b><br><span style="font-size:13px;color:#6b7385">Use <b>Pin</b> (${IC('ico:pin')}) in the top bar to save any tool or web page as a class tab, or <b>Tile</b> (${IC('ico:tile')}) to snap it to part of the screen.</span></div></div>`;
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
-  if (w.kind === 'dash') return `<iframe class="dash-frame" src="rhythm-dash.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
+  if (w.kind === 'rush' || w.kind === 'dash') return `<iframe class="rush-frame" src="rhythm-rush.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
   if (w.kind === 'rocket') return `<iframe class="rocket-frame" src="gate-singer.html" style="width:100%;height:100%;border:0;display:block;background:#0b1020" allow="microphone; autoplay"></iframe>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'scan') return `<div class="sf-host" data-scan-win="${w.id}"></div>`;
@@ -3760,7 +3760,7 @@ function renderWinMenu() {
     <div class="wm-head">Music</div>
     <div class="wm-grid wm-music">
       ${tile('wm-sight', 'ico:sight', 'Sight reading')}
-      ${tile('wm-dash', 'ico:sight', 'Rhythm Rush', 'title="Sight-reading rhythm game (touch & keyboard)"')}
+      ${tile('wm-rush', 'ico:sight', 'Rhythm Rush', 'title="Sight-reading rhythm game (touch & keyboard)"')}
       ${tile('wm-rocket', 'ico:sight', 'Solfege Rocket', 'title="Solfege singing space game (microphone & keyboard)"')}
       ${tile('wm-score', 'ico:score', 'Score practice', 'title="MusicXML / MuseScore"')}
       ${tile('wm-scan', 'ico:scan', 'Scan & fix', 'title="Scan a PDF or photo into MusicXML and fix mistakes"')}
@@ -5794,19 +5794,19 @@ const A = {
     const w = addWindow({ kind: 'rocket' }); w.w = 0.82; w.h = 0.86; save(); applyWinGeom();
     setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .rocket-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
   },
-  'wm-dash': () => {
-    const w = addWindow({ kind: 'dash' }); w.w = 0.78; w.h = 0.84; save(); applyWinGeom();
-    setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .dash-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
-    if (!window.__appDashKeysWired) {
-      window.__appDashKeysWired = true;
+  'wm-rush': () => {
+    const w = addWindow({ kind: 'rush' }); w.w = 0.78; w.h = 0.84; save(); applyWinGeom();
+    setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .rush-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
+    if (!window.__appRushKeysWired) {
+      window.__appRushKeysWired = true;
       const fwd = (action, e) => {
         if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
         if (e.code !== 'Space' && e.key !== ' ' && e.code !== 'ArrowUp') return;
-        const frames = document.querySelectorAll('.dash-frame');
+        const frames = document.querySelectorAll('.rush-frame');
         if (!frames.length) return;
         const topFrame = frames[frames.length - 1];
-        if (action === 'down' && e.repeat) return;
         e.preventDefault();
+        if (action === 'down' && e.repeat) return;
         try { topFrame.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
       };
       window.addEventListener('keydown', e => fwd('down', e), true);
