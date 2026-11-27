@@ -40,7 +40,18 @@ tests/check-diff.sh        # audit every touched file/section and fail if a Prot
 2. **Do not touch unrelated code** — only edit files/sections directly required to fulfill the user's request or fix the reported bug. If you discover a necessary edit outside the request's scope, explain why and get explicit user permission first.
 3. **Run `tests/run.sh` before every commit** — runs `tests/invariants-test.js` (syntax-checks all `web/*.js`, checks `index.html` ↔ `sw.js` parity, and enforces zoom/scrolling, stacking z-index, persistent ID, and iPad shell contracts), `tests/edit-guard-test.py`, and the grader tests. (`release.sh` runs this automatically.)
 4. **Run `tests/check-diff.sh` before every commit** — lists every file and feature section touched in your diff and **fails** if any Protected Zone in `tests/protected-zones.json` was edited without explicit approval (`--allow <zone>`).
-5. **Keep new features modular** — when building large new features (e.g., paid features), put new code in dedicated `web/*.js` files (and register them in `web/index.html` and `web/sw.js`) instead of weaving large blocks into fragile sections of `web/app.js` or `web/styles.css`.
+5. **Keep new features modular** — when building large new features (e.g., paid features), put new code in dedicated `web/*.js` / `web/*.css` files (and register them in `web/index.html` and `web/sw.js`) instead of weaving large blocks into fragile sections of `web/app.js` or `web/styles.css`.
+
+### Code Organization & Anti-Bloat Rules
+Follow these rules on every feature and refactor (for both Antigravity and Claude Code) to keep the codebase lean and consistent:
+- **Modular boundaries & function size:** Don't add large blocks (>150 lines) to `web/app.js`, `web/styles.css`, or `tools/omr-service/server.py`. Put new tools/subsystems in their own `web/<feature>.js` + `web/<feature>.css` files, keep functions under ~120 lines where practical, and replace repetitive `if/else if` chains with data tables.
+- **Reuse shared primitives (no copy-paste across files):**
+  - Reuse existing audio/click/pitch/solfege/latency helpers (`web/sight.js`, `web/music.js`, `web/grade.js`) instead of re-declaring them in games, `score.js`, or `tools.js`.
+  - Share popover/modal lifecycle helpers, HTTP/API fetch+auth wrappers (`hw-*`, `scan-client.js`), and D1/R2 ownership helpers (`tools/hw-worker/src/`) instead of repeating boilerplate per endpoint or UI widget.
+- **CSS hygiene:** Use existing `:root` tokens (`--e-*`, `--bg`, `--text`, `--accent` — see `docs/ui-conventions.md`) rather than hardcoded hex colors that force manual dark-mode override blocks. Avoid `!important` and never inject large CSS-in-JS blocks from `.js` files.
+- **Keep demo & debug scaffolding off the hot path:** Local preview/demo backends (`?demo=1`) and live tuning/debug drawers belong in separate, lazy-loaded files rather than inline in production bundles.
+- **Delete dead code in the same commit:** Whenever you stub out, rename, or replace a feature, remove its dead `A[...]` actions, native bridge commands (`native/*.swift` & `windows/*.cs`), unused CSS selectors, dead worker routes, and unreferenced image assets immediately.
+- **One source of truth for static pages:** Keep shared legal/IT pages (`privacy*.html`, `it-whitelisting.html`) and `site/` chrome synced from a single source rather than hand-editing divergent copies.
 
 Run a single test (each test gets the modules it needs passed after `--`, plus its own name):
 ```bash
