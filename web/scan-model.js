@@ -1651,32 +1651,101 @@ function sfFindPrevTiePartner(model, found) {
   if (!found || !found.entry) return null;
   const { part, measureIndex, entryIndex, entry } = found;
   const voice = entry.voice || '1';
+  const staff = entry.staff || 1;
   const curOnsetQ = entry.onsetQ;
   const minMi = Math.max(0, measureIndex - 1);
 
-  for (let mi = measureIndex; mi >= minMi; mi--) {
+  const searchMeasure = (mi, matchVoice) => {
     const m = part.measures[mi];
-    if (!m) continue;
+    if (!m) return { found: null, blocked: false, onsetQ: null };
     const startEi = (mi === measureIndex) ? entryIndex - 1 : m.entries.length - 1;
     let targetOnsetQ = null;
 
     for (let ei = startEi; ei >= 0; ei--) {
       const e = m.entries[ei];
       if ((e.kind !== 'note' && e.kind !== 'rest') || e.isGrace) continue;
-      if ((e.voice || '1') !== voice) continue;
-      // Skip other chord tones at the same onset in the same measure
+      if ((e.staff || 1) !== staff) continue;
+      if (matchVoice && (e.voice || '1') !== voice) continue;
       if (mi === measureIndex && Math.abs(e.onsetQ - curOnsetQ) < 1e-6) continue;
-      if (e.kind === 'rest' || e.isRest) return null;
-
+      if (e.kind === 'rest' || e.isRest) {
+        if (matchVoice) return { found: null, blocked: true, onsetQ: e.onsetQ };
+        continue;
+      }
       if (targetOnsetQ === null) targetOnsetQ = e.onsetQ;
-      else if (Math.abs(e.onsetQ - targetOnsetQ) > 1e-6) return null;
-
+      else if (Math.abs(e.onsetQ - targetOnsetQ) > 1e-6) return { found: null, blocked: true, onsetQ: targetOnsetQ };
       if (sfSameWrittenPitch(e, entry) && Array.isArray(e.ties) && e.ties.includes('start')) {
-        return e;
+        return { found: e, blocked: true, onsetQ: targetOnsetQ };
       }
     }
+    return { found: null, blocked: targetOnsetQ !== null, onsetQ: targetOnsetQ };
+  };
+
+  for (let mi = measureIndex; mi >= minMi; mi--) {
+    const sameV = searchMeasure(mi, true);
+    const sameS = searchMeasure(mi, false);
+    if (mi < measureIndex && sameS.onsetQ !== null && (sameV.onsetQ === null || sameS.onsetQ > sameV.onsetQ + 1e-6)) {
+      if (sameS.found) return sameS.found;
+      if (sameS.blocked) return null;
+    }
+    if (sameV.found) return sameV.found;
+    if (sameV.blocked) return null;
+    if (sameS.found) return sameS.found;
+    if (sameS.blocked) return null;
   }
   return null;
+}
+
+function sfCanTiePrev(model, noteId) {
+  const found = sfFindEntry(model, noteId);
+  if (!found) return { canTie: false, isTied: false, prevId: null };
+  const { part, measureIndex, entryIndex, entry } = found;
+  if (entry.kind !== 'note' || entry.isRest || entry.isGrace || !entry.step || !isFinite(entry.octave)) {
+    return { canTie: false, isTied: false, prevId: null };
+  }
+  const isTied = Array.isArray(entry.ties) && entry.ties.includes('stop');
+  const voice = entry.voice || '1';
+  const staff = entry.staff || 1;
+  const curOnsetQ = entry.onsetQ;
+  const minMi = Math.max(0, measureIndex - 1);
+
+  const searchMeasure = (mi, matchVoice) => {
+    const m = part.measures[mi];
+    if (!m) return { hit: null, blocked: false, onsetQ: null };
+    const startEi = (mi === measureIndex) ? entryIndex - 1 : m.entries.length - 1;
+    let targetOnsetQ = null;
+
+    for (let ei = startEi; ei >= 0; ei--) {
+      const e = m.entries[ei];
+      if ((e.kind !== 'note' && e.kind !== 'rest') || e.isGrace) continue;
+      if ((e.staff || 1) !== staff) continue;
+      if (matchVoice && (e.voice || '1') !== voice) continue;
+      if (mi === measureIndex && Math.abs(e.onsetQ - curOnsetQ) < 1e-6) continue;
+      if (e.kind === 'rest' || e.isRest) {
+        if (matchVoice) return { hit: null, blocked: true, onsetQ: e.onsetQ };
+        continue;
+      }
+      if (targetOnsetQ === null) targetOnsetQ = e.onsetQ;
+      else if (Math.abs(e.onsetQ - targetOnsetQ) > 1e-6) return { hit: null, blocked: true, onsetQ: targetOnsetQ };
+      if (sfSameWrittenPitch(e, entry)) {
+        return { hit: { canTie: true, isTied, prevId: e.id }, blocked: true, onsetQ: targetOnsetQ };
+      }
+    }
+    return { hit: null, blocked: targetOnsetQ !== null, onsetQ: targetOnsetQ };
+  };
+
+  for (let mi = measureIndex; mi >= minMi; mi--) {
+    const sameV = searchMeasure(mi, true);
+    const sameS = searchMeasure(mi, false);
+    if (mi < measureIndex && sameS.onsetQ !== null && (sameV.onsetQ === null || sameS.onsetQ > sameV.onsetQ + 1e-6)) {
+      if (sameS.hit) return sameS.hit;
+      if (sameS.blocked) return { canTie: false, isTied, prevId: null };
+    }
+    if (sameV.hit) return sameV.hit;
+    if (sameV.blocked) return { canTie: false, isTied, prevId: null };
+    if (sameS.hit) return sameS.hit;
+    if (sameS.blocked) return { canTie: false, isTied, prevId: null };
+  }
+  return { canTie: false, isTied, prevId: null };
 }
 
 function sfCanTieNext(model, noteId) {
@@ -1688,35 +1757,44 @@ function sfCanTieNext(model, noteId) {
   }
   const isTied = Array.isArray(entry.ties) && entry.ties.includes('start');
   const voice = entry.voice || '1';
+  const staff = entry.staff || 1;
   const curOnsetQ = entry.onsetQ;
   const maxMi = Math.min(part.measures.length - 1, measureIndex + 1);
 
-  for (let mi = measureIndex; mi <= maxMi; mi++) {
+  const searchMeasure = (mi, matchVoice) => {
     const m = part.measures[mi];
-    if (!m) continue;
+    if (!m) return { hit: null, blocked: false };
     const startEi = (mi === measureIndex) ? entryIndex + 1 : 0;
     let targetOnsetQ = null;
 
     for (let ei = startEi; ei < m.entries.length; ei++) {
       const e = m.entries[ei];
       if ((e.kind !== 'note' && e.kind !== 'rest') || e.isGrace) continue;
-      if ((e.voice || '1') !== voice) continue;
-      // Skip other chord tones at the same onset in the same measure
+      if ((e.staff || 1) !== staff) continue;
+      if (matchVoice && (e.voice || '1') !== voice) continue;
       if (mi === measureIndex && Math.abs(e.onsetQ - curOnsetQ) < 1e-6) continue;
       if (e.kind === 'rest' || e.isRest) {
-        return { canTie: false, isTied, nextId: null };
+        if (matchVoice) return { hit: null, blocked: true };
+        continue;
       }
       if (targetOnsetQ === null) targetOnsetQ = e.onsetQ;
       else if (Math.abs(e.onsetQ - targetOnsetQ) > 1e-6) {
-        return { canTie: false, isTied, nextId: null };
+        return { hit: null, blocked: true };
       }
       if (sfSameWrittenPitch(entry, e)) {
-        return { canTie: true, isTied, nextId: e.id };
+        return { hit: { canTie: true, isTied, nextId: e.id }, blocked: true };
       }
     }
-    if (targetOnsetQ !== null) {
-      return { canTie: false, isTied, nextId: null };
-    }
+    return { hit: null, blocked: targetOnsetQ !== null };
+  };
+
+  for (let mi = measureIndex; mi <= maxMi; mi++) {
+    const sameV = searchMeasure(mi, true);
+    if (sameV.hit) return sameV.hit;
+    if (sameV.blocked) return { canTie: false, isTied, nextId: null };
+    const sameS = searchMeasure(mi, false);
+    if (sameS.hit) return sameS.hit;
+    if (sameS.blocked) return { canTie: false, isTied, nextId: null };
   }
   return { canTie: false, isTied, nextId: null };
 }
@@ -1739,13 +1817,30 @@ function sfToggleTie(model, noteId) {
     return { ok: true, changed: true, tied: false, entry, nextEntry };
   }
 
-  if (!info.canTie || !nextEntry) {
-    return { ok: false, changed: false, tied: false, entry, nextEntry: null };
+  if (info.canTie && nextEntry) {
+    sfAddTieType(entry, 'start');
+    sfAddTieType(nextEntry, 'stop');
+    return { ok: true, changed: true, tied: true, entry, nextEntry };
   }
 
-  sfAddTieType(entry, 'start');
-  sfAddTieType(nextEntry, 'stop');
-  return { ok: true, changed: true, tied: true, entry, nextEntry };
+  // Fallback when user clicked the second note of a tie pair: untie or tie backward
+  if (Array.isArray(entry.ties) && entry.ties.includes('stop')) {
+    const prevEntry = sfFindPrevTiePartner(model, found);
+    sfRemoveTieType(entry, 'stop');
+    if (prevEntry) sfRemoveTieType(prevEntry, 'start');
+    return { ok: true, changed: true, tied: false, entry: prevEntry || entry, nextEntry: prevEntry ? entry : null };
+  }
+
+  const prevInfo = sfCanTiePrev(model, noteId);
+  const prevFound = prevInfo.prevId ? sfFindEntry(model, prevInfo.prevId) : null;
+  const prevEntry = prevFound ? prevFound.entry : null;
+  if (prevInfo.canTie && prevEntry) {
+    sfAddTieType(prevEntry, 'start');
+    sfAddTieType(entry, 'stop');
+    return { ok: true, changed: true, tied: true, entry: prevEntry, nextEntry: entry };
+  }
+
+  return { ok: false, changed: false, tied: false, entry, nextEntry: null };
 }
 
 function sfRemoveTie(model, startNoteId) {
@@ -3124,11 +3219,19 @@ function sfPartNameAliasMatch(nameA, nameB) {
   return false;
 }
 
+function sfIsGenericPartName(name) {
+  const s = sfNormPartName(name);
+  return !s || /^(?:voice|part\s*\d+|p\d+|\d+)$/i.test(s);
+}
+
 function sfChooseBetterPartName(nameA, nameB) {
   const a = String(nameA || '').trim();
   const b = String(nameB || '').trim();
   if (!a) return b;
   if (!b) return a;
+  const aGen = sfIsGenericPartName(a), bGen = sfIsGenericPartName(b);
+  if (aGen && !bGen) return b;
+  if (bGen && !aGen) return a;
   const na = sfNormPartName(a), nb = sfNormPartName(b);
   const aBare = /^(\d+|[ivx]+)$/.test(na);
   const bBare = /^(\d+|[ivx]+)$/.test(nb);
@@ -3265,6 +3368,16 @@ function sfEffectivePartClefSign(part) {
   return null;
 }
 
+function sfPartsHavePlayableOverlap(a, b) {
+  const minLen = Math.min((a.measures || []).length, (b.measures || []).length);
+  for (let mi = 0; mi < minLen; mi++) {
+    if (sfMeasureHasPlayableNotes(a.measures[mi]) && sfMeasureHasPlayableNotes(b.measures[mi])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function sfMergeSplitParts(model) {
   if (!model || !Array.isArray(model.parts) || model.parts.length < 2) {
     if (model) model.mergedParts = [];
@@ -3283,16 +3396,7 @@ function sfMergeSplitParts(model) {
         const clefA = sfEffectivePartClefSign(a);
         const clefB = sfEffectivePartClefSign(b);
         if (clefA && clefB && clefA !== clefB) continue;
-
-        let overlap = 0;
-        const minLen = Math.min(a.measures.length, b.measures.length);
-        for (let mi = 0; mi < minLen; mi++) {
-          if (sfMeasureHasPlayableNotes(a.measures[mi]) && sfMeasureHasPlayableNotes(b.measures[mi])) {
-            overlap++;
-            break;
-          }
-        }
-        if (overlap > 0) continue;
+        if (sfPartsHavePlayableOverlap(a, b)) continue;
 
         const res = sfMergeParts(model, i, j);
         if (res.ok) {
@@ -3302,6 +3406,50 @@ function sfMergeSplitParts(model) {
       }
     }
   }
+
+  // Pass 2: generic Audiveris fallback names (e.g. "Voice", "Part 2", "P2", "2").
+  // Merge only when there is a UNIQUE non-overlapping same-clef candidate partner
+  // so two same-clef parts (e.g. Soprano & Alto in treble) never merge ambiguously.
+  const findGenericPartners = (parts, idx, clefs, generics) => {
+    const clef = clefs[idx];
+    if (!clef) return [];
+    const a = parts[idx];
+    const out = [];
+    for (let k = 0; k < parts.length; k++) {
+      if (k === idx) continue;
+      if (!generics[idx] && !generics[k]) continue;
+      const b = parts[k];
+      if ((a.staves || 1) !== (b.staves || 1)) continue;
+      if (!clefs[k] || clefs[k] !== clef) continue;
+      if (sfPartsHavePlayableOverlap(a, b)) continue;
+      out.push(k);
+    }
+    return out;
+  };
+
+  changed = true;
+  while (changed) {
+    changed = false;
+    const parts = model.parts;
+    const clefs = parts.map(sfEffectivePartClefSign);
+    const generics = parts.map(p => sfIsGenericPartName(p.name));
+    const partnerLists = parts.map((_, idx) => findGenericPartners(parts, idx, clefs, generics));
+
+    for (let i = 0; i < parts.length && !changed; i++) {
+      if (partnerLists[i].length !== 1) continue;
+      const j = partnerLists[i][0];
+      if (j <= i) continue;
+      if (!generics[i] && !generics[j]) continue;
+      if (partnerLists[j].length !== 1 || partnerLists[j][0] !== i) continue;
+
+      const res = sfMergeParts(model, i, j);
+      if (res.ok) {
+        mergedParts.push({ kept: res.kept, merged: res.merged });
+        changed = true;
+      }
+    }
+  }
+
   model.mergedParts = mergedParts;
   return model;
 }
@@ -6152,6 +6300,161 @@ function sfAutoFixMissingDots(model) {
   return totalFixed;
 }
 
+// ---------- Measure Bounding-Box Extractor (Normalized [0..1] Page Coords)
+function sfLayoutFloat(parent, tag, fallback) {
+  const ch = sfXmlChild(parent, tag);
+  if (!ch) return fallback;
+  const txt = sfXmlText(ch).trim();
+  if (!txt) return fallback;
+  const val = Number(txt);
+  return isFinite(val) ? val : fallback;
+}
+
+function sfExtractMeasureBoxes(xmlString) {
+  if (!xmlString || typeof xmlString !== 'string') return [];
+  let root;
+  try {
+    root = sfParseXml(xmlString);
+  } catch {
+    return [];
+  }
+  if (!root || root.tag !== 'score-partwise') return [];
+
+  let pageW = 1860.0;
+  let pageH = 2359.0;
+  let leftMargin = 80.0;
+  let topMargin = 80.0;
+  const defaults = sfXmlChild(root, 'defaults');
+  if (defaults) {
+    const pl = sfXmlChild(defaults, 'page-layout');
+    if (pl) {
+      pageW = sfLayoutFloat(pl, 'page-width', pageW);
+      pageH = sfLayoutFloat(pl, 'page-height', pageH);
+      const pm = sfXmlChild(pl, 'page-margins');
+      if (pm) {
+        leftMargin = sfLayoutFloat(pm, 'left-margin', leftMargin);
+        topMargin = sfLayoutFloat(pm, 'top-margin', topMargin);
+      }
+    }
+  }
+
+  const parts = sfXmlChildren(root, 'part');
+  if (!parts.length) return [];
+  const partMeasures = parts.map(p => sfXmlChildren(p, 'measure'));
+  const maxMeasures = partMeasures.reduce((mx, ms) => Math.max(mx, ms.length), 0);
+
+  const partStaves = parts.map(() => 1);
+  const staffDists = {};
+  let sysLeftMargin = 0.0;
+  let page = 0;
+  let yTop = topMargin;
+  let prevSysBottom = topMargin;
+  let xCursor = leftMargin;
+  const boxes = [];
+
+  for (let mi = 0; mi < maxMeasures; mi++) {
+    const mP0 = mi < partMeasures[0].length ? partMeasures[0][mi] : null;
+    if (!mP0) continue;
+
+    for (let pi = 0; pi < partMeasures.length; pi++) {
+      const ms = partMeasures[pi];
+      if (mi >= ms.length) continue;
+      const mEl = ms[mi];
+      const attrEl = sfXmlChild(mEl, 'attributes');
+      if (attrEl) {
+        const stTxt = sfXmlChildText(attrEl, 'staves');
+        if (stTxt && /^\d+$/.test(stTxt)) {
+          partStaves[pi] = Math.max(1, parseInt(stTxt, 10));
+        }
+      }
+      const prEl = sfXmlChild(mEl, 'print');
+      if (prEl) {
+        for (const sl of sfXmlChildren(prEl, 'staff-layout')) {
+          const sNum = parseInt(sl.attrs.number || '1', 10) || 1;
+          const sd = sfLayoutFloat(sl, 'staff-distance', NaN);
+          if (isFinite(sd)) {
+            staffDists[`${pi}:${sNum}`] = sd;
+          }
+        }
+      }
+    }
+
+    const pr = sfXmlChild(mP0, 'print');
+    const isNewPage = (mi === 0) || !!(pr && pr.attrs['new-page'] === 'yes');
+    const isNewSys = isNewPage || !!(pr && pr.attrs['new-system'] === 'yes');
+
+    if (isNewSys) {
+      if (pr) {
+        const sl = sfXmlChild(pr, 'system-layout');
+        if (sl) {
+          const sm = sfXmlChild(sl, 'system-margins');
+          if (sm) {
+            sysLeftMargin = sfLayoutFloat(sm, 'left-margin', sysLeftMargin);
+          }
+          if (isNewPage) {
+            page += 1;
+            const topDist = sfLayoutFloat(sl, 'top-system-distance', 200.0);
+            yTop = topMargin + topDist;
+          } else {
+            const sysDist = sfLayoutFloat(sl, 'system-distance', 360.0);
+            yTop = prevSysBottom + sysDist;
+          }
+        } else if (isNewPage) {
+          page += 1;
+          yTop = topMargin + 200.0;
+        }
+      } else if (isNewPage) {
+        page += 1;
+        yTop = topMargin + 200.0;
+      }
+
+      let sysHeight = 0.0;
+      for (let pi = 0; pi < parts.length; pi++) {
+        for (let sNum = 1; sNum <= partStaves[pi]; sNum++) {
+          if (pi === 0 && sNum === 1) {
+            sysHeight += 40.0;
+          } else {
+            const key = `${pi}:${sNum}`;
+            const dist = Object.prototype.hasOwnProperty.call(staffDists, key)
+              ? staffDists[key]
+              : (sNum === 1 ? 90.0 : 65.0);
+            sysHeight += dist + 40.0;
+          }
+        }
+      }
+      prevSysBottom = yTop + sysHeight;
+      xCursor = leftMargin + sysLeftMargin;
+    }
+
+    const rawW = Number(mP0.attrs.width);
+    const measW = (isFinite(rawW) && rawW > 0) ? rawW : 240.0;
+    const measNum = String(mP0.attrs.number || (mi + 1));
+
+    const padX = 36.0;
+    const padTop = 85.0;
+    const padBot = 115.0;
+    const bx = Math.max(0.0, xCursor - padX);
+    const bw = Math.min(pageW - bx, measW + 2 * padX);
+    const by = Math.max(0.0, yTop - padTop);
+    const bh = Math.min(pageH - by, (prevSysBottom - yTop) + padTop + padBot);
+
+    const round5 = v => Math.round(v * 100000) / 100000;
+    boxes.push({
+      measure: measNum,
+      index: mi,
+      page: Math.max(1, page),
+      x: round5(bx / pageW),
+      y: round5(by / pageH),
+      w: round5(bw / pageW),
+      h: round5(bh / pageH)
+    });
+    xCursor += measW;
+  }
+
+  return boxes;
+}
+
 if (typeof window !== 'undefined') {
   window.sfAutoFixMissingDots = sfAutoFixMissingDots;
+  window.sfExtractMeasureBoxes = sfExtractMeasureBoxes;
 }

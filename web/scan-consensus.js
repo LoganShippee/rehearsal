@@ -271,8 +271,54 @@ function sfConsensusMeasureSignature(measure) {
   return { sig: sigParts.join('|'), readable: readParts.join(', ') || 'empty' };
 }
 
+function sfNormalizeOcrRunEntry(item) {
+  if (!item) return null;
+  if (item.model && Array.isArray(item.model.parts)) {
+    const page = (item.page != null && isFinite(item.page) && Number(item.page) >= 1)
+      ? Math.trunc(Number(item.page))
+      : null;
+    const measureOffset = (item.measureOffset != null && isFinite(item.measureOffset) && Number(item.measureOffset) >= 0)
+      ? Math.trunc(Number(item.measureOffset))
+      : null;
+    return { model: item.model, page, measureOffset };
+  }
+  if (Array.isArray(item.parts)) {
+    return { model: item, page: null, measureOffset: null };
+  }
+  return null;
+}
+
+function sfExtractPrimaryPageStarts(primary, primaryMeasures) {
+  const pageStarts = [0];
+  const seen = new Set([0]);
+  const parts = (primary && primary.parts) || [];
+  for (let mi = 1; mi < primaryMeasures; mi++) {
+    let isNewPage = false;
+    for (const p of parts) {
+      const m = p.measures && p.measures[mi];
+      if (!m) continue;
+      if (m.page != null && isFinite(m.page) && Number(m.page) > pageStarts.length) {
+        isNewPage = true;
+        break;
+      }
+      if (Array.isArray(m.entries) && m.entries.some(e =>
+        e.kind === 'other' && e.tag === 'print' && /\bnew-page\s*=\s*["']yes["']/i.test(e.rawXml || '')
+      )) {
+        isNewPage = true;
+        break;
+      }
+    }
+    if (isNewPage && !seen.has(mi)) {
+      seen.add(mi);
+      pageStarts.push(mi);
+    }
+  }
+  return pageStarts;
+}
+
 function sfCompareOcrRuns(models, opts) {
-  const runs = Array.isArray(models) ? models.filter(Boolean) : [];
+  const options = opts || {};
+  const runs = (Array.isArray(models) ? models : []).map(sfNormalizeOcrRunEntry).filter(Boolean);
   if (runs.length < 2) {
     return {
       findings: [],
@@ -284,61 +330,101 @@ function sfCompareOcrRuns(models, opts) {
   let measureCountMismatch = false;
   const differingSet = new Set();
 
-  const primary = runs[0];
-  const runPartCounts = runs.map(m => {
-    const ps = m.parts || [];
-    return ps.reduce((mx, p) => Math.max(mx, (p.measures || []).length), 0);
-  });
-  const minRunMeasures = Math.min.apply(null, runPartCounts);
-  const maxRunMeasures = Math.max.apply(null, runPartCounts);
+  const primary = runs[0].model;
+  const countMeasures = m => (m.parts || []).reduce((mx, p) => Math.max(mx, (p.measures || []).length), 0);
+  const primaryMeasures = countMeasures(primary);
 
-  if (minRunMeasures !== maxRunMeasures) {
-    measureCountMismatch = true;
-    const miFlag = Math.max(0, minRunMeasures - 1);
-    const countsDesc = runPartCounts.map((c, idx) => `Run ${idx + 1}: ${c}`).join(', ');
-    const m0 = primary.parts && primary.parts[0] && primary.parts[0].measures && primary.parts[0].measures[miFlag];
-    findings.push({
-      measureIndex: miFlag,
-      rule: 'multi_run_measure_count',
-      severity: 'high',
-      weight: sfConsensusWeight('multi_run_measure_count', 0.45),
-      partIndex: 0,
-      voice: '1',
-      noteId: sfConsensusFirstNoteId(m0, '1'),
-      message: `Multiple scan runs disagree on measure count (${countsDesc}).`
-    });
+  // Only full-score runs participate in whole-score measure count comparison;
+  // page-scoped or offset-scoped reruns intentionally contain only a slice of measures.
+  const fullRuns = runs.filter(r => r.page == null && r.measureOffset == null);
+  if (fullRuns.length >= 2) {
+    const runPartCounts = fullRuns.map(r => countMeasures(r.model));
+    const minRunMeasures = Math.min.apply(null, runPartCounts);
+    const maxRunMeasures = Math.max.apply(null, runPartCounts);
+
+    if (minRunMeasures !== maxRunMeasures) {
+      measureCountMismatch = true;
+      const miFlag = Math.max(0, minRunMeasures - 1);
+      const countsDesc = runPartCounts.map((c, idx) => `Run ${idx + 1}: ${c}`).join(', ');
+      const m0 = primary.parts && primary.parts[0] && primary.parts[0].measures && primary.parts[0].measures[miFlag];
+      findings.push({
+        measureIndex: miFlag,
+        rule: 'multi_run_measure_count',
+        severity: 'high',
+        weight: sfConsensusWeight('multi_run_measure_count', 0.45),
+        partIndex: 0,
+        voice: '1',
+        noteId: sfConsensusFirstNoteId(m0, '1'),
+        message: `Multiple scan runs disagree on measure count (${countsDesc}).`
+      });
+    }
   }
 
-  const numParts = Math.min.apply(null, runs.map(r => (r.parts || []).length));
+  const pageStarts = sfExtractPrimaryPageStarts(primary, primaryMeasures);
+  const maxRunPage = runs.reduce((mx, r) => (r.page != null && r.page > mx ? r.page : mx), 1);
+  const optTotalPages = (options.totalPages != null && isFinite(options.totalPages) && Number(options.totalPages) >= 1)
+    ? Math.trunc(Number(options.totalPages))
+    : ((primary.totalPages != null && isFinite(primary.totalPages) && Number(primary.totalPages) >= 1)
+      ? Math.trunc(Number(primary.totalPages))
+      : 0);
+
+  for (let ri = 0; ri < runs.length; ri++) {
+    const r = runs[ri];
+    if (ri === 0) {
+      r.offset = 0;
+    } else if (r.measureOffset != null) {
+      r.offset = r.measureOffset;
+    } else if (r.page != null) {
+      if (pageStarts.length > 1 && r.page <= pageStarts.length) {
+        r.offset = pageStarts[r.page - 1];
+      } else {
+        const totalPages = Math.max(r.page, optTotalPages || (pageStarts.length > 1 ? pageStarts.length : maxRunPage));
+        r.offset = Math.floor(((r.page - 1) * primaryMeasures) / totalPages);
+      }
+    } else {
+      r.offset = 0;
+    }
+  }
+
+  const numParts = Math.min.apply(null, runs.map(r => (r.model.parts || []).length));
   for (let pi = 0; pi < numParts; pi++) {
-    const partLens = runs.map(r => ((r.parts[pi] && r.parts[pi].measures) || []).length);
-    const minPM = Math.min.apply(null, partLens);
-    for (let mi = 0; mi < minPM; mi++) {
-      const sigs = runs.map(r => sfConsensusMeasureSignature(r.parts[pi].measures[mi]));
-      const uniqueSigs = new Set(sigs.map(s => s.sig));
+    const primaryMeasuresList = (primary.parts[pi] && primary.parts[pi].measures) || [];
+    for (let mi = 0; mi < primaryMeasuresList.length; mi++) {
+      const covering = [];
+      for (let ri = 0; ri < runs.length; ri++) {
+        const r = runs[ri];
+        const k = mi - r.offset;
+        const pMeasures = (r.model.parts[pi] && r.model.parts[pi].measures) || [];
+        if (k >= 0 && k < pMeasures.length) {
+          covering.push(sfConsensusMeasureSignature(pMeasures[k]));
+        }
+      }
+      if (covering.length < 2) continue;
+
+      const uniqueSigs = new Set(covering.map(s => s.sig));
       if (uniqueSigs.size <= 1) continue;
 
       differingSet.add(`${pi}:${mi}`);
       const counts = {};
       const readableBySig = {};
-      for (const s of sigs) {
+      for (const s of covering) {
         counts[s.sig] = (counts[s.sig] || 0) + 1;
         if (!readableBySig[s.sig]) readableBySig[s.sig] = s.readable;
       }
       const sorted = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
       const majSig = sorted[0];
       const majCount = counts[majSig];
-      const primarySig = sigs[0].sig;
+      const primarySig = covering[0].sig;
 
       let suggestion;
       if (majCount >= 2) {
         suggestion = `Most scans read: ${readableBySig[majSig]}`;
       } else {
-        const alt = sigs.slice(1).find(s => s.sig !== primarySig) || sigs[1];
+        const alt = covering.slice(1).find(s => s.sig !== primarySig) || covering[1];
         suggestion = `Alternate scan read: ${alt.readable}`;
       }
 
-      const pm = primary.parts[pi].measures[mi];
+      const pm = primaryMeasuresList[mi];
       findings.push({
         measureIndex: mi,
         rule: 'multi_run_disagreement',

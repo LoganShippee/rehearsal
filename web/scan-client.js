@@ -394,6 +394,32 @@
     });
   }
 
+  async function verifyMeasures(jobId, measureIndices, model) {
+    const base = getBaseUrl();
+    const auth = getMemberAuth();
+    const headers = { 'Content-Type': 'application/json' };
+    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+    const payload = {
+      measures: Array.isArray(measureIndices) ? measureIndices : []
+    };
+    if (model) payload.model = model;
+    const r = await fetchJson(base + '/api/scan/jobs/' + encodeURIComponent(jobId) + '/verify-measures', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    }, 25000);
+    if (!r.ok) {
+      return {
+        ok: false,
+        status: r.status,
+        unreachable: !!r.unreachable,
+        error: r.data?.error || r.error || 'Could not verify measures with AI.',
+        errorCode: r.data?.errorCode || (r.status === 401 ? 'UNAUTHORIZED' : 'AI_VERIFY_FAILED')
+      };
+    }
+    return Object.assign({ ok: true }, r.data);
+  }
+
   function originalUrl(jobId) {
     return getBaseUrl() + '/api/scan/jobs/' + encodeURIComponent(jobId) + '/original';
   }
@@ -422,6 +448,7 @@
     getJob,
     pollJob,
     confirmJob,
+    verifyMeasures,
     originalUrl,
     rawUrl,
     correctedMxlUrl

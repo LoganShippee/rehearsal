@@ -31,16 +31,23 @@ Audiveris uses Tesseract OCR to read **lyrics, titles, tempo markings, dynamics,
 
 ## Configuration (Environment Variables)
 
+By default, the service runs with cost-effective local settings: Audiveris runs locally as a subprocess (free/offline), `OMR_MULTI_RUN=off`, and AI measure verification (`POST /api/scan/jobs/<jobId>/verify-measures`) is completely opt-in and defaults to `gemini-3.5-flash-lite` (capped at 12 measures per request).
+
 | Variable | Default | Description |
 |---|---|---|
 | `OMR_HOST` | `127.0.0.1` | Bind host |
 | `OMR_PORT` | `8788` | Bind port |
 | `OMR_DATA_DIR` | `tools/omr-service/data` | SQLite database + per-job artifact directory |
+| `OMR_ENGINE` | `audiveris` | Active OMR engine adapter: `audiveris`, `homr`, `oemer`, `api`, `flat`, or `newzik` |
 | `AUDIVERIS_BIN` | auto-detect | Path to Audiveris 5.x CLI executable (`audiveris` or `/Applications/Audiveris.app/Contents/MacOS/Audiveris`) |
 | `TESSDATA_PREFIX` | auto-detect | Directory containing Tesseract `*.traineddata` (e.g. `eng.traineddata`) so Audiveris OCR reads lyrics, titles, tempo words, and dynamics |
 | `OMR_ENGINE_CMD` | *(unset)* | Optional override command prefix for testing or pluggable CLI engines (`CustomCmdAdapter`) |
-| `OMR_PREPROCESS` | `auto` | `auto` compiles `preprocess.swift` on macOS (or uses `pdftoppm`) for image contrast cleanup and 400 DPI per-page retry; `off` disables preprocessing |
-| `OMR_MULTI_RUN` | `off` | `off` (default), `all`, or `flagged` — runs up to 3 preprocessing variants (`v300`, `v400`, `v350c`) in parallel and attaches `alternateRuns` for consensus checking |
+| `OMR_API_URL` | *(unset)* | Endpoint URL when `OMR_ENGINE` is `api`, `flat`, or `newzik` (`HttpApiEngineAdapter`) |
+| `OMR_API_KEY` | *(unset)* | Bearer API key for commercial/hosted OMR REST APIs (`HttpApiEngineAdapter`) |
+| `OMR_API_PROVIDER` | `generic` | Provider identifier (`generic`, `flat`, `newzik`) when `OMR_ENGINE=api` |
+| `GEMINI_API_KEY` | *(unset)* | Optional Google Gemini API key enabling `POST /api/scan/jobs/<jobId>/verify-measures` (defaults to `gemini-3.5-flash-lite`; `GOOGLE_API_KEY` also accepted) |
+| `OMR_PREPROCESS` | `auto` | `auto` compiles `preprocess.swift` on macOS (or uses `pdftoppm`) for image contrast/deskew cleanup, PDF text extraction (`text`), and 400 DPI per-page retry; `off` disables preprocessing |
+| `OMR_MULTI_RUN` | `off` | `off` (default), `all`, or `flagged` — runs preprocessing variants (`v300`, `v400`, `v350c`) in parallel and attaches `alternateRuns` for consensus checking |
 | `OMR_RETENTION_HOURS` | `24` | Automatically deletes completed/failed scan jobs and uploaded files older than this many hours (`0` disables cleanup) |
 | `OMR_JOB_TIMEOUT` | `55` | Subprocess timeout in seconds (keeps single-page scans under 60s) |
 | `OMR_WORKERS` | `2` | Background worker thread count |
@@ -51,14 +58,15 @@ Audiveris uses Tesseract OCR to read **lyrics, titles, tempo markings, dynamics,
 
 ## HTTP API Endpoints
 
-- `GET /health` — service health, Audiveris availability, OCR (`ocrAvailable`) & preprocessing (`preprocessAvailable`) availability, queue depth, active job count, auth mode.
+- `GET /health` — service health, active `engine` / `engineAdapter`, `availableEngines`, `aiVerifyAvailable`, OCR (`ocrAvailable`) & preprocessing (`preprocessAvailable`) availability, queue depth, active job count, auth mode.
 - `POST /api/scan/jobs` — enqueue an async scan job (`multipart/form-data` with `file`, optional `instrument`, `title`, `skipCache`; or raw binary body with `X-Filename`, `Content-Type`, `X-Instrument`, `X-Title`). Returns `202` with `jobId`, `status`, `cacheHit`, and `uploadHash`. Returns an instant `completed` job with `cacheHit: true` when an identical file hash already has a verified scan in `verified_cache`.
-- `GET /api/scan/jobs/<jobId>` — poll job status, progress (`0..100`), `stage`, `stageDetail`, `currentPage`, `totalPages`, `skippedPages`, `warning`, `detectedSpokenCues`, `pdfTextMeta` (`isVectorPdf`, `spokenCues`, `dynamics`, `tempoMarkings`, `lyricVocabulary`), error/errorCode, `rawMusicxml`, `correctedMusicxml`, `flaggedLog`, and artifact URLs.
+- `GET /api/scan/jobs/<jobId>` — poll job status, progress (`0..100`), `stage`, `stageDetail`, `currentPage`, `totalPages`, `skippedPages`, `warning`, `detectedSpokenCues`, `pdfTextMeta` (`isVectorPdf`, `spokenCues`, `dynamics`, `tempoMarkings`, `lyricVocabulary`), `alternateRuns` (including `pending` placeholders while background variants finish), error/errorCode, `rawMusicxml`, `correctedMusicxml`, `flaggedLog`, and artifact URLs.
+- `POST /api/scan/jobs/<jobId>/verify-measures` — opt-in on-demand AI visual verification for specific 0-based `measures` (capped at 12 per request, defaults to `gemini-3.5-flash-lite`). Crops only the requested measures from `original.pdf` and returns `{"ok": true, "checked": N, "results": [...], "patches": [...]}` (or `503 AI_VERIFY_UNAVAILABLE` if `GEMINI_API_KEY` is unset).
 
 ## Pluggable Engine Adapter & Preprocessing
 
-- **EngineAdapter (`AudiverisAdapter` / `CustomCmdAdapter`)**: `server.py` isolates engine CLI invocation and output discovery behind `EngineAdapter`, making it straightforward to plug in future OMR CLI engines (e.g., `homr` or `oemer`) via `OMR_ENGINE_CMD` without touching the HTTP/queue/cache layer.
-- **Image Preprocessing & Adaptive Retry (`preprocess.swift`)**: On macOS, `preprocess.swift` (using built-in `PDFKit`, `CoreGraphics`, and `CoreImage`) is compiled on demand to `<data_dir>/rehearsal-omr-prep` to normalize photo contrast before scanning and to re-render failed PDF pages at 400 DPI for an automatic single-page retry.
+- **EngineAdapter (`AudiverisAdapter` / `HomrAdapter` / `OemerAdapter` / `HttpApiEngineAdapter` / `CustomCmdAdapter`)**: `server.py` isolates engine invocation and output discovery behind `EngineAdapter`, allowing selection via `OMR_ENGINE` (`audiveris`, `homr`, `oemer`, `api`, `flat`, `newzik`) or `OMR_ENGINE_CMD` without touching the HTTP/queue/cache layer.
+- **Image Preprocessing, PDF Text & Adaptive Retry (`preprocess.swift`)**: On macOS, `preprocess.swift` (using built-in `PDFKit`, `CoreGraphics`, and `CoreImage`) is compiled on demand to `<data_dir>/rehearsal-omr-prep` to deskew and normalize photo contrast before scanning, extract embedded vector PDF text (`text`), and re-render failed PDF pages at 400 DPI for an automatic single-page retry.
 - `GET /api/scan/jobs/<jobId>/original` — download original uploaded image or PDF.
 - `GET /api/scan/jobs/<jobId>/raw` — download raw `.mxl` or `.musicxml` exported by Audiveris.
 - `GET /api/scan/jobs/<jobId>/corrected.mxl` — download the verified `.mxl` archive (`404` until confirmed).

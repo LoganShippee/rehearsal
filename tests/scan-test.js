@@ -75,6 +75,7 @@ const requiredGlobals = [
   'sfStaffStepToPitch', 'sfPlaceNoteAt', 'sfStackChordNote',
   'sfCleanOcrLyrics', 'sfAlignPartSignatures', 'sfSuggestRhythmFixes', 'sfApplyRhythmFix',
   'sfFilterScoreByMode', 'sfGetHeaderTexts', 'sfRemoveHeaderText', 'sfClearHeaderCredits',
+  'sfExtractMeasureBoxes',
   'sfGetEffectiveTimeSig', 'sfSetMeasureTimeSig', 'sfRemoveMeasureTimeSig', 'sfSuggestTimeSigChanges', 'sfAutoInferTimeSigChanges',
   'sfGetMeasureTempo', 'sfSetMeasureTempo', 'sfRemoveMeasureTempo',
   'sfGetEffectiveKeySig', 'sfSetMeasureKeySig', 'sfRemoveMeasureKeySig',
@@ -883,6 +884,60 @@ check('SfHistory undo restores G4 tie',
 sfEditPitchDiatonic(choirModel, cm1Notes[3].id, 1); // A4 -> B4 (breaks A4->A4 barline tie)
 check('pitch change breaks stale tie on both notes',
   !cm1Notes[3].ties.includes('start') && !cm2Notes[0].ties.includes('stop'));
+
+// Backward tie (selecting the 2nd note of a same-pitch pair) & cross-voice same-staff tie
+{
+  const crossVoiceXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>2</divisions><staves>2</staves><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <backup><duration>8</duration></backup>
+      <note><pitch><step>B</step><alter>-1</alter><octave>2</octave></pitch><duration>4</duration><voice>5</voice><type>half</type><staff>2</staff></note>
+      <note><pitch><step>B</step><alter>-1</alter><octave>2</octave></pitch><duration>4</duration><voice>6</voice><type>half</type><staff>2</staff></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <backup><duration>8</duration></backup>
+      <note><pitch><step>B</step><alter>-1</alter><octave>2</octave></pitch><duration>8</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const cvModel = sfParseMusicXml(crossVoiceXml);
+  const m1Staff2 = cvModel.parts[0].measures[0].entries.filter(e => e.kind === 'note' && e.staff === 2);
+  const m2Staff2 = cvModel.parts[0].measures[1].entries.filter(e => e.kind === 'note' && e.staff === 2);
+  check('sfCanTieNext falls back to same-staff different voice within measure',
+    sfCanTieNext(cvModel, m1Staff2[0].id).canTie === true && sfCanTieNext(cvModel, m1Staff2[0].id).nextId === m1Staff2[1].id);
+  check('sfCanTieNext falls back to same-staff different voice across barline',
+    sfCanTieNext(cvModel, m1Staff2[1].id).canTie === true && sfCanTieNext(cvModel, m1Staff2[1].id).nextId === m2Staff2[0].id);
+  const backTie = sfToggleTie(cvModel, m2Staff2[0].id);
+  check('sfToggleTie on 2nd note ties backward across barline',
+    backTie.ok && backTie.tied === true &&
+    m1Staff2[1].ties.includes('start') && m2Staff2[0].ties.includes('stop'));
+  const backUntie = sfToggleTie(cvModel, m2Staff2[0].id);
+  check('sfToggleTie on 2nd note unties backward cleanly',
+    backUntie.ok && backUntie.tied === false &&
+    !m1Staff2[1].ties.includes('start') && !m2Staff2[0].ties.includes('stop'));
+
+  // Piano/keyboard grand-staff parts should not emit noisy out_of_range flags across wide keyboard registers
+  const pianoRangeXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><staves>2</staves><time><beats>4</beats><beat-type>4</beat-type></time><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>F</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>E</step><octave>1</octave></pitch><duration>4</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
+    </measure>
+  </part>
+</score-partwise>`;
+  const pianoRangeFlags = sfAnalyzeFlags(sfParseMusicXml(pianoRangeXml), { instrument: 'auto' });
+  const pianoOor = (pianoRangeFlags.measures[0]?.findings || []).filter(f => f.rule === 'out_of_range');
+  check('Piano parts do not emit out_of_range flags for wide keyboard notes', pianoOor.length === 0);
+}
 
 // =========================================================================
 // 9. Direct MuseScore-Style Editing (Rest<->Note, Pitch Letter/Octave/Enharmonic,
@@ -2840,6 +2895,193 @@ check('sfDetectChoirPart identifies SATB parts and rejects non-choir instruments
     modModel.parts[0].measures[1].key.fifths === 1 &&
     modModel.parts[0].measures[2].key.fifths === 4 &&
     modModel.parts[0].measures[3].key.fifths === 4);
+}
+
+// =========================================================================
+// 28. Generic-Name Disjoint Merge, Page-Offset Consensus, Measure Boxes
+// =========================================================================
+{
+  // 28a. Generic-name disjoint merge: unique same-clef partner merges & prefers non-generic name
+  const uniqueGenericXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Voice</part-name></score-part>
+    <score-part id="P2"><part-name>B.</part-name></score-part>
+    <score-part id="P3"><part-name>Alto</part-name></score-part>
+    <score-part id="P4"><part-name>Part 4</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>F</sign><line>4</line></clef></attributes><note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><clef><sign>F</sign><line>4</line></clef></attributes><note><rest/><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>G</step><octave>2</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P4">
+    <measure number="1"><attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><rest/><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const ugModel = sfParseMusicXml(uniqueGenericXml);
+  check('sfMergeSplitParts merges unique generic-name disjoint same-clef partners and prefers non-generic names',
+    ugModel.parts.length === 2 &&
+    ugModel.parts[0].name === 'B.' &&
+    ugModel.parts[1].name === 'Alto' &&
+    ugModel.parts[0].measures[0].entries.some(e => e.kind === 'note' && !e.isRest && e.step === 'C') &&
+    ugModel.parts[0].measures[1].entries.some(e => e.kind === 'note' && !e.isRest && e.step === 'G') &&
+    ugModel.parts[1].measures[0].entries.some(e => e.kind === 'note' && !e.isRest && e.step === 'A') &&
+    ugModel.parts[1].measures[1].entries.some(e => e.kind === 'note' && !e.isRest && e.step === 'G'));
+
+  // 28b. Ambiguity guard: two non-overlapping same-clef candidates (Soprano & Alto) must NOT merge with Voice
+  const ambiguousGenericXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Alto</part-name></score-part>
+    <score-part id="P3"><part-name>Voice</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><rest/><duration>4</duration><type>whole</type></note></measure>
+  </part>
+  <part id="P3">
+    <measure number="1"><attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes><note><rest/><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const ambModel = sfParseMusicXml(ambiguousGenericXml);
+  check('sfMergeSplitParts ambiguity guard refuses to merge Voice when Soprano and Alto both qualify',
+    ambModel.parts.length === 3 &&
+    ambModel.parts[0].name === 'Soprano' &&
+    ambModel.parts[1].name === 'Alto' &&
+    ambModel.parts[2].name === 'Voice');
+
+  // 28c. Page-offset & measureOffset sfCompareOcrRuns
+  const pageBreakPrimaryXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="2"><note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="3"><note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="4"><print new-page="yes"/><note><pitch><step>F</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="5"><note><pitch><step>G</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const altPage2Xml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Soprano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="4"><attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes><note><pitch><step>F</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+    <measure number="5"><note><pitch><step>A</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure>
+  </part>
+</score-partwise>`;
+  const pPrimary = sfParseMusicXml(pageBreakPrimaryXml);
+  const pAlt2 = sfParseMusicXml(altPage2Xml);
+  const pageCmp = sfCompareOcrRuns([pPrimary, { model: pAlt2, page: 2 }]);
+  check('sfCompareOcrRuns aligns page 2 via <print new-page="yes"> without false measure-count mismatch',
+    pageCmp.summary.measureCountMismatch === false &&
+    pageCmp.summary.differingMeasures === 1 &&
+    pageCmp.findings.length === 1 &&
+    pageCmp.findings[0].rule === 'multi_run_disagreement' &&
+    pageCmp.findings[0].measureIndex === 4);
+
+  const noBreakPrimaryXml = pageBreakPrimaryXml.replace('<print new-page="yes"/>', '').replace(/<measure number="5">[\s\S]*?<\/measure>/, '');
+  const nbPrimary = sfParseMusicXml(noBreakPrimaryXml); // 4 measures total
+  const fallbackAlt2Xml = altPage2Xml.replace('<step>F</step>', '<step>E</step>').replace('<step>A</step>', '<step>G</step>');
+  const fbAlt2 = sfParseMusicXml(fallbackAlt2Xml); // 2 measures: E5, G5 vs primary[2..3] = E5, F5
+  const fbCmp = sfCompareOcrRuns([nbPrimary, { model: fbAlt2, page: 2 }], { totalPages: 2 });
+  check('sfCompareOcrRuns falls back to proportional page offset when <print> breaks are absent',
+    fbCmp.summary.measureCountMismatch === false &&
+    fbCmp.findings.length === 1 &&
+    fbCmp.findings[0].measureIndex === 3);
+
+  const offCmp = sfCompareOcrRuns([nbPrimary, { model: fbAlt2, measureOffset: 2 }]);
+  check('sfCompareOcrRuns honors explicit measureOffset',
+    offCmp.summary.measureCountMismatch === false &&
+    offCmp.findings.length === 1 &&
+    offCmp.findings[0].measureIndex === 3);
+
+  // 28d. sfExtractMeasureBoxes coordinate math
+  const boxXml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <defaults>
+    <page-layout>
+      <page-height>2000</page-height>
+      <page-width>1000</page-width>
+      <page-margins>
+        <left-margin>100</left-margin>
+        <top-margin>100</top-margin>
+      </page-margins>
+    </page-layout>
+  </defaults>
+  <part-list>
+    <score-part id="P1"><part-name>Soprano</part-name></score-part>
+    <score-part id="P2"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1" width="300">
+      <print>
+        <system-layout>
+          <system-margins><left-margin>50</left-margin></system-margins>
+          <top-system-distance>200</top-system-distance>
+        </system-layout>
+      </print>
+      <attributes><divisions>1</divisions></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2" width="400">
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="3" width="350">
+      <print new-system="yes">
+        <system-layout>
+          <system-distance>300</system-distance>
+        </system-layout>
+      </print>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="4" width="320">
+      <print new-page="yes">
+        <system-layout>
+          <top-system-distance>150</top-system-distance>
+        </system-layout>
+      </print>
+      <note><pitch><step>F</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1" width="300">
+      <print><staff-layout number="2"><staff-distance>70</staff-distance></staff-layout></print>
+      <attributes><divisions>1</divisions><staves>2</staves></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><staff>1</staff></note>
+    </measure>
+    <measure number="2" width="400"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><staff>1</staff></note></measure>
+    <measure number="3" width="350"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><staff>1</staff></note></measure>
+    <measure number="4" width="320"><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><staff>1</staff></note></measure>
+  </part>
+</score-partwise>`;
+  const boxes = sfExtractMeasureBoxes(boxXml);
+  check('sfExtractMeasureBoxes returns 4 boxes across 2 pages and 2 systems with normalized [0..1] coords',
+    boxes.length === 4 &&
+    boxes[0].page === 1 && boxes[1].page === 1 && boxes[2].page === 1 && boxes[3].page === 2 &&
+    boxes[0].measure === '1' && boxes[0].index === 0 &&
+    approx(boxes[0].x, (150 - 36) / 1000, 1e-4) &&
+    approx(boxes[0].w, (300 + 72) / 1000, 1e-4) &&
+    approx(boxes[1].x, (450 - 36) / 1000, 1e-4) &&
+    approx(boxes[2].x, (150 - 36) / 1000, 1e-4) &&
+    boxes[2].y > boxes[0].y &&
+    approx(boxes[3].y, (250 - 85) / 2000, 1e-4) &&
+    boxes.every(b => b.x >= 0 && b.y >= 0 && b.w > 0 && b.h > 0 && b.x + b.w <= 1.00001 && b.y + b.h <= 1.00001));
 }
 
 // Async tests: sfParseMxl + sfParseScoreInput

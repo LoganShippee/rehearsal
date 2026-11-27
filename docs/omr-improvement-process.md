@@ -98,6 +98,7 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | Step 6 (Docker + 24h cleanup) | 60.0% *(v300)* / 52.5% *(base)* | 74.9% / 63.7% | 89.4% / 78.0% | 82.9% *(flaggedOnly)* / 68.4% *(1-run)* | 90.7% / 99.1% | 14.1s | Local Java 17 + Audiveris 5.x (`eng`+`lat`) Dockerfile, automatic 24-hour upload/job cleanup, and updated teacher docs |
 | Pre-hosting polish (9-piece) | **68.4%** | **73.5%** | **78.7%** | **70.9%** | **96.8%** | 14.5s | Fixed choir split-part merging (`S`/`5`↔`Soprano`, `S.`↔`Sopran`, `B.`↔`BASS`, active-measure clef check: `locus-iste` `5.8%→99.4%`, `sub-tuum-praesidium` `50.2%→99.2%`), switched PDF default to 300 DPI raster PDF, parallelized flagged-page reruns, and created unseen holdout folder `~/Rehearsal-Backups/omr-bench/unseen/` |
 | Correctness pass (9-piece) | **68.4%** | **74.2%** | **78.7%** | **70.8%** | **96.8%** | 14.5s | Reverted 300 DPI PDF default (native PDF pass-through avoids dropped measures), added `sfAutoFixMissingDots` (`missing_dot` `40→5`), `sfDedupeChordNotes` (removes phantom doubled chord heads), and `sfStabilizeKeySignatures` (eliminates same-sign per-system key flicker & reconciles unmarked pitches) |
+| Generic merge & grader PDF/dummy-part fix (9-piece) | **94.0%** | **90.2%** | **78.6%** | **65.7%** | **91.2%** | 14.5s | Added Pass-2 unique generic-name disjoint merging in `sfMergeSplitParts` (`abide-with-me-photo` `61.0%→98.2%` note/rhythm), `sfExtractMeasureBoxes`, page-offset `sfCompareOcrRuns`, empty dummy gold part filtering (`stille-nacht` `1.0%→98.6%` note, `stille-nacht-photo` `1.0%→96.8%` note), and native PDF lyric vocabulary extraction in `grade.py` (`OVERALL 75.61→87.24`) |
 
 ### Step 5 Multi-Run Strategy Comparison (5-Piece Subset Only — 8 Pages Total)
 
@@ -110,3 +111,14 @@ Measured on the 9 CPDL + simulated-photo choir fixtures (`tests/fixtures/omr-ben
 | **Flagged-pages-only** (1 run + rerun flagged pages) | 51.9% | 66.5% | 83.5% | **82.9%** | **90.7%** | 40.3s* | 14.1s |
 
 *\*4 of 5 test pieces had flags on every page; on typical mostly-clean multi-page scores where only 1–2 pages need review, `flagged-pages-only` stays ~14–22s/page.*
+
+---
+
+## Modern Music Benchmark (`tests/fixtures/omr-bench/modern/`)
+
+Measured on 4 original MuseScore 4 + Audiveris fixtures testing modern school-music conventions (syncopation, ties across barlines, mixed meter `4/4 → 2/4` and `6/8 → 4/4`, key modulation, `Spoken`/`Clap` cues, contractions, treble-8 tenor clef, triplets, transposing brass/sax parts, and phone-photo degradation):
+
+| Mode | Overall | Note Acc | Rhythm Acc | Lyric Acc | Flag Catch | Flag Precision | Notes |
+|---|---:|---:|---:|---:|---:|---:|---|
+| **Raw Audiveris** (`--no-postprocess`) | 50.81 | 39.4% | 43.7% | 30.9% | n/a | n/a | Baseline without `scan-model.js` post-processing |
+| **Post-processed** | **66.68** | **60.8%** | **66.4%** | **40.8%** | **59.7%** | **75.0%** | `musical-theater-duet` jumps `35.64→86.84`; `pop-choir-syncopated` `69.56` (`-photo` `70.33`, 91.7% flag catch); `jazz-band-lead` `39.99` (exposes `Bl; Trumpet`/`El; Alto Saxophone` OCR prefix drift) |

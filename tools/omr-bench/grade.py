@@ -274,6 +274,18 @@ def grade_score(
 
     c_parts = cand["parts"]
     g_parts = gold["parts"]
+    # Filter out completely empty dummy gold parts (e.g. stille-nacht/gold.mxl empty P1)
+    # only when the non-empty gold parts match the candidate part count exactly.
+    non_empty_gold = [
+        p for p in g_parts
+        if any(
+            (not n["is_rest"]) or bool(n["lyrics"])
+            for m in p.get("measures", [])
+            for n in m.get("notes", [])
+        )
+    ]
+    if non_empty_gold and len(c_parts) == len(non_empty_gold):
+        g_parts = non_empty_gold
     issues: List[Dict[str, Any]] = []
     erroneous_measures: Set[int] = set()
 
@@ -683,6 +695,51 @@ def postprocess_with_jsc(
         return payload["xml"], payload["flagReport"]
 
 
+_BENCH_PREP_BIN_SENTINEL = object()
+_BENCH_PREP_BIN: Any = _BENCH_PREP_BIN_SENTINEL
+
+
+def _ensure_bench_prep_bin() -> Optional[str]:
+    global _BENCH_PREP_BIN
+    if _BENCH_PREP_BIN is not _BENCH_PREP_BIN_SENTINEL:
+        return _BENCH_PREP_BIN
+    prep_bin = "/tmp/rehearsal-omr-prep-bench"
+    swift_src = os.path.join(ROOT, "tools", "omr-service", "preprocess.swift")
+    swiftc = shutil.which("swiftc")
+    if os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
+        if not os.path.isfile(swift_src) or os.path.getmtime(prep_bin) >= os.path.getmtime(swift_src):
+            _BENCH_PREP_BIN = prep_bin
+            return prep_bin
+    if os.path.isfile(swift_src) and swiftc:
+        cache_dir = "/tmp/rehearsal-omr-swift-cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        try:
+            res = subprocess.run(
+                [swiftc, "-O", "-module-cache-path", cache_dir, swift_src, "-o", prep_bin],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60.0,
+                check=False,
+            )
+            if res.returncode == 0 and os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
+                _BENCH_PREP_BIN = prep_bin
+                return prep_bin
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    _BENCH_PREP_BIN = prep_bin if (os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK)) else None
+    return _BENCH_PREP_BIN
+
+
+def _extract_pdf_vocab(pdf_path: str) -> List[str]:
+    omr_srv_dir = os.path.join(ROOT, "tools", "omr-service")
+    if omr_srv_dir not in sys.path:
+        sys.path.insert(0, omr_srv_dir)
+    import server as omr_srv  # noqa: E402
+    prep_bin = _ensure_bench_prep_bin()
+    meta = omr_srv.extract_pdf_text_metadata(pdf_path, prep_bin=prep_bin)
+    return list(meta.get("lyricVocabulary") or [])
+
+
 def discover_bench_pairs(bench_dir: str) -> List[Dict[str, Any]]:
     """
     Discover benchmark pairs in either:
@@ -760,13 +817,16 @@ def discover_bench_pairs(bench_dir: str) -> List[Dict[str, Any]]:
             None,
         )
         if raw_p and gold_p:
+            vocab: List[str] = []
+            if orig_p and orig_p.lower().endswith(".pdf"):
+                vocab = _extract_pdf_vocab(orig_p)
             pairs.append(
                 {
                     "name": entry,
                     "rawPath": raw_p,
                     "goldPath": gold_p,
                     "originalPath": orig_p,
-                    "vocab": [],
+                    "vocab": vocab,
                 }
             )
     return pairs

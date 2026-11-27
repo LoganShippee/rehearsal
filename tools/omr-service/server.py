@@ -17,6 +17,7 @@ import collections
 import concurrent.futures
 import datetime
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -197,10 +198,20 @@ class OMRConfig:
     preprocess: bool = True
     multi_run_mode: str = "off"  # "off" | "all" | "flagged"
     retention_hours: float = 24.0
+    engine_name: str = "audiveris"  # "audiveris" | "homr" | "oemer" | "api" | "flat" | "newzik" | "custom"
+    omr_api_url: str = ""
+    omr_api_key: str = ""
+    omr_api_provider: str = "generic"  # "generic" | "flat" | "newzik"
 
     def resolved_engine_cmd(self) -> Optional[List[str]]:
         if self.engine_cmd is not None:
             return list(self.engine_cmd) if self.engine_cmd else None
+        if self.engine_name == "homr":
+            h = shutil.which("homr")
+            return [h] if h else None
+        if self.engine_name == "oemer":
+            o = shutil.which("oemer")
+            return [o] if o else None
         if self.audiveris_bin:
             return [self.audiveris_bin]
         return None
@@ -264,7 +275,7 @@ class AudiverisAdapter(EngineAdapter):
 
 
 class CustomCmdAdapter(EngineAdapter):
-    """Adapter for OMR_ENGINE_CMD overrides or future neural CLI engines (homr/oemer)."""
+    """Adapter for OMR_ENGINE_CMD overrides or custom CLI engines."""
 
     name: str = "custom"
 
@@ -283,9 +294,130 @@ class CustomCmdAdapter(EngineAdapter):
         ]
 
 
+class HomrAdapter(EngineAdapter):
+    """Adapter for the `homr` neural OMR CLI."""
+
+    name: str = "homr"
+
+    def build_command(self, input_path: str, out_dir: str, enable_ocr: bool = True) -> List[str]:
+        return list(self.cmd_prefix) + [input_path]
+
+    def find_output(
+        self, out_dir: str, input_stem: Optional[str] = None
+    ) -> Optional[str]:
+        found = find_audiveris_output(out_dir, input_stem=input_stem)
+        if found:
+            return found
+        if input_stem:
+            parent_dir = os.path.dirname(out_dir)
+            for ext in (".musicxml", ".xml", ".mxl"):
+                cand = os.path.join(parent_dir, f"{input_stem}{ext}")
+                if os.path.isfile(cand):
+                    return cand
+        return None
+
+
+class OemerAdapter(EngineAdapter):
+    """Adapter for the `oemer` CNN/segmentation OMR CLI."""
+
+    name: str = "oemer"
+
+    def build_command(self, input_path: str, out_dir: str, enable_ocr: bool = True) -> List[str]:
+        return list(self.cmd_prefix) + [input_path, "-o", out_dir]
+
+
+class HttpApiEngineAdapter(EngineAdapter):
+    """Adapter for commercial/hosted OMR REST APIs (Flat.io, Newzik, or generic)."""
+
+    name: str = "api"
+
+    def __init__(self, api_url: str, api_key: str, provider: str = "generic") -> None:
+        super().__init__([])
+        self.api_url = (api_url or "").strip().rstrip("/")
+        self.api_key = (api_key or "").strip()
+        self.provider = (provider or "generic").strip().lower() or "generic"
+        if self.provider in ("flat", "newzik"):
+            self.name = self.provider
+
+    def is_available(self) -> bool:
+        return bool(self.api_url and self.api_key)
+
+    def run_direct(
+        self, input_path: str, out_dir: str, timeout_sec: float = 120.0
+    ) -> Tuple[Optional[str], Optional[str]]:
+        if not self.is_available():
+            return None, "OMR API URL or API key not configured"
+        os.makedirs(out_dir, exist_ok=True)
+        with open(input_path, "rb") as f:
+            file_bytes = f.read()
+        fname = os.path.basename(input_path)
+        ctype = ALLOWED_EXTENSIONS.get(os.path.splitext(fname)[1].lower(), "application/octet-stream")
+        boundary = f"----RehearsalOMR{uuid.uuid4().hex}"
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{fname}"\r\n'
+            f"Content-Type: {ctype}\r\n\r\n"
+        ).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json, application/vnd.recordare.musicxml+xml, application/xml",
+        }
+        req = urllib.request.Request(self.api_url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=min(60.0, timeout_sec)) as resp:
+                resp_ctype = (resp.headers.get("Content-Type") or "").lower()
+                raw = resp.read()
+        except Exception as exc:
+            return None, str(exc)
+
+        if "json" in resp_ctype or raw.lstrip().startswith(b"{"):
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except Exception as exc:
+                return None, f"Invalid API JSON: {exc}"
+            xml_text = data.get("musicxml") or data.get("xml")
+            poll_url = data.get("statusUrl") or data.get("pollUrl") or data.get("resultUrl")
+            deadline = time.monotonic() + max(5.0, timeout_sec - 10.0)
+            while not xml_text and poll_url and time.monotonic() < deadline:
+                time.sleep(1.5)
+                preq = urllib.request.Request(
+                    poll_url,
+                    headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(preq, timeout=15.0) as presp:
+                    pdata = json.loads(presp.read().decode("utf-8"))
+                xml_text = pdata.get("musicxml") or pdata.get("xml")
+                if pdata.get("status") in ("failed", "error"):
+                    return None, pdata.get("error") or "Remote OMR job failed"
+            if not xml_text:
+                return None, "Remote OMR API returned no MusicXML"
+            out_path = os.path.join(out_dir, "api-output.musicxml")
+            with open(out_path, "w", encoding="utf-8") as out_f:
+                out_f.write(xml_text)
+            return out_path, None
+
+        ext = ".mxl" if raw[:2] == b"PK" else ".musicxml"
+        out_path = os.path.join(out_dir, f"api-output{ext}")
+        with open(out_path, "wb") as out_f:
+            out_f.write(raw)
+        return out_path, None
+
+
 def build_engine_adapter(config: OMRConfig) -> EngineAdapter:
     if config.engine_cmd is not None:
         return CustomCmdAdapter(config.engine_cmd)
+    ename = (config.engine_name or "audiveris").strip().lower()
+    if ename == "homr":
+        exe = shutil.which("homr")
+        return HomrAdapter([exe] if exe else [])
+    if ename == "oemer":
+        exe = shutil.which("oemer")
+        return OemerAdapter([exe] if exe else [])
+    if ename in ("api", "flat", "newzik"):
+        prov = ename if ename in ("flat", "newzik") else config.omr_api_provider
+        return HttpApiEngineAdapter(config.omr_api_url, config.omr_api_key, provider=prov)
     if config.audiveris_bin:
         return AudiverisAdapter([config.audiveris_bin])
     return AudiverisAdapter([])
@@ -321,6 +453,10 @@ def load_config_from_env() -> OMRConfig:
         preprocess=(prep_mode != "off"),
         multi_run_mode=normalize_multi_run_mode(os.environ.get("OMR_MULTI_RUN")),
         retention_hours=float(os.environ.get("OMR_RETENTION_HOURS", "24")),
+        engine_name=os.environ.get("OMR_ENGINE", "audiveris").strip().lower() or "audiveris",
+        omr_api_url=os.environ.get("OMR_API_URL", "").strip(),
+        omr_api_key=os.environ.get("OMR_API_KEY", "").strip(),
+        omr_api_provider=os.environ.get("OMR_API_PROVIDER", "generic").strip().lower() or "generic",
     )
 
 
@@ -719,14 +855,13 @@ _VOCAB_WORD_RE = re.compile(r"\b([A-Za-z]{3,})\b")
 _PDF_FONT_RE = re.compile(rb"/Font\b")
 
 
-def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
+def extract_pdf_text_metadata(
+    pdf_path: str, prep_bin: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Scan vector PDF content streams (including FlateDecode via stdlib zlib) for:
-      - isVectorPdf: embedded /Font objects > 0 and text strings extracted
-      - spokenCues: [{"text": cue, "count": N}, ...]
-      - dynamics: deduplicated dynamics markings
-      - tempoMarkings: deduplicated tempo/expression markings
-      - lyricVocabulary: sorted list of up to 400 distinct alphabetic words (len >= 3)
+    Extract real PDF text metadata (spoken cues, dynamics, tempo markings, lyric vocabulary).
+    Prefers macOS PDFKit (`rehearsal-omr-prep text`) or `pdftotext` so subsetted CID/ToUnicode
+    music fonts decode cleanly, and falls back to stdlib PDF stream parsing for minimal PDFs.
     """
     empty: Dict[str, Any] = {
         "isVectorPdf": False,
@@ -735,14 +870,9 @@ def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
         "tempoMarkings": [],
         "lyricVocabulary": [],
     }
-    try:
-        with open(pdf_path, "rb") as f:
-            data = f.read(32 * 1024 * 1024)
-    except OSError:
+    if not os.path.isfile(pdf_path):
         return empty
 
-    deadline = time.monotonic() + 3.0
-    has_fonts = bool(_PDF_FONT_RE.search(data))
     counts: Dict[str, int] = {}
     dynamics_seen: Dict[str, str] = {}
     tempo_seen: Dict[str, str] = {}
@@ -767,6 +897,64 @@ def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
             if len(vocab) < 800:
                 vocab.add(w)
 
+    def _build_result(is_vector: bool) -> Dict[str, Any]:
+        spoken_cues = [
+            {"text": word, "count": count}
+            for word, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+        return {
+            "isVectorPdf": bool(is_vector),
+            "spokenCues": spoken_cues,
+            "dynamics": sorted(dynamics_seen.values(), key=str.lower),
+            "tempoMarkings": sorted(tempo_seen.values(), key=str.lower),
+            "lyricVocabulary": sorted(vocab, key=lambda s: (s.lower(), s))[:400],
+        }
+
+    native_checked = False
+    native_text = ""
+    extract_cmds: List[List[str]] = []
+    if prep_bin and os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
+        extract_cmds.append([prep_bin, "text", pdf_path])
+    pdftotext_bin = shutil.which("pdftotext")
+    if pdftotext_bin:
+        extract_cmds.append([pdftotext_bin, "-q", pdf_path, "-"])
+
+    for cmd in extract_cmds:
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10.0,
+                check=False,
+            )
+            if proc.returncode == 0:
+                native_checked = True
+                if proc.stdout and proc.stdout.strip():
+                    native_text = proc.stdout
+                    break
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+
+    if native_text.strip():
+        _tally(native_text)
+        return _build_result(True)
+
+    try:
+        with open(pdf_path, "rb") as f:
+            data = f.read(32 * 1024 * 1024)
+    except OSError:
+        return empty
+
+    has_fonts = bool(_PDF_FONT_RE.search(data))
+    has_images = bool(re.search(rb"/(?:Image|DCTDecode|JPXDecode|JBIG2Decode|CCITTFaxDecode)\b", data))
+    if native_checked and has_images and not has_fonts:
+        return empty
+
+    deadline = time.monotonic() + 3.0
     pos = 0
     n = len(data)
     while pos < n:
@@ -814,20 +1002,13 @@ def extract_pdf_text_metadata(pdf_path: str) -> Dict[str, Any]:
                 continue
             target = raw_stream
 
+        if b"BT" not in target or b"ET" not in target:
+            continue
+
         for s in _extract_pdf_strings_from_stream(target, deadline=deadline):
             _tally(s)
 
-    spoken_cues = [
-        {"text": word, "count": count}
-        for word, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    ]
-    return {
-        "isVectorPdf": bool(has_fonts and extracted_any),
-        "spokenCues": spoken_cues,
-        "dynamics": sorted(dynamics_seen.values(), key=str.lower),
-        "tempoMarkings": sorted(tempo_seen.values(), key=str.lower),
-        "lyricVocabulary": sorted(vocab, key=lambda s: (s.lower(), s))[:400],
-    }
+    return _build_result(bool(has_fonts and extracted_any))
 
 
 def extract_pdf_spoken_cues(pdf_path: str) -> List[Dict[str, Any]]:
@@ -1291,16 +1472,33 @@ class OMRService:
             return True
         return shutil.which("pdftoppm") is not None
 
+    def available_engines(self) -> List[str]:
+        engines: List[str] = []
+        if self.config.audiveris_bin or AudiverisAdapter([detect_audiveris_bin() or ""]).is_available():
+            engines.append("audiveris")
+        if shutil.which("homr"):
+            engines.append("homr")
+        if shutil.which("oemer"):
+            engines.append("oemer")
+        if self.config.omr_api_url and self.config.omr_api_key:
+            engines.append(self.config.omr_api_provider or "api")
+        if self.config.engine_cmd:
+            engines.append("custom")
+        return engines
+
     def health_info(self) -> Dict[str, Any]:
         with self._state_lock:
             active = self._active_jobs
         adapter = build_engine_adapter(self.config)
+        ai_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         return {
             "ok": True,
             "service": SERVICE_NAME,
-            "engine": "audiveris",
+            "engine": adapter.name,
             "engineAdapter": adapter.name,
             "engineAvailable": adapter.is_available(),
+            "availableEngines": self.available_engines(),
+            "aiVerifyAvailable": ai_key,
             "ocrAvailable": bool(self.config.tessdata_dir),
             "tessdataDir": self.config.tessdata_dir,
             "preprocessAvailable": self.preprocess_available(),
@@ -1611,15 +1809,17 @@ class OMRService:
         if not self.config.preprocess or self.config.preprocess_mode == "off":
             return None
         prep_bin = os.path.join(self.config.data_dir, "rehearsal-omr-prep")
-        if os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
-            return prep_bin
         swift_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preprocess.swift")
         swiftc = shutil.which("swiftc")
+        if os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
+            if not os.path.isfile(swift_src) or os.path.getmtime(prep_bin) >= os.path.getmtime(swift_src):
+                return prep_bin
         if not os.path.isfile(swift_src) or not swiftc:
-            return None
+            return prep_bin if (os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK)) else None
         with self._db_lock:
             if os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK):
-                return prep_bin
+                if os.path.getmtime(prep_bin) >= os.path.getmtime(swift_src):
+                    return prep_bin
             cache_dir = os.path.join(self.config.data_dir, ".swift-cache")
             os.makedirs(cache_dir, exist_ok=True)
             try:
@@ -1634,7 +1834,7 @@ class OMRService:
                     return prep_bin
             except (subprocess.TimeoutExpired, OSError):
                 pass
-        return None
+        return prep_bin if (os.path.isfile(prep_bin) and os.access(prep_bin, os.X_OK)) else None
 
     def _preprocess_image(self, src_path: str, dst_path: str) -> bool:
         prep_bin = self._ensure_preprocess_bin()
@@ -1690,31 +1890,6 @@ class OMRService:
                             return os.path.join(out_dir, name)
             except (subprocess.TimeoutExpired, OSError):
                 pass
-        return None
-
-    def _render_pdf_300dpi_default(
-        self, pdf_path: str, out_pdf_path: str, total_pages: Optional[int] = None
-    ) -> Optional[str]:
-        """Render a PDF into a single 300 DPI grayscale raster PDF (or PNG on Linux for 1 page)."""
-        if not self.config.preprocess or self.config.preprocess_mode == "off":
-            return None
-        prep_bin = self._ensure_preprocess_bin()
-        if prep_bin:
-            try:
-                res = subprocess.run(
-                    [prep_bin, "rasterpdf", pdf_path, out_pdf_path, "300", "0"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=60.0,
-                    check=False,
-                )
-                if res.returncode == 0 and os.path.isfile(out_pdf_path) and os.path.getsize(out_pdf_path) > 0:
-                    return out_pdf_path
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-        if (total_pages or 1) == 1:
-            png_dir = os.path.dirname(out_pdf_path)
-            return self._render_pdf_page_for_retry(pdf_path, 1, png_dir, dpi=300)
         return None
 
     @staticmethod
@@ -1816,32 +1991,39 @@ class OMRService:
     ) -> Dict[str, Any]:
         t0 = time.monotonic()
         os.makedirs(out_dir, exist_ok=True)
-        cmd = adapter.build_command(input_path, out_dir, enable_ocr=enable_ocr)
-        try:
-            proc = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_sec,
-                check=False,
-                env=sub_env,
-            )
-        except subprocess.TimeoutExpired:
-            return {"variant": variant, "status": "failed", "error": "timeout", "seconds": round(time.monotonic() - t0, 3)}
-        except OSError as exc:
-            return {"variant": variant, "status": "failed", "error": str(exc), "seconds": round(time.monotonic() - t0, 3)}
+        run_direct = getattr(adapter, "run_direct", None)
+        if callable(run_direct):
+            exp, err = run_direct(input_path, out_dir, timeout_sec=timeout_sec)
+            elapsed = round(time.monotonic() - t0, 3)
+            if err or not exp or not os.path.isfile(exp):
+                return {"variant": variant, "status": "failed", "error": err or "no output", "seconds": elapsed}
+        else:
+            cmd = adapter.build_command(input_path, out_dir, enable_ocr=enable_ocr)
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout_sec,
+                    check=False,
+                    env=sub_env,
+                )
+            except subprocess.TimeoutExpired:
+                return {"variant": variant, "status": "failed", "error": "timeout", "seconds": round(time.monotonic() - t0, 3)}
+            except OSError as exc:
+                return {"variant": variant, "status": "failed", "error": str(exc), "seconds": round(time.monotonic() - t0, 3)}
 
-        elapsed = round(time.monotonic() - t0, 3)
-        if proc.returncode != 0:
-            return {"variant": variant, "status": "failed", "error": f"exit {proc.returncode}", "seconds": elapsed}
+            elapsed = round(time.monotonic() - t0, 3)
+            if proc.returncode != 0:
+                return {"variant": variant, "status": "failed", "error": f"exit {proc.returncode}", "seconds": elapsed}
 
-        stem = os.path.splitext(os.path.basename(input_path))[0]
-        exp = adapter.find_output(out_dir, input_stem=stem)
-        if not exp or not os.path.isfile(exp):
-            return {"variant": variant, "status": "failed", "error": "no output", "seconds": elapsed}
+            stem = os.path.splitext(os.path.basename(input_path))[0]
+            exp = adapter.find_output(out_dir, input_stem=stem)
+            if not exp or not os.path.isfile(exp):
+                return {"variant": variant, "status": "failed", "error": "no output", "seconds": elapsed}
 
         try:
             with open(exp, "rb") as f:
@@ -1927,7 +2109,7 @@ class OMRService:
                 pdf_meta: Dict[str, Any] = {}
                 spoken_cues: List[Dict[str, Any]] = []
                 if is_pdf and enable_ocr:
-                    pdf_meta = extract_pdf_text_metadata(original_path)
+                    pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
                     spoken_cues = pdf_meta.get("spokenCues", [])
 
                 flagged_pages = (
@@ -1935,6 +2117,11 @@ class OMRService:
                     if is_pdf
                     else [1]
                 )
+                initial_alts: List[Dict[str, Any]] = [
+                    {"variant": f"{vn}-p{p_num}", "status": "pending", "page": p_num}
+                    for p_num in flagged_pages
+                    for vn in ("v400", "v350c")
+                ]
                 self._update_job(
                     job_id,
                     status="completed",
@@ -1943,7 +2130,7 @@ class OMRService:
                     stage_detail="Scan complete (v300).",
                     spoken_cues_json=json.dumps(spoken_cues),
                     pdf_text_meta_json=json.dumps(pdf_meta),
-                    alternate_runs_json=json.dumps([]),
+                    alternate_runs_json=json.dumps(initial_alts),
                     raw_path=raw_dest,
                     raw_musicxml=primary_result["rawMusicxml"],
                     error="",
@@ -1955,7 +2142,8 @@ class OMRService:
                     handed_off_tmpdir = True
 
                     def _run_flagged_alternates() -> None:
-                        alt_results: List[Dict[str, Any]] = []
+                        alt_results: List[Dict[str, Any]] = list(initial_alts)
+                        alt_lock = threading.Lock()
                         tasks: List[Tuple[str, int, str, str]] = []
                         for p_num in flagged_pages:
                             for vn, dpi, contrast in (("v400", 400, False), ("v350c", 350, True)):
@@ -2003,10 +2191,19 @@ class OMRService:
                                         if k in ("variant", "status", "rawMusicxml", "seconds", "error")
                                     }
                                     entry["page"] = p_num
-                                    alt_results.append(entry)
+                                    with alt_lock:
+                                        replaced = False
+                                        for idx, existing in enumerate(alt_results):
+                                            if existing.get("variant") == vlabel:
+                                                alt_results[idx] = entry
+                                                replaced = True
+                                                break
+                                        if not replaced:
+                                            alt_results.append(entry)
+                                        snapshot = json.dumps(alt_results)
                                     self._update_job(
                                         job_id,
-                                        alternate_runs_json=json.dumps(alt_results),
+                                        alternate_runs_json=snapshot,
                                     )
                             finally:
                                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -2119,9 +2316,13 @@ class OMRService:
             pdf_meta: Dict[str, Any] = {}
             spoken_cues: List[Dict[str, Any]] = []
             if is_pdf and enable_ocr:
-                pdf_meta = extract_pdf_text_metadata(original_path)
+                pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
                 spoken_cues = pdf_meta.get("spokenCues", [])
 
+            initial_all_alts = list(finished_alternates) + [
+                {"variant": fut_to_var[f], "status": "pending"}
+                for f in pending_futs
+            ]
             self._update_job(
                 job_id,
                 status="completed",
@@ -2130,7 +2331,7 @@ class OMRService:
                 stage_detail=f"Scan complete ({primary_result['variant']}).",
                 spoken_cues_json=json.dumps(spoken_cues),
                 pdf_text_meta_json=json.dumps(pdf_meta),
-                alternate_runs_json=json.dumps(finished_alternates),
+                alternate_runs_json=json.dumps(initial_all_alts),
                 raw_path=raw_dest,
                 raw_musicxml=primary_result["rawMusicxml"],
                 error="",
@@ -2140,26 +2341,37 @@ class OMRService:
 
             if pending_futs:
                 handed_off_tmpdir = True
+                all_alts_lock = threading.Lock()
+                all_alts_state = list(initial_all_alts)
 
                 def _collect_remaining() -> None:
                     try:
                         for f in concurrent.futures.as_completed(pending_futs):
                             if self._stop_event.is_set():
                                 break
+                            vn = fut_to_var[f]
                             try:
                                 r = f.result()
                             except Exception as exc:
-                                r = {"variant": fut_to_var[f], "status": "failed", "error": str(exc)}
-                            finished_alternates.append(
-                                {
-                                    k: v
-                                    for k, v in r.items()
-                                    if k in ("variant", "status", "rawMusicxml", "seconds", "error")
-                                }
-                            )
+                                r = {"variant": vn, "status": "failed", "error": str(exc)}
+                            entry = {
+                                k: v
+                                for k, v in r.items()
+                                if k in ("variant", "status", "rawMusicxml", "seconds", "error")
+                            }
+                            with all_alts_lock:
+                                replaced = False
+                                for idx, existing in enumerate(all_alts_state):
+                                    if existing.get("variant") == vn:
+                                        all_alts_state[idx] = entry
+                                        replaced = True
+                                        break
+                                if not replaced:
+                                    all_alts_state.append(entry)
+                                snapshot = json.dumps(all_alts_state)
                             self._update_job(
                                 job_id,
-                                alternate_runs_json=json.dumps(finished_alternates),
+                                alternate_runs_json=snapshot,
                             )
                     finally:
                         executor.shutdown(wait=True)
@@ -2247,301 +2459,303 @@ class OMRService:
             # Strict AGPL v3 isolation: external CLI subprocess invocation only.
             scan_mode = normalize_scan_mode(row.get("scan_mode"))
             enable_ocr = scan_mode != "notes-only"
-            cmd = adapter.build_command(engine_input, out_dir, enable_ocr=enable_ocr)
             effective_timeout = self._effective_timeout(total_pages)
-            timed_out = threading.Event()
-            sub_env = os.environ.copy()
-            legacy_sort_flag = "-Djava.util.Arrays.useLegacyMergeSort=true"
-            existing_java_opts = sub_env.get("JAVA_TOOL_OPTIONS", "").strip()
-            if legacy_sort_flag not in existing_java_opts:
-                sub_env["JAVA_TOOL_OPTIONS"] = (
-                    f"{existing_java_opts} {legacy_sort_flag}".strip()
-                    if existing_java_opts
-                    else legacy_sort_flag
-                )
-            if enable_ocr and self.config.tessdata_dir:
-                sub_env["TESSDATA_PREFIX"] = self.config.tessdata_dir
-            elif not enable_ocr:
-                sub_env.pop("TESSDATA_PREFIX", None)
 
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    bufsize=1,
-                    start_new_session=True,
-                    env=sub_env,
-                )
-            except (FileNotFoundError, PermissionError, OSError):
-                self._fail_job(job_id, "ENGINE_UNAVAILABLE", ENGINE_UNAVAILABLE_MSG)
-                return
-
-            def _on_timeout() -> None:
-                timed_out.set()
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    try:
-                        proc.kill()
-                    except OSError:
-                        pass
-
-            timer = threading.Timer(effective_timeout, _on_timeout)
-            timer.daemon = True
-            timer.start()
-
-            current_page: Optional[int] = None
-            invalid_pages: set[int] = set()
-            stored_pages: set[int] = set()
-            page_reached: set[int] = set()
+            skipped_pages: List[int] = []
+            recovered_pages: List[int] = []
+            warning_msg = ""
+            export_file: Optional[str] = None
             log_tail: "collections.deque[str]" = collections.deque(maxlen=120)
-            num_steps = max(1, len(AUDIVERIS_STEPS))
-            try:
-                if proc.stdout is not None:
-                    for raw_line in proc.stdout:
-                        if timed_out.is_set():
-                            break
-                        line = raw_line.strip()
-                        if not line:
-                            continue
-                        log_tail.append(line)
 
-                        m_stored = _STORED_SHEET_RE.search(line)
-                        if m_stored:
-                            stored_pages.add(int(m_stored.group(1)))
+            run_direct = getattr(adapter, "run_direct", None)
+            if hasattr(adapter, "run_direct") and callable(run_direct):
+                exp, err = run_direct(engine_input, out_dir, timeout_sec=effective_timeout)
+                if err or not exp or not os.path.isfile(exp):
+                    self._fail_job(
+                        job_id,
+                        "ENGINE_ERROR",
+                        err or ENGINE_ERROR_MSG,
+                        log_lines=[err] if err else None,
+                    )
+                    return
+                export_file = exp
+            else:
+                cmd = adapter.build_command(engine_input, out_dir, enable_ocr=enable_ocr)
+                timed_out = threading.Event()
+                sub_env = self._build_sub_env(enable_ocr)
 
-                        m_invalid = _INVALID_SHEET_RE.search(line)
-                        if m_invalid:
-                            invalid_pages.add(int(m_invalid.group(1)))
-                            continue
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        bufsize=1,
+                        start_new_session=True,
+                        env=sub_env,
+                    )
+                except (FileNotFoundError, PermissionError, OSError):
+                    self._fail_job(job_id, "ENGINE_UNAVAILABLE", ENGINE_UNAVAILABLE_MSG)
+                    return
 
-                        if (
-                            current_page is not None
-                            and current_page not in page_reached
-                            and ("Exception" in line or "Caused by:" in line)
-                        ):
-                            m_sheet_in_err = re.search(r"#(\d+)\b", line)
-                            err_page = int(m_sheet_in_err.group(1)) if m_sheet_in_err else current_page
-                            if err_page not in page_reached:
-                                invalid_pages.add(err_page)
+                def _on_timeout() -> None:
+                    timed_out.set()
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except OSError:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
 
-                        m_sheets = _SHEETS_IN_RE.search(line)
-                        if m_sheets:
-                            detected = max(1, int(m_sheets.group(1)))
-                            if total_pages != detected:
-                                total_pages = detected
-                                self._update_job(
-                                    job_id,
-                                    total_pages=total_pages,
-                                    stage_detail=f"Opening PDF ({total_pages} pages)…",
+                timer = threading.Timer(effective_timeout, _on_timeout)
+                timer.daemon = True
+                timer.start()
+
+                current_page: Optional[int] = None
+                invalid_pages: set[int] = set()
+                stored_pages: set[int] = set()
+                page_reached: set[int] = set()
+                num_steps = max(1, len(AUDIVERIS_STEPS))
+                try:
+                    if proc.stdout is not None:
+                        for raw_line in proc.stdout:
+                            if timed_out.is_set():
+                                break
+                            line = raw_line.strip()
+                            if not line:
+                                continue
+                            log_tail.append(line)
+
+                            m_stored = _STORED_SHEET_RE.search(line)
+                            if m_stored:
+                                stored_pages.add(int(m_stored.group(1)))
+
+                            m_invalid = _INVALID_SHEET_RE.search(line)
+                            if m_invalid:
+                                invalid_pages.add(int(m_invalid.group(1)))
+                                continue
+
+                            if (
+                                current_page is not None
+                                and current_page not in page_reached
+                                and ("Exception" in line or "Caused by:" in line)
+                            ):
+                                m_sheet_in_err = re.search(r"#(\d+)\b", line)
+                                err_page = int(m_sheet_in_err.group(1)) if m_sheet_in_err else current_page
+                                if err_page not in page_reached:
+                                    invalid_pages.add(err_page)
+
+                            m_sheets = _SHEETS_IN_RE.search(line)
+                            if m_sheets:
+                                detected = max(1, int(m_sheets.group(1)))
+                                if total_pages != detected:
+                                    total_pages = detected
+                                    self._update_job(
+                                        job_id,
+                                        total_pages=total_pages,
+                                        stage_detail=f"Opening PDF ({total_pages} pages)…",
+                                    )
+                                continue
+
+                            m_step = _STEP_MON_RE.search(line)
+                            if m_step:
+                                sheet_idx = max(1, int(m_step.group(1)))
+                                step_name = m_step.group(2).upper()
+                                if step_name in ("PAGE", "SCORE", "EXPORT"):
+                                    page_reached.add(sheet_idx)
+                                current_page = sheet_idx
+                                pages = max(total_pages or 1, sheet_idx)
+                                if total_pages is None or sheet_idx > total_pages:
+                                    total_pages = pages
+                                if step_name == "EXPORT" and sheet_idx >= pages:
+                                    progress = max(progress, 90)
+                                    self._update_job(
+                                        job_id,
+                                        progress=progress,
+                                        stage="exporting",
+                                        stage_detail="Exporting MusicXML…",
+                                        current_page=current_page,
+                                        total_pages=total_pages,
+                                    )
+                                else:
+                                    step_pos = _AUDIVERIS_STEP_INDEX.get(step_name, 0) / float(num_steps)
+                                    fraction = min(1.0, ((sheet_idx - 1) + step_pos) / float(pages))
+                                    computed = 12 + int(round(fraction * 76))
+                                    progress = max(progress, min(88, computed))
+                                    detail = _friendly_step_detail(step_name, current_page, total_pages)
+                                    self._update_job(
+                                        job_id,
+                                        progress=progress,
+                                        stage="running_omr",
+                                        stage_detail=detail,
+                                        current_page=current_page,
+                                        total_pages=total_pages,
+                                    )
+                                continue
+
+                            lower_line = line.lower()
+                            if any(
+                                tok in lower_line
+                                for tok in (
+                                    "partwisebuilder",
+                                    "exporting sheet",
+                                    "scoreexporter",
+                                    "exported to ",
                                 )
-                            continue
-
-                        m_step = _STEP_MON_RE.search(line)
-                        if m_step:
-                            sheet_idx = max(1, int(m_step.group(1)))
-                            step_name = m_step.group(2).upper()
-                            if step_name in ("PAGE", "SCORE", "EXPORT"):
-                                page_reached.add(sheet_idx)
-                            current_page = sheet_idx
-                            pages = max(total_pages or 1, sheet_idx)
-                            if total_pages is None or sheet_idx > total_pages:
-                                total_pages = pages
-                            if step_name == "EXPORT" and sheet_idx >= pages:
+                            ):
                                 progress = max(progress, 90)
                                 self._update_job(
                                     job_id,
                                     progress=progress,
                                     stage="exporting",
                                     stage_detail="Exporting MusicXML…",
-                                    current_page=current_page,
-                                    total_pages=total_pages,
                                 )
-                            else:
-                                step_pos = _AUDIVERIS_STEP_INDEX.get(step_name, 0) / float(num_steps)
-                                fraction = min(1.0, ((sheet_idx - 1) + step_pos) / float(pages))
-                                computed = 12 + int(round(fraction * 76))
-                                progress = max(progress, min(88, computed))
-                                detail = _friendly_step_detail(step_name, current_page, total_pages)
-                                self._update_job(
-                                    job_id,
-                                    progress=progress,
-                                    stage="running_omr",
-                                    stage_detail=detail,
-                                    current_page=current_page,
-                                    total_pages=total_pages,
-                                )
-                            continue
+                    returncode = proc.wait()
+                finally:
+                    timer.cancel()
+                    if proc.stdout is not None:
+                        try:
+                            proc.stdout.close()
+                        except OSError:
+                            pass
 
-                        lower_line = line.lower()
-                        if any(
-                            tok in lower_line
-                            for tok in (
-                                "partwisebuilder",
-                                "exporting sheet",
-                                "scoreexporter",
-                                "exported to ",
-                            )
-                        ):
-                            progress = max(progress, 90)
+                if timed_out.is_set():
+                    self._fail_job(job_id, "ENGINE_TIMEOUT", ENGINE_TIMEOUT_MSG, log_lines=log_tail)
+                    return
+
+                if returncode != 0:
+                    # Per-page adaptive 400 DPI retry for any invalid PDF sheets when renderer is available
+                    if is_pdf and invalid_pages and self.config.preprocess and self.config.preprocess_mode != "off":
+                        for p_num in sorted(list(invalid_pages)):
+                            retry_dir = os.path.join(tmpdir, f"retry-{p_num}")
+                            retry_out = os.path.join(retry_dir, "out")
+                            os.makedirs(retry_out, exist_ok=True)
                             self._update_job(
                                 job_id,
-                                progress=progress,
-                                stage="exporting",
-                                stage_detail="Exporting MusicXML…",
+                                stage="running_omr",
+                                stage_detail=f"Retrying page {p_num} at 400 DPI…",
                             )
-                returncode = proc.wait()
-            finally:
-                timer.cancel()
-                if proc.stdout is not None:
-                    try:
-                        proc.stdout.close()
-                    except OSError:
-                        pass
+                            retry_png = self._render_pdf_page_for_retry(tmp_input, p_num, retry_dir, dpi=400)
+                            if not retry_png:
+                                continue
+                            retry_cmd = adapter.build_command(retry_png, retry_out, enable_ocr=enable_ocr)
+                            try:
+                                retry_proc = subprocess.run(
+                                    retry_cmd,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    text=True,
+                                    encoding="utf-8",
+                                    errors="replace",
+                                    timeout=max(30.0, min(90.0, self.config.job_timeout)),
+                                    check=False,
+                                    env=sub_env,
+                                )
+                            except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError, OSError):
+                                continue
+                            if retry_proc.returncode == 0:
+                                retry_exp = adapter.find_output(retry_out, input_stem=os.path.splitext(os.path.basename(retry_png))[0])
+                                if retry_exp and os.path.isfile(retry_exp):
+                                    try:
+                                        with open(retry_exp, "rb") as rf:
+                                            rb = rf.read()
+                                        rxml = extract_musicxml_from_mxl_bytes(rb) if retry_exp.lower().endswith(".mxl") else decode_xml_bytes(rb)
+                                        ok_xml, _ = validate_musicxml(rxml)
+                                        if ok_xml:
+                                            recovered_pages.append(p_num)
+                                            if (total_pages or 1) == 1:
+                                                export_file = retry_exp
+                                    except Exception:
+                                        pass
 
-            if timed_out.is_set():
-                self._fail_job(job_id, "ENGINE_TIMEOUT", ENGINE_TIMEOUT_MSG, log_lines=log_tail)
-                return
+                    omr_file = find_omr_project_file(out_dir, input_stem="input")
+                    omr_valid: List[int] = []
+                    omr_invalid: List[int] = []
+                    if omr_file:
+                        omr_valid, omr_invalid = inspect_omr_pages(omr_file)
+                        if not omr_valid and stored_pages:
+                            omr_valid = sorted(stored_pages - invalid_pages - set(omr_invalid))
+                        if page_reached and omr_valid:
+                            omr_valid = [p for p in omr_valid if p in page_reached and p not in invalid_pages]
 
-            skipped_pages: List[int] = []
-            recovered_pages: List[int] = []
-            warning_msg = ""
-            export_file: Optional[str] = None
-
-            if returncode != 0:
-                # Per-page adaptive 400 DPI retry for any invalid PDF sheets when renderer is available
-                if is_pdf and invalid_pages and self.config.preprocess and self.config.preprocess_mode != "off":
-                    for p_num in sorted(list(invalid_pages)):
-                        retry_dir = os.path.join(tmpdir, f"retry-{p_num}")
-                        retry_out = os.path.join(retry_dir, "out")
-                        os.makedirs(retry_out, exist_ok=True)
+                    max_pages = max(
+                        total_pages or 0,
+                        max(invalid_pages) if invalid_pages else 0,
+                        max(omr_valid) if omr_valid else 0,
+                        max(omr_invalid) if omr_invalid else 0,
+                        max(stored_pages) if stored_pages else 0,
+                    )
+                    if export_file is None and omr_file and (omr_valid or (invalid_pages and max_pages > len(invalid_pages))):
+                        if omr_valid:
+                            valid_pages = sorted(set(omr_valid) - invalid_pages)
+                        else:
+                            valid_pages = [
+                                p for p in range(1, max_pages + 1) if p not in invalid_pages
+                            ]
+                        if not valid_pages:
+                            self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
+                            return
+                        all_pages = set(range(1, max_pages + 1)) if max_pages > 0 else set(valid_pages)
+                        skipped_pages = sorted((all_pages - set(valid_pages)) | invalid_pages | set(omr_invalid))
+                        skipped_label = ", ".join(str(p) for p in skipped_pages)
+                        progress = max(progress, 90)
                         self._update_job(
                             job_id,
-                            stage="running_omr",
-                            stage_detail=f"Retrying page {p_num} at 400 DPI…",
+                            progress=progress,
+                            stage="exporting",
+                            stage_detail=(
+                                f"Skipping unreadable page(s) {skipped_label} — exporting {len(valid_pages)} valid page(s)…"
+                                if skipped_pages
+                                else f"Exporting {len(valid_pages)} valid page(s)…"
+                            ),
                         )
-                        retry_png = self._render_pdf_page_for_retry(tmp_input, p_num, retry_dir, dpi=400)
-                        if not retry_png:
-                            continue
-                        retry_cmd = adapter.build_command(retry_png, retry_out, enable_ocr=enable_ocr)
+                        cmd2 = adapter.build_export_sheets_command(omr_file, valid_pages, out_dir)
+                        if not cmd2:
+                            self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
+                            return
                         try:
-                            retry_proc = subprocess.run(
-                                retry_cmd,
+                            proc2 = subprocess.run(
+                                cmd2,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
                                 text=True,
                                 encoding="utf-8",
                                 errors="replace",
-                                timeout=max(30.0, min(90.0, self.config.job_timeout)),
+                                timeout=60.0,
                                 check=False,
                                 env=sub_env,
                             )
                         except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError, OSError):
-                            continue
-                        if retry_proc.returncode == 0:
-                            retry_exp = adapter.find_output(retry_out, input_stem=os.path.splitext(os.path.basename(retry_png))[0])
-                            if retry_exp and os.path.isfile(retry_exp):
-                                try:
-                                    with open(retry_exp, "rb") as rf:
-                                        rb = rf.read()
-                                    rxml = extract_musicxml_from_mxl_bytes(rb) if retry_exp.lower().endswith(".mxl") else decode_xml_bytes(rb)
-                                    ok_xml, _ = validate_musicxml(rxml)
-                                    if ok_xml:
-                                        recovered_pages.append(p_num)
-                                        if (total_pages or 1) == 1:
-                                            export_file = retry_exp
-                                except Exception:
-                                    pass
-
-                omr_file = find_omr_project_file(out_dir, input_stem="input")
-                omr_valid: List[int] = []
-                omr_invalid: List[int] = []
-                if omr_file:
-                    omr_valid, omr_invalid = inspect_omr_pages(omr_file)
-                    if not omr_valid and stored_pages:
-                        omr_valid = sorted(stored_pages - invalid_pages - set(omr_invalid))
-                    if page_reached and omr_valid:
-                        omr_valid = [p for p in omr_valid if p in page_reached and p not in invalid_pages]
-
-                max_pages = max(
-                    total_pages or 0,
-                    max(invalid_pages) if invalid_pages else 0,
-                    max(omr_valid) if omr_valid else 0,
-                    max(omr_invalid) if omr_invalid else 0,
-                    max(stored_pages) if stored_pages else 0,
-                )
-                if export_file is None and omr_file and (omr_valid or (invalid_pages and max_pages > len(invalid_pages))):
-                    if omr_valid:
-                        valid_pages = sorted(set(omr_valid) - invalid_pages)
-                    else:
-                        valid_pages = [
-                            p for p in range(1, max_pages + 1) if p not in invalid_pages
-                        ]
-                    if not valid_pages:
-                        self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
-                        return
-                    all_pages = set(range(1, max_pages + 1)) if max_pages > 0 else set(valid_pages)
-                    skipped_pages = sorted((all_pages - set(valid_pages)) | invalid_pages | set(omr_invalid))
-                    skipped_label = ", ".join(str(p) for p in skipped_pages)
-                    progress = max(progress, 90)
-                    self._update_job(
-                        job_id,
-                        progress=progress,
-                        stage="exporting",
-                        stage_detail=(
-                            f"Skipping unreadable page(s) {skipped_label} — exporting {len(valid_pages)} valid page(s)…"
-                            if skipped_pages
-                            else f"Exporting {len(valid_pages)} valid page(s)…"
-                        ),
-                    )
-                    cmd2 = adapter.build_export_sheets_command(omr_file, valid_pages, out_dir)
-                    if not cmd2:
-                        self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
-                        return
-                    try:
-                        proc2 = subprocess.run(
-                            cmd2,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True,
-                            encoding="utf-8",
-                            errors="replace",
-                            timeout=60.0,
-                            check=False,
-                            env=sub_env,
-                        )
-                    except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError, OSError):
-                        self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
-                        return
-                    if proc2.stdout:
-                        for ln in proc2.stdout.splitlines():
-                            if ln.strip():
-                                log_tail.append(ln.strip())
-                    if proc2.returncode != 0:
-                        self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
-                        return
-                    if len(skipped_pages) == 1:
-                        warning_msg = (
-                            f"Skipped page {skipped_pages[0]} (no readable staves found). "
-                            f"Exported the remaining {len(valid_pages)} pages."
-                        )
-                    elif len(skipped_pages) > 1:
-                        warning_msg = (
-                            f"Skipped pages {skipped_label} (no readable staves found). "
-                            f"Exported the remaining {len(valid_pages)} pages."
-                        )
-                elif export_file is None:
-                    # Fallback: if a valid .mxl/.musicxml was already exported before exit, use it.
-                    candidate = adapter.find_output(out_dir, input_stem="input")
-                    if candidate and os.path.isfile(candidate):
-                        export_file = candidate
-                    else:
-                        self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
-                        return
+                            self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
+                            return
+                        if proc2.stdout:
+                            for ln in proc2.stdout.splitlines():
+                                if ln.strip():
+                                    log_tail.append(ln.strip())
+                        if proc2.returncode != 0:
+                            self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
+                            return
+                        if len(skipped_pages) == 1:
+                            warning_msg = (
+                                f"Skipped page {skipped_pages[0]} (no readable staves found). "
+                                f"Exported the remaining {len(valid_pages)} pages."
+                            )
+                        elif len(skipped_pages) > 1:
+                            warning_msg = (
+                                f"Skipped pages {skipped_label} (no readable staves found). "
+                                f"Exported the remaining {len(valid_pages)} pages."
+                            )
+                    elif export_file is None:
+                        # Fallback: if a valid .mxl/.musicxml was already exported before exit, use it.
+                        candidate = adapter.find_output(out_dir, input_stem="input")
+                        if candidate and os.path.isfile(candidate):
+                            export_file = candidate
+                        else:
+                            self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG, log_lines=log_tail)
+                            return
 
             progress = max(progress, 95)
             self._update_job(
@@ -2591,7 +2805,8 @@ class OMRService:
             pdf_meta: Dict[str, Any] = {}
             spoken_cues: List[Dict[str, Any]] = []
             if is_pdf and enable_ocr:
-                pdf_meta = extract_pdf_text_metadata(original_path)
+                prep_bin = self._ensure_preprocess_bin()
+                pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
                 spoken_cues = pdf_meta.get("spokenCues", [])
 
             self._update_job(
@@ -2939,6 +3154,215 @@ class OMRService:
             )
         return items
 
+    @staticmethod
+    def _load_verify_measures_module() -> Any:
+        bench_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "..",
+                "omr-bench",
+                "verify_measures.py",
+            )
+        )
+        if not os.path.isfile(bench_path):
+            raise FileNotFoundError(f"verify_measures.py not found at {bench_path}")
+        mod_name = "rehearsal_omr_verify_measures"
+        if mod_name in sys.modules:
+            return sys.modules[mod_name]
+        spec = importlib.util.spec_from_file_location(mod_name, bench_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load {bench_path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def verify_job_measures(
+        self,
+        job_id: str,
+        measures: List[int],
+        model_name: Optional[str] = None,
+    ) -> Tuple[int, Dict[str, Any]]:
+        api_key = (
+            os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or ""
+        ).strip()
+        if not api_key:
+            return 503, {
+                "ok": False,
+                "errorCode": "AI_VERIFY_UNAVAILABLE",
+                "error": "Set GEMINI_API_KEY on the scan server to enable AI measure verification.",
+            }
+
+        row = self.get_job_row(job_id)
+        if not row:
+            return 404, {
+                "ok": False,
+                "errorCode": "JOB_NOT_FOUND",
+                "error": "Scan job not found.",
+            }
+        if row["status"] != "completed":
+            return 409, {
+                "ok": False,
+                "errorCode": "JOB_NOT_READY",
+                "error": "Only completed scans can be verified.",
+            }
+
+        original_path = row.get("original_path") or ""
+        is_pdf = original_path.lower().endswith(".pdf") or row.get("mime_type") == "application/pdf"
+        if not is_pdf or not os.path.isfile(original_path):
+            return 400, {
+                "ok": False,
+                "errorCode": "PDF_REQUIRED",
+                "error": "AI measure verification requires a PDF upload.",
+            }
+
+        xml_text = row.get("corrected_musicxml") or row.get("raw_musicxml") or ""
+        if not xml_text.strip() and row.get("raw_path") and os.path.isfile(row["raw_path"]):
+            try:
+                with open(row["raw_path"], "rb") as rf:
+                    raw_bytes = rf.read()
+                xml_text = (
+                    extract_musicxml_from_mxl_bytes(raw_bytes)
+                    if row["raw_path"].lower().endswith(".mxl")
+                    else decode_xml_bytes(raw_bytes)
+                )
+            except Exception:
+                xml_text = ""
+        if not xml_text.strip():
+            return 400, {
+                "ok": False,
+                "errorCode": "NO_MUSICXML",
+                "error": "No MusicXML is available for this scan job.",
+            }
+
+        cleaned_indices: List[int] = []
+        seen_idx: set[int] = set()
+        for m in measures:
+            try:
+                idx = int(m)
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0 and idx not in seen_idx:
+                seen_idx.add(idx)
+                cleaned_indices.append(idx)
+            if len(cleaned_indices) >= 12:
+                break
+
+        if not cleaned_indices:
+            return 400, {
+                "ok": False,
+                "errorCode": "INVALID_MEASURES",
+                "error": "Provide at least one 0-based measure index.",
+            }
+
+        eff_model = (model_name or "").strip() or "gemini-3.5-flash-lite"
+
+        try:
+            vm = self._load_verify_measures_module()
+            boxes = vm.extract_measure_boxes(xml_text)
+            parsed = vm.parse_score_via_jsc(xml_text)
+        except Exception as exc:
+            return 500, {
+                "ok": False,
+                "errorCode": "AI_VERIFY_FAILED",
+                "error": f"Could not inspect score measures: {exc}",
+            }
+
+        with tempfile.TemporaryDirectory(prefix="rehearsal-ai-verify-") as crop_dir:
+            crop_boxes: List[Dict[str, Any]] = []
+            items: List[Dict[str, Any]] = []
+            parsed_measures = parsed.get("measures") or []
+            for idx in cleaned_indices:
+                if idx < 0 or idx >= len(boxes):
+                    continue
+                box = boxes[idx]
+                m_info = (
+                    parsed_measures[idx]
+                    if idx < len(parsed_measures)
+                    else {
+                        "parts": [],
+                        "flagged": False,
+                        "findings": [],
+                        "keyFifths": 0,
+                        "timeSig": "4/4",
+                    }
+                )
+                parts = m_info.get("parts") or []
+                vocal_chords = sum(p.get("chords", 0) for p in parts[:-1]) if len(parts) > 1 else 0
+                crop_boxes.append(box)
+                item = {
+                    "index": idx,
+                    "measure": box["measure"],
+                    "page": box["page"],
+                    "image": os.path.join(crop_dir, f"m{idx + 1:03d}.png"),
+                    "keyFifths": m_info.get("keyFifths", 0),
+                    "timeSig": m_info.get("timeSig", "4/4"),
+                    "flagged": bool(m_info.get("flagged")),
+                    "vocalChords": vocal_chords,
+                    "findings": m_info.get("findings") or [],
+                    "parts": parts,
+                }
+                item["prompt"] = vm.build_prompt(item)
+                items.append(item)
+
+            if not items:
+                return 400, {
+                    "ok": False,
+                    "errorCode": "MEASURES_OUT_OF_RANGE",
+                    "error": "Requested measure indices are out of range for this score.",
+                }
+
+            try:
+                vm.compile_and_crop(original_path, crop_boxes, crop_dir, 220)
+            except Exception as exc:
+                return 500, {
+                    "ok": False,
+                    "errorCode": "AI_VERIFY_FAILED",
+                    "error": f"Could not crop requested PDF measures: {exc}",
+                }
+
+            results_by_idx: Dict[int, Dict[str, Any]] = {}
+            max_w = min(4, max(1, len(items)))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as pool:
+                fut_map = {
+                    pool.submit(vm.verify_measure_gemini, it, it["image"], api_key, eff_model): it
+                    for it in items
+                }
+                for fut in concurrent.futures.as_completed(fut_map):
+                    it = fut_map[fut]
+                    try:
+                        res = fut.result()
+                    except Exception as exc:
+                        res = {"measure": it["measure"], "status": "error", "error": str(exc)}
+                    if isinstance(res, dict):
+                        res = dict(res)
+                        res.setdefault("measureIndex", it["index"])
+                    results_by_idx[it["index"]] = res
+
+        results: List[Dict[str, Any]] = []
+        patches: List[Dict[str, Any]] = []
+        for it in items:
+            res = results_by_idx[it["index"]]
+            results.append(res)
+            if res.get("status") == "verified" and isinstance(res.get("result"), dict):
+                raw_patches = res["result"].get("patches")
+                if isinstance(raw_patches, list):
+                    for p in raw_patches:
+                        if isinstance(p, dict):
+                            patch_copy = dict(p)
+                            patch_copy.setdefault("measureIndex", it["index"])
+                            patches.append(patch_copy)
+
+        return 200, {
+            "ok": True,
+            "model": eff_model,
+            "checked": len(results),
+            "results": results,
+            "patches": patches,
+        }
+
 
 JOB_ID_RE = re.compile(r"^[a-f0-9-]{8,64}$")
 HASH_RE = re.compile(r"^[a-f0-9]{16,128}$")
@@ -3219,6 +3643,22 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             self._handle_confirm_job(job_id)
             return
 
+        m_verify = re.match(r"^/api/scan/jobs/([^/]+)/verify-measures$", path)
+        if m_verify:
+            job_id = m_verify.group(1)
+            if not JOB_ID_RE.match(job_id):
+                self._send_json(
+                    404,
+                    {
+                        "ok": False,
+                        "errorCode": "JOB_NOT_FOUND",
+                        "error": "Scan job not found.",
+                    },
+                )
+                return
+            self._handle_verify_measures(job_id)
+            return
+
         self._send_json(
             404,
             {"ok": False, "errorCode": "NOT_FOUND", "error": "Endpoint not found."},
@@ -3363,6 +3803,76 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             return
 
         status, resp = self.service.confirm_job(job_id, payload, identity)
+        self._send_json(status, resp)
+
+    def _handle_verify_measures(self, job_id: str) -> None:
+        ok, _identity = self.service.resolve_auth(self.headers.get("Authorization"))
+        if not ok:
+            self._send_json(
+                401,
+                {
+                    "ok": False,
+                    "errorCode": "UNAUTHORIZED",
+                    "error": "Sign in to Rehearsal to verify measures with AI.",
+                },
+            )
+            return
+
+        body, err = self._read_body(1024 * 1024)
+        if err is not None or body is None:
+            self._send_json(
+                400,
+                {
+                    "ok": False,
+                    "errorCode": "INVALID_BODY",
+                    "error": err or "Invalid request body.",
+                },
+            )
+            return
+
+        try:
+            payload = json.loads(body.decode("utf-8")) if body.strip() else {}
+        except (ValueError, UnicodeDecodeError):
+            self._send_json(
+                400,
+                {
+                    "ok": False,
+                    "errorCode": "INVALID_JSON",
+                    "error": "Request body must be valid JSON.",
+                },
+            )
+            return
+
+        if not isinstance(payload, dict):
+            self._send_json(
+                400,
+                {
+                    "ok": False,
+                    "errorCode": "INVALID_JSON",
+                    "error": "Request body must be a JSON object.",
+                },
+            )
+            return
+
+        raw_measures = payload.get("measures", [])
+        if not isinstance(raw_measures, list):
+            self._send_json(
+                400,
+                {
+                    "ok": False,
+                    "errorCode": "INVALID_MEASURES",
+                    "error": "measures must be a list of 0-based measure indices.",
+                },
+            )
+            return
+
+        model_raw = payload.get("model")
+        model_name = (
+            model_raw.strip() if isinstance(model_raw, str) and model_raw.strip() else None
+        )
+        status, resp = self.service.verify_job_measures(
+            job_id, raw_measures, model_name=model_name
+        )
         self._send_json(status, resp)
 
 

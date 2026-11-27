@@ -50,7 +50,7 @@ private func renderPDFPageToCGImage(_ page: PDFPage, dpi: Double, contrast: Bool
 
     guard let rawCG = ctx.makeImage() else { return nil }
     if contrast {
-        return enhanceCIImage(CIImage(cgImage: rawCG)) ?? rawCG
+        return enhanceCIImage(CIImage(cgImage: rawCG), deskew: false) ?? rawCG
     }
     return rawCG
 }
@@ -138,12 +138,127 @@ private func runPDF(args: [String]) -> Int32 {
     return 0
 }
 
-private func enhanceCIImage(_ srcImage: CIImage) -> CGImage? {
+private func rowVarianceScore(_ cgImage: CGImage) -> Double {
+    let w = cgImage.width
+    let h = cgImage.height
+    guard w > 8, h > 8,
+          let space = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2),
+          let ctx = CGContext(
+              data: nil,
+              width: w,
+              height: h,
+              bitsPerComponent: 8,
+              bytesPerRow: w,
+              space: space,
+              bitmapInfo: CGImageAlphaInfo.none.rawValue
+          ) else {
+        return 0.0
+    }
+    ctx.setFillColor(gray: 1.0, alpha: 1.0)
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+    guard let dataPtr = ctx.data else { return 0.0 }
+    let buf = dataPtr.assumingMemoryBound(to: UInt8.self)
+    var rowMeans = [Double](repeating: 0.0, count: h)
+    var totalMean = 0.0
+    for y in 0..<h {
+        let rowOff = y * w
+        var sum = 0
+        for x in 0..<w {
+            sum += Int(buf[rowOff + x])
+        }
+        let m = Double(sum) / Double(w)
+        rowMeans[y] = m
+        totalMean += m
+    }
+    totalMean /= Double(h)
+    var variance = 0.0
+    for m in rowMeans {
+        let d = m - totalMean
+        variance += d * d
+    }
+    return variance / Double(h)
+}
+
+private func rotateCIImage(_ image: CIImage, degrees: Double, context: CIContext) -> CIImage {
+    let ext = image.extent
+    guard !ext.isEmpty, abs(degrees) > 1e-4 else { return image }
+    let rad = degrees * Double.pi / 180.0
+    let cx = ext.midX
+    let cy = ext.midY
+    var xform = CGAffineTransform(translationX: cx, y: cy)
+    xform = xform.rotated(by: CGFloat(rad))
+    xform = xform.translatedBy(x: -cx, y: -cy)
+    let rotated = image.transformed(by: xform)
+    let white = CIImage(color: CIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)).cropped(to: ext)
+    if let comp = CIFilter(name: "CISourceOverCompositing") {
+        comp.setValue(rotated, forKey: kCIInputImageKey)
+        comp.setValue(white, forKey: kCIInputBackgroundImageKey)
+        if let out = comp.outputImage {
+            return out.cropped(to: ext)
+        }
+    }
+    return rotated.cropped(to: ext)
+}
+
+private func deskewIfNeeded(_ image: CIImage, context: CIContext) -> CIImage {
+    let ext = image.extent
+    guard ext.width >= 200, ext.height >= 200 else { return image }
+    let scale = min(1.0, 500.0 / Double(ext.width))
+    let small = image.transformed(by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+    guard let smallCG0 = context.createCGImage(small, from: small.extent) else { return image }
+    let baseScore = rowVarianceScore(smallCG0)
+    guard baseScore > 0 else { return image }
+
+    var bestAngle = 0.0
+    var bestScore = baseScore
+    var angle = -4.0
+    while angle <= 4.001 {
+        if abs(angle) >= 0.2 {
+            let cand = rotateCIImage(small, degrees: angle, context: context)
+            if let cg = context.createCGImage(cand, from: small.extent) {
+                let sc = rowVarianceScore(cg)
+                if sc > bestScore {
+                    bestScore = sc
+                    bestAngle = angle
+                }
+            }
+        }
+        angle += 0.25
+    }
+    if abs(bestAngle) >= 0.35 && bestScore >= baseScore * 1.10 {
+        return rotateCIImage(image, degrees: bestAngle, context: context)
+    }
+    return image
+}
+
+private func enhanceCIImage(_ srcImage: CIImage, deskew: Bool = false) -> CGImage? {
+    let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     var current = srcImage
     if let colorControls = CIFilter(name: "CIColorControls") {
         colorControls.setValue(current, forKey: kCIInputImageKey)
         colorControls.setValue(0.0, forKey: kCIInputSaturationKey)
-        colorControls.setValue(1.22, forKey: kCIInputContrastKey)
+        colorControls.setValue(1.0, forKey: kCIInputContrastKey)
+        colorControls.setValue(0.0, forKey: kCIInputBrightnessKey)
+        if let out = colorControls.outputImage {
+            current = out
+        }
+    }
+    if deskew {
+        current = deskewIfNeeded(current, context: ciContext)
+    }
+    if let hs = CIFilter(name: "CIHighlightShadowAdjust") {
+        hs.setValue(current, forKey: kCIInputImageKey)
+        hs.setValue(0.45, forKey: "inputShadowAmount")
+        hs.setValue(1.0, forKey: "inputHighlightAmount")
+        if let out = hs.outputImage {
+            current = out
+        }
+    }
+    if let colorControls = CIFilter(name: "CIColorControls") {
+        colorControls.setValue(current, forKey: kCIInputImageKey)
+        colorControls.setValue(0.0, forKey: kCIInputSaturationKey)
+        colorControls.setValue(1.20, forKey: kCIInputContrastKey)
         colorControls.setValue(0.02, forKey: kCIInputBrightnessKey)
         if let out = colorControls.outputImage {
             current = out
@@ -157,7 +272,6 @@ private func enhanceCIImage(_ srcImage: CIImage) -> CGImage? {
             current = out
         }
     }
-    let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     return ciContext.createCGImage(current, from: current.extent)
 }
 
@@ -170,11 +284,26 @@ private func runImage(args: [String]) -> Int32 {
     let outURL = URL(fileURLWithPath: args[1])
 
     guard let srcImage = CIImage(contentsOf: inputURL),
-          let cgImage = enhanceCIImage(srcImage) else {
+          let cgImage = enhanceCIImage(srcImage, deskew: true) else {
         fputs("Failed to process image: \(inputURL.path)\n", stderr)
         return 1
     }
     return writePNG(cgImage, to: outURL) ? 0 : 1
+}
+
+private func runText(args: [String]) -> Int32 {
+    guard let path = args.first else {
+        fputs("Usage: rehearsal-omr-prep text <input.pdf>\n", stderr)
+        return 2
+    }
+    let url = URL(fileURLWithPath: path)
+    guard let doc = PDFDocument(url: url) else {
+        return 1
+    }
+    if let txt = doc.string, !txt.isEmpty {
+        print(txt)
+    }
+    return 0
 }
 
 private func runRasterPDF(args: [String]) -> Int32 {
@@ -235,7 +364,7 @@ private func runVariants(args: [String]) -> Int32 {
             if !renderPDFPage(page, dpi: 300.0, to: u300) { return 1 }
             if !renderPDFPage(page, dpi: 400.0, to: u400) { return 1 }
             if !renderPDFPage(page, dpi: 350.0, to: u350c) { return 1 }
-            if let ci = CIImage(contentsOf: u350c), let enhanced = enhanceCIImage(ci) {
+            if let ci = CIImage(contentsOf: u350c), let enhanced = enhanceCIImage(ci, deskew: false) {
                 _ = writePNG(enhanced, to: u350c)
             }
         }
@@ -254,7 +383,7 @@ private func runVariants(args: [String]) -> Int32 {
     }
     let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     guard let rawCG = ciContext.createCGImage(srcImage, from: srcImage.extent),
-          let enhCG = enhanceCIImage(srcImage) else {
+          let enhCG = enhanceCIImage(srcImage, deskew: true) else {
         return 1
     }
     let fname = "page-0001.png"
@@ -266,7 +395,7 @@ private func runVariants(args: [String]) -> Int32 {
 
 let argv = Array(CommandLine.arguments.dropFirst())
 guard let mode = argv.first else {
-    fputs("Usage: rehearsal-omr-prep <pdf|image|rasterpdf|variants> ...\n", stderr)
+    fputs("Usage: rehearsal-omr-prep <pdf|image|rasterpdf|variants|text> ...\n", stderr)
     exit(2)
 }
 
@@ -280,6 +409,8 @@ case "rasterpdf":
     exit(runRasterPDF(args: rest))
 case "variants":
     exit(runVariants(args: rest))
+case "text":
+    exit(runText(args: rest))
 default:
     fputs("Unknown mode: \(mode)\n", stderr)
     exit(2)

@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Solfege Rocket — Rehearsal Solfege Arcade</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #141c31;
+      --card-2: #1b2540;
+      --border: #2a3759;
+      --text: #eaf1fb;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-ink: #061424;
+      --accent: #a78bfa;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #fb7185;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      -webkit-user-select: none;
+      overflow: hidden;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 10px 14px;
+      gap: 8px;
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      box-shadow: 0 2px 10px rgba(56, 189, 248, 0.35);
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .brand small {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .ctrl-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px 7px;
+    }
+    .ctrl-group label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    select, button {
+      font: inherit;
+      color: var(--text);
+      background: transparent;
+      border: 0;
+      outline: none;
+      cursor: pointer;
+    }
+    select {
+      font-weight: 600;
+      padding: 2px 2px;
+    }
+    select option {
+      background: var(--card);
+      color: var(--text);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      font-weight: 700;
+      font-size: 12px;
+      transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+    .btn:hover { border-color: var(--primary); }
+    .btn:active { transform: scale(0.97); }
+    .btn.primary {
+      background: var(--primary);
+      color: var(--primary-ink);
+      border-color: var(--primary);
+    }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.active {
+      background: rgba(167, 139, 250, 0.22);
+      border-color: var(--accent);
+      color: #ddd6fe;
+    }
+
+    /* Compact Pattern Cue (lives inline in the bottom HUD bar so 100% of the canvas is game space!) */
+    .cue-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 10px;
+      border-radius: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      transition: opacity 0.18s ease;
+    }
+    .cue-card.hidden {
+      display: none;
+    }
+    .stage-wrap {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 260px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .canvas-host {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 220px;
+      overflow: hidden;
+    }
+    .cue-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 96px;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    .cue-tag {
+      font-size: 9.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+    }
+    .cue-prompt {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.1;
+    }
+    .cue-sub {
+      display: none;
+    }
+    #vexBox {
+      background: #f8fafc;
+      border-radius: 7px;
+      padding: 0 4px;
+      height: 68px;
+      min-width: 190px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #vexBox.hidden { display: none; }
+    .pat-pills {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+    .pat-pill {
+      min-width: 30px;
+      height: 26px;
+      padding: 0 7px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      background: rgba(148, 163, 184, 0.12);
+      border: 1.5px solid rgba(148, 163, 184, 0.28);
+      color: var(--muted);
+      transition: all 0.14s ease;
+    }
+    .pat-pill.active {
+      background: rgba(56, 189, 248, 0.28);
+      border-color: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.55);
+      transform: scale(1.06);
+    }
+    .pat-pill.done {
+      background: rgba(52, 211, 153, 0.24);
+      border-color: var(--success);
+      color: #a7f3d0;
+    }
+    .pat-pill.miss {
+      background: rgba(251, 113, 133, 0.22);
+      border-color: var(--error);
+      color: #fecdd3;
+    }
+    #handBox {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    #handBox.hidden { display: none; }
+    #handImg {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      filter: invert(1) brightness(1.1);
+    }
+
+    /* Overlay modal (Start / Game Over / Mic Error) */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(9, 13, 25, 0.78);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      padding: 16px;
+    }
+    .overlay.hidden { display: none; }
+    .modal {
+      width: min(460px, 96%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 24px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+    }
+    .modal h2 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 800;
+    }
+    .modal p {
+      margin: 0 0 14px;
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .modal-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 14px 0 18px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 6px;
+    }
+    .stat-box b {
+      display: block;
+      font-size: 20px;
+      color: var(--primary);
+    }
+    .stat-box span {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+    .modal-actions .btn {
+      padding: 10px 18px;
+      font-size: 14px;
+    }
+    .mic-note {
+      margin-top: 12px;
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+    .mic-err {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(251, 113, 133, 0.14);
+      border: 1px solid rgba(251, 113, 133, 0.45);
+      color: #fecdd3;
+      font-size: 12px;
+      display: none;
+    }
+    .mic-err.show { display: block; }
+
+    /* Bottom telemetry strip */
+    .hud-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 14px;
+      font-size: 12.5px;
+    }
+    .hud-left, .hud-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .mic-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .mic-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .mic-dot.live {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+    .pitch-read {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700;
+      min-width: 116px;
+      color: var(--text);
+    }
+    .cents-meter {
+      position: relative;
+      width: 130px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .cents-zone {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(52, 211, 153, 0.25);
+    }
+    .cents-mid {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.35);
+    }
+    .cents-pip {
+      position: absolute;
+      top: 1px;
+      bottom: 1px;
+      width: 8px;
+      border-radius: 999px;
+      background: var(--primary);
+      left: calc(50% - 4px);
+      transition: left 0.05s linear, background 0.1s ease;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .pill b { color: var(--primary); }
+    .pill.streak b { color: var(--warning); }
+    .hearts-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      background: rgba(251, 113, 133, 0.14);
+      border: 1.5px solid rgba(251, 113, 133, 0.45);
+      font-weight: 800;
+      font-size: 13px;
+      color: #fecdd3;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .hearts-pill.heal-flash {
+      transform: scale(1.12);
+      border-color: var(--success);
+      box-shadow: 0 0 18px rgba(52, 211, 153, 0.65);
+    }
+    .heal-prog {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(52, 211, 153, 0.10);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #a7f3d0;
+    }
+    .heal-bar-wrap {
+      width: 44px;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.85);
+      overflow: hidden;
+    }
+    .heal-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #fb7185, #34d399);
+      transition: width 0.18s ease;
+    }
+    .boost-prog {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.42);
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #fde68a;
+      transition: all 0.18s ease;
+    }
+    .boost-prog.active {
+      background: linear-gradient(90deg, rgba(251, 191, 36, 0.35), rgba(167, 139, 250, 0.35), rgba(56, 189, 248, 0.35));
+      border-color: #fde047;
+      color: #ffffff;
+      box-shadow: 0 0 16px rgba(251, 191, 36, 0.65);
+    }
+    .boost-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #fbbf24, #c084fc, #38bdf8);
+      transition: width 0.15s ease;
+    }
+    .hearts {
+      letter-spacing: 2px;
+      font-size: 15px;
+      line-height: 1;
+    }
+    .pill.correct b { color: var(--success); }
+
+    /* Live Tuning / Designer Drawer */
+    .tune-drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(360px, 92vw);
+      background: rgba(15, 22, 40, 0.96);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-left: 1px solid var(--border);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      box-shadow: -12px 0 36px rgba(0, 0, 0, 0.55);
+      transform: translateX(0);
+      transition: transform 0.18s ease;
+    }
+    .tune-drawer.hidden {
+      display: flex;
+      transform: translateX(104%);
+      pointer-events: none;
+    }
+    .tune-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    .tune-head h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .tune-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 12px;
+    }
+    .tune-sec {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(42, 55, 89, 0.7);
+    }
+    .tune-sec:last-child { border-bottom: 0; }
+    .tune-sec h4 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+    }
+    .tune-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 4px 10px;
+    }
+    .tune-row label {
+      color: var(--text);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .tune-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--warning);
+      font-weight: 700;
+      font-size: 11.5px;
+    }
+    .tune-row input[type="range"] {
+      grid-column: 1 / -1;
+      width: 100%;
+      accent-color: var(--primary);
+      cursor: pointer;
+      margin: 0;
+    }
+    .tune-check {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 600;
+    }
+    .tune-check input {
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+    .tune-textarea {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      outline: none;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .tune-textarea:focus { border-color: var(--primary); }
+    .pat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 160px;
+      overflow-y: auto;
+      padding: 6px;
+      border-radius: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .pat-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+    .pat-item code {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 10.5px;
+    }
+    .tune-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--card);
+    }
+    .tune-foot .btn { flex: 1 1 auto; justify-content: center; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">🚀</div>
+      <div>
+        <h1>Solfege Rocket</h1>
+        <small>Sing solfege patterns to boost through the asteroids</small>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl-group">
+        <label for="modeSel">Mode</label>
+        <select id="modeSel">
+          <option value="read">Read Pattern (Staff)</option>
+          <option value="hear">Echo Pattern (Ear)</option>
+          <option value="leap" selected>Solfege Pattern</option>
+          <option value="mix">Mix (Arcade)</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label for="keySel">Key</label>
+        <select id="keySel"></select>
+        <select id="scaleSel">
+          <option value="major">Major</option>
+          <option value="minor">Minor</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label for="voiceSel">Voice</label>
+        <select id="voiceSel">
+          <option value="written">Soprano / Alto</option>
+          <option value="tenor">Tenor (-8va)</option>
+          <option value="bass">Bass (-8va)</option>
+          <option value="lowbass">Low Bass (-15va)</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label for="strictSel">Pitch</label>
+        <select id="strictSel">
+          <option value="20">Forgiving (±84¢)</option>
+          <option value="50" selected>Standard (±60¢)</option>
+          <option value="80">Strict (±39¢)</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label for="speedSel">Speed</label>
+        <select id="speedSel">
+          <option value="0.8">Chill</option>
+          <option value="1.0">Normal</option>
+          <option value="1.25" selected>Fast</option>
+          <option value="1.55">Turbo</option>
+        </select>
+      </div>
+      <button id="doBtn" class="btn" type="button" title="Play tonic (Do)">♪ Do</button>
+      <button id="droneBtn" class="btn" type="button" title="Toggle soft tonic drone">Drone</button>
+      <button id="musicBtn" class="btn active" type="button" title="Toggle beat-synced space backing music (in key)">🎵 Music</button>
+      <button id="sfxBtn" class="btn active" type="button" title="Toggle charge-up, ring-clear & fanfare sound effects">🔊 SFX</button>
+      <button id="cueBtn" class="btn" type="button" title="Replay current audio cue">↻ Cue</button>
+      <button id="autoBtn" class="btn" type="button" title="Let the computer play perfectly while you tune settings live">🤖 Auto</button>
+      <button id="tuneBtn" class="btn" type="button" title="Open live game tuning parameters">🎛️ Tune</button>
+      <button id="playBtn" class="btn primary" type="button">Start</button>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <div class="canvas-host">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- Start / Game Over Overlay -->
+    <div id="overlay" class="overlay">
+      <div class="modal">
+        <h2 id="modalTitle">🚀 Solfege Rocket</h2>
+        <p id="modalDesc">
+          Sing solfege patterns (like <b>do – re – mi</b> and <b>do – mi – sol</b>) to fire your thrusters and boost through each asteroid gap.
+          Powered by Rehearsal's pitch detector &amp; movable-do engine — any octave works!
+        </p>
+        <div id="modalStats" class="modal-stats" style="display:none;">
+          <div class="stat-box"><b id="stScore">0</b><span>Score</span></div>
+          <div class="stat-box"><b id="stGates">0</b><span>Patterns Clear</span></div>
+          <div class="stat-box"><b id="stBest">0</b><span>Best Score</span></div>
+        </div>
+        <div class="modal-actions">
+          <button id="startMicBtn" class="btn primary" type="button">🎤 Start with Microphone</button>
+          <button id="startKeysBtn" class="btn" type="button">⌨️ Space / Click</button>
+          <button id="startAutoBtn" class="btn" type="button">🤖 Auto-Pilot (Tune Live)</button>
+        </div>
+        <div id="micErr" class="mic-err"></div>
+        <div class="mic-note">
+          Tip: Click <b>♪ Do</b> to hear your starting pitch, <b>↻ Cue</b> to hear the pattern, or <b>🎛️ Tune</b> to customize speed, spacing, and patterns live!
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Tuning / Designer Drawer -->
+    <aside id="tuneDrawer" class="tune-drawer hidden" aria-label="Game Tuning Controls">
+      <div class="tune-head">
+        <h3>🎛️ Live Tuning Lab</h3>
+        <button id="tuneCloseBtn" class="btn" type="button" style="padding:3px 8px;">✕</button>
+      </div>
+      <div class="tune-body">
+        <div class="tune-sec">
+          <h4>Speed &amp; Gate Rate</h4>
+          <div class="tune-row">
+            <label for="cfgBaseSpeed">Base Scroll Speed</label>
+            <span id="valBaseSpeed" class="tune-val">185 px/s</span>
+            <input id="cfgBaseSpeed" type="range" min="80" max="380" step="5" value="185" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgSpeedPerWave">Speed + per Wave</label>
+            <span id="valSpeedPerWave" class="tune-val">+15 px/s</span>
+            <input id="cfgSpeedPerWave" type="range" min="0" max="45" step="5" value="15" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgGateGapX">Space Between Notes</label>
+            <span id="valGateGapX" class="tune-val">182 px</span>
+            <input id="cfgGateGapX" type="range" min="95" max="320" step="5" value="182" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgPatternGapX">Breath Gap Between Patterns</label>
+            <span id="valPatternGapX" class="tune-val">260 px</span>
+            <input id="cfgPatternGapX" type="range" min="110" max="580" step="10" value="260" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgLeadInX">First Gate Lead-In</label>
+            <span id="valLeadInX" class="tune-val">420 px</span>
+            <input id="cfgLeadInX" type="range" min="180" max="760" step="20" value="420" />
+          </div>
+        </div>
+
+        <div class="tune-sec">
+          <h4>Asteroids &amp; Rocket Feel</h4>
+          <div class="tune-row">
+            <label for="cfgOpeningH">Melody Corridor Width</label>
+            <span id="valOpeningH" class="tune-val">104 px</span>
+            <input id="cfgOpeningH" type="range" min="54" max="180" step="2" value="104" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgPipeW">Asteroid Size</label>
+            <span id="valPipeW" class="tune-val">64 px</span>
+            <input id="cfgPipeW" type="range" min="32" max="96" step="2" value="64" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockCount">Asteroids per Side</label>
+            <span id="valRockCount" class="tune-val">4</span>
+            <input id="cfgRockCount" type="range" min="1" max="8" step="1" value="4" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockSpread">Asteroid Spread</label>
+            <span id="valRockSpread" class="tune-val">145 px</span>
+            <input id="cfgRockSpread" type="range" min="0" max="240" step="5" value="145" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockOverlap">Asteroid Overlap</label>
+            <span id="valRockOverlap" class="tune-val">25%</span>
+            <input id="cfgRockOverlap" type="range" min="0" max="100" step="5" value="25" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px 0;">
+            <label class="tune-check"><input id="cfgLookRock" type="checkbox" checked /> 🪨 Slate Rocks</label>
+            <label class="tune-check"><input id="cfgLookCrystal" type="checkbox" checked /> 💎 Crystals</label>
+            <label class="tune-check"><input id="cfgLookIron" type="checkbox" checked /> ⚙️ Iron</label>
+            <label class="tune-check"><input id="cfgLookIce" type="checkbox" checked /> 🧊 Ice</label>
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockDriftSpeed">Asteroid Drift Speed</label>
+            <span id="valRockDriftSpeed" class="tune-val">100%</span>
+            <input id="cfgRockDriftSpeed" type="range" min="0" max="250" step="10" value="100" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockDriftAmp">Asteroid Drift Amount</label>
+            <span id="valRockDriftAmp" class="tune-val">10 px</span>
+            <input id="cfgRockDriftAmp" type="range" min="0" max="45" step="1" value="10" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRockSpin">Asteroid Spin Speed</label>
+            <span id="valRockSpin" class="tune-val">100%</span>
+            <input id="cfgRockSpin" type="range" min="0" max="300" step="10" value="100" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgAmbientCount">Background Asteroids</label>
+            <span id="valAmbientCount" class="tune-val">26</span>
+            <input id="cfgAmbientCount" type="range" min="0" max="60" step="2" value="26" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgDebrisCount">Fast Space Debris</label>
+            <span id="valDebrisCount" class="tune-val">18</span>
+            <input id="cfgDebrisCount" type="range" min="0" max="50" step="2" value="18" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgDebrisSpeed">Debris Speed</label>
+            <span id="valDebrisSpeed" class="tune-val">220%</span>
+            <input id="cfgDebrisSpeed" type="range" min="100" max="380" step="10" value="220" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgBirdGlide">Steering Speed</label>
+            <span id="valBirdGlide" class="tune-val">10</span>
+            <input id="cfgBirdGlide" type="range" min="3" max="22" step="1" value="10" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgGravity">Zero-G Damping</label>
+            <span id="valGravity" class="tune-val">7</span>
+            <input id="cfgGravity" type="range" min="2" max="15" step="1" value="7" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgBirdXFrac">Rocket Horizontal Position</label>
+            <span id="valBirdXFrac" class="tune-val">20%</span>
+            <input id="cfgBirdXFrac" type="range" min="10" max="38" step="1" value="20" />
+          </div>
+          <label class="tune-check"><input id="cfgShowContour" type="checkbox" checked /> Show melodic contour line</label>
+          <div class="tune-row">
+            <label for="cfgPipeLabels">Opening Labels</label>
+            <select id="cfgPipeLabels" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 6px;">
+              <option value="auto" selected>Mode Default</option>
+              <option value="always">Always Show</option>
+              <option value="hide">Always Hide (?)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tune-sec">
+          <h4>Audio, Guide Pitches &amp; Grading</h4>
+          <div class="tune-row">
+            <label for="cfgGuideVol">Guide Pitch Volume</label>
+            <span id="valGuideVol" class="tune-val">145%</span>
+            <input id="cfgGuideVol" type="range" min="0" max="220" step="5" value="145" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgDroneVol">Drone Volume</label>
+            <span id="valDroneVol" class="tune-val">120%</span>
+            <input id="cfgDroneVol" type="range" min="0" max="220" step="5" value="120" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgMusicVol">Space Music Volume</label>
+            <span id="valMusicVol" class="tune-val">75%</span>
+            <input id="cfgMusicVol" type="range" min="0" max="160" step="5" value="75" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgSfxVol">Charge &amp; Ring SFX Vol</label>
+            <span id="valSfxVol" class="tune-val">110%</span>
+            <input id="cfgSfxVol" type="range" min="0" max="200" step="5" value="110" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgRefA">Reference Tuning (A4)</label>
+            <span id="valRefA" class="tune-val">440 Hz</span>
+            <input id="cfgRefA" type="range" min="430" max="450" step="1" value="440" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgGuideOct">Guide Pitch Octave</label>
+            <span id="valGuideOct" class="tune-val">0 oct</span>
+            <input id="cfgGuideOct" type="range" min="-1" max="1" step="1" value="0" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgPitchCents">Pitch Tolerance</label>
+            <span id="valPitchCents" class="tune-val">±60¢</span>
+            <input id="cfgPitchCents" type="range" min="20" max="120" step="2" value="60" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgLockFrames">Lock Frames (~30ms each)</label>
+            <span id="valLockFrames" class="tune-val">2 (~60ms)</span>
+            <input id="cfgLockFrames" type="range" min="1" max="6" step="1" value="2" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgMinClarity">Mic Clarity Gate</label>
+            <span id="valMinClarity" class="tune-val">0.60</span>
+            <input id="cfgMinClarity" type="range" min="0.40" max="0.85" step="0.02" value="0.60" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgEchoStepMs">Echo Cue Note Speed</label>
+            <span id="valEchoStepMs" class="tune-val">360 ms</span>
+            <input id="cfgEchoStepMs" type="range" min="180" max="620" step="20" value="360" />
+          </div>
+          <label class="tune-check"><input id="cfgExactOctave" type="checkbox" checked /> Require exact octave (do vs do', sol, vs sol)</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px 0;">
+            <label class="tune-check"><input id="cfgSoundMaster" type="checkbox" checked /> 🔊 All Audio</label>
+            <label class="tune-check"><input id="cfgSoundMusic" type="checkbox" checked /> 🎵 Backing Music</label>
+            <label class="tune-check"><input id="cfgSoundCharge" type="checkbox" checked /> ⚡ Charge-Up SFX</label>
+            <label class="tune-check"><input id="cfgSoundClear" type="checkbox" checked /> 🔔 Ring Harmony</label>
+            <label class="tune-check"><input id="cfgSoundFanfare" type="checkbox" checked /> 🎉 Fanfares</label>
+            <label class="tune-check"><input id="cfgPlayMissModel" type="checkbox" checked /> 💥 Miss Model</label>
+          </div>
+        </div>
+
+        <div class="tune-sec">
+          <h4>Patterns &amp; Progression</h4>
+          <div class="tune-row">
+            <label for="cfgStartWave">Starting Wave</label>
+            <span id="valStartWave" class="tune-val">Wave 1</span>
+            <input id="cfgStartWave" type="range" min="1" max="5" step="1" value="1" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgPatternsPerWave">Patterns per Wave</label>
+            <span id="valPatternsPerWave" class="tune-val">2</span>
+            <input id="cfgPatternsPerWave" type="range" min="1" max="6" step="1" value="2" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgHearts">Starting Hearts</label>
+            <span id="valHearts" class="tune-val">3</span>
+            <input id="cfgHearts" type="range" min="1" max="9" step="1" value="3" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgStreakForLife">Streak to Earn +1 ❤️ Life</label>
+            <span id="valStreakForLife" class="tune-val">8 pitches</span>
+            <input id="cfgStreakForLife" type="range" min="3" max="20" step="1" value="8" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgStreakForBoost">Streak for ⚡ Hyperdrive Boost</label>
+            <span id="valStreakForBoost" class="tune-val">30 pitches</span>
+            <input id="cfgStreakForBoost" type="range" min="5" max="50" step="5" value="30" />
+          </div>
+          <div class="tune-row">
+            <label for="cfgBoostDur">Hyperdrive Duration</label>
+            <span id="valBoostDur" class="tune-val">6 s</span>
+            <input id="cfgBoostDur" type="range" min="3" max="12" step="1" value="6" />
+          </div>
+          <label class="tune-check"><input id="cfgPoolAll" type="checkbox" /> Mix all enabled patterns (ignore waves)</label>
+          <div id="patToggleList" class="pat-list"></div>
+          <label for="cfgCustomPatterns" style="font-weight:700;margin-top:4px;">Custom Patterns (one per line)</label>
+          <textarea id="cfgCustomPatterns" class="tune-textarea" placeholder="do re mi&#10;do mi sol mi do&#10;sol fa mi re do"></textarea>
+          <label class="tune-check"><input id="cfgCustomOnly" type="checkbox" /> Use ONLY my custom patterns</label>
+          <div style="font-size:11px;color:var(--muted);line-height:1.35;">
+            Syllables: <code>do re mi fa sol la ti</code> (or minor <code>me le te</code>), high <code>do'</code>, low <code>sol, la, ti,</code>.
+          </div>
+        </div>
+      </div>
+      <div class="tune-foot">
+        <button id="cfgCopyBtn" class="btn primary" type="button" title="Copy settings JSON to clipboard">📋 Copy JSON</button>
+        <button id="cfgDownloadBtn" class="btn" type="button" title="Download settings as a .json file">💾 Save File</button>
+        <button id="cfgUploadBtn" class="btn" type="button" title="Upload a saved settings .json file">📂 Upload File</button>
+        <input id="cfgFileInput" type="file" accept=".json,application/json" style="display:none;" />
+        <button id="cfgApplyBtn" class="btn" type="button">↻ Restart</button>
+        <button id="cfgResetBtn" class="btn" type="button">Reset</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="hud-bar">
+    <div class="hud-left">
+      <span class="mic-pill"><span id="micDot" class="mic-dot"></span><span id="micLabel">Mic off</span></span>
+      <span id="pitchRead" class="pitch-read">-- · --</span>
+      <div class="cents-meter" title="Live tuning error relative to nearest solfege degree">
+        <div id="centsZone" class="cents-zone"></div>
+        <div class="cents-mid"></div>
+        <div id="centsPip" class="cents-pip"></div>
+      </div>
+      <!-- Compact Pattern Cue tucked cleanly inside the bottom HUD bar -->
+      <div id="cueCard" class="cue-card hidden">
+        <div id="vexBox" class="hidden"></div>
+        <div id="handBox" class="hidden"><img id="handImg" alt="" /></div>
+        <div class="cue-meta">
+          <span id="cueTag" class="cue-tag">SOLFEGE PATTERN</span>
+          <span id="cuePrompt" class="cue-prompt">Sing the pattern</span>
+          <div id="patPills" class="pat-pills"></div>
+          <span id="cueSub" class="cue-sub"></span>
+        </div>
+      </div>
+    </div>
+    <div class="hud-right">
+      <span class="pill">Wave <b id="hudWave">1</b> · <span id="hudRange">do – mi</span></span>
+      <span class="pill streak" title="Consecutive correct pitches in a row">🔥 Pitch Streak <b id="hudStreak">0</b> (<span id="hudMult">1×</span>)</span>
+      <span id="boostProgPill" class="boost-prog" title="Hit a 30-pitch streak to trigger Mario Kart–style Hyperdrive Boost (auto-clears at warp speed!)">
+        <span id="boostLabel">⚡ Boost: 0/30</span>
+        <span class="heal-bar-wrap"><span id="boostBar" class="boost-bar"></span></span>
+      </span>
+      <span class="pill correct" title="Total correct pitches sung out of total attempted">✓ Pitches <b id="hudCorrect">0</b><span id="hudTotal" style="color:var(--muted);font-weight:600;"> / 0</span></span>
+      <span class="pill">Score <b id="hudScore">0</b></span>
+      <span id="healProgPill" class="heal-prog" title="Sing consecutive correct pitches to restore a lost life">
+        <span id="healLabel">+1 ❤️: 0/8</span>
+        <span class="heal-bar-wrap"><span id="healBar" class="heal-bar"></span></span>
+      </span>
+      <span id="heartsPill" class="hearts-pill" aria-label="Lives remaining">Lives <span id="hudHearts" class="hearts">❤️❤️❤️</span> <b id="hudLivesNum" style="color:#fff;">3/3</b></span>
+    </div>
+  </footer>
+
+  <!-- Rehearsal's real solfege, VexFlow, tuner, and audio grading engines -->
+  <script src="hw-shim.js"></script>
+  <script src="vendor/vexflow.js"></script>
+  <script src="sight.js"></script>
+  <script src="music.js"></script>
+  <script src="grade.js"></script>
+  <script src="gate-singer.js"></script>
+</body>
+</html>

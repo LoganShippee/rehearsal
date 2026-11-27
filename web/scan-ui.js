@@ -113,11 +113,23 @@
     return clean || 'Scanned Score';
   }
 
+  function unlockAudioContext() {
+    try {
+      const c = typeof acForPlayback === 'function' ? acForPlayback() : (typeof ac === 'function' ? ac() : null);
+      if (c && c.state !== 'running' && typeof c.resume === 'function') {
+        c.resume().catch(() => {});
+      }
+      return c;
+    } catch {
+      return null;
+    }
+  }
+
   async function previewMidiNote(midi) {
     if (!isFinite(midi) || midi <= 0) return;
     if (typeof spPianoReady !== 'function' || typeof spPianoNote !== 'function' || typeof ac !== 'function') return;
     try {
-      const ctx = ac();
+      const ctx = unlockAudioContext() || ac();
       if (ctx.state === 'suspended' && ctx.resume) await ctx.resume();
       await spPianoReady([midi]);
       const dest = typeof musicOut === 'function' ? musicOut(ctx) : ctx.destination;
@@ -174,6 +186,9 @@
       tapMap: null,
       osmd: null,
       measureBoxes: [],
+      pdfMeasureBoxes: [],
+      spotlightMeasure: null,
+      aiChecks: {},
       staffBoxes: [],
       partBoxes: {}, // key `${partIndex}:${measureIndex}` -> { x, y, w, h }
       staffMeasureBoxes: {}, // key `${partIndex}:${staff}:${measureIndex}` -> { x, y, w, h, clefSign }
@@ -531,7 +546,7 @@
           const model = sfParseMusicXml(localHit.musicxml);
           if (localHit.instrument && state.instrument === 'auto') state.instrument = localHit.instrument;
           if (localHit.title) state.title = localHit.title;
-          enterReview(model, 'Loaded your previously verified copy from this browser.', '');
+          enterReview(model, 'Loaded your previously verified copy from this browser.', '', null, { rawXml: localHit.musicxml });
           return;
         } catch { }
       }
@@ -587,7 +602,7 @@
           else if (Array.isArray(doneJob.skippedPages) && doneJob.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${doneJob.skippedPages.join(', ')}`);
           const cueWarn = formatSpokenCuesWarning(doneJob.detectedSpokenCues);
           if (cueWarn) warnParts.push(cueWarn);
-          enterReview(model, 'Instant match — loaded previously verified scan from the server.', warnParts.join(' '), doneJob.pdfTextMeta, { alternateRuns: doneJob.alternateRuns });
+          enterReview(model, 'Instant match — loaded previously verified scan from the server.', warnParts.join(' '), doneJob.pdfTextMeta, { alternateRuns: doneJob.alternateRuns, rawXml: doneJob.rawMusicxml || xml });
           pollAlternateRunsInBackground(doneJob);
           return;
         }
@@ -642,7 +657,7 @@
         else if (Array.isArray(job.skippedPages) && job.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${job.skippedPages.join(', ')}`);
         const cueWarn = formatSpokenCuesWarning(job.detectedSpokenCues);
         if (cueWarn) warnParts.push(cueWarn);
-        enterReview(model, banner, warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns });
+        enterReview(model, banner, warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns, rawXml: job.rawMusicxml || xml });
         pollAlternateRunsInBackground(job);
       } catch (err) {
         showErrorScreen('Could not read extracted MusicXML', err?.message || 'Try scanning a single clean page.');
@@ -744,7 +759,7 @@
         if (run?.status === 'completed' && run?.rawMusicxml) {
           try {
             const parsed = sfParseMusicXml(run.rawMusicxml);
-            if (parsed) out.push(parsed);
+            if (parsed) out.push(run.page ? { model: parsed, page: run.page || null } : parsed);
           } catch { /* ignore malformed alternate */ }
         }
       }
@@ -805,6 +820,11 @@
       state.screen = 'review';
       state.model = model;
       state.alternateModels = parseAlternateRunModels(opts?.alternateRuns);
+      state.pdfMeasureBoxes = (typeof sfExtractMeasureBoxes === 'function' && opts?.rawXml)
+        ? sfExtractMeasureBoxes(opts.rawXml)
+        : [];
+      state.spotlightMeasure = null;
+      state.aiChecks = {};
       state.dirty = !(opts && opts.clean);
       state.mode = 'select';
       state.eraserMode = false;
@@ -828,6 +848,7 @@
       const combinedBanner = [cacheBanner, autoNotes.length ? autoNotes.join(' · ') + '.' : ''].filter(Boolean).join(' · ');
 
       state.history = new SfHistory(model, 100);
+      state.osmd = null;
       state.saveGate = null;
       state.selectedNoteId = null;
       state.selectedDirId = null;
@@ -845,6 +866,9 @@
       state.cacheBanner = combinedBanner;
       state.scanWarning = scanWarning || '';
       analyzeAndSyncGate(undefined);
+      if (typeof spPianoReady === 'function' && state.playbackScore?.events?.length) {
+        spPianoReady(state.playbackScore.events.map(e => e.midi)).catch(() => {});
+      }
       renderReviewShell();
       renderOriginalPane();
       renderOsmdScore(false);
@@ -980,12 +1004,20 @@
 
       const isSpoken = !!(isPitched && e.spoken);
 
-      const isTied = !!(isPitched && Array.isArray(e.ties) && e.ties.includes('start'));
-      const canTie = !!(isPitched && typeof sfCanTieNext === 'function' && sfCanTieNext(state.model, state.selectedNoteId));
+      const hasTieStart = !!(isPitched && Array.isArray(e.ties) && e.ties.includes('start'));
+      const hasTieStop = !!(isPitched && Array.isArray(e.ties) && e.ties.includes('stop'));
+      const nextTieInfo = (isPitched && typeof sfCanTieNext === 'function')
+        ? sfCanTieNext(state.model, state.selectedNoteId)
+        : null;
+      const prevTieInfo = (isPitched && typeof sfCanTiePrev === 'function')
+        ? sfCanTiePrev(state.model, state.selectedNoteId)
+        : null;
+      const isTied = hasTieStart || hasTieStop;
+      const canTie = !!(nextTieInfo?.canTie || prevTieInfo?.canTie);
       const tieEnabled = isTied || canTie;
       const tieTitle = tieEnabled
-        ? 'Tie or untie with the next note of the same pitch (T)'
-        : 'Next note in this voice is a different pitch or missing';
+        ? 'Tie or untie with the adjacent note of the same pitch (T)'
+        : 'Adjacent note on this staff is a different pitch, accidental, or rest';
 
       const clip = state.clipboard;
       const curTime = typeof sfGetEffectiveTimeSig === 'function'
@@ -1617,13 +1649,20 @@
         if (k === 't') { if (state.selectedNoteId) { e.preventDefault(); applyToolbarEdit('tie'); } return; }
         if (k === 'l') { if (state.selectedNoteId) { e.preventDefault(); openInlineLyricEditor(state.selectedNoteId); } return; }
       };
+      if (state._onKey) {
+        document.removeEventListener('keydown', state._onKey);
+      }
+      state._onKey = onKey;
       document.addEventListener('keydown', onKey);
       host.__sfCleanup = () => {
         state.destroyed = true;
         host.__sfMounted = false;
         stopPlayback();
         if (state.pollAbort) state.pollAbort.abort();
-        document.removeEventListener('keydown', onKey);
+        if (state._onKey) {
+          document.removeEventListener('keydown', state._onKey);
+          state._onKey = null;
+        }
         cleanupMedia();
       };
     }
@@ -1649,7 +1688,7 @@
           <span>${Math.round(state.origZoom * 100)}%</span>
           <button type="button" class="sf-btn" id="sf-orig-zin">+</button>
         `;
-        view.innerHTML = `<canvas class="sf-orig-media" id="sf-orig-canvas"></canvas>`;
+        view.innerHTML = `<div class="sf-orig-stage"><canvas class="sf-orig-media" id="sf-orig-canvas"></canvas><div class="sf-orig-spotlight" id="sf-orig-spotlight" hidden></div></div>`;
         ctrls.querySelector('#sf-pdf-prev').addEventListener('click', () => {
           if (state.pdfPage > 1) { state.pdfPage--; view.scrollTop = 0; renderOriginalPane(); }
         });
@@ -1679,6 +1718,19 @@
           canvas.style.width = Math.floor(vp.width / dpr) + 'px';
           canvas.style.height = Math.floor(vp.height / dpr) + 'px';
           await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+          if (state.destroyed || state.screen !== 'review') return;
+          const sp = view.querySelector('#sf-orig-spotlight');
+          const spBox = state.spotlightMeasure != null ? state.pdfMeasureBoxes?.[state.spotlightMeasure] : null;
+          if (sp && spBox && Number(spBox.page) === Number(state.pdfPage)) {
+            sp.style.left = `${(spBox.x * 100).toFixed(3)}%`;
+            sp.style.top = `${(spBox.y * 100).toFixed(3)}%`;
+            sp.style.width = `${(spBox.w * 100).toFixed(3)}%`;
+            sp.style.height = `${(spBox.h * 100).toFixed(3)}%`;
+            sp.hidden = false;
+          } else if (sp) {
+            sp.hidden = true;
+          }
+          renderFlagStrip();
         } catch {
           view.innerHTML = `<div class="sf-orig-empty">Could not render this PDF page.</div>`;
         }
@@ -1728,7 +1780,7 @@
           osmdHost.innerHTML = '<div class="sf-orig-empty" style="color:#333">Score renderer is not available.</div>';
           return;
         }
-        if (!state.osmd) {
+        if (!state.osmd || state.osmd.container !== osmdHost) {
           osmdHost.innerHTML = '';
           state.osmd = new O.OpenSheetMusicDisplay(osmdHost, {
             autoResize: false,
@@ -2049,6 +2101,38 @@
       });
     }
 
+    async function syncOriginalToMeasure(measureIndex) {
+      const box = state.pdfMeasureBoxes?.[measureIndex];
+      if (state.fileKind !== 'pdf' || !box) {
+        state.spotlightMeasure = null;
+        const sp = host.querySelector('#sf-orig-spotlight');
+        if (sp) sp.hidden = true;
+        return;
+      }
+      state.spotlightMeasure = measureIndex;
+      const targetPage = Math.max(1, Math.min(state.pdfTotalPages || 1, Number(box.page) || 1));
+      if (state.pdfPage !== targetPage) {
+        state.pdfPage = targetPage;
+        await renderOriginalPane();
+      }
+      if (state.destroyed || state.screen !== 'review') return;
+      const sp = host.querySelector('#sf-orig-spotlight');
+      const view = host.querySelector('#sf-orig-view');
+      if (!sp) return;
+      sp.style.left = `${(box.x * 100).toFixed(3)}%`;
+      sp.style.top = `${(box.y * 100).toFixed(3)}%`;
+      sp.style.width = `${(box.w * 100).toFixed(3)}%`;
+      sp.style.height = `${(box.h * 100).toFixed(3)}%`;
+      sp.hidden = false;
+      if (view && typeof sp.scrollIntoView === 'function') {
+        try {
+          sp.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        } catch {
+          sp.scrollIntoView(false);
+        }
+      }
+    }
+
     function focusMeasure(mi, selectAllParts = false) {
       state.activeMeasure = mi;
       sfCtl.startAt = mi;
@@ -2060,6 +2144,7 @@
       renderEditBar();
       renderFlagStrip();
       updateMeasureOverlays();
+      syncOriginalToMeasure(mi);
 
       const ov = host.querySelector('#sf-ov');
       const scrollEl = host.querySelector('#sf-score-scroll');
@@ -2231,15 +2316,24 @@
         showToast('Piano playback is unavailable.');
         return;
       }
+      // Create & resume AudioContext synchronously inside user gesture before async sample decoding
+      const ctx = unlockAudioContext();
       try {
         await spPianoReady((sc.events || []).map(e => e.midi));
         if (state.destroyed) return;
+        if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+          await ctx.resume().catch(() => {});
+        }
         sfCtl.sc = state.playbackScore;
         sfCtl.startAt = Math.max(0, state.activeMeasure || 0);
         const ret = spPlay(sfCtl, { noCountIn: true, noMetro: true });
+        const startPm = sc.perf?.find(x => x.w === sfCtl.startAt);
         const startM = sc.measures?.[sfCtl.startAt];
-        scheduleSpokenClicks(ret, sc, startM ? startM.start : 0, sc.ptotal || sc.total || 0);
-      } catch {
+        const qFrom = startPm ? startPm.start : (startM ? startM.start : 0);
+        scheduleSpokenClicks(ret, sc, qFrom, sc.ptotal || sc.total || 0);
+      } catch (err) {
+        console.error('[scan-fix playback]', err);
+        showToast('Could not start piano playback.');
         stopPlayback();
       }
     }
@@ -2264,21 +2358,137 @@
         return;
       }
 
+      const ctx = unlockAudioContext();
       state.activeMeasure = mi;
       sfCtl.startAt = mi;
       state.playingMeasure = mi;
       try {
         await spPianoReady(evs.map(e => e.midi));
         if (state.destroyed) return;
+        if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+          await ctx.resume().catch(() => {});
+        }
         sfCtl.sc = state.playbackScore;
-        const ret = spPlay(sfCtl, { range: { a: m.start, b: m.start + m.len, loop: false }, noCountIn: true, noMetro: true });
-        scheduleSpokenClicks(ret, sc, m.start, m.start + m.len);
-      } catch {
+        const pm = sc.perf?.find(x => x.w === mi);
+        const rStart = pm ? pm.start : m.start;
+        const rLen = pm ? pm.len : m.len;
+        const ret = spPlay(sfCtl, { range: { a: rStart, b: rStart + rLen, loop: false }, noCountIn: true, noMetro: true });
+        scheduleSpokenClicks(ret, sc, rStart, rStart + rLen);
+      } catch (err) {
+        console.error('[scan-fix playback]', err);
+        showToast('Could not start piano playback.');
         stopPlayback();
       }
     }
 
     // ---------- Flag strip + Save Gate
+    function applyOctaveDownPart(partIndex, label = 'Shift Tenor down an octave') {
+      if (!state.model) return false;
+      const working = sfCloneModel(state.model);
+      const part = working.parts?.[partIndex];
+      if (!part) return false;
+      let changed = false;
+      for (const m of part.measures || []) {
+        for (const e of m.entries || []) {
+          if (e.kind === 'note' && !e.isRest && !e.spoken && e.step && isFinite(e.octave)) {
+            const res = sfEditPitchOctave(working, e.id, -1);
+            if (res?.changed) changed = true;
+          }
+        }
+      }
+      if (!changed) return false;
+      commitModelChange(label, working, state.activeMeasure, state.selectedNoteId, false);
+      return true;
+    }
+
+    function parseAiNoteHint(hint) {
+      if (!hint || typeof hint !== 'string') return null;
+      const m = hint.trim().match(/^([A-Ga-g])([#b♯♭]{0,2})(\d)?/);
+      if (!m) return null;
+      const step = m[1].toUpperCase();
+      const accRaw = m[2] || '';
+      const alter = (accRaw === '#' || accRaw === '♯') ? 1
+        : (accRaw === '##' ? 2
+          : ((accRaw === 'b' || accRaw === '♭') ? -1
+            : ((accRaw === 'bb' || accRaw === '♭♭') ? -2 : null)));
+      const octave = m[3] != null ? Number(m[3]) : null;
+      return { step, alter, octave };
+    }
+
+    function aiNoteMatchesHint(entry, hint, exact) {
+      if (!hint) return true;
+      if (entry.step !== hint.step) return false;
+      if (!exact) return true;
+      if (hint.octave != null && entry.octave !== hint.octave) return false;
+      if (hint.alter != null && (entry.alter || 0) !== hint.alter) return false;
+      return true;
+    }
+
+    function aiPatchLabel(patch) {
+      const hint = patch?.noteHint ? ` (${patch.noteHint})` : '';
+      if (patch?.op === 'add_dot') return `Add dot${hint}`;
+      if (patch?.op === 'remove_dot') return `Remove dot${hint}`;
+      if (patch?.op === 'remove_phantom_chord') return `Remove extra chord${hint}`;
+      if (patch?.op === 'octave_down_part') return 'Shift part down an octave';
+      return patch?.reason || 'Apply fix';
+    }
+
+    function applyAiPatch(patch) {
+      if (!patch || !state.model) return false;
+      const op = patch.op;
+      const pi = Math.max(0, Number(patch.partIndex) || 0);
+      const mi = patch.measureIndex != null ? Number(patch.measureIndex) : state.activeMeasure;
+      if (op === 'octave_down_part') {
+        return applyOctaveDownPart(pi, 'AI fix: shift part down an octave');
+      }
+
+      const working = sfCloneModel(state.model);
+      const part = working.parts?.[pi];
+      const measure = part?.measures?.[mi];
+      if (!measure) return false;
+      const hint = parseAiNoteHint(patch.noteHint);
+      const entries = measure.entries || [];
+
+      if (op === 'add_dot' || op === 'remove_dot') {
+        const wantDotted = op === 'add_dot';
+        const eligible = entries.filter(e =>
+          (e.kind === 'note' || e.kind === 'rest') && !e.isGrace &&
+          (wantDotted ? !(e.dots > 0) : (e.dots || 0) > 0)
+        );
+        const pitched = eligible.filter(e => e.kind === 'note' && !e.isRest);
+        const target = pitched.find(e => aiNoteMatchesHint(e, hint, true))
+          || pitched.find(e => aiNoteMatchesHint(e, hint, false))
+          || pitched[0]
+          || eligible[0];
+        if (!target) return false;
+        const res = sfToggleDot(working, target.id);
+        if (!res?.ok || !res?.changed) return false;
+        commitModelChange(wantDotted ? 'AI fix: add dot' : 'AI fix: remove dot', working, mi, target.id, false);
+        return true;
+      }
+
+      if (op === 'remove_phantom_chord') {
+        const chordNotes = entries.filter(e => e.kind === 'note' && !e.isRest && e.isChord);
+        let target = chordNotes.find(e => aiNoteMatchesHint(e, hint, true))
+          || chordNotes.find(e => aiNoteMatchesHint(e, hint, false));
+        if (!target && hint) {
+          target = entries.find((e, idx) =>
+            e.kind === 'note' && !e.isRest && aiNoteMatchesHint(e, hint, true) && sfCollectChordGroup(measure, idx).length > 1
+          ) || entries.find((e, idx) =>
+            e.kind === 'note' && !e.isRest && aiNoteMatchesHint(e, hint, false) && sfCollectChordGroup(measure, idx).length > 1
+          );
+        }
+        if (!target) target = chordNotes[0];
+        if (!target) return false;
+        const res = sfDeleteOrMakeRest(working, target.id, 'delete');
+        if (!res?.ok || !res?.changed) return false;
+        commitModelChange('AI fix: remove phantom chord', working, mi, undefined, false);
+        return true;
+      }
+
+      return false;
+    }
+
     function renderFlagStrip() {
       const strip = host.querySelector('#sf-flag-strip');
       if (!strip || !state.flagReport) return;
@@ -2289,8 +2499,9 @@
 
       if (activeFlag) {
         const isConfirmed = gateState && (gateState.status === 'confirmed' || gateState.status === 'fixed');
-        const reasons = (activeFlag.findings || []).map(f => `<li>${hEsc(f.message || f.code)}</li>`).join('');
-        const hasDurMismatch = (activeFlag.findings || []).some(f => f.code === 'duration_mismatch');
+        const reasons = (activeFlag.findings || []).map(f => `<li>${hEsc(f.message || f.rule || f.code)}</li>`).join('');
+        const hasDurMismatch = (activeFlag.findings || []).some(f => (f.rule === 'duration_mismatch' || f.code === 'duration_mismatch'));
+        const tenorFinding = (activeFlag.findings || []).find(f => (f.rule === 'tenor_octave_clef' || f.code === 'tenor_octave_clef'));
         const suggestions = (hasDurMismatch && typeof sfSuggestRhythmFixes === 'function')
           ? sfSuggestRhythmFixes(state.model, state.flagReport)
               .filter(s => s.measureIndex === state.activeMeasure)
@@ -2299,18 +2510,82 @@
         const fixBtns = suggestions.map((s, idx) =>
           `<button type="button" class="sf-btn" data-sf-autofix="${idx}" title="Apply 1-click rhythm fix (undoable with ⌘Z)">Auto-fix: ${hEsc(s.label)}</button>`
         ).join('');
+        const tenorBtnHtml = tenorFinding
+          ? `<button type="button" class="sf-btn" id="sf-fix-tenor-oct" title="Transpose all notes in this part down 12 semitones (undoable with ⌘Z)">Shift Tenor down an octave</button>`
+          : '';
+
+        const pdfBox = state.pdfMeasureBoxes?.[state.activeMeasure];
+        const origCanvas = host.querySelector('#sf-orig-canvas');
+        const canShowCrop = state.fileKind === 'pdf'
+          && pdfBox
+          && Number(pdfBox.page) === Number(state.pdfPage)
+          && origCanvas
+          && origCanvas.width > 0
+          && origCanvas.height > 0;
+        const cropHtml = canShowCrop
+          ? `<canvas class="sf-flag-crop" id="sf-flag-crop" title="Original PDF crop for measure ${state.activeMeasure + 1}"></canvas>`
+          : '';
+
+        const canAiVerify = !!(state.health?.aiVerifyAvailable && state.jobId && state.fileKind === 'pdf' && client && typeof client.verifyMeasures === 'function');
+        const aiState = state.aiChecks?.[state.activeMeasure] || null;
+        const aiBtnHtml = canAiVerify
+          ? `<button type="button" class="sf-btn" id="sf-ai-verify-btn" ${aiState?.loading ? 'disabled' : ''} title="Check this measure against the original PDF with AI">${aiState?.loading ? 'Checking…' : (aiState && !aiState.error ? 'Re-check with AI' : 'Check with AI')}</button>`
+          : '';
+        const aiNoteHtml = (aiState && !aiState.loading)
+          ? (aiState.error
+              ? `<div class="sf-ai-note is-err">AI check: ${hEsc(aiState.error)}</div>`
+              : `<div class="sf-ai-note"><b>AI check:</b> ${hEsc(aiState.notes || 'Looks good.')}</div>`)
+          : '';
+        const allowedPatchOps = new Set(['add_dot', 'remove_dot', 'remove_phantom_chord', 'octave_down_part']);
+        const aiPatches = (aiState && !aiState.loading && Array.isArray(aiState.patches))
+          ? aiState.patches.filter(p => p && allowedPatchOps.has(p.op) && (p.measureIndex == null || Number(p.measureIndex) === state.activeMeasure))
+          : [];
+        const aiPatchBtnsHtml = aiPatches.map((p, idx) =>
+          `<button type="button" class="sf-btn" data-sf-aipatch="${idx}" title="${hEsc(p.reason || 'Apply AI-suggested fix (undoable with ⌘Z)')}">${hEsc(aiPatchLabel(p))}</button>`
+        ).join('');
+
         strip.className = 'sf-flag-strip';
         strip.innerHTML = `
+          ${cropHtml}
           <div class="sf-flag-strip-reasons">
             <div class="sf-flag-strip-title">Measure ${state.activeMeasure + 1} — ${Math.round((activeFlag.confidence ?? 0.5) * 100)}% confidence</div>
             <ul class="sf-flag-strip-list">${reasons}</ul>
+            ${aiNoteHtml}
           </div>
           <div class="sf-banner-acts">
             ${fixBtns}
+            ${tenorBtnHtml}
+            ${aiPatchBtnsHtml}
+            ${aiBtnHtml}
             <button type="button" class="sf-btn ${isConfirmed ? 'good' : 'primary'}" id="sf-confirm-measure">
               ${isConfirmed ? '✓ Confirmed' : 'Looks right (Confirm)'}
             </button>
           </div>`;
+
+        if (canShowCrop) {
+          const cropCanvas = strip.querySelector('#sf-flag-crop');
+          if (cropCanvas) {
+            const sx = Math.max(0, Math.floor(pdfBox.x * origCanvas.width));
+            const sy = Math.max(0, Math.floor(pdfBox.y * origCanvas.height));
+            const sw = Math.max(1, Math.min(origCanvas.width - sx, Math.ceil(pdfBox.w * origCanvas.width)));
+            const sh = Math.max(1, Math.min(origCanvas.height - sy, Math.ceil(pdfBox.h * origCanvas.height)));
+            const dpr = Math.min(2, window.devicePixelRatio || 1);
+            const scale = Math.min(96 / sh, 280 / sw, 1.5);
+            const cssW = Math.max(24, Math.round(sw * scale));
+            const cssH = Math.max(20, Math.round(sh * scale));
+            cropCanvas.width = Math.max(1, Math.round(cssW * dpr));
+            cropCanvas.height = Math.max(1, Math.round(cssH * dpr));
+            cropCanvas.style.width = `${cssW}px`;
+            cropCanvas.style.height = `${cssH}px`;
+            const ctx = cropCanvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+              ctx.drawImage(origCanvas, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+            }
+          }
+        }
+
         strip.querySelectorAll('[data-sf-autofix]').forEach((btn) => {
           btn.addEventListener('click', () => {
             const s = suggestions[Number(btn.dataset.sfAutofix)];
@@ -2320,6 +2595,52 @@
             if (!res?.ok || !res?.changed) return;
             commitModelChange('Auto-fix rhythm', working, state.activeMeasure, res.entryId || state.selectedNoteId, false);
           });
+        });
+        strip.querySelector('#sf-fix-tenor-oct')?.addEventListener('click', () => {
+          if (tenorFinding) applyOctaveDownPart(tenorFinding.partIndex, 'Shift Tenor down an octave');
+        });
+        strip.querySelectorAll('[data-sf-aipatch]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const p = aiPatches[Number(btn.dataset.sfAipatch)];
+            if (!p) return;
+            const applied = applyAiPatch(p);
+            if (applied && aiState && Array.isArray(aiState.patches)) {
+              aiState.patches = aiState.patches.filter(item => item !== p);
+              renderFlagStrip();
+            } else if (!applied) {
+              showToast('Could not locate that note automatically — edit it directly in the score.');
+            }
+          });
+        });
+        strip.querySelector('#sf-ai-verify-btn')?.addEventListener('click', async () => {
+          const mi = state.activeMeasure;
+          state.aiChecks[mi] = { loading: true };
+          renderFlagStrip();
+          const res = await client.verifyMeasures(state.jobId, [mi]);
+          if (state.destroyed || state.screen !== 'review') return;
+          if (!res.ok) {
+            state.aiChecks[mi] = {
+              loading: false,
+              error: res.error || 'Could not check this measure with AI.',
+              notes: '',
+              patches: []
+            };
+          } else {
+            const first = Array.isArray(res.results) ? res.results[0] : null;
+            const parsed = first?.result || first || {};
+            const patches = Array.isArray(res.patches) && res.patches.length
+              ? res.patches
+              : (Array.isArray(parsed.patches) ? parsed.patches : []);
+            const errMsg = first?.status === 'error' ? (first.error || 'AI check failed.') : '';
+            state.aiChecks[mi] = {
+              loading: false,
+              error: errMsg,
+              verdict: parsed.verdict || '',
+              notes: parsed.notes || (errMsg ? '' : 'Checked against the original PDF.'),
+              patches
+            };
+          }
+          if (state.activeMeasure === mi) renderFlagStrip();
         });
         strip.querySelector('#sf-confirm-measure').addEventListener('click', () => {
           if (!state.saveGate) return;
@@ -2576,6 +2897,10 @@
     }
 
     function handleScoreClick(e) {
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && typeof ae.blur === 'function' && !ae.closest('.sf-inline-pill')) {
+        ae.blur();
+      }
       const cmdKey = !!(e.metaKey || e.ctrlKey);
       const hdrEl = e.target.closest('[data-sf-header]');
       if (hdrEl) {
@@ -2589,7 +2914,7 @@
         return;
       }
 
-      if (state.eraserMode && typeof sfGetHeaderTexts === 'function') {
+      if (typeof sfGetHeaderTexts === 'function') {
         const txtEl = e.target.closest('svg text, svg tspan');
         const osmdEl = host.querySelector('#sf-osmd');
         if (txtEl && osmdEl && !txtEl.closest('[data-sf-lyric], [data-sf-dir]')) {
@@ -2604,7 +2929,8 @@
                 return ht && (ht === raw || ht.includes(raw) || raw.includes(ht));
               });
               if (match) {
-                eraseHeaderText(match.text);
+                if (state.eraserMode) eraseHeaderText(match.text);
+                else { closeInlineEditor(); selectHeaderText(match.text); }
                 return;
               }
             }
@@ -2950,6 +3276,10 @@
       } else if (act === 'tie') {
         res = typeof sfToggleTie === 'function' ? sfToggleTie(working, targetId) : { ok: false, changed: false };
         label = 'Toggle tie';
+        if (!res.ok || !res.changed) {
+          showToast('Ties connect two adjacent notes of the same pitch (check accidentals or rests between them).');
+          return;
+        }
       }
 
       if (!res.ok || !res.changed) return;
@@ -3348,7 +3678,7 @@
         else if (Array.isArray(job.skippedPages) && job.skippedPages.length) warnParts.push(`Skipped unreadable page(s): ${job.skippedPages.join(', ')}`);
         const cueWarn = formatSpokenCuesWarning(job.detectedSpokenCues);
         if (cueWarn) warnParts.push(cueWarn);
-        enterReview(model, '', warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns });
+        enterReview(model, '', warnParts.join(' '), job.pdfTextMeta, { alternateRuns: job.alternateRuns, rawXml: job.rawMusicxml || xml });
         pollAlternateRunsInBackground(job);
       } catch {
         winState.jobId = null;

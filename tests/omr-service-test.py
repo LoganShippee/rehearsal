@@ -682,7 +682,10 @@ class OMRServiceTestSuite(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(data["ok"])
         self.assertEqual(data["service"], "rehearsal-omr")
-        self.assertEqual(data["engine"], "audiveris")
+        self.assertEqual(data["engine"], "custom")
+        self.assertEqual(data["engineAdapter"], "custom")
+        self.assertIn("custom", data["availableEngines"])
+        self.assertIsInstance(data["aiVerifyAvailable"], bool)
         self.assertTrue(data["engineAvailable"])
         self.assertIsInstance(data["ocrAvailable"], bool)
         self.assertIn("tessdataDir", data)
@@ -1718,7 +1721,7 @@ class OMRServiceTestSuite(unittest.TestCase):
         # Wait briefly for background collector thread to attach v400 & v350c alternates
         deadline = time.time() + 5.0
         alts: List[Dict[str, Any]] = job.get("alternateRuns") or []
-        while len(alts) < 2 and time.time() < deadline:
+        while (len(alts) < 2 or any(a.get("status") == "pending" for a in alts)) and time.time() < deadline:
             time.sleep(0.05)
             _, _, latest = http_json(base, "GET", f"/api/scan/jobs/{job_id}")
             alts = latest.get("alternateRuns") or []
@@ -1884,7 +1887,7 @@ class OMRServiceTestSuite(unittest.TestCase):
 
             deadline = time.time() + 5.0
             alts: List[Dict[str, Any]] = job_f.get("alternateRuns") or []
-            while len(alts) < 2 and time.time() < deadline:
+            while (len(alts) < 2 or any(a.get("status") == "pending" for a in alts)) and time.time() < deadline:
                 time.sleep(0.05)
                 _, _, latest = http_json(base, "GET", f"/api/scan/jobs/{job_f_id}")
                 alts = latest.get("alternateRuns") or []
@@ -1896,6 +1899,417 @@ class OMRServiceTestSuite(unittest.TestCase):
             self.assertTrue(all(a["status"] == "completed" for a in alts))
         finally:
             os.environ["FAKE_OMR_XML_PATH"] = prev_xml
+
+    # 17. prep_bin text extraction + empty result (no binary garbage) on raster photo PDFs
+    def test_17_prep_bin_text_extraction_and_raster_pdf_empty(self) -> None:
+        data_dir = os.path.join(self.tmpdir.name, "data_prep_text")
+        os.makedirs(data_dir, exist_ok=True)
+        prep_bin = os.path.join(data_dir, "rehearsal-omr-prep")
+        with open(prep_bin, "w", encoding="utf-8") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "if len(sys.argv) >= 3 and sys.argv[1] == 'text':\n"
+                "    p = sys.argv[2]\n"
+                "    if 'vector-cid' in p or 'single-prep' in p:\n"
+                "        print('Spoken\\nAllegro\\nmf\\nHallelujah forever')\n"
+                "    sys.exit(0)\n"
+                "sys.exit(0)\n"
+            )
+        os.chmod(prep_bin, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+
+        # (a1) Vector CID PDF whose stream is opaque to Python stdlib -> prep_bin text extracts metadata
+        cid_pdf = os.path.join(self.tmpdir.name, "vector-cid.pdf")
+        with open(cid_pdf, "wb") as f:
+            f.write(b"%PDF-1.4\n1 0 obj << /Type /Font /Subtype /Type0 >> endobj\n")
+
+        meta_vec = omr_server.extract_pdf_text_metadata(cid_pdf, prep_bin=prep_bin)
+        self.assertTrue(meta_vec["isVectorPdf"])
+        self.assertEqual(meta_vec["spokenCues"], [{"text": "spoken", "count": 1}])
+        self.assertIn("mf", meta_vec["dynamics"])
+        self.assertIn("Allegro", meta_vec["tempoMarkings"])
+        self.assertIn("forever", meta_vec["lyricVocabulary"])
+        self.assertIn("Hallelujah", meta_vec["lyricVocabulary"])
+
+        # (a2) Raster photo PDF (no /Font, has /Image /DCTDecode + binary garbage) -> empty, no garbage
+        raster_pdf = os.path.join(self.tmpdir.name, "raster-photo.pdf")
+        noisy_jpeg = b"\xff\xd8\xff\xe0BT (garbageWord) Tj ET /FlateDecode [noise" * 20
+        with open(raster_pdf, "wb") as f:
+            f.write(
+                b"%PDF-1.4\n"
+                b"1 0 obj << /Type /Page /Contents 2 0 R >> endobj\n"
+                b"2 0 obj << /Subtype /Image /Filter /DCTDecode /Length "
+                + str(len(noisy_jpeg)).encode("ascii")
+                + b" >>\nstream\n"
+                + noisy_jpeg
+                + b"\nendstream\nendobj\n"
+            )
+        meta_ras = omr_server.extract_pdf_text_metadata(raster_pdf, prep_bin=prep_bin)
+        self.assertFalse(meta_ras["isVectorPdf"])
+        self.assertEqual(meta_ras["spokenCues"], [])
+        self.assertEqual(meta_ras["dynamics"], [])
+        self.assertEqual(meta_ras["tempoMarkings"], [])
+        self.assertEqual(meta_ras["lyricVocabulary"], [])
+
+        # (a3) Single-run _process_job passes prep_bin to extract_pdf_text_metadata
+        _srv, base = self._start_omr_server(
+            engine_cmd=[sys.executable, self.fake_cli_path],
+            job_timeout=10.0,
+            subdir="data_prep_text",
+            preprocess=True,
+        )
+        os.environ["FAKE_OMR_MODE"] = "mxl"
+        # Intercept _ensure_preprocess_bin result via original filename? original_path is .../original.pdf,
+        # so make prep_bin match any PDF that contains '/CID_MARKER'
+        with open(prep_bin, "w", encoding="utf-8") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "if len(sys.argv) >= 3 and sys.argv[1] == 'text':\n"
+                "    with open(sys.argv[2], 'rb') as fp:\n"
+                "        raw = fp.read()\n"
+                "    if b'CID_MARKER' in raw:\n"
+                "        print('Spoken\\nAllegro\\nmf\\nHallelujah forever')\n"
+                "    sys.exit(0)\n"
+                "sys.exit(0)\n"
+            )
+        os.chmod(prep_bin, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+
+        cid_bytes = b"%PDF-1.4\n%CID_MARKER\n1 0 obj << /Type /Font /Subtype /Type0 >> endobj\n"
+        st, _h, created = http_post_raw_json(
+            base,
+            "/api/scan/jobs",
+            cid_bytes,
+            {"Content-Type": "application/pdf", "X-Filename": "single-prep.pdf"},
+        )
+        self.assertEqual(st, 202)
+        job = self._poll_job(base, created["jobId"], timeout=10.0)
+        self.assertEqual(job["status"], "completed")
+        self.assertTrue(job["pdfTextMeta"]["isVectorPdf"])
+        self.assertEqual(job["detectedSpokenCues"], [{"text": "spoken", "count": 1}])
+        self.assertIn("forever", job["pdfTextMeta"]["lyricVocabulary"])
+
+    # 18. Multi-run pending placeholders, Homr/Oemer/HttpApi adapters, and single-run run_direct
+    def test_18_multirun_pending_placeholders_and_engine_adapters(self) -> None:
+        # (b) Deterministic pending placeholders in alternateRuns
+        gate_file = os.path.join(self.tmpdir.name, "alt_release.gate")
+        gated_cli = os.path.join(self.tmpdir.name, "gated_cli.py")
+        with open(gated_cli, "w", encoding="utf-8") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import os, sys, time, zipfile\n"
+                "args = sys.argv[1:]\n"
+                "out_dir = args[args.index('-output') + 1]\n"
+                "inp = args[args.index('--') + 1]\n"
+                "gate = os.environ['GATE_FILE']\n"
+                "vtag = 'v300'\n"
+                "if 'v400' in inp:\n"
+                "    vtag = 'v400'\n"
+                "elif 'v350c' in inp:\n"
+                "    vtag = 'v350c'\n"
+                "if vtag != 'v300':\n"
+                "    t0 = time.time()\n"
+                "    while not os.path.exists(gate) and time.time() - t0 < 5.0:\n"
+                "        time.sleep(0.02)\n"
+                "stem = os.path.splitext(os.path.basename(inp))[0]\n"
+                "sub = os.path.join(out_dir, stem)\n"
+                "os.makedirs(sub, exist_ok=True)\n"
+                "with open(os.environ['FAKE_OMR_XML_PATH'], 'r', encoding='utf-8') as xf:\n"
+                "    xml = xf.read().replace('<work-title>Ode to Joy</work-title>', f'<work-title>{vtag}</work-title>')\n"
+                "with zipfile.ZipFile(os.path.join(sub, stem + '.mxl'), 'w') as zf:\n"
+                "    zf.writestr('score.musicxml', xml)\n"
+            )
+        os.chmod(gated_cli, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP)
+
+        os.environ["GATE_FILE"] = gate_file
+        try:
+            data_dir = os.path.join(self.tmpdir.name, "data_pending_mr")
+            cfg = omr_server.OMRConfig(
+                host="127.0.0.1",
+                port=0,
+                data_dir=data_dir,
+                engine_cmd=[sys.executable, gated_cli],
+                job_timeout=10.0,
+                workers=3,
+                preprocess=False,
+                multi_run_mode="all",
+            )
+            if self._use_tcp:
+                srv = omr_server.create_server(cfg)
+                self._register_server(srv)
+                base = f"http://127.0.0.1:{srv.server_address[1]}"
+            else:
+                service = omr_server.OMRService(cfg)
+                stub = _InProcServerStub(service)
+                base = f"inproc://omr-{id(stub)}"
+                _INPROC_TARGETS[base] = (omr_server.OMRRequestHandler, stub)
+                self._inproc_keys.append(base)
+
+            body, ctype = build_multipart(
+                {"multiRun": "all"},
+                ("file", "pending-test.png", "image/png", b"\x89PNG_PENDING_PLACEHOLDER"),
+            )
+            st, _h, created = http_post_raw_json(base, "/api/scan/jobs", body, {"Content-Type": ctype})
+            self.assertEqual(st, 202)
+            job_id = created["jobId"]
+            job = self._poll_job(base, job_id, timeout=5.0)
+            self.assertEqual(job["status"], "completed")
+            alts = job["alternateRuns"]
+            self.assertEqual(len(alts), 2)
+            self.assertTrue(all(a["status"] == "pending" for a in alts), f"expected pending placeholders, got {alts}")
+            self.assertEqual({a["variant"] for a in alts}, {"v400", "v350c"})
+
+            with open(gate_file, "w", encoding="utf-8") as gf:
+                gf.write("go\n")
+
+            deadline = time.time() + 5.0
+            while any(a.get("status") == "pending" for a in alts) and time.time() < deadline:
+                time.sleep(0.05)
+                _, _, latest = http_json(base, "GET", f"/api/scan/jobs/{job_id}")
+                alts = latest.get("alternateRuns") or []
+            self.assertTrue(all(a["status"] == "completed" for a in alts))
+        finally:
+            os.environ.pop("GATE_FILE", None)
+
+        # (c) HomrAdapter, OemerAdapter, HttpApiEngineAdapter selection via OMRConfig & env
+        orig_which = omr_server.shutil.which
+        try:
+            omr_server.shutil.which = lambda name: f"/usr/local/bin/{name}" if name in ("homr", "oemer") else orig_which(name)  # type: ignore[assignment]
+            homr_cfg = omr_server.OMRConfig(engine_name="homr")
+            homr_ad = omr_server.build_engine_adapter(homr_cfg)
+            self.assertIsInstance(homr_ad, omr_server.HomrAdapter)
+            self.assertEqual(homr_ad.name, "homr")
+            self.assertEqual(homr_ad.build_command("/tmp/score.png", "/tmp/out"), ["/usr/local/bin/homr", "/tmp/score.png"])
+
+            oemer_cfg = omr_server.OMRConfig(engine_name="oemer")
+            oemer_ad = omr_server.build_engine_adapter(oemer_cfg)
+            self.assertIsInstance(oemer_ad, omr_server.OemerAdapter)
+            self.assertEqual(oemer_ad.name, "oemer")
+            self.assertEqual(oemer_ad.build_command("/tmp/score.png", "/tmp/out"), ["/usr/local/bin/oemer", "/tmp/score.png", "-o", "/tmp/out"])
+        finally:
+            omr_server.shutil.which = orig_which  # type: ignore[assignment]
+
+        api_ad = omr_server.build_engine_adapter(
+            omr_server.OMRConfig(engine_name="api", omr_api_url="https://omr.example.test/scan", omr_api_key="secret", omr_api_provider="generic")
+        )
+        self.assertIsInstance(api_ad, omr_server.HttpApiEngineAdapter)
+        self.assertEqual(api_ad.name, "api")
+        self.assertTrue(api_ad.is_available())
+
+        flat_ad = omr_server.build_engine_adapter(
+            omr_server.OMRConfig(engine_name="flat", omr_api_url="https://api.flat.io/omr", omr_api_key="k")
+        )
+        self.assertIsInstance(flat_ad, omr_server.HttpApiEngineAdapter)
+        self.assertEqual(flat_ad.name, "flat")
+
+        newzik_ad = omr_server.build_engine_adapter(
+            omr_server.OMRConfig(engine_name="newzik", omr_api_url="https://api.newzik.com/omr", omr_api_key="k")
+        )
+        self.assertIsInstance(newzik_ad, omr_server.HttpApiEngineAdapter)
+        self.assertEqual(newzik_ad.name, "newzik")
+
+        unavail_api = omr_server.build_engine_adapter(
+            omr_server.OMRConfig(engine_name="api", omr_api_url="", omr_api_key="")
+        )
+        self.assertFalse(unavail_api.is_available())
+
+        saved_env = {k: os.environ.get(k) for k in ("OMR_ENGINE", "OMR_API_URL", "OMR_API_KEY", "OMR_API_PROVIDER")}
+        try:
+            os.environ["OMR_ENGINE"] = "flat"
+            os.environ["OMR_API_URL"] = "https://api.flat.io/v2/omr"
+            os.environ["OMR_API_KEY"] = "flat-key-123"
+            os.environ["OMR_API_PROVIDER"] = "flat"
+            env_cfg = omr_server.load_config_from_env()
+            self.assertEqual(env_cfg.engine_name, "flat")
+            self.assertEqual(env_cfg.omr_api_url, "https://api.flat.io/v2/omr")
+            self.assertEqual(env_cfg.omr_api_key, "flat-key-123")
+            self.assertEqual(env_cfg.omr_api_provider, "flat")
+        finally:
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        # Single-run _process_job with HttpApiEngineAdapter (run_direct)
+        demo_xml = self._demo_xml()
+        orig_urlopen = urllib.request.urlopen
+
+        class _MockApiResp:
+            def __init__(self, body_bytes: bytes, ctype: str = "application/json") -> None:
+                self._body = body_bytes
+                self.headers = {"Content-Type": ctype}
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self) -> "_MockApiResp":
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                return
+
+        def _fake_api_urlopen(req: Any, *args: Any, **kwargs: Any) -> Any:
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            if url == "https://mock-omr-api.local/scan":
+                return _MockApiResp(json.dumps({"musicxml": demo_xml}).encode("utf-8"))
+            return orig_urlopen(req, *args, **kwargs)
+
+        urllib.request.urlopen = _fake_api_urlopen  # type: ignore[assignment]
+        try:
+            api_cfg = omr_server.OMRConfig(
+                host="127.0.0.1",
+                port=0,
+                data_dir=os.path.join(self.tmpdir.name, "data_http_api_single"),
+                engine_name="api",
+                omr_api_url="https://mock-omr-api.local/scan",
+                omr_api_key="test-key",
+                workers=1,
+                preprocess=False,
+            )
+            if self._use_tcp:
+                srv_api = omr_server.create_server(api_cfg)
+                self._register_server(srv_api)
+                base_api = f"http://127.0.0.1:{srv_api.server_address[1]}"
+            else:
+                svc_api = omr_server.OMRService(api_cfg)
+                stub_api = _InProcServerStub(svc_api)
+                base_api = f"inproc://omr-{id(stub_api)}"
+                _INPROC_TARGETS[base_api] = (omr_server.OMRRequestHandler, stub_api)
+                self._inproc_keys.append(base_api)
+
+            st_a, _h, created_a = http_post_raw_json(
+                base_api,
+                "/api/scan/jobs",
+                b"\x89PNG_HTTP_API_SINGLE",
+                {"Content-Type": "image/png", "X-Filename": "api-single.png"},
+            )
+            self.assertEqual(st_a, 202)
+            job_a = self._poll_job(base_api, created_a["jobId"], timeout=5.0)
+            self.assertEqual(job_a["status"], "completed")
+            self.assertIn("<work-title>Ode to Joy</work-title>", job_a["rawMusicxml"])
+        finally:
+            urllib.request.urlopen = orig_urlopen  # type: ignore[assignment]
+
+    # 19. POST /api/scan/jobs/<jobId>/verify-measures -> 503 AI_VERIFY_UNAVAILABLE when unset + happy path
+    def test_19_verify_measures_unavailable_and_api(self) -> None:
+        saved_keys = {k: os.environ.pop(k, None) for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
+        try:
+            srv, base = self._start_omr_server(
+                engine_cmd=[sys.executable, self.fake_cli_path],
+                job_timeout=10.0,
+                subdir="data_verify_measures",
+            )
+            st_h, _h, health = http_json(base, "GET", "/health")
+            self.assertEqual(st_h, 200)
+            self.assertFalse(health["aiVerifyAvailable"])
+
+            os.environ["FAKE_OMR_MODE"] = "mxl"
+            st, _h, created = http_post_raw_json(
+                base,
+                "/api/scan/jobs",
+                b"%PDF-1.4\n1 0 obj << /Type /Pages /Count 1 >> endobj\n",
+                {"Content-Type": "application/pdf", "X-Filename": "verify-test.pdf"},
+            )
+            self.assertEqual(st, 202)
+            job_id = created["jobId"]
+            job = self._poll_job(base, job_id, timeout=10.0)
+            self.assertEqual(job["status"], "completed")
+
+            # Without GEMINI_API_KEY / GOOGLE_API_KEY -> 503 AI_VERIFY_UNAVAILABLE
+            st_v, _h, resp_v = http_json(
+                base,
+                "POST",
+                f"/api/scan/jobs/{job_id}/verify-measures",
+                {"measures": [0]},
+            )
+            self.assertEqual(st_v, 503)
+            self.assertFalse(resp_v["ok"])
+            self.assertEqual(resp_v["errorCode"], "AI_VERIFY_UNAVAILABLE")
+            self.assertIn("GEMINI_API_KEY", resp_v["error"])
+
+            # With GEMINI_API_KEY set + mocked verify_measures helpers -> defaults to gemini-3.5-flash-lite & caps at 12
+            os.environ["GEMINI_API_KEY"] = "fake-gemini-key"
+            st_h2, _h, health2 = http_json(base, "GET", "/health")
+            self.assertTrue(health2["aiVerifyAvailable"])
+
+            seen_models: List[str] = []
+
+            class _FakeVerifyModule:
+                @staticmethod
+                def extract_measure_boxes(_xml: str) -> List[Dict[str, Any]]:
+                    return [
+                        {"measure": str(i + 1), "index": i, "page": 1, "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}
+                        for i in range(15)
+                    ]
+
+                @staticmethod
+                def parse_score_via_jsc(_xml: str) -> Dict[str, Any]:
+                    return {
+                        "measures": [
+                            {
+                                "index": i,
+                                "keyFifths": 0,
+                                "timeSig": "4/4",
+                                "flagged": i == 0,
+                                "findings": [],
+                                "parts": [{"id": "P1", "name": "Soprano", "staves": 1, "chords": 0, "tokens": ["C4(q,v1)"]}],
+                            }
+                            for i in range(15)
+                        ]
+                    }
+
+                @staticmethod
+                def build_prompt(item: Dict[str, Any]) -> str:
+                    return f"prompt-{item['index']}"
+
+                @staticmethod
+                def compile_and_crop(_pdf: str, boxes: List[Dict[str, Any]], out_dir: str, _dpi: int) -> Dict[str, Any]:
+                    for b in boxes:
+                        with open(os.path.join(out_dir, f"m{b['index'] + 1:03d}.png"), "wb") as fp:
+                            fp.write(b"\x89PNG")
+                    return {"cropped": len(boxes)}
+
+                @staticmethod
+                def verify_measure_gemini(item: Dict[str, Any], _img: str, _key: str, model: str) -> Dict[str, Any]:
+                    seen_models.append(model)
+                    patches = (
+                        [{"op": "add_dot", "partIndex": 0, "measureIndex": item["index"], "noteHint": "C4", "reason": "Dotted quarter"}]
+                        if item["index"] == 0
+                        else []
+                    )
+                    return {
+                        "measure": item["measure"],
+                        "status": "verified",
+                        "result": {
+                            "measure": int(item["measure"]),
+                            "verdict": "needs_fix" if patches else "ok",
+                            "patches": patches,
+                            "notes": "Looks good." if not patches else "Add dot to C4.",
+                        },
+                    }
+
+            srv.service._load_verify_measures_module = lambda: _FakeVerifyModule  # type: ignore[method-assign]
+            st_ok, _h, resp_ok = http_json(
+                base,
+                "POST",
+                f"/api/scan/jobs/{job_id}/verify-measures",
+                {"measures": list(range(15))},
+            )
+            self.assertEqual(st_ok, 200)
+            self.assertTrue(resp_ok["ok"])
+            self.assertEqual(resp_ok["model"], "gemini-3.5-flash-lite")
+            self.assertEqual(resp_ok["checked"], 12)
+            self.assertEqual(len(resp_ok["results"]), 12)
+            self.assertEqual(len(resp_ok["patches"]), 1)
+            self.assertEqual(resp_ok["patches"][0]["op"], "add_dot")
+            self.assertTrue(all(m == "gemini-3.5-flash-lite" for m in seen_models))
+        finally:
+            for k, v in saved_keys.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 def main() -> int:

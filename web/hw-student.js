@@ -1433,9 +1433,93 @@ function hwRenderPracticeButtons() {
   if (!box) return;
   box.innerHTML = `
     <button type="button" class="hw-practice-btn" id="hw-practice-sr">Sight reading</button>
+    <button type="button" class="hw-practice-btn" id="hw-practice-dash">Rhythm Dash</button>
+    <button type="button" class="hw-practice-btn" id="hw-practice-rocket">Solfege Rocket</button>
     <button type="button" class="hw-practice-btn" id="hw-practice-tracks">Practice tracks</button>`;
   $('#hw-practice-sr').onclick = () => hwOpenFreePractice('rhythm');
+  $('#hw-practice-dash').onclick = () => hwOpenRhythmDash();
+  $('#hw-practice-rocket').onclick = () => hwOpenSolfegeRocket();
   $('#hw-practice-tracks').onclick = () => hwOpenPracticeTracks();
+}
+
+function hwOpenSolfegeRocket() {
+  hwCleanupMediaAndMic();
+  document.getElementById('gr-card')?.remove();
+  HW_STATE.freePractice = true;
+  HW_STATE.activeAssignment = null;
+  HW_STATE.practiceTrackId = null;
+  HW_STATE.latestTakeId = null;
+  HW_STATE.tab = 'sight';
+  const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
+  hwSetView('runner');
+  hwRenderRunnerHeaderBar();
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Solfege Rocket';
+  const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
+  const body = $('#hw-runner-body');
+  if (!body) return;
+  body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
+  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0b1020"><iframe id="hw-rocket-frame" title="Solfege Rocket" src="gate-singer.html" style="width:100%;height:calc(100vh - 150px);min-height:540px;max-height:780px;border:0;display:block" allow="microphone; autoplay"></iframe></div>`;
+  const fr = $('#hw-rocket-frame');
+  if (fr) {
+    fr.addEventListener('load', () => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} });
+    setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} }, 120);
+  }
+}
+
+function hwOpenRhythmDash() {
+  hwCleanupMediaAndMic();
+  document.getElementById('gr-card')?.remove();
+  HW_STATE.freePractice = true;
+  HW_STATE.activeAssignment = null;
+  HW_STATE.practiceTrackId = null;
+  HW_STATE.latestTakeId = null;
+  HW_STATE.tab = 'sight';
+  const takesCard = $('#hw-takes-card'); if (takesCard) takesCard.hidden = true;
+  hwSetView('runner');
+  hwRenderRunnerHeaderBar();
+  const titleEl = $('#hw-back-title'); if (titleEl) titleEl.textContent = 'Rhythm Dash';
+  const attEl = $('#hw-runner-attempts'); if (attEl) { attEl.className = 'hw-pill draft'; attEl.textContent = 'Just practice · not graded'; }
+  const body = $('#hw-runner-body');
+  if (!body) return;
+  body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
+  const stu = HW_STATE.session?.student;
+  const qs = stu && stu.id ? `?studentId=${encodeURIComponent(stu.id)}&studentName=${encodeURIComponent(stu.name || '')}` : '';
+  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Dash" src="rhythm-dash.html${qs}" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
+  const fr = $('#hw-dash-frame');
+  if (fr) {
+    fr.addEventListener('load', () => {
+      try {
+        fr.focus(); fr.contentWindow?.focus();
+        if (stu && stu.id) {
+          const savedRaw = localStorage.getItem('rehearsal-rhythm-dash-prog-v1:' + stu.id);
+          fr.contentWindow?.postMessage({ type: 'rd-account', studentId: stu.id, studentName: stu.name || '', prog: savedRaw ? JSON.parse(savedRaw) : null }, '*');
+        }
+      } catch {}
+    });
+    setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} }, 120);
+  }
+  if (!window.__hwDashKeysWired) {
+    window.__hwDashKeysWired = true;
+    const forwardDash = (action, e) => {
+      const f = document.getElementById('hw-dash-frame');
+      if (!f || HW_STATE.view !== 'runner') return;
+      if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return;
+      if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
+        if (action === 'down' && e.repeat) return;
+        e.preventDefault();
+        try { f.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
+      }
+    };
+    window.addEventListener('keydown', (e) => forwardDash('down', e), true);
+    window.addEventListener('keyup', (e) => forwardDash('up', e), true);
+    window.addEventListener('message', (ev) => {
+      const d = ev.data;
+      if (!d || d.type !== 'rd-prog-save' || !d.prog) return;
+      const sid = d.studentId || HW_STATE.session?.student?.id;
+      if (!sid) return;
+      try { localStorage.setItem('rehearsal-rhythm-dash-prog-v1:' + sid, JSON.stringify(d.prog)); } catch {}
+    });
+  }
 }
 
 async function hwOpenPracticeTracks() {

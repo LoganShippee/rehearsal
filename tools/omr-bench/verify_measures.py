@@ -291,17 +291,19 @@ def build_prompt(item):
     flag_lines = [f"- [{f['rule']}] {f['message']}" for f in item["findings"]]
     key_desc = f"{abs(item['keyFifths'])} flats" if item["keyFifths"] < 0 else f"{item['keyFifths']} sharps" if item["keyFifths"] > 0 else "0 accidentals"
     return (
-        f"You are verifying measure {item['measure']} of a vocal+piano score against the cropped PDF image.\n"
+        f"You are verifying measure {item['measure']} (0-based measureIndex={item['index']}) of a vocal+piano score against the cropped PDF image.\n"
         f"Global score context: Time signature = {item['timeSig']}, Key signature = {key_desc} (fifths={item['keyFifths']}).\n"
         f"Audiveris OMR draft for measure {item['measure']}:\n"
         + "\n".join(draft_lines)
         + ("\nScanner flags:\n" + "\n".join(flag_lines) if flag_lines else "\nScanner flags: none")
-        + "\n\nInspect the cropped PDF image carefully (staves top-to-bottom correspond to parts in order) and return STRICT JSON matching:\n"
+        + "\n\nInspect the cropped PDF image carefully (staves top-to-bottom correspond to parts 0..N-1 in order) and return STRICT JSON matching:\n"
         '{"measure": <number>, "verdict": "ok" | "needs_fix", '
         '"vocal_phantom_chords": [<string describing any extra chord noteheads wrongly added to vocal staves>], '
         '"missing_dots": [<string describing any notes missing an augmentation dot>], '
         '"pitch_errors": [<string describing wrong pitch/accidental>], '
         '"rhythm_errors": [<string describing wrong duration/beats>], '
+        '"patches": [{"op": "remove_phantom_chord" | "add_dot" | "remove_dot" | "octave_down_part", '
+        '"partIndex": <0-based int>, "measureIndex": <0-based int>, "noteHint": "<e.g. G4>", "reason": "<short plain text>"}], '
         '"notes": "<brief 1-sentence summary>"}'
     )
 
@@ -310,32 +312,85 @@ def verify_measure_gemini(item, img_path, api_key, model):
     with open(img_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("ascii")
     payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": item["prompt"]},
-                    {"inline_data": {"mime_type": "image/png", "data": b64}},
-                ]
-            }
+        "model": model,
+        "store": False,
+        "input": [
+            {"type": "text", "text": item["prompt"]},
+            {"type": "image", "data": b64, "mime_type": "image/png"},
         ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
+        "generation_config": {"temperature": 0.1},
+        "response_format": {
+            "type": "object",
+            "properties": {
+                "measure": {"type": "integer"},
+                "verdict": {"type": "string", "enum": ["ok", "needs_fix"]},
+                "vocal_phantom_chords": {"type": "array", "items": {"type": "string"}},
+                "missing_dots": {"type": "array", "items": {"type": "string"}},
+                "pitch_errors": {"type": "array", "items": {"type": "string"}},
+                "rhythm_errors": {"type": "array", "items": {"type": "string"}},
+                "patches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "op": {
+                                "type": "string",
+                                "enum": [
+                                    "remove_phantom_chord",
+                                    "add_dot",
+                                    "remove_dot",
+                                    "octave_down_part",
+                                ],
+                            },
+                            "partIndex": {"type": "integer"},
+                            "measureIndex": {"type": "integer"},
+                            "noteHint": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["op", "partIndex", "measureIndex", "reason"],
+                    },
+                },
+                "notes": {"type": "string"},
+            },
+            "required": ["measure", "verdict", "patches", "notes"],
         },
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/interactions"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=45) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
+        text = None
+        for out in body.get("outputs") or []:
+            if isinstance(out, dict) and out.get("type") == "text" and isinstance(out.get("text"), str):
+                text = out["text"]
+                break
+        if text is None and body.get("candidates"):
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+        if not text:
+            raise ValueError("No text output in Gemini response")
         parsed = json.loads(text)
         return {"measure": item["measure"], "status": "verified", "result": parsed}
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        detail = err_body.strip()
+        try:
+            err_json = json.loads(err_body)
+            if isinstance(err_json, list) and err_json:
+                err_json = err_json[0]
+            if isinstance(err_json, dict) and isinstance(err_json.get("error"), dict):
+                detail = err_json["error"].get("message") or detail
+        except Exception:
+            pass
+        return {"measure": item["measure"], "status": "error", "error": f"HTTP {exc.code}: {detail}"}
     except Exception as exc:
         return {"measure": item["measure"], "status": "error", "error": str(exc)}
 
@@ -366,7 +421,7 @@ def main():
     ap.add_argument("--measures", help="Optional measure range/list like '1-10' or '5,8,16'")
     ap.add_argument("--flagged-only", action="store_true", help="Only verify flagged/vocal-chord measures instead of all")
     ap.add_argument("--dump-only", action="store_true", help="Only crop PDF measures and write manifest.json (no API call)")
-    ap.add_argument("--model", default="gemini-2.5-flash", help="Gemini vision model")
+    ap.add_argument("--model", default="gemini-3.5-flash-lite", help="Gemini vision model")
     ap.add_argument("--workers", type=int, default=4, help="Parallel vision requests")
     ap.add_argument("--dpi", type=int, default=220, help="PDF rasterization DPI")
     args = ap.parse_args()

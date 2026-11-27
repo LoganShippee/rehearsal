@@ -643,6 +643,18 @@ function sfFlagsKeyAlter(fifths, step) {
   return 0;
 }
 
+const SF_KEYBOARD_PART_RE = /\b(piano|pno\.?|keyboard|keys|organ|accomp(?:animent)?|harp|harpsichord|celesta|synth|reduction)\b/i;
+
+function sfIsKeyboardPart(part, instKey) {
+  if (!part) return false;
+  if (instKey && instKey !== 'auto') return false;
+  if (SF_KEYBOARD_PART_RE.test(String(part.name || ''))) return true;
+  if ((part.staves || 1) >= 2 && !sfDetectChoirPart(part.name, part.measures && part.measures[0])) {
+    return true;
+  }
+  return false;
+}
+
 function sfClefFallbackRange(measure, staff) {
   const clefs = (measure && measure.clefs) || [];
   const clef = clefs.find(c => c.number === staff) || clefs[0] || { sign: 'G', line: 2, octaveChange: 0 };
@@ -878,8 +890,9 @@ function sfAnalyzeFlags(model, opts) {
         }
       }
 
-      // ----- Rule 3: out_of_range (skip if handled by choir voice range / tenor octave clef)
-      if (!choirKey && isRuleEnabled('out_of_range')) {
+      // ----- Rule 3: out_of_range (skip if handled by choir voice range / tenor octave clef, or keyboard/piano grand-staff parts)
+      const isKeyboard = sfIsKeyboardPart(part, instKey);
+      if (!choirKey && !isKeyboard && isRuleEnabled('out_of_range')) {
         for (const e of entries) {
           if (e.kind !== 'note' || e.isRest || e.isCue || e.spoken || !isFinite(e.midi)) continue;
           const range = (instKey !== 'auto' && SF_INSTRUMENT_RANGES[instKey])
