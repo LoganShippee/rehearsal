@@ -1,9 +1,7 @@
 'use strict';
 
 (function () {
-  const DEFAULT_VERSION = '1.3.1';
   const GITHUB_BASE = 'https://github.com/LoganShippee/rehearsal/releases/latest/download';
-  const RELEASE_CACHE_KEY = 'rehearsal-site-release-v1';
 
   const isLocalHost = (
     location.protocol === 'file:' ||
@@ -15,143 +13,10 @@
     return isLocalHost ? `${GITHUB_BASE}/${file}` : `/dl/${file}`;
   }
 
-  function detectOS() {
-    const ua = navigator.userAgent || '';
-    const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-    const touchMac = /Mac/i.test(plat) && navigator.maxTouchPoints > 1;
-    if (touchMac || /iPad|iPhone|iPod|Android|CrOS/i.test(ua)) return 'web';
-    if (/Win/i.test(plat) || /Windows/i.test(ua)) return 'win';
-    if (/Mac/i.test(plat) || /Macintosh/i.test(ua)) return 'mac';
-    return 'web';
-  }
-
-  function applyOsAwareness() {
-    const os = detectOS();
-    const map = {
-      mac: {
-        label: 'Download for Mac',
-        href: 'download.html#mac',
-      },
-      win: {
-        label: 'Download for Windows',
-        href: 'download.html#win',
-      },
-      web: {
-        label: 'Download Mac / Windows',
-        href: 'download.html',
-      }
-    };
-    const chosen = map[os] || map.mac;
-
-    document.querySelectorAll('[data-os-cta]').forEach(el => {
-      el.textContent = chosen.label;
-      if (el.tagName === 'A') el.setAttribute('href', chosen.href);
-    });
-
-    document.querySelectorAll('[data-os-pill]').forEach(el => {
-      el.classList.toggle('on', el.getAttribute('data-os-pill') === os);
-    });
-
+  function applyDownloadUrls() {
     document.querySelectorAll('[data-dl-file]').forEach(el => {
       const f = el.getAttribute('data-dl-file');
       if (f) el.setAttribute('href', downloadUrl(f));
-    });
-
-    if (isLocalHost) {
-      document.querySelectorAll('[data-app-href]').forEach(el => {
-        const target = el.getAttribute('data-app-href');
-        if (target === 'app') el.setAttribute('href', '../web/index.html');
-        if (target === 'hw') el.setAttribute('href', '../web/hw.html');
-      });
-    }
-
-    const hashTab = (location.hash || '').replace(/^#/, '');
-    const initialTab = ['mac', 'win', 'web'].includes(hashTab) ? hashTab : os;
-    if (document.querySelector('[data-os-tabs]')) activateOsTab(initialTab);
-  }
-
-  function activateOsTab(os) {
-    const buttons = document.querySelectorAll('[data-os-tab]');
-    const panels = document.querySelectorAll('[data-os-panel]');
-    if (!buttons.length) return;
-    buttons.forEach(btn => {
-      const match = btn.getAttribute('data-os-tab') === os;
-      btn.classList.toggle('active', match);
-      btn.setAttribute('aria-selected', match ? 'true' : 'false');
-    });
-    panels.forEach(panel => {
-      panel.hidden = panel.getAttribute('data-os-panel') !== os;
-    });
-  }
-
-  function setupOsTabs() {
-    document.querySelectorAll('[data-os-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const os = btn.getAttribute('data-os-tab');
-        if (os) activateOsTab(os);
-      });
-    });
-    window.addEventListener('hashchange', () => {
-      const hashTab = (location.hash || '').replace(/^#/, '');
-      if (['mac', 'win', 'web'].includes(hashTab)) activateOsTab(hashTab);
-    });
-  }
-
-  function setupTabGroup(tablistSelector, panelAttr) {
-    const tablist = document.querySelector(tablistSelector);
-    if (!tablist) return;
-    const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
-    const panels = Array.from(document.querySelectorAll(`[${panelAttr}]`));
-
-    function selectTab(id) {
-      tabs.forEach(t => {
-        const on = t.getAttribute('aria-controls') === id;
-        t.setAttribute('aria-selected', on ? 'true' : 'false');
-        t.tabIndex = on ? 0 : -1;
-      });
-      panels.forEach(p => {
-        p.hidden = p.id !== id;
-      });
-    }
-
-    tabs.forEach((tab, idx) => {
-      tab.addEventListener('click', () => selectTab(tab.getAttribute('aria-controls')));
-      tab.addEventListener('keydown', e => {
-        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-        e.preventDefault();
-        const next = e.key === 'ArrowRight' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
-        tabs[next].focus();
-        selectTab(tabs[next].getAttribute('aria-controls'));
-      });
-    });
-  }
-
-  function setupLightbox() {
-    const triggers = document.querySelectorAll('[data-zoom-img]');
-    if (!triggers.length) return;
-    const box = document.createElement('div');
-    box.className = 'lightbox';
-    box.hidden = true;
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-modal', 'true');
-    box.innerHTML = '<button type="button" class="lightbox-close" aria-label="Close preview">Close ✕</button><img alt="">';
-    document.body.appendChild(box);
-    const imgEl = box.querySelector('img');
-    const closeBtn = box.querySelector('.lightbox-close');
-
-    function close() { box.hidden = true; }
-    closeBtn.addEventListener('click', close);
-    box.addEventListener('click', e => { if (e.target === box) close(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !box.hidden) close(); });
-
-    triggers.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const inner = btn.querySelector('img');
-        if (!inner) return;
-        imgEl.src = inner.src;
-        imgEl.alt = inner.alt || 'Rehearsal app screenshot';
-        box.hidden = false;
-      });
     });
   }
 
@@ -169,71 +34,6 @@
         btn.setAttribute('aria-expanded', 'false');
       });
     });
-  }
-
-  async function hydrateReleaseMeta() {
-    let data = null;
-    try {
-      const cached = sessionStorage.getItem(RELEASE_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.ts && Date.now() - parsed.ts < 15 * 60 * 1000) data = parsed.data;
-      }
-    } catch { }
-
-    if (!data && !isLocalHost) {
-      try {
-        const res = await fetch('/api/release', { headers: { Accept: 'application/json' } });
-        if (res.ok) {
-          data = await res.json();
-          try { sessionStorage.setItem(RELEASE_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch { }
-        }
-      } catch { }
-    }
-
-    const ver = (data && data.version) || DEFAULT_VERSION;
-    const date = (data && data.date) || '';
-    document.querySelectorAll('[data-release-version]').forEach(el => {
-      el.textContent = `v${ver}`;
-    });
-    document.querySelectorAll('[data-release-date]').forEach(el => {
-      if (date) el.textContent = date;
-    });
-  }
-
-  function escHtml(str) {
-    return String(str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  async function hydrateChangelog() {
-    const host = document.getElementById('changelog-list');
-    if (!host || isLocalHost) return;
-    try {
-      const res = await fetch('/api/releases', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const list = await res.json();
-      if (!Array.isArray(list) || !list.length) return;
-      host.innerHTML = list.map(rel => {
-        const tag = escHtml(rel.tag || rel.name || '');
-        const date = escHtml((rel.publishedAt || '').slice(0, 10));
-        const body = escHtml(rel.notes || '').replace(/\n/g, '<br>');
-        const url = escHtml(rel.url || 'https://github.com/LoganShippee/rehearsal/releases');
-        return `
-          <article class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
-              <h3 style="margin:0">${tag}</h3>
-              <span class="tag">${date || 'Release'}</span>
-            </div>
-            <p class="small muted">${body || 'Maintenance and classroom improvements.'}</p>
-            <p class="small" style="margin-top:10px"><a href="${url}" target="_blank" rel="noopener">View release assets on GitHub →</a></p>
-          </article>
-        `;
-      }).join('');
-    } catch { }
   }
 
   function setupInquiryForm() {
@@ -299,46 +99,9 @@
     });
   }
 
-  function setupCarousels() {
-    document.querySelectorAll('[data-carousel]').forEach(car => {
-      const steps = Array.from(car.querySelectorAll('[data-car-step]'));
-      const slides = Array.from(car.querySelectorAll('[data-car-slide]'));
-      const prev = car.querySelector('[data-car-prev]');
-      const next = car.querySelector('[data-car-next]');
-      if (!slides.length) return;
-      let idx = 0;
-
-      function show(i) {
-        idx = ((i % slides.length) + slides.length) % slides.length;
-        slides.forEach((s, k) => { s.hidden = k !== idx; });
-        steps.forEach((b, k) => {
-          b.setAttribute('aria-selected', k === idx ? 'true' : 'false');
-          b.tabIndex = k === idx ? 0 : -1;
-        });
-      }
-
-      steps.forEach((b, k) => {
-        b.addEventListener('click', () => show(k));
-        b.addEventListener('keydown', e => {
-          if (e.key === 'ArrowRight') { e.preventDefault(); show(idx + 1); steps[idx]?.focus(); }
-          if (e.key === 'ArrowLeft') { e.preventDefault(); show(idx - 1); steps[idx]?.focus(); }
-        });
-      });
-      if (prev) prev.addEventListener('click', () => show(idx - 1));
-      if (next) next.addEventListener('click', () => show(idx + 1));
-      show(0);
-    });
-  }
-
   document.addEventListener('DOMContentLoaded', () => {
     setupMobileNav();
-    setupOsTabs();
-    setupTabGroup('[data-tool-tablist]', 'data-tool-panel');
-    setupCarousels();
-    setupLightbox();
-    applyOsAwareness();
-    hydrateReleaseMeta();
-    hydrateChangelog();
+    applyDownloadUrls();
     setupInquiryForm();
   });
 })();

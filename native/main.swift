@@ -331,7 +331,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var windows: [NSWindow] = []
     var webViews: [WKWebView] = []
     var webWindows: [ObjectIdentifier: WebWindows] = [:]
-    var appDockers: [ObjectIdentifier: AppDocker] = [:]
     lazy var drive = DriveBrowser()
 
     static func main() {
@@ -403,15 +402,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let container = FlippedView(frame: wv.frame)
         container.addSubview(wv)
         webWindows[ObjectIdentifier(wv)] = WebWindows(owner: wv)
-        let docker = AppDocker()
-        appDockers[ObjectIdentifier(wv)] = docker
         wv.uiDelegate = self
         wv.navigationDelegate = self
         if #available(macOS 13.3, *) { wv.isInspectable = true }
         let win = RehearsalWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                            backing: .buffered, defer: false)
-        win.onFrameChanged = { [weak docker] in docker?.realign(activate: false) }
         win.title = title
         win.titlebarAppearsTransparent = true
         win.titleVisibility = .hidden
@@ -442,18 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         windows.remove(at: i)
         let wv = webViews.remove(at: i)
         webWindows.removeValue(forKey: ObjectIdentifier(wv))?.removeAll()
-        appDockers.removeValue(forKey: ObjectIdentifier(wv))?.undock(bringRehearsalFront: false)
         wv.configuration.userContentController.removeScriptMessageHandler(forName: "native")
-    }
-
-    func windowDidMove(_ n: Notification) {
-        guard let w = n.object as? NSWindow, let i = windows.firstIndex(of: w), i < webViews.count else { return }
-        appDockers[ObjectIdentifier(webViews[i])]?.realign(activate: false)
-    }
-
-    func windowDidResize(_ n: Notification) {
-        guard let w = n.object as? NSWindow, let i = windows.firstIndex(of: w), i < webViews.count else { return }
-        appDockers[ObjectIdentifier(webViews[i])]?.realign(activate: false)
     }
 
     // MARK: JS bridge
@@ -461,9 +446,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         guard let body = m.body as? [String: Any], let cmd = body["cmd"] as? String else { return }
         let wv = m.webView
         switch cmd {
-        case "openPresent":
-            let w = openWindow(view: "present", title: "Rehearsal — Present")
-            if (body["fullscreen"] as? Bool) == true { w.toggleFullScreen(nil) }
         case "print":
             guard let wv, let win = wv.window else { return }
             let info = NSPrintInfo.shared.copy() as! NSPrintInfo
@@ -490,23 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             if let d = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: d, encoding: .utf8) {
                 wv?.evaluateJavaScript("window.__appWindows && window.__appWindows(\(json))")
             }
-        case "dockApp":
-            guard let wv, let win = wv.window, let docker = appDockers[ObjectIdentifier(wv)] else { return }
-            let appName = (body["app"] as? String) ?? ""
-            let bid = (body["bundleId"] as? String) ?? ""
-            let pid = (body["pid"] as? NSNumber)?.int32Value ?? 0
-            let activate = (body["activate"] as? Bool) ?? true
-            if let arr = body["rect"] as? [NSNumber], arr.count == 4 {
-                let r = CGRect(x: arr[0].doubleValue, y: arr[1].doubleValue, width: arr[2].doubleValue, height: arr[3].doubleValue)
-                docker.dock(appName: appName, bundleId: bid, pid: pid, rect: r, inWindow: win, ownerWeb: wv, activate: activate)
-            }
-        case "undockApp":
-            if let wv {
-                let front = (body["bringFront"] as? Bool) ?? false
-                appDockers[ObjectIdentifier(wv)]?.undock(bringRehearsalFront: front)
-            }
         case "companionStart":
-            if let wv { appDockers[ObjectIdentifier(wv)]?.undock(bringRehearsalFront: false) }
             let bid = body["bundleId"] as? String
             let pid = (body["pid"] as? NSNumber)?.int32Value
             (wv?.window as? RehearsalWindow)?.enterCompanion(stripHeight: 118, bundleId: bid, pid: pid)

@@ -381,7 +381,6 @@ const EVENT_ICON = { birthday: 'ico:birthday', announcement: 'ico:announce', eve
 const icoCfg = () => (S.settings.icons ||= {});
 const iconOn = where => icoCfg().show?.[where] !== false;
 const icoSp = v => v && v !== '-' ? IC(v) + ' ' : '';               // icon followed by a space, or nothing
-const evIcon = k => iconOn('events') ? icoSp(icoCfg().event?.[k] ?? EVENT_ICON[k] ?? 'ico:events') : '';
 const eventLabel = e => e.kind === 'birthday' ? `Happy Birthday, ${e.title}!` : `${e.title}`;   // plain text: this label is escaped in lists
 
 // ============================================================ present-state
@@ -629,9 +628,6 @@ function stopMusic(immediate = false) {
   if (immediate) { a.pause(); return; }
   const v0 = a.volume; let i = 0;
   const iv = setInterval(() => { i++; a.volume = Math.max(0, v0 * (1 - i / 15)); if (i >= 15) { clearInterval(iv); a.pause(); } }, 100);
-}
-function showSoundChip() {
-  // Removed: audio context auto-resumes silently on first click/keypress or playback action.
 }
 
 // ============================================================ automation engine

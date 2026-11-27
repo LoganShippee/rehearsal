@@ -5,7 +5,6 @@
 const GITHUB_OWNER = 'LoganShippee';
 const GITHUB_REPO = 'rehearsal';
 const GITHUB_LATEST_DL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download`;
-const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=15`;
 
 const ALLOWED_DOWNLOADS = {
   'Rehearsal.zip': 'application/zip',
@@ -92,74 +91,6 @@ async function handleDownload(file, env) {
   return new Response(upstream.body, { status: 200, headers });
 }
 
-async function handleReleaseJson() {
-  try {
-    const res = await fetch(`${GITHUB_LATEST_DL}/latest.json`, {
-      headers: { 'User-Agent': 'rehearsalmusic.com-edge' },
-      cf: { cacheEverything: true, cacheTtl: 300 },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return jsonResponse({
-        version: data.version || '1.3.1',
-        date: data.date || '',
-        notes: data.notes || '',
-        downloads: {
-          mac: '/dl/Rehearsal.zip',
-          winSetup: '/dl/Rehearsal-Setup.exe',
-          winZip: '/dl/Rehearsal-Windows.zip',
-        },
-      }, 200, { 'Cache-Control': 'public, max-age=300' });
-    }
-  } catch { }
-
-  return jsonResponse({
-    version: '1.3.1',
-    date: '2026-11-22',
-    notes: 'Rehearsal v1.3.1',
-    downloads: {
-      mac: '/dl/Rehearsal.zip',
-      winSetup: '/dl/Rehearsal-Setup.exe',
-      winZip: '/dl/Rehearsal-Windows.zip',
-    },
-  }, 200, { 'Cache-Control': 'public, max-age=60' });
-}
-
-async function handleReleasesList() {
-  try {
-    const res = await fetch(GITHUB_RELEASES_API, {
-      headers: {
-        'User-Agent': 'rehearsalmusic.com-edge',
-        Accept: 'application/vnd.github+json',
-      },
-      cf: { cacheEverything: true, cacheTtl: 600 },
-    });
-    if (res.ok) {
-      const raw = await res.json();
-      const mapped = (Array.isArray(raw) ? raw : [])
-        .filter(r => !r.draft)
-        .map(r => ({
-          tag: r.tag_name,
-          name: r.name,
-          publishedAt: r.published_at,
-          notes: r.body || '',
-          url: r.html_url,
-        }));
-      return jsonResponse(mapped, 200, { 'Cache-Control': 'public, max-age=600' });
-    }
-  } catch { }
-
-  return jsonResponse([
-    {
-      tag: 'v1.3.1',
-      name: 'Rehearsal 1.3.1',
-      publishedAt: '2026-11-22',
-      notes: 'Hosted web app & Student Portal on app.rehearsalmusic.com and Homework API on api.rehearsalmusic.com; added interactive How It Works & Student Demo page.',
-      url: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-    },
-  ], 200, { 'Cache-Control': 'public, max-age=120' });
-}
-
 async function handleInquiry(request, env) {
   let body;
   try {
@@ -243,12 +174,6 @@ export default {
 
     if (request.method === 'POST' && path === '/api/inquiry') {
       return handleInquiry(request, env);
-    }
-    if (request.method === 'GET' && path === '/api/release') {
-      return handleReleaseJson();
-    }
-    if (request.method === 'GET' && path === '/api/releases') {
-      return handleReleasesList();
     }
     if ((request.method === 'GET' || request.method === 'HEAD') && path.startsWith('/dl/')) {
       const file = decodeURIComponent(path.slice(4));

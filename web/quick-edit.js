@@ -487,10 +487,6 @@ function renderLook() {
     save(); renderLook();
   });
 }
-function applyDim(el, th) {
-  const bg = el.querySelector('#p-bg') || el, d = th.dim ?? 0.25;
-  if (th.image) bg.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${themeImgURL(th.image)}")`;
-}
 // ---------- automations drawer (reuses the Edit screen's timeline)
 function renderAutoDrawer() {
   $('#auto-drawer')?.remove();

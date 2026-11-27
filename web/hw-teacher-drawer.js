@@ -11,81 +11,14 @@
   const MUSESCORE_WARN =
     "MuseScore (.mscz) files aren't supported directly online. In MuseScore, choose File -> Export -> MusicXML (.mxl or .musicxml) and upload that file.";
 
-  const RHY_SYSTEMS = typeof RHYTHM_SYSTEMS !== 'undefined'
-    ? RHYTHM_SYSTEMS
-    : [
-        ['numbers', 'Numbers (1 e & a)'],
-        ['kodaly', 'Kodály (ta ti-ti)'],
-        ['takadimi', 'Takadimi (ta ta-di)'],
-      ];
-
-  const SIGHT_KEYS = typeof SR_KEYS !== 'undefined'
-    ? SR_KEYS
-    : ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab'];
-
-  const SIGHT_METERS = typeof SR_METERS !== 'undefined'
-    ? SR_METERS
-    : { '2/4': [2, 'simple'], '3/4': [3, 'simple'], '4/4': [4, 'simple'], '6/8': [2, 'compound'], '9/8': [3, 'compound'], '12/8': [4, 'compound'] };
-
-  const SIGHT_RANGES = typeof SR_RANGES !== 'undefined'
-    ? Object.fromEntries(Object.entries(SR_RANGES).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]))
-    : {
-        'do-mi': 'do – mi',
-        'do-sol': 'do – sol',
-        'do-la': 'do – la',
-        octave: 'do – high do',
-        'lowsol-sol': 'low sol – sol',
-        'lowsol-do': 'low sol – high do',
-        'lowla-mi2': 'low la – high mi',
-      };
-
-  const SIGHT_LEAPS = typeof SR_LEAPS !== 'undefined'
-    ? SR_LEAPS
-    : {
-        step: 'Steps only',
-        third: 'Steps & 3rds',
-        triad: 'Steps & do–mi–sol leaps',
-        fifth: 'Up to a 5th',
-        octave: 'Up to an octave',
-      };
-
-  const SIGHT_SIMPLE = typeof SR_SIMPLE !== 'undefined'
-    ? SR_SIMPLE
-    : {
-        w: { label: 'Whole note' },
-        hd: { label: 'Dotted half' },
-        h: { label: 'Half note' },
-        q: { label: 'Quarter' },
-        ee: { label: 'Two eighths' },
-        qr: { label: 'Quarter rest' },
-        hr: { label: 'Half rest' },
-        qde: { label: 'Dotted quarter + eighth' },
-        ssss: { label: 'Four sixteenths' },
-        er: { label: 'Eighth rest + eighth' },
-        syn: { label: 'Syncopation (8–q–8)' },
-        ess: { label: 'Eighth + two 16ths' },
-        sse: { label: 'Two 16ths + eighth' },
-        des: { label: 'Dotted eighth + 16th' },
-        trip: { label: 'Eighth-note triplet' },
-      };
-
-  const SIGHT_COMPOUND = typeof SR_COMPOUND !== 'undefined'
-    ? SR_COMPOUND
-    : {
-        dq: { label: 'Dotted quarter' },
-        eee: { label: 'Three eighths' },
-        qe: { label: 'Quarter + eighth' },
-        eq: { label: 'Eighth + quarter' },
-        dh: { label: 'Dotted half' },
-        dqr: { label: 'Dotted quarter rest' },
-        desse: { label: 'Dotted 8th–16th–8th' },
-        ssse: { label: 'Four 16ths + eighth' },
-        six: { label: 'Six sixteenths' },
-      };
-
-  const SIGHT_MEL_KEYS = typeof SR_MEL_CELLS !== 'undefined'
-    ? SR_MEL_CELLS
-    : ['w', 'hd', 'h', 'q', 'ee', 'qde', 'qr', 'hr', 'ssss', 'syn'];
+  const RHY_SYSTEMS = RHYTHM_SYSTEMS;
+  const SIGHT_KEYS = SR_KEYS;
+  const SIGHT_METERS = SR_METERS;
+  const SIGHT_RANGES = Object.fromEntries(Object.entries(SR_RANGES).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
+  const SIGHT_LEAPS = SR_LEAPS;
+  const SIGHT_SIMPLE = SR_SIMPLE;
+  const SIGHT_COMPOUND = SR_COMPOUND;
+  const SIGHT_MEL_KEYS = SR_MEL_CELLS;
 
   let D = null; // Active drawer state; null when closed
   let previewPlaying = false;
@@ -111,52 +44,13 @@
     return window.HW_TEACHER_API || null;
   }
 
-  function getSrDefaults() {
-    if (typeof srDefaults === 'function') return srDefaults();
-    return {
-      mode: 'solfege',
-      show: false,
-      settingsOpen: false,
-      playhead: 'beat',
-      rhythm: { ts: '4/4', measures: 4, tempo: 80, metronome: true, measureNums: true, sound: 'clap', cells: ['q', 'h', 'ee', 'qr', 'w'], showCounts: false },
-      solfege: { key: 'C', scale: 'major', clef: 'treble', range: 'do-sol', leap: 'step', ts: '4/4', measures: 4, tempo: 72, metronome: true, measureNums: true, startDo: true, cells: ['q', 'h', 'w'], showCounts: false },
-      ex: {},
-    };
-  }
+  const getSrDefaults = () => srDefaults();
 
   function getSavedPresets() {
     return typeof srSavedPresets === 'function' ? srSavedPresets() : [];
   }
 
-  function strictLabel(lv) {
-    return lv <= 15 ? 'Very Forgiving' : lv <= 38 ? 'Forgiving' : lv <= 62 ? 'Standard' : lv <= 85 ? 'Strict' : 'Very Strict';
-  }
-
-  function computeStrictSpec(rLv, pLv, tempo) {
-    if (typeof grStrictnessSpec === 'function') {
-      return grStrictnessSpec({ rhythm: rLv, pitch: pLv }, tempo);
-    }
-    const r = Math.max(0, Math.min(100, Number(rLv ?? 25)));
-    const p = Math.max(0, Math.min(100, Number(pLv ?? 25)));
-    const bpm = Math.max(30, Math.min(240, Number(tempo) || 80));
-    const q = 60 / bpm;
-    const rhythmMs = Math.round(r <= 50 ? 250 - (r / 50) * 150 : 100 - ((r - 50) / 50) * 85);
-    const rhythmSec = rhythmMs / 1000;
-    const pitchCents = Math.round(p <= 50 ? 95 - (p / 50) * 55 : 40 - ((p - 50) / 50) * 35);
-    const beatPct = Math.round((rhythmSec / q) * 100);
-    const rhythmLabel = strictLabel(r);
-    const pitchLabel = strictLabel(p);
-    return {
-      rhythmLevel: Math.round(r),
-      pitchLevel: Math.round(p),
-      rhythmLabel,
-      pitchLabel,
-      rhythmMs,
-      pitchCents,
-      beatPct,
-      label: rhythmLabel === pitchLabel ? rhythmLabel : `R: ${rhythmLabel} · P: ${pitchLabel}`,
-    };
-  }
+  const computeStrictSpec = (rLv, pLv, tempo) => grStrictnessSpec({ rhythm: rLv, pitch: pLv }, tempo);
 
   function toDateTimeLocal(ms) {
     if (!ms) return '';

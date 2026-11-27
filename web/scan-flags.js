@@ -633,16 +633,6 @@ function sfFormatMidiNote(midi) {
   return SF_FLAG_NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 }
 
-function sfFlagsKeyAlter(fifths, step) {
-  if (typeof sfKeyAlterForStep === 'function') return sfKeyAlterForStep(fifths, step);
-  const f = Math.trunc(Number(fifths) || 0);
-  const sharps = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
-  const flats = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
-  if (f > 0) { const i = sharps.indexOf(step); return (i >= 0 && i < f) ? 1 : 0; }
-  if (f < 0) { const i = flats.indexOf(step); return (i >= 0 && i < -f) ? -1 : 0; }
-  return 0;
-}
-
 const SF_KEYBOARD_PART_RE = /\b(piano|pno\.?|keyboard|keys|organ|accomp(?:animent)?|harp|harpsichord|celesta|synth|reduction)\b/i;
 
 function sfIsKeyboardPart(part, instKey) {
