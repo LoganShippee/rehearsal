@@ -50,6 +50,53 @@ function sfAlterToAccidental(alter) {
   return null;
 }
 
+function sfMakeEntry(opts) {
+  const o = opts || {};
+  const isRest = o.isRest !== undefined ? !!o.isRest : o.kind === 'rest';
+  const kind = o.kind || (isRest ? 'rest' : 'note');
+  return {
+    id: o.id !== undefined ? o.id : '',
+    kind,
+    partIndex: o.partIndex ?? 0,
+    measureIndex: o.measureIndex ?? 0,
+    voice: o.voice !== undefined ? o.voice : '1',
+    staff: o.staff !== undefined ? o.staff : 1,
+    isChord: !!o.isChord,
+    isRest,
+    isGrace: !!o.isGrace,
+    isCue: !!o.isCue,
+    measureRest: !!o.measureRest,
+    step: o.step !== undefined ? o.step : null,
+    octave: o.octave !== undefined ? o.octave : null,
+    alter: o.alter !== undefined ? o.alter : null,
+    accidental: o.accidental !== undefined ? o.accidental : null,
+    durationDivs: o.durationDivs ?? 0,
+    durationQ: o.durationQ ?? 0,
+    type: o.type !== undefined ? o.type : 'quarter',
+    dots: o.dots ?? 0,
+    ties: Array.isArray(o.ties) ? o.ties : [],
+    ...(o.lyrics !== undefined ? { lyrics: o.lyrics } : {}),
+    onsetQ: o.onsetQ ?? 0,
+    midi: o.midi !== undefined ? o.midi : null,
+    soundingMidi: o.soundingMidi !== undefined ? o.soundingMidi : null,
+    spoken: !!o.spoken,
+    notehead: o.notehead !== undefined ? o.notehead : null,
+    isUnpitched: !!o.isUnpitched,
+    timeModification: o.timeModification !== undefined ? o.timeModification : null,
+    extraXml: o.extraXml !== undefined ? o.extraXml : ''
+  };
+}
+
+function sfIsStructuralEntry(e, includePrint = true) {
+  if (!e) return false;
+  if (e.isAttributesSlot) return true;
+  return e.kind === 'other' && (
+    e.tag === 'barline' || e.tag === 'sound' ||
+    (includePrint && e.tag === 'print') ||
+    (e.tag === 'direction' && e.tempoBpm > 0)
+  );
+}
+
 function sfKeyAlterForStep(fifths, step) {
   const f = Math.trunc(Number(fifths) || 0);
   if (f > 0) {
@@ -901,7 +948,7 @@ function sfParseMusicXml(xmlString) {
           }
 
           if (!isGrace && !isChord) parseCurDivs += durationDivs;
-          entries.push({
+          entries.push(sfMakeEntry({
             id: `p${pi}_m${mi}_e${entryCounter++}`,
             kind: isRest ? 'rest' : 'note',
             partIndex: pi,
@@ -923,7 +970,6 @@ function sfParseMusicXml(xmlString) {
             dots,
             ties,
             lyrics,
-            onsetQ: 0,
             midi,
             soundingMidi,
             spoken,
@@ -931,7 +977,7 @@ function sfParseMusicXml(xmlString) {
             isUnpitched: !!unpitchedEl,
             timeModification,
             extraXml: extraParts.join('')
-          });
+          }));
         } else if (tag === 'backup' || tag === 'forward') {
           const durN = sfXmlChildNum(ch, 'duration');
           const durationDivs = isFinite(durN) ? durN : 0;
@@ -2550,35 +2596,9 @@ function sfInsertAfter(model, entryId, kind, opts) {
     entry.type = baseType;
     entry.dots = dots;
     if (oldDivs > newDivs) {
-      const remRests = sfDecomposeRestDivs(oldDivs - newDivs, measure.divisions).map(r => ({
-        id: '',
-        kind: 'rest',
-        partIndex,
-        measureIndex,
-        voice,
-        staff,
-        isChord: false,
-        isRest: true,
-        isGrace: false,
-        isCue: false,
-        measureRest: false,
-        step: null,
-        octave: null,
-        alter: null,
-        accidental: null,
-        durationDivs: r.durationDivs,
-        durationQ: r.durationQ,
-        type: r.type,
-        dots: r.dots,
-        ties: [],
-        onsetQ: 0,
-        midi: null,
-        soundingMidi: null,
-        spoken: false,
-        notehead: null,
-        isUnpitched: false,
-        timeModification: null,
-        extraXml: ''
+      const remRests = sfDecomposeRestDivs(oldDivs - newDivs, measure.divisions).map(r => sfMakeEntry({
+        kind: 'rest', partIndex, measureIndex, voice, staff,
+        durationDivs: r.durationDivs, durationQ: r.durationQ, type: r.type, dots: r.dots
       }));
       measure.entries.splice(entryIndex + 1, 0, ...remRests);
     }
@@ -2616,18 +2636,14 @@ function sfInsertAfter(model, entryId, kind, opts) {
     soundingMidi = midi !== null ? midi + sfTransposeSemis(tr) : null;
   }
 
-  const newEntry = {
+  const newEntry = sfMakeEntry({
     id,
     kind: isRest ? 'rest' : 'note',
     partIndex,
     measureIndex,
     voice,
     staff,
-    isChord: false,
     isRest,
-    isGrace: false,
-    isCue: false,
-    measureRest: false,
     step,
     octave,
     alter,
@@ -2636,13 +2652,9 @@ function sfInsertAfter(model, entryId, kind, opts) {
     durationQ: durInfo.newQ,
     type: baseType,
     dots,
-    ties: [],
-    onsetQ: 0,
     midi,
-    soundingMidi,
-    timeModification: null,
-    extraXml: ''
-  };
+    soundingMidi
+  });
 
   measure.entries.splice(insertIdx, 0, newEntry);
   sfRecalcMeasureOnsets(measure);
@@ -2952,12 +2964,7 @@ function sfClearPartMeasure(model, partIndex, measureIndex, staff) {
   const numStaves = part.staves || 1;
   const targetStaff = (staff != null && numStaves > 1) ? Math.trunc(Number(staff)) : null;
 
-  const preserved = [];
-  for (const e of measure.entries || []) {
-    if (e.isAttributesSlot || (e.kind === 'other' && (e.tag === 'barline' || e.tag === 'sound' || e.tag === 'print' || (e.tag === 'direction' && e.tempoBpm > 0)))) {
-      preserved.push(e);
-    }
-  }
+  const preserved = (measure.entries || []).filter(e => sfIsStructuralEntry(e));
 
   const beats = (measure.time && measure.time.beats) || 4;
   const bt = (measure.time && measure.time.beatType) || 4;
@@ -2992,36 +2999,10 @@ function sfClearPartMeasure(model, partIndex, measureIndex, staff) {
       voice = candidates.find(v => !otherVoices.has(v)) || String(targetStaff + 4);
     }
 
-    const restEntry = {
-      id: '',
-      kind: 'rest',
-      partIndex,
-      measureIndex,
-      voice,
-      staff: targetStaff,
-      isChord: false,
-      isRest: true,
-      isGrace: false,
-      isCue: false,
-      measureRest: true,
-      step: null,
-      octave: null,
-      alter: null,
-      accidental: null,
-      durationDivs: expectedDivs,
-      durationQ: expectedQ,
-      type: 'whole',
-      dots: 0,
-      ties: [],
-      onsetQ: 0,
-      midi: null,
-      soundingMidi: null,
-      spoken: false,
-      notehead: null,
-      isUnpitched: false,
-      timeModification: null,
-      extraXml: ''
-    };
+    const restEntry = sfMakeEntry({
+      kind: 'rest', partIndex, measureIndex, voice, staff: targetStaff,
+      measureRest: true, durationDivs: expectedDivs, durationQ: expectedQ, type: 'whole'
+    });
     entriesByStaff[targetStaff] = [restEntry];
     sfRebuildGrandStaffEntries(measure, numStaves, head, entriesByStaff, tail);
     sfReindexModelParts(model);
@@ -3047,36 +3028,13 @@ function sfClearPartMeasure(model, partIndex, measureIndex, staff) {
         extraXml: ''
       });
     }
-    const restEntry = {
+    const restEntry = sfMakeEntry({
       id: sfNextEntryId(partIndex, measureIndex, measure),
-      kind: 'rest',
-      partIndex,
-      measureIndex,
+      kind: 'rest', partIndex, measureIndex,
       voice: String(st === 1 ? '1' : (st === 2 ? '5' : st)),
-      staff: st,
-      isChord: false,
-      isRest: true,
-      isGrace: false,
-      isCue: false,
-      measureRest: true,
-      step: null,
-      octave: null,
-      alter: null,
-      accidental: null,
-      durationDivs: expectedDivs,
-      durationQ: expectedQ,
-      type: 'whole',
-      dots: 0,
-      ties: [],
-      onsetQ: 0,
-      midi: null,
-      soundingMidi: null,
-      spoken: false,
-      notehead: null,
-      isUnpitched: false,
-      timeModification: null,
-      extraXml: ''
-    };
+      staff: st, measureRest: true,
+      durationDivs: expectedDivs, durationQ: expectedQ, type: 'whole'
+    });
     if (!firstRest) firstRest = restEntry;
     measure.entries.push(restEntry);
   }
@@ -3320,7 +3278,7 @@ function sfMergeParts(model, keepIdx, mergeIdx) {
 
       const preserved = [];
       for (const e of km.entries || []) {
-        if (e.isAttributesSlot || (e.kind === 'other' && (e.tag === 'barline' || e.tag === 'sound' || (e.tag === 'direction' && e.tempoBpm > 0)))) {
+        if (sfIsStructuralEntry(e, false)) {
           if (kScale !== 1 && e.durationDivs) e.durationDivs = Math.round(e.durationDivs * kScale);
           preserved.push(e);
         }
@@ -3597,8 +3555,7 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
         e.durationQ = (e.durationDivs || 0) / nextDiv;
       }
 
-      const isStructural = e.isAttributesSlot || (e.kind === 'other' && (e.tag === 'barline' || e.tag === 'sound' || e.tag === 'print' || (e.tag === 'direction' && e.tempoBpm > 0)));
-      if (isStructural) {
+      if (sfIsStructuralEntry(e)) {
         preserved.push(e);
         continue;
       }
@@ -3711,36 +3668,12 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
           continue;
         }
         if (se.isRest || se.kind === 'rest') {
-          pastedEntries.push({
-            id: '',
-            kind: 'rest',
-            partIndex: targetPartIndex,
-            measureIndex: mi,
-            voice: vid,
-            staff,
-            isChord: false,
-            isRest: true,
-            isGrace: false,
-            isCue: false,
-            measureRest: !!se.measureRest,
-            step: null,
-            octave: null,
-            alter: null,
-            accidental: null,
-            durationDivs: divs,
-            durationQ: durQ,
-            type: se.type || sfInferBaseTypeFromQ(durQ, se.dots || 0),
-            dots: se.dots || 0,
-            ties: [],
-            onsetQ: 0,
-            midi: null,
-            soundingMidi: null,
-            spoken: false,
-            notehead: null,
-            isUnpitched: false,
-            timeModification: null,
-            extraXml: ''
-          });
+          pastedEntries.push(sfMakeEntry({
+            kind: 'rest', partIndex: targetPartIndex, measureIndex: mi,
+            voice: vid, staff, measureRest: !!se.measureRest,
+            durationDivs: divs, durationQ: durQ,
+            type: se.type || sfInferBaseTypeFromQ(durQ, se.dots || 0), dots: se.dots || 0
+          }));
           continue;
         }
 
@@ -3770,37 +3703,15 @@ function sfPasteMeasures(model, clipboard, targetPartIndex, targetStartMeasureId
         const midi = sfPitchToMidi(pitchSpec.step, pitchSpec.octave, pitchSpec.alter);
         const soundingMidi = midi !== null ? midi + trSemis : null;
         const rawTies = Array.isArray(se.ties) ? se.ties.filter(t => t === 'start' || t === 'stop') : [];
-        const noteObj = {
-          id: '',
-          kind: 'note',
-          partIndex: targetPartIndex,
-          measureIndex: mi,
-          voice: vid,
-          staff,
-          isChord: false,
-          isRest: false,
-          isGrace: false,
-          isCue: false,
-          measureRest: false,
-          step: pitchSpec.step,
-          octave: pitchSpec.octave,
-          alter: pitchSpec.alter,
-          accidental: pitchSpec.accidental,
-          durationDivs: divs,
-          durationQ: durQ,
-          type: se.type || sfInferBaseTypeFromQ(durQ, se.dots || 0),
-          dots: se.dots || 0,
-          ties: [],
-          lyrics: noteLyrics,
-          onsetQ: 0,
-          midi,
-          soundingMidi,
-          spoken: !!se.spoken,
-          notehead: se.spoken ? 'x' : null,
-          isUnpitched: false,
-          timeModification: null,
-          extraXml: lyricXml
-        };
+        const noteObj = sfMakeEntry({
+          kind: 'note', partIndex: targetPartIndex, measureIndex: mi,
+          voice: vid, staff,
+          step: pitchSpec.step, octave: pitchSpec.octave, alter: pitchSpec.alter, accidental: pitchSpec.accidental,
+          durationDivs: divs, durationQ: durQ,
+          type: se.type || sfInferBaseTypeFromQ(durQ, se.dots || 0), dots: se.dots || 0,
+          lyrics: noteLyrics, midi, soundingMidi,
+          spoken: !!se.spoken, notehead: se.spoken ? 'x' : null, extraXml: lyricXml
+        });
 
         const prevNote = lastPastedNoteByVoice[vid];
         if (prevNote && rawTies.includes('stop') && prevNote._wantTieStart && sfSameWrittenPitch(prevNote, noteObj)) {
@@ -3950,35 +3861,9 @@ function sfPlaceNoteAt(model, opts) {
   const tr = measure.activeTranspose || part.transpose;
   const trSemis = sfTransposeSemis(tr);
 
-  const makeRestList = remDivs => sfDecomposeRestDivs(remDivs, measure.divisions).map(r => ({
-    id: '',
-    kind: 'rest',
-    partIndex: pi,
-    measureIndex: mi,
-    voice,
-    staff,
-    isChord: false,
-    isRest: true,
-    isGrace: false,
-    isCue: false,
-    measureRest: false,
-    step: null,
-    octave: null,
-    alter: null,
-    accidental: null,
-    durationDivs: r.durationDivs,
-    durationQ: r.durationQ,
-    type: r.type,
-    dots: r.dots,
-    ties: [],
-    onsetQ: 0,
-    midi: null,
-    soundingMidi: null,
-    spoken: false,
-    notehead: null,
-    isUnpitched: false,
-    timeModification: null,
-    extraXml: ''
+  const makeRestList = remDivs => sfDecomposeRestDivs(remDivs, measure.divisions).map(r => sfMakeEntry({
+    kind: 'rest', partIndex: pi, measureIndex: mi, voice, staff,
+    durationDivs: r.durationDivs, durationQ: r.durationQ, type: r.type, dots: r.dots
   }));
 
   if (o.addChord && targetEntry && targetEntry.kind === 'note' && !targetEntry.isRest) {
@@ -3992,36 +3877,15 @@ function sfPlaceNoteAt(model, opts) {
     const priorAlter = sfPriorActiveAlter(measure, insertAt, chordBase.staff || staff, step, octave);
     const acc = spoken ? null : (o.accidental !== undefined ? o.accidental : ((alter !== priorAlter) ? sfAlterToAccidental(alter) : null));
     const midi = sfPitchToMidi(step, octave, alter);
-    const newTone = {
-      id: '',
-      kind: 'note',
-      partIndex: pi,
-      measureIndex: mi,
-      voice: chordBase.voice || voice,
-      staff: chordBase.staff || staff,
-      isChord: true,
-      isRest: false,
-      isGrace: false,
-      isCue: false,
-      measureRest: false,
-      step,
-      octave,
-      alter,
-      accidental: acc,
-      durationDivs: chordBase.durationDivs,
-      durationQ: chordBase.durationQ,
-      type: chordBase.type,
-      dots: chordBase.dots,
-      ties: [],
-      onsetQ: chordBase.onsetQ,
-      midi,
-      soundingMidi: midi !== null ? midi + trSemis : null,
-      spoken,
-      notehead: spoken ? 'x' : null,
-      isUnpitched: false,
-      timeModification: null,
-      extraXml: ''
-    };
+    const newTone = sfMakeEntry({
+      kind: 'note', partIndex: pi, measureIndex: mi,
+      voice: chordBase.voice || voice, staff: chordBase.staff || staff,
+      isChord: true, step, octave, alter, accidental: acc,
+      durationDivs: chordBase.durationDivs, durationQ: chordBase.durationQ,
+      type: chordBase.type, dots: chordBase.dots,
+      onsetQ: chordBase.onsetQ, midi, soundingMidi: midi !== null ? midi + trSemis : null,
+      spoken, notehead: spoken ? 'x' : null
+    });
     measure.entries.splice(insertAt, 0, newTone);
     sfReindexModelParts(model);
     sfRecalcMeasureOnsets(measure);
@@ -4122,36 +3986,13 @@ function sfPlaceNoteAt(model, opts) {
   const priorAlter = sfPriorActiveAlter(measure, insertAt, staff, step, octave);
   const acc = spoken ? null : (o.accidental !== undefined ? o.accidental : ((alter !== priorAlter) ? sfAlterToAccidental(alter) : null));
   const midi = sfPitchToMidi(step, octave, alter);
-  const appended = {
-    id: '',
-    kind: 'note',
-    partIndex: pi,
-    measureIndex: mi,
-    voice,
-    staff,
-    isChord: false,
-    isRest: false,
-    isGrace: false,
-    isCue: false,
-    measureRest: false,
-    step,
-    octave,
-    alter,
-    accidental: acc,
-    durationDivs: durInfo.durationDivs,
-    durationQ: durInfo.newQ,
-    type: baseType,
-    dots,
-    ties: [],
-    onsetQ: 0,
-    midi,
-    soundingMidi: midi !== null ? midi + trSemis : null,
-    spoken,
-    notehead: spoken ? 'x' : null,
-    isUnpitched: false,
-    timeModification: null,
-    extraXml: ''
-  };
+  const appended = sfMakeEntry({
+    kind: 'note', partIndex: pi, measureIndex: mi, voice, staff,
+    step, octave, alter, accidental: acc,
+    durationDivs: durInfo.durationDivs, durationQ: durInfo.newQ,
+    type: baseType, dots, midi, soundingMidi: midi !== null ? midi + trSemis : null,
+    spoken, notehead: spoken ? 'x' : null
+  });
   measure.entries.splice(insertAt, 0, appended);
   sfReindexModelParts(model);
   sfRecalcMeasureOnsets(measure);
@@ -5093,36 +4934,13 @@ function sfApplyRhythmFix(model, suggestion) {
       insertAt = barIdx >= 0 ? barIdx : m.entries.length;
     }
 
-    const newRest = {
+    const newRest = sfMakeEntry({
       id: sfNextEntryId(suggestion.partIndex, suggestion.measureIndex, m),
-      kind: 'rest',
-      partIndex: suggestion.partIndex,
-      measureIndex: suggestion.measureIndex,
-      voice: vid,
-      staff,
-      isChord: false,
-      isRest: true,
-      isGrace: false,
-      isCue: false,
-      measureRest: false,
-      step: null,
-      octave: null,
-      alter: null,
-      accidental: null,
-      durationDivs: durInfo.durationDivs,
-      durationQ: durInfo.newQ,
-      type: suggestion.restType,
-      dots: suggestion.restDots ? 1 : 0,
-      ties: [],
-      onsetQ: 0,
-      midi: null,
-      soundingMidi: null,
-      spoken: false,
-      notehead: null,
-      isUnpitched: false,
-      timeModification: null,
-      extraXml: ''
-    };
+      kind: 'rest', partIndex: suggestion.partIndex, measureIndex: suggestion.measureIndex,
+      voice: vid, staff,
+      durationDivs: durInfo.durationDivs, durationQ: durInfo.newQ,
+      type: suggestion.restType, dots: suggestion.restDots ? 1 : 0
+    });
     m.entries.splice(insertAt, 0, newRest);
     sfRecalcMeasureOnsets(m);
     return { ok: true, changed: true, entryId: newRest.id };

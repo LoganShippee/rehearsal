@@ -274,24 +274,10 @@ class AudiverisAdapter(EngineAdapter):
         ]
 
 
-class CustomCmdAdapter(EngineAdapter):
+class CustomCmdAdapter(AudiverisAdapter):
     """Adapter for OMR_ENGINE_CMD overrides or custom CLI engines."""
 
     name: str = "custom"
-
-    def build_export_sheets_command(
-        self, omr_path: str, valid_pages: List[int], out_dir: str
-    ) -> Optional[List[str]]:
-        return list(self.cmd_prefix) + [
-            "-batch",
-            "-export",
-            "-sheets",
-            *[str(p) for p in valid_pages],
-            "-output",
-            out_dir,
-            "--",
-            omr_path,
-        ]
 
 
 class HomrAdapter(EngineAdapter):
@@ -2101,17 +2087,6 @@ class OMRService:
                     self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG)
                     return
 
-                jdir = self._job_dir(job_id)
-                raw_dest = os.path.join(jdir, "raw.mxl" if primary_result["isMxl"] else "raw.musicxml")
-                with open(raw_dest, "wb") as f:
-                    f.write(primary_result["rawBytes"])
-
-                pdf_meta: Dict[str, Any] = {}
-                spoken_cues: List[Dict[str, Any]] = []
-                if is_pdf and enable_ocr:
-                    pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
-                    spoken_cues = pdf_meta.get("spokenCues", [])
-
                 flagged_pages = (
                     self._detect_flagged_pages_from_xml(primary_result["rawMusicxml"], total_pages)
                     if is_pdf
@@ -2122,28 +2097,26 @@ class OMRService:
                     for p_num in flagged_pages
                     for vn in ("v400", "v350c")
                 ]
-                self._update_job(
+                self._finalize_completed_job(
                     job_id,
-                    status="completed",
-                    progress=100,
-                    stage="completed",
-                    stage_detail="Scan complete (v300).",
-                    spoken_cues_json=json.dumps(spoken_cues),
-                    pdf_text_meta_json=json.dumps(pdf_meta),
-                    alternate_runs_json=json.dumps(initial_alts),
-                    raw_path=raw_dest,
+                    raw_bytes=primary_result["rawBytes"],
+                    is_mxl=primary_result["isMxl"],
                     raw_musicxml=primary_result["rawMusicxml"],
-                    error="",
-                    error_code="",
-                    completed_at=utc_now_iso(),
+                    is_pdf=is_pdf,
+                    enable_ocr=enable_ocr,
+                    original_path=original_path,
+                    prep_bin=prep_bin,
+                    stage_detail="Scan complete (v300).",
+                    alternate_runs_json=json.dumps(initial_alts),
                 )
 
                 if flagged_pages:
                     handed_off_tmpdir = True
 
-                    def _run_flagged_alternates() -> None:
-                        alt_results: List[Dict[str, Any]] = list(initial_alts)
-                        alt_lock = threading.Lock()
+                    def _start_flagged() -> Tuple[
+                        Dict[concurrent.futures.Future[Any], Tuple[str, Optional[int]]],
+                        concurrent.futures.ThreadPoolExecutor,
+                    ]:
                         tasks: List[Tuple[str, int, str, str]] = []
                         for p_num in flagged_pages:
                             for vn, dpi, contrast in (("v400", 400, False), ("v350c", 350, True)):
@@ -2162,60 +2135,29 @@ class OMRService:
                                 tasks.append((f"{vn}-p{p_num}", p_num, in_path, os.path.join(tmpdir, f"out-{vn}-p{p_num}")))
 
                         max_w = max(1, min(self.config.workers, os.cpu_count() or 2, 4))
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as ex:
-                            fmap = {
-                                ex.submit(
-                                    self._run_variant_once,
-                                    vlabel,
-                                    in_p,
-                                    out_p,
-                                    adapter,
-                                    enable_ocr,
-                                    effective_timeout,
-                                    sub_env,
-                                ): (vlabel, p_num)
-                                for vlabel, p_num, in_p, out_p in tasks
-                            }
-                            try:
-                                for f in concurrent.futures.as_completed(fmap):
-                                    if self._stop_event.is_set():
-                                        break
-                                    vlabel, p_num = fmap[f]
-                                    try:
-                                        r = f.result()
-                                    except Exception as exc:
-                                        r = {"variant": vlabel, "status": "failed", "error": str(exc)}
-                                    entry = {
-                                        k: v
-                                        for k, v in r.items()
-                                        if k in ("variant", "status", "rawMusicxml", "seconds", "error")
-                                    }
-                                    entry["page"] = p_num
-                                    with alt_lock:
-                                        replaced = False
-                                        for idx, existing in enumerate(alt_results):
-                                            if existing.get("variant") == vlabel:
-                                                alt_results[idx] = entry
-                                                replaced = True
-                                                break
-                                        if not replaced:
-                                            alt_results.append(entry)
-                                        snapshot = json.dumps(alt_results)
-                                    self._update_job(
-                                        job_id,
-                                        alternate_runs_json=snapshot,
-                                    )
-                            finally:
-                                shutil.rmtree(tmpdir, ignore_errors=True)
+                        ex = concurrent.futures.ThreadPoolExecutor(max_workers=max_w)
+                        fmap = {
+                            ex.submit(
+                                self._run_variant_once,
+                                vlabel,
+                                in_p,
+                                out_p,
+                                adapter,
+                                enable_ocr,
+                                effective_timeout,
+                                sub_env,
+                            ): (vlabel, p_num)
+                            for vlabel, p_num, in_p, out_p in tasks
+                        }
+                        return fmap, ex
 
-                    ct = threading.Thread(
-                        target=_run_flagged_alternates,
-                        name=f"omr-mr-flagged-{job_id[:8]}",
-                        daemon=True,
+                    self._collect_alternate_runs(
+                        job_id,
+                        f"omr-mr-flagged-{job_id[:8]}",
+                        initial_alts,
+                        _start_flagged,
+                        tmpdir,
                     )
-                    with self._state_lock:
-                        self._collector_threads.append(ct)
-                    ct.start()
                 return
 
             used_prep_variants = False
@@ -2308,88 +2250,130 @@ class OMRService:
                 self._fail_job(job_id, "ENGINE_ERROR", ENGINE_ERROR_MSG)
                 return
 
-            jdir = self._job_dir(job_id)
-            raw_dest = os.path.join(jdir, "raw.mxl" if primary_result["isMxl"] else "raw.musicxml")
-            with open(raw_dest, "wb") as f:
-                f.write(primary_result["rawBytes"])
-
-            pdf_meta: Dict[str, Any] = {}
-            spoken_cues: List[Dict[str, Any]] = []
-            if is_pdf and enable_ocr:
-                pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
-                spoken_cues = pdf_meta.get("spokenCues", [])
-
             initial_all_alts = list(finished_alternates) + [
                 {"variant": fut_to_var[f], "status": "pending"}
                 for f in pending_futs
             ]
-            self._update_job(
+            self._finalize_completed_job(
                 job_id,
-                status="completed",
-                progress=100,
-                stage="completed",
-                stage_detail=f"Scan complete ({primary_result['variant']}).",
-                spoken_cues_json=json.dumps(spoken_cues),
-                pdf_text_meta_json=json.dumps(pdf_meta),
-                alternate_runs_json=json.dumps(initial_all_alts),
-                raw_path=raw_dest,
+                raw_bytes=primary_result["rawBytes"],
+                is_mxl=primary_result["isMxl"],
                 raw_musicxml=primary_result["rawMusicxml"],
-                error="",
-                error_code="",
-                completed_at=utc_now_iso(),
+                is_pdf=is_pdf,
+                enable_ocr=enable_ocr,
+                original_path=original_path,
+                prep_bin=prep_bin,
+                stage_detail=f"Scan complete ({primary_result['variant']}).",
+                alternate_runs_json=json.dumps(initial_all_alts),
             )
 
             if pending_futs:
                 handed_off_tmpdir = True
-                all_alts_lock = threading.Lock()
-                all_alts_state = list(initial_all_alts)
-
-                def _collect_remaining() -> None:
-                    try:
-                        for f in concurrent.futures.as_completed(pending_futs):
-                            if self._stop_event.is_set():
-                                break
-                            vn = fut_to_var[f]
-                            try:
-                                r = f.result()
-                            except Exception as exc:
-                                r = {"variant": vn, "status": "failed", "error": str(exc)}
-                            entry = {
-                                k: v
-                                for k, v in r.items()
-                                if k in ("variant", "status", "rawMusicxml", "seconds", "error")
-                            }
-                            with all_alts_lock:
-                                replaced = False
-                                for idx, existing in enumerate(all_alts_state):
-                                    if existing.get("variant") == vn:
-                                        all_alts_state[idx] = entry
-                                        replaced = True
-                                        break
-                                if not replaced:
-                                    all_alts_state.append(entry)
-                                snapshot = json.dumps(all_alts_state)
-                            self._update_job(
-                                job_id,
-                                alternate_runs_json=snapshot,
-                            )
-                    finally:
-                        executor.shutdown(wait=True)
-                        shutil.rmtree(tmpdir, ignore_errors=True)
-
-                ct = threading.Thread(
-                    target=_collect_remaining,
-                    name=f"omr-mr-collect-{job_id[:8]}",
-                    daemon=True,
+                self._collect_alternate_runs(
+                    job_id,
+                    f"omr-mr-collect-{job_id[:8]}",
+                    initial_all_alts,
+                    lambda: ({f: (fut_to_var[f], None) for f in pending_futs}, executor),
+                    tmpdir,
                 )
-                with self._state_lock:
-                    self._collector_threads.append(ct)
-                ct.start()
             else:
                 executor.shutdown(wait=True)
         finally:
             if not handed_off_tmpdir:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _finalize_completed_job(
+        self,
+        job_id: str,
+        *,
+        raw_bytes: bytes,
+        is_mxl: bool,
+        raw_musicxml: str,
+        is_pdf: bool,
+        enable_ocr: bool,
+        original_path: str,
+        prep_bin: Optional[str] = None,
+        stage_detail: str = "Scan complete.",
+        **extra_fields: Any,
+    ) -> None:
+        jdir = self._job_dir(job_id)
+        raw_dest = os.path.join(jdir, "raw.mxl" if is_mxl else "raw.musicxml")
+        with open(raw_dest, "wb") as f:
+            f.write(raw_bytes)
+
+        pdf_meta: Dict[str, Any] = {}
+        spoken_cues: List[Dict[str, Any]] = []
+        if is_pdf and enable_ocr:
+            if prep_bin is None:
+                prep_bin = self._ensure_preprocess_bin()
+            pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
+            spoken_cues = pdf_meta.get("spokenCues", [])
+
+        self._update_job(
+            job_id,
+            status="completed",
+            progress=100,
+            stage="completed",
+            stage_detail=stage_detail,
+            spoken_cues_json=json.dumps(spoken_cues),
+            pdf_text_meta_json=json.dumps(pdf_meta),
+            raw_path=raw_dest,
+            raw_musicxml=raw_musicxml,
+            error="",
+            error_code="",
+            completed_at=utc_now_iso(),
+            **extra_fields,
+        )
+
+    def _collect_alternate_runs(
+        self,
+        job_id: str,
+        thread_name: str,
+        initial_alts: List[Dict[str, Any]],
+        get_fmap: Callable[[], Tuple[Dict[concurrent.futures.Future[Any], Tuple[str, Optional[int]]], concurrent.futures.ThreadPoolExecutor]],
+        tmpdir: str,
+    ) -> None:
+        def _worker() -> None:
+            alt_results = list(initial_alts)
+            alt_lock = threading.Lock()
+            executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+            try:
+                fmap, executor = get_fmap()
+                for f in concurrent.futures.as_completed(fmap):
+                    if self._stop_event.is_set():
+                        break
+                    vlabel, p_num = fmap[f]
+                    try:
+                        r = f.result()
+                    except Exception as exc:
+                        r = {"variant": vlabel, "status": "failed", "error": str(exc)}
+                    entry = {
+                        k: v
+                        for k, v in r.items()
+                        if k in ("variant", "status", "rawMusicxml", "seconds", "error")
+                    }
+                    if p_num is not None:
+                        entry["page"] = p_num
+                    with alt_lock:
+                        replaced = False
+                        for idx, existing in enumerate(alt_results):
+                            if existing.get("variant") == vlabel:
+                                alt_results[idx] = entry
+                                replaced = True
+                                break
+                        if not replaced:
+                            alt_results.append(entry)
+                        snapshot = json.dumps(alt_results)
+                    self._update_job(job_id, alternate_runs_json=snapshot)
+            finally:
+                if executor is not None:
+                    executor.shutdown(wait=True)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        ct = threading.Thread(target=_worker, name=thread_name, daemon=True)
+        with self._state_lock:
+            self._collector_threads.append(ct)
+        ct.start()
 
     def _process_job(self, job_id: str) -> None:
         row = self.get_job_row(job_id)
@@ -2797,33 +2781,16 @@ class OMRService:
                 self._fail_job(job_id, "NO_USABLE_OUTPUT", NO_USABLE_OUTPUT_MSG)
                 return
 
-            jdir = self._job_dir(job_id)
-            raw_dest = os.path.join(jdir, "raw.mxl" if is_mxl else "raw.musicxml")
-            with open(raw_dest, "wb") as f:
-                f.write(raw_bytes)
-
-            pdf_meta: Dict[str, Any] = {}
-            spoken_cues: List[Dict[str, Any]] = []
-            if is_pdf and enable_ocr:
-                prep_bin = self._ensure_preprocess_bin()
-                pdf_meta = extract_pdf_text_metadata(original_path, prep_bin=prep_bin)
-                spoken_cues = pdf_meta.get("spokenCues", [])
-
-            self._update_job(
+            self._finalize_completed_job(
                 job_id,
-                status="completed",
-                progress=100,
-                stage="completed",
-                stage_detail="Scan complete.",
-                skipped_pages_json=json.dumps(skipped_pages),
-                spoken_cues_json=json.dumps(spoken_cues),
-                pdf_text_meta_json=json.dumps(pdf_meta),
-                warning=warning_msg,
-                raw_path=raw_dest,
+                raw_bytes=raw_bytes,
+                is_mxl=is_mxl,
                 raw_musicxml=xml_text,
-                error="",
-                error_code="",
-                completed_at=utc_now_iso(),
+                is_pdf=is_pdf,
+                enable_ocr=enable_ocr,
+                original_path=original_path,
+                skipped_pages_json=json.dumps(skipped_pages),
+                warning=warning_msg,
             )
 
     def verify_member_token(self, token: str) -> Optional[Tuple[str, str]]:
@@ -3410,6 +3377,26 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_error(self, status: int, error_code: str, error: str) -> None:
+        self._send_json(status, {"ok": False, "errorCode": error_code, "error": error})
+
+    def _read_json_object(
+        self, max_bytes: int, allow_empty: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        body, err = self._read_body(max_bytes)
+        if err is not None or body is None:
+            self._send_error(400, "INVALID_BODY", err or "Invalid request body.")
+            return None
+        try:
+            payload = json.loads(body.decode("utf-8")) if (not allow_empty or body.strip()) else {}
+        except (ValueError, UnicodeDecodeError):
+            self._send_error(400, "INVALID_JSON", "Request body must be valid JSON.")
+            return None
+        if not isinstance(payload, dict):
+            self._send_error(400, "INVALID_JSON", "Request body must be a JSON object.")
+            return None
+        return payload
+
     def _send_bytes(
         self,
         status: int,
@@ -3466,14 +3453,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/scan/library":
             ok, identity = self.service.resolve_auth(self.headers.get("Authorization"))
             if not ok:
-                self._send_json(
-                    401,
-                    {
-                        "ok": False,
-                        "errorCode": "UNAUTHORIZED",
-                        "error": "Sign in to Rehearsal to view your verified scan library.",
-                    },
-                )
+                self._send_error(401, "UNAUTHORIZED", "Sign in to Rehearsal to view your verified scan library.")
                 return
             items = self.service.list_library(identity)
             self._send_json(200, {"ok": True, "items": items})
@@ -3483,14 +3463,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
         if m_cache:
             upload_hash = m_cache.group(1).lower()
             if not HASH_RE.match(upload_hash):
-                self._send_json(
-                    400,
-                    {
-                        "ok": False,
-                        "errorCode": "INVALID_HASH",
-                        "error": "Invalid upload hash.",
-                    },
-                )
+                self._send_error(400, "INVALID_HASH", "Invalid upload hash.")
                 return
             cached = self.service.get_cache(upload_hash)
             if not cached:
@@ -3526,25 +3499,11 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             job_id = m_job.group(1)
             sub = m_job.group(2)
             if not JOB_ID_RE.match(job_id):
-                self._send_json(
-                    404,
-                    {
-                        "ok": False,
-                        "errorCode": "JOB_NOT_FOUND",
-                        "error": "Scan job not found.",
-                    },
-                )
+                self._send_error(404, "JOB_NOT_FOUND", "Scan job not found.")
                 return
             row = self.service.get_job_row(job_id)
             if not row:
-                self._send_json(
-                    404,
-                    {
-                        "ok": False,
-                        "errorCode": "JOB_NOT_FOUND",
-                        "error": "Scan job not found.",
-                    },
-                )
+                self._send_error(404, "JOB_NOT_FOUND", "Scan job not found.")
                 return
 
             if sub is None:
@@ -3554,14 +3513,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             if sub == "original":
                 orig_path = row.get("original_path") or ""
                 if not orig_path or not os.path.isfile(orig_path):
-                    self._send_json(
-                        404,
-                        {
-                            "ok": False,
-                            "errorCode": "NOT_FOUND",
-                            "error": "Original upload not found.",
-                        },
-                    )
+                    self._send_error(404, "NOT_FOUND", "Original upload not found.")
                     return
                 with open(orig_path, "rb") as f:
                     data = f.read()
@@ -3571,14 +3523,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             if sub == "raw":
                 raw_path = row.get("raw_path") or ""
                 if not raw_path or not os.path.isfile(raw_path):
-                    self._send_json(
-                        404,
-                        {
-                            "ok": False,
-                            "errorCode": "NOT_FOUND",
-                            "error": "Raw OMR output is not available for this job.",
-                        },
-                    )
+                    self._send_error(404, "NOT_FOUND", "Raw OMR output is not available for this job.")
                     return
                 with open(raw_path, "rb") as f:
                     data = f.read()
@@ -3593,14 +3538,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             if sub == "corrected.mxl":
                 mxl_path = row.get("corrected_mxl_path") or ""
                 if not row.get("verified") or not mxl_path or not os.path.isfile(mxl_path):
-                    self._send_json(
-                        404,
-                        {
-                            "ok": False,
-                            "errorCode": "NOT_FOUND",
-                            "error": "Verified .mxl score has not been saved for this job.",
-                        },
-                    )
+                    self._send_error(404, "NOT_FOUND", "Verified .mxl score has not been saved for this job.")
                     return
                 with open(mxl_path, "rb") as f:
                     data = f.read()
@@ -3613,10 +3551,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-        self._send_json(
-            404,
-            {"ok": False, "errorCode": "NOT_FOUND", "error": "Endpoint not found."},
-        )
+        self._send_error(404, "NOT_FOUND", "Endpoint not found.")
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlsplit(self.path)
@@ -3631,14 +3566,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
         if m_confirm:
             job_id = m_confirm.group(1)
             if not JOB_ID_RE.match(job_id):
-                self._send_json(
-                    404,
-                    {
-                        "ok": False,
-                        "errorCode": "JOB_NOT_FOUND",
-                        "error": "Scan job not found.",
-                    },
-                )
+                self._send_error(404, "JOB_NOT_FOUND", "Scan job not found.")
                 return
             self._handle_confirm_job(job_id)
             return
@@ -3647,22 +3575,12 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
         if m_verify:
             job_id = m_verify.group(1)
             if not JOB_ID_RE.match(job_id):
-                self._send_json(
-                    404,
-                    {
-                        "ok": False,
-                        "errorCode": "JOB_NOT_FOUND",
-                        "error": "Scan job not found.",
-                    },
-                )
+                self._send_error(404, "JOB_NOT_FOUND", "Scan job not found.")
                 return
             self._handle_verify_measures(job_id)
             return
 
-        self._send_json(
-            404,
-            {"ok": False, "errorCode": "NOT_FOUND", "error": "Endpoint not found."},
-        )
+        self._send_error(404, "NOT_FOUND", "Endpoint not found.")
 
     def _handle_create_job(self, qs: Dict[str, List[str]]) -> None:
         # Allow slight overhead for multipart headers above max_upload_bytes
@@ -3673,38 +3591,17 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
 
         body, err = self._read_body(read_limit)
         if err is not None or body is None:
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "FILE_TOO_LARGE",
-                    "error": err or "Invalid upload payload.",
-                },
-            )
+            self._send_error(400, "FILE_TOO_LARGE", err or "Invalid upload payload.")
             return
 
         if is_multipart:
             try:
                 fields, file_part = parse_multipart_form_data(body, content_type)
             except ValueError as exc:
-                self._send_json(
-                    400,
-                    {
-                        "ok": False,
-                        "errorCode": "INVALID_MULTIPART",
-                        "error": str(exc),
-                    },
-                )
+                self._send_error(400, "INVALID_MULTIPART", str(exc))
                 return
             if file_part is None:
-                self._send_json(
-                    400,
-                    {
-                        "ok": False,
-                        "errorCode": "MISSING_FILE",
-                        "error": "Missing file field in multipart upload.",
-                    },
-                )
+                self._send_error(400, "MISSING_FILE", "Missing file field in multipart upload.")
                 return
             filename, mime_type, file_bytes = file_part
             instrument = fields.get("instrument", "")
@@ -3730,14 +3627,7 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
             filename, mime_type, file_bytes, max_bytes
         )
         if err_code or not ext or not norm_mime:
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": err_code or "INVALID_UPLOAD",
-                    "error": err_msg or "Invalid upload.",
-                },
-            )
+            self._send_error(400, err_code or "INVALID_UPLOAD", err_msg or "Invalid upload.")
             return
 
         result = self.service.create_job(
@@ -3756,50 +3646,11 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
     def _handle_confirm_job(self, job_id: str) -> None:
         ok, identity = self.service.resolve_auth(self.headers.get("Authorization"))
         if not ok:
-            self._send_json(
-                401,
-                {
-                    "ok": False,
-                    "errorCode": "UNAUTHORIZED",
-                    "error": "Sign in to Rehearsal as a teacher or student to save verified scans.",
-                },
-            )
+            self._send_error(401, "UNAUTHORIZED", "Sign in to Rehearsal as a teacher or student to save verified scans.")
             return
 
-        body, err = self._read_body(25 * 1024 * 1024)
-        if err is not None or body is None:
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_BODY",
-                    "error": err or "Invalid request body.",
-                },
-            )
-            return
-
-        try:
-            payload = json.loads(body.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_JSON",
-                    "error": "Request body must be valid JSON.",
-                },
-            )
-            return
-
-        if not isinstance(payload, dict):
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_JSON",
-                    "error": "Request body must be a JSON object.",
-                },
-            )
+        payload = self._read_json_object(25 * 1024 * 1024)
+        if payload is None:
             return
 
         status, resp = self.service.confirm_job(job_id, payload, identity)
@@ -3808,62 +3659,16 @@ class OMRRequestHandler(BaseHTTPRequestHandler):
     def _handle_verify_measures(self, job_id: str) -> None:
         ok, _identity = self.service.resolve_auth(self.headers.get("Authorization"))
         if not ok:
-            self._send_json(
-                401,
-                {
-                    "ok": False,
-                    "errorCode": "UNAUTHORIZED",
-                    "error": "Sign in to Rehearsal to verify measures with AI.",
-                },
-            )
+            self._send_error(401, "UNAUTHORIZED", "Sign in to Rehearsal to verify measures with AI.")
             return
 
-        body, err = self._read_body(1024 * 1024)
-        if err is not None or body is None:
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_BODY",
-                    "error": err or "Invalid request body.",
-                },
-            )
-            return
-
-        try:
-            payload = json.loads(body.decode("utf-8")) if body.strip() else {}
-        except (ValueError, UnicodeDecodeError):
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_JSON",
-                    "error": "Request body must be valid JSON.",
-                },
-            )
-            return
-
-        if not isinstance(payload, dict):
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_JSON",
-                    "error": "Request body must be a JSON object.",
-                },
-            )
+        payload = self._read_json_object(1024 * 1024, allow_empty=True)
+        if payload is None:
             return
 
         raw_measures = payload.get("measures", [])
         if not isinstance(raw_measures, list):
-            self._send_json(
-                400,
-                {
-                    "ok": False,
-                    "errorCode": "INVALID_MEASURES",
-                    "error": "measures must be a list of 0-based measure indices.",
-                },
-            )
+            self._send_error(400, "INVALID_MEASURES", "measures must be a list of 0-based measure indices.")
             return
 
         model_raw = payload.get("model")

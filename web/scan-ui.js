@@ -1221,20 +1221,29 @@
       showToast(`Removed meter change at m. ${mi + 1}.`);
     }
 
-    function toggleMeterPopover(anchorBtn) {
+    function openBarPopover(anchorBtn, className, maxWidth, html, bind) {
       const rootEl = host.querySelector('.sf-root') || host;
-      const wasOpen = !!rootEl.querySelector('.sf-meter-pop');
+      const wasOpen = !!rootEl.querySelector(`.${className}`);
       closeBarPopovers(rootEl);
       if (wasOpen) return;
-      if (!state.model || typeof sfGetEffectiveTimeSig !== 'function') return;
+      const pop = document.createElement('div');
+      pop.className = className;
+      pop.innerHTML = html;
+      const rRoot = rootEl.getBoundingClientRect();
+      const rBtn = anchorBtn.getBoundingClientRect();
+      pop.style.top = `${Math.max(8, rBtn.bottom - rRoot.top + 6)}px`;
+      pop.style.left = `${Math.max(8, Math.min(rRoot.width - maxWidth, rBtn.left - rRoot.left))}px`;
+      rootEl.appendChild(pop);
+      const closePop = bindBarPopoverLifecycle(rootEl, pop, anchorBtn);
+      bind(pop, closePop);
+    }
 
+    function toggleMeterPopover(anchorBtn) {
+      if (!state.model || typeof sfGetEffectiveTimeSig !== 'function') return;
       const mi = state.activeMeasure || 0;
       const cur = sfGetEffectiveTimeSig(state.model, mi);
       const presets = ['2/4', '3/4', '4/4', '5/4', '6/4', '2/2', '3/2', '3/8', '6/8', '9/8', '12/8'];
-
-      const pop = document.createElement('div');
-      pop.className = 'sf-meter-pop';
-      pop.innerHTML = `
+      const html = `
         <div class="sf-meter-head">Time signature · m. ${mi + 1}</div>
         ${mi > 0 ? `<label class="sf-meter-scope"><input type="checkbox" id="sf-meter-baronly" checked> This bar only (m. ${mi + 1})</label>` : ''}
         <div class="sf-meter-grid">
@@ -1251,42 +1260,30 @@
         </div>
         ${mi > 0 && cur.explicit ? '<button type="button" class="sf-btn sf-btn-danger sf-meter-rem" id="sf-meter-remove">Remove change</button>' : ''}
       `;
-
-      const rRoot = rootEl.getBoundingClientRect();
-      const rBtn = anchorBtn.getBoundingClientRect();
-      pop.style.top = `${Math.max(8, rBtn.bottom - rRoot.top + 6)}px`;
-      pop.style.left = `${Math.max(8, Math.min(rRoot.width - 256, rBtn.left - rRoot.left))}px`;
-      rootEl.appendChild(pop);
-
-      const closePop = bindBarPopoverLifecycle(rootEl, pop, anchorBtn);
-
-      const isBarOnly = () => !!(pop.querySelector('#sf-meter-baronly')?.checked);
-      pop.querySelectorAll('[data-sf-mp]').forEach((b) => {
-        b.addEventListener('click', () => {
-          const [bts, bty] = b.dataset.sfMp.split('/').map(Number);
+      openBarPopover(anchorBtn, 'sf-meter-pop', 256, html, (pop, closePop) => {
+        const isBarOnly = () => !!(pop.querySelector('#sf-meter-baronly')?.checked);
+        pop.querySelectorAll('[data-sf-mp]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const [bts, bty] = b.dataset.sfMp.split('/').map(Number);
+            closePop();
+            applyMeterChange(mi, bts, bty, isBarOnly());
+          });
+        });
+        pop.querySelector('#sf-meter-apply')?.addEventListener('click', () => {
+          const bts = Number(pop.querySelector('#sf-meter-beats')?.value || 4);
+          const bty = Number(pop.querySelector('#sf-meter-type')?.value || 4);
           closePop();
           applyMeterChange(mi, bts, bty, isBarOnly());
         });
-      });
-      pop.querySelector('#sf-meter-apply')?.addEventListener('click', () => {
-        const bts = Number(pop.querySelector('#sf-meter-beats')?.value || 4);
-        const bty = Number(pop.querySelector('#sf-meter-type')?.value || 4);
-        closePop();
-        applyMeterChange(mi, bts, bty, isBarOnly());
-      });
-      pop.querySelector('#sf-meter-remove')?.addEventListener('click', () => {
-        closePop();
-        removeMeterChange(mi);
+        pop.querySelector('#sf-meter-remove')?.addEventListener('click', () => {
+          closePop();
+          removeMeterChange(mi);
+        });
       });
     }
 
     function toggleTempoPopover(anchorBtn) {
-      const rootEl = host.querySelector('.sf-root') || host;
-      const wasOpen = !!rootEl.querySelector('.sf-tempo-pop');
-      closeBarPopovers(rootEl);
-      if (wasOpen) return;
       if (!state.model || typeof sfGetMeasureTempo !== 'function') return;
-
       const mi = state.activeMeasure || 0;
       const cur = sfGetMeasureTempo(state.model, mi);
       let selUnit = cur.beatUnit || 'quarter';
@@ -1298,10 +1295,7 @@
         { unit: 'half', dot: false, lbl: '𝅗𝅥' },
         { unit: 'eighth', dot: false, lbl: '♪' }
       ];
-
-      const pop = document.createElement('div');
-      pop.className = 'sf-tempo-pop';
-      pop.innerHTML = `
+      const html = `
         <div class="sf-meter-head">Tempo · m. ${mi + 1}</div>
         <div class="sf-tempo-bpm">
           <button type="button" class="sf-ebtn" data-sf-tbpm="-5">−5</button>
@@ -1326,78 +1320,63 @@
           ${cur.explicit ? '<button type="button" class="sf-btn sf-btn-danger" id="sf-tempo-remove">Remove tempo</button>' : ''}
         </div>
       `;
-
-      const rRoot = rootEl.getBoundingClientRect();
-      const rBtn = anchorBtn.getBoundingClientRect();
-      pop.style.top = `${Math.max(8, rBtn.bottom - rRoot.top + 6)}px`;
-      pop.style.left = `${Math.max(8, Math.min(rRoot.width - 270, rBtn.left - rRoot.left))}px`;
-      rootEl.appendChild(pop);
-
-      const closePop = bindBarPopoverLifecycle(rootEl, pop, anchorBtn);
-      const bpmIn = pop.querySelector('#sf-tempo-bpm');
-      const lblIn = pop.querySelector('#sf-tempo-lbl');
-
-      pop.querySelectorAll('[data-sf-tbpm]').forEach((b) => {
-        b.addEventListener('click', () => {
-          const next = Math.max(20, Math.min(300, Math.round(Number(bpmIn.value || 100) + Number(b.dataset.sfTbpm))));
-          bpmIn.value = String(next);
+      openBarPopover(anchorBtn, 'sf-tempo-pop', 270, html, (pop, closePop) => {
+        const bpmIn = pop.querySelector('#sf-tempo-bpm');
+        const lblIn = pop.querySelector('#sf-tempo-lbl');
+        pop.querySelectorAll('[data-sf-tbpm]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const next = Math.max(20, Math.min(300, Math.round(Number(bpmIn.value || 100) + Number(b.dataset.sfTbpm))));
+            bpmIn.value = String(next);
+          });
         });
-      });
-      pop.querySelectorAll('[data-sf-tp]').forEach((b) => {
-        b.addEventListener('click', () => {
-          bpmIn.value = b.dataset.sfTp;
-          pop.querySelectorAll('[data-sf-tp]').forEach(x => x.classList.toggle('on', x === b));
+        pop.querySelectorAll('[data-sf-tp]').forEach((b) => {
+          b.addEventListener('click', () => {
+            bpmIn.value = b.dataset.sfTp;
+            pop.querySelectorAll('[data-sf-tp]').forEach(x => x.classList.toggle('on', x === b));
+          });
         });
-      });
-      pop.querySelectorAll('[data-sf-tu]').forEach((b) => {
-        b.addEventListener('click', () => {
-          const u = units[Number(b.dataset.sfTu)];
-          if (!u) return;
-          selUnit = u.unit;
-          selDot = u.dot;
-          pop.querySelectorAll('[data-sf-tu]').forEach(x => x.classList.toggle('on', x === b));
+        pop.querySelectorAll('[data-sf-tu]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const u = units[Number(b.dataset.sfTu)];
+            if (!u) return;
+            selUnit = u.unit;
+            selDot = u.dot;
+            pop.querySelectorAll('[data-sf-tu]').forEach(x => x.classList.toggle('on', x === b));
+          });
         });
-      });
-      pop.querySelectorAll('[data-sf-tc]').forEach((b) => {
-        b.addEventListener('click', () => { lblIn.value = b.dataset.sfTc; });
-      });
-      pop.querySelector('#sf-tempo-apply')?.addEventListener('click', () => {
-        if (typeof sfSetMeasureTempo !== 'function') return;
-        const bpm = Math.max(20, Math.min(300, Math.round(Number(bpmIn.value) || 100)));
-        const label = (lblIn.value || '').trim();
-        const working = sfCloneModel(state.model);
-        if (sfSetMeasureTempo(working, mi, bpm, { beatUnit: selUnit, beatUnitDot: selDot, label })) {
-          commitModelChange(`Tempo ${bpm} BPM`, working, mi, undefined, false);
-          showToast(`Set m. ${mi + 1} tempo to ${bpm} BPM.`);
-        }
-        closePop();
-      });
-      pop.querySelector('#sf-tempo-remove')?.addEventListener('click', () => {
-        if (typeof sfRemoveMeasureTempo !== 'function') return;
-        const working = sfCloneModel(state.model);
-        if (sfRemoveMeasureTempo(working, mi)) {
-          commitModelChange('Remove tempo', working, mi, undefined, false);
-          showToast(`Removed tempo at m. ${mi + 1}.`);
-        }
-        closePop();
+        pop.querySelectorAll('[data-sf-tc]').forEach((b) => {
+          b.addEventListener('click', () => { lblIn.value = b.dataset.sfTc; });
+        });
+        pop.querySelector('#sf-tempo-apply')?.addEventListener('click', () => {
+          if (typeof sfSetMeasureTempo !== 'function') return;
+          const bpm = Math.max(20, Math.min(300, Math.round(Number(bpmIn.value) || 100)));
+          const label = (lblIn.value || '').trim();
+          const working = sfCloneModel(state.model);
+          if (sfSetMeasureTempo(working, mi, bpm, { beatUnit: selUnit, beatUnitDot: selDot, label })) {
+            commitModelChange(`Tempo ${bpm} BPM`, working, mi, undefined, false);
+            showToast(`Set m. ${mi + 1} tempo to ${bpm} BPM.`);
+          }
+          closePop();
+        });
+        pop.querySelector('#sf-tempo-remove')?.addEventListener('click', () => {
+          if (typeof sfRemoveMeasureTempo !== 'function') return;
+          const working = sfCloneModel(state.model);
+          if (sfRemoveMeasureTempo(working, mi)) {
+            commitModelChange('Remove tempo', working, mi, undefined, false);
+            showToast(`Removed tempo at m. ${mi + 1}.`);
+          }
+          closePop();
+        });
       });
     }
 
     function toggleKeyPopover(anchorBtn) {
-      const rootEl = host.querySelector('.sf-root') || host;
-      const wasOpen = !!rootEl.querySelector('.sf-key-pop');
-      closeBarPopovers(rootEl);
-      if (wasOpen) return;
       if (!state.model || typeof sfGetEffectiveKeySig !== 'function') return;
-
       const mi = state.activeMeasure || 0;
       const cur = sfGetEffectiveKeySig(state.model, mi);
       const flats = [[-7, '7♭ C♭'], [-6, '6♭ G♭'], [-5, '5♭ D♭'], [-4, '4♭ A♭'], [-3, '3♭ E♭'], [-2, '2♭ B♭'], [-1, '1♭ F']];
       const sharps = [[1, '1♯ G'], [2, '2♯ D'], [3, '3♯ A'], [4, '4♯ E'], [5, '5♯ B'], [6, '6♯ F♯'], [7, '7♯ C♯']];
-
-      const pop = document.createElement('div');
-      pop.className = 'sf-key-pop';
-      pop.innerHTML = `
+      const html = `
         <div class="sf-meter-head">Key signature · m. ${mi + 1}</div>
         <div class="sf-key-grid">
           ${flats.map(([f, lbl]) => `<button type="button" class="sf-ebtn ${cur.fifths === f ? 'on' : ''}" data-sf-kf="${f}">${lbl}</button>`).join('')}
@@ -1409,36 +1388,29 @@
         <label class="sf-meter-scope"><input type="checkbox" id="sf-key-match" checked> Match unmarked notes to new key</label>
         ${mi > 0 && cur.explicit ? '<button type="button" class="sf-btn sf-btn-danger sf-meter-rem" id="sf-key-remove">Remove change</button>' : ''}
       `;
-
-      const rRoot = rootEl.getBoundingClientRect();
-      const rBtn = anchorBtn.getBoundingClientRect();
-      pop.style.top = `${Math.max(8, rBtn.bottom - rRoot.top + 6)}px`;
-      pop.style.left = `${Math.max(8, Math.min(rRoot.width - 280, rBtn.left - rRoot.left))}px`;
-      rootEl.appendChild(pop);
-
-      const closePop = bindBarPopoverLifecycle(rootEl, pop, anchorBtn);
-
-      pop.querySelectorAll('[data-sf-kf]').forEach((b) => {
-        b.addEventListener('click', () => {
-          if (typeof sfSetMeasureKeySig !== 'function') return;
-          const fifths = Number(b.dataset.sfKf);
-          const updateUnmarkedPitches = !!pop.querySelector('#sf-key-match')?.checked;
+      openBarPopover(anchorBtn, 'sf-key-pop', 280, html, (pop, closePop) => {
+        pop.querySelectorAll('[data-sf-kf]').forEach((b) => {
+          b.addEventListener('click', () => {
+            if (typeof sfSetMeasureKeySig !== 'function') return;
+            const fifths = Number(b.dataset.sfKf);
+            const updateUnmarkedPitches = !!pop.querySelector('#sf-key-match')?.checked;
+            const working = sfCloneModel(state.model);
+            if (sfSetMeasureKeySig(working, mi, fifths, { updateUnmarkedPitches })) {
+              commitModelChange(`Key ${b.textContent}`, working, mi, undefined, false);
+              showToast(`Set m. ${mi + 1} key to ${b.textContent}.`);
+            }
+            closePop();
+          });
+        });
+        pop.querySelector('#sf-key-remove')?.addEventListener('click', () => {
+          if (typeof sfRemoveMeasureKeySig !== 'function') return;
           const working = sfCloneModel(state.model);
-          if (sfSetMeasureKeySig(working, mi, fifths, { updateUnmarkedPitches })) {
-            commitModelChange(`Key ${b.textContent}`, working, mi, undefined, false);
-            showToast(`Set m. ${mi + 1} key to ${b.textContent}.`);
+          if (sfRemoveMeasureKeySig(working, mi)) {
+            commitModelChange('Remove key change', working, mi, undefined, false);
+            showToast(`Removed key change at m. ${mi + 1}.`);
           }
           closePop();
         });
-      });
-      pop.querySelector('#sf-key-remove')?.addEventListener('click', () => {
-        if (typeof sfRemoveMeasureKeySig !== 'function') return;
-        const working = sfCloneModel(state.model);
-        if (sfRemoveMeasureKeySig(working, mi)) {
-          commitModelChange('Remove key change', working, mi, undefined, false);
-          showToast(`Removed key change at m. ${mi + 1}.`);
-        }
-        closePop();
       });
     }
 
@@ -3136,6 +3108,58 @@
       );
     }
 
+    const TOOLBAR_NOTE_OPS = {
+      'toggle-rest': {
+        label: (found) => found.entry.isRest ? 'Rest to note' : 'Make rest',
+        preview: (found) => !!found.entry.isRest,
+        run: (w, id, _v, found) => found.entry.isRest
+          ? (typeof sfRestToNote === 'function' ? sfRestToNote(w, id) : { ok: false, changed: false })
+          : sfDeleteOrMakeRest(w, id, 'rest')
+      },
+      'spoken': {
+        label: 'Toggle spoken',
+        run: (w, id) => typeof sfToggleSpoken === 'function' ? sfToggleSpoken(w, id) : null
+      },
+      'stack': {
+        label: 'Stack chord note', selectResult: true, preview: true,
+        run: (w, id) => typeof sfStackChordNote === 'function' ? sfStackChordNote(w, id) : null
+      },
+      'stack-letter': {
+        label: 'Stack chord note', selectResult: true, preview: true,
+        run: (w, id, val) => typeof sfStackChordNote === 'function' ? sfStackChordNote(w, id, { letter: val }) : null
+      },
+      'ins-note': {
+        label: 'Insert note', selectResult: true, preview: true,
+        run: (w, id) => typeof sfInsertAfter === 'function' ? sfInsertAfter(w, id, 'note') : null
+      },
+      'ins-rest': {
+        label: 'Insert rest', selectResult: true,
+        run: (w, id) => typeof sfInsertAfter === 'function' ? sfInsertAfter(w, id, 'rest') : null
+      },
+      'step': { label: 'Change pitch step', preview: true, run: (w, id, val) => sfEditPitchDiatonic(w, id, Number(val)) },
+      'semi': { label: 'Change pitch semitone', preview: true, run: (w, id, val) => sfEditPitchSemitone(w, id, Number(val)) },
+      'oct': {
+        label: 'Change octave', preview: true,
+        run: (w, id, val) => typeof sfEditPitchOctave === 'function' ? sfEditPitchOctave(w, id, Number(val)) : null
+      },
+      'letter': {
+        label: 'Set pitch letter', preview: true,
+        run: (w, id, val) => typeof sfSetPitchLetter === 'function' ? sfSetPitchLetter(w, id, val) : null
+      },
+      'acc': { label: 'Change accidental', preview: true, run: (w, id, val) => sfToggleAccidental(w, id, val) },
+      'respell': {
+        label: 'Respell enharmonic', preview: true,
+        run: (w, id) => typeof sfRespellEnharmonic === 'function' ? sfRespellEnharmonic(w, id) : null
+      },
+      'dur': { label: 'Change duration', run: (w, id, val, found) => sfEditDuration(w, id, val, found.entry.dots > 0) },
+      'dot': { label: 'Toggle dot', run: (w, id) => sfToggleDot(w, id) },
+      'tie': {
+        label: 'Toggle tie',
+        onFailToast: 'Ties connect two adjacent notes of the same pitch (check accidentals or rests between them).',
+        run: (w, id) => typeof sfToggleTie === 'function' ? sfToggleTie(w, id) : { ok: false, changed: false }
+      }
+    };
+
     function applyToolbarEdit(act, val) {
       if (!state.model) return;
 
@@ -3202,88 +3226,23 @@
         return;
       }
 
-      if (!state.selectedNoteId) return;
+      const op = TOOLBAR_NOTE_OPS[act];
+      if (!op || !state.selectedNoteId) return;
       const found = sfFindEntry(state.model, state.selectedNoteId);
       if (!found) return;
 
       const working = sfCloneModel(state.model);
       const targetId = state.selectedNoteId;
-      const measureIdx = found.measureIndex;
-      let res = { ok: false, changed: false };
-      let label = 'Edit';
-      let nextSelectId = targetId;
-      let shouldPreview = false;
-
-      if (act === 'toggle-rest') {
-        if (found.entry.isRest) {
-          res = typeof sfRestToNote === 'function' ? sfRestToNote(working, targetId) : { ok: false, changed: false };
-          label = 'Rest to note';
-          shouldPreview = true;
-        } else {
-          res = sfDeleteOrMakeRest(working, targetId, 'rest');
-          label = 'Make rest';
-        }
-      } else if (act === 'spoken') {
-        if (typeof sfToggleSpoken !== 'function') return;
-        res = sfToggleSpoken(working, targetId);
-        label = 'Toggle spoken';
-      } else if (act === 'stack' || act === 'stack-letter') {
-        if (typeof sfStackChordNote !== 'function') return;
-        res = sfStackChordNote(working, targetId, act === 'stack-letter' ? { letter: val } : undefined);
-        label = 'Stack chord note';
-        if (res.entry?.id) nextSelectId = res.entry.id;
-        shouldPreview = true;
-      } else if (act === 'ins-note' || act === 'ins-rest') {
-        if (typeof sfInsertAfter !== 'function') return;
-        res = sfInsertAfter(working, targetId, act === 'ins-rest' ? 'rest' : 'note');
-        label = act === 'ins-rest' ? 'Insert rest' : 'Insert note';
-        if (res.entry?.id) nextSelectId = res.entry.id;
-        shouldPreview = act === 'ins-note';
-      } else if (act === 'step') {
-        res = sfEditPitchDiatonic(working, targetId, Number(val));
-        label = 'Change pitch step';
-        shouldPreview = true;
-      } else if (act === 'semi') {
-        res = sfEditPitchSemitone(working, targetId, Number(val));
-        label = 'Change pitch semitone';
-        shouldPreview = true;
-      } else if (act === 'oct') {
-        if (typeof sfEditPitchOctave !== 'function') return;
-        res = sfEditPitchOctave(working, targetId, Number(val));
-        label = 'Change octave';
-        shouldPreview = true;
-      } else if (act === 'letter') {
-        if (typeof sfSetPitchLetter !== 'function') return;
-        res = sfSetPitchLetter(working, targetId, val);
-        label = 'Set pitch letter';
-        shouldPreview = true;
-      } else if (act === 'acc') {
-        res = sfToggleAccidental(working, targetId, val);
-        label = 'Change accidental';
-        shouldPreview = true;
-      } else if (act === 'respell') {
-        if (typeof sfRespellEnharmonic !== 'function') return;
-        res = sfRespellEnharmonic(working, targetId);
-        label = 'Respell enharmonic';
-        shouldPreview = true;
-      } else if (act === 'dur') {
-        const curDots = found.entry.dots > 0;
-        res = sfEditDuration(working, targetId, val, curDots);
-        label = 'Change duration';
-      } else if (act === 'dot') {
-        res = sfToggleDot(working, targetId);
-        label = 'Toggle dot';
-      } else if (act === 'tie') {
-        res = typeof sfToggleTie === 'function' ? sfToggleTie(working, targetId) : { ok: false, changed: false };
-        label = 'Toggle tie';
-        if (!res.ok || !res.changed) {
-          showToast('Ties connect two adjacent notes of the same pitch (check accidentals or rests between them).');
-          return;
-        }
+      const res = op.run(working, targetId, val, found);
+      if (!res) return;
+      if (!res.ok || !res.changed) {
+        if (op.onFailToast) showToast(op.onFailToast);
+        return;
       }
-
-      if (!res.ok || !res.changed) return;
-      commitModelChange(label, working, measureIdx, nextSelectId, shouldPreview);
+      const label = typeof op.label === 'function' ? op.label(found) : op.label;
+      const nextSelectId = op.selectResult && res.entry?.id ? res.entry.id : targetId;
+      const shouldPreview = typeof op.preview === 'function' ? op.preview(found) : !!op.preview;
+      commitModelChange(label, working, found.measureIndex, nextSelectId, shouldPreview);
     }
 
     // ---------- Inline Lyric & Direction Text Editor
