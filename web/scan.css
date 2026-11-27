@@ -1226,21 +1226,6 @@
 }
 
 /* ---------- Mobile & Narrow-Window Responsive Rules ---------- */
-@media (max-width: 899px) {
-  .sf-workspace[data-layout="split"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .sf-workspace[data-layout="split"] .sf-orig-pane {
-    display: none;
-  }
-  .sf-btn-split {
-    display: none !important;
-  }
-  .sf-form-row {
-    grid-template-columns: 1fr;
-  }
-}
-
 @container sfroot (max-width: 899px) {
   .sf-workspace[data-layout="split"] {
     grid-template-columns: minmax(0, 1fr);
@@ -1257,7 +1242,7 @@
 }
 
 /* Narrow phone / mobile band-room bottom dock for notation bar */
-@media (max-width: 639px) {
+@container sfroot (max-width: 639px) {
   .sf-bar {
     padding: 6px 8px;
     gap: 4px;
@@ -1278,16 +1263,8 @@
   .sf-ebtn {
     min-height: 34px;
   }
-}
-
-@container sfroot (max-width: 639px) {
-  .sf-editbar {
-    order: 5;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    border-bottom: none;
-    border-top: 1px solid var(--sf-line);
-    padding: 6px 8px;
+  .sf-mode-seg {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1404,12 +1381,6 @@
 
 .sf-mode-btn.on strong {
   color: var(--sf-accent);
-}
-
-@media (max-width: 639px) {
-  .sf-mode-seg {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Meter, Tempo, and Key popovers */
