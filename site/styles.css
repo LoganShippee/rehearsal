@@ -157,7 +157,6 @@ code {
   border-color: var(--accent);
   text-decoration: none;
 }
-.btn.lg { padding: 12px 20px; font-size: 15.5px; }
 .btn.primary {
   background: var(--accent);
   color: #ffffff;
@@ -202,16 +201,6 @@ code {
 .hero-shot {
   width: 100%;
   max-width: 960px;
-}
-.hero-points {
-  margin-top: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 20px;
-  font-size: 13.5px;
-  color: var(--muted);
-  font-weight: 500;
 }
 
 .page-hero {
@@ -280,21 +269,6 @@ code {
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
-}
-.tool-panel[hidden] { display: none; }
-.tool-layout {
-  display: grid;
-  grid-template-columns: 1.35fr 0.65fr;
-  gap: 24px;
-  align-items: center;
-}
-.tool-copy h3 {
-  font-size: 22px;
-  margin-bottom: 8px;
-}
-.tool-copy p {
-  color: var(--muted);
-  font-size: 15.5px;
 }
 
 /* ---------- Sections & Cards ---------- */
@@ -385,31 +359,7 @@ code {
   color: var(--muted);
 }
 
-/* ---------- Download Tabs & Steps ---------- */
-.os-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-.os-tab {
-  padding: 9px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--sky-line);
-  background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 14.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.os-tab.active, .os-tab[aria-selected="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-.os-panel[hidden] { display: none; }
-
+/* ---------- Steps & Callouts ---------- */
 .step-list {
   list-style: none;
   margin: 14px 0 0;
@@ -485,38 +435,6 @@ code {
 .form-status.ok { display: block; background: var(--ok-bg); color: var(--ok-ink); }
 .form-status.err { display: block; background: var(--warn-bg); color: var(--warn-ink); }
 
-/* ---------- Screenshot Lightbox ---------- */
-.lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  background: rgba(13, 27, 42, 0.84);
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-.lightbox[hidden] { display: none; }
-.lightbox img {
-  max-width: min(1160px, 94vw);
-  max-height: 88vh;
-  border-radius: 12px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
-}
-.lightbox-close {
-  position: fixed;
-  top: 16px;
-  right: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(13, 27, 42, 0.75);
-  color: #ffffff;
-  border-radius: 9px;
-  padding: 7px 13px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
 /* ---------- Footer ---------- */
 .site-footer {
   background: var(--surface);
@@ -558,7 +476,7 @@ code {
     box-shadow: var(--shadow-md);
   }
   .nav-links.open { display: flex; }
-  .tool-layout, .grid-3, .grid-2, .form-grid { grid-template-columns: 1fr; }
+  .grid-3, .grid-2, .form-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
@@ -568,57 +486,6 @@ code {
   .hero { padding: 30px 0 36px; }
   .section { padding: 38px 0; }
 }
-
-/* ---------- Student Homework Carousel ---------- */
-.carousel-card {
-  background: var(--surface);
-  border: 1px solid var(--sky-line);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: var(--shadow-sm);
-}
-.carousel-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.carousel-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.carousel-step-btn {
-  padding: 7px 13px;
-  border-radius: 9px;
-  border: 1px solid var(--sky-line);
-  background: var(--sky-soft);
-  color: var(--muted);
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.carousel-step-btn:hover { color: var(--ink); background: #e1eefb; }
-.carousel-step-btn[aria-selected="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-.carousel-controls {
-  display: inline-flex;
-  gap: 6px;
-}
-.carousel-slide[hidden] { display: none; }
-.carousel-caption {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.carousel-caption h3 { font-size: 20px; }
-.carousel-caption p { color: var(--muted); font-size: 15.5px; }
 
 /* Home, pricing, FAQ and demo page layout */
 .hero h1, .section-head h2 { text-wrap: balance; }
@@ -642,8 +509,6 @@ code {
 .strip b { display: block; margin-bottom: 4px; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; }
 .link-more { display: inline-block; margin-top: 10px; font-weight: 600; }
-.locked-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 6px; }
-.locked { background: #e8ecf2; color: #6b788b; border: 2px dashed #aab4c5; border-radius: 10px; padding: 8px 16px; font-weight: 600; cursor: not-allowed; }
 .faq details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 10px 0; }
 .faq summary { font-weight: 700; cursor: pointer; }
 .faq details p { margin: 10px 0 0; color: var(--muted); }
