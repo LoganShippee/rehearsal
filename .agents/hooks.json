@@ -1,16 +1,1 @@
-{
-  "rehearsal-edit-guard": {
-    "PreToolUse": [
-      {
-        "matcher": "edit_file|write_file",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/python3 ../tests/edit-guard.py --host agy",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
+{}

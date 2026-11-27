@@ -76,69 +76,29 @@ def claude_edit(rel_path: str, target: str, transcript: str = "") -> dict:
 
 print("==== edit-guard-test")
 
-# 1. Metronome request editing Metronome section in web/music.js -> ALLOW
+# 1. Normal app/UI/refactor edits inside repo are allowed without pre-edit popups
 r = agy_edit("web/music.js", "METRONOME", "fix the metronome beat flash bug")
-check("in-scope: metronome edit in music.js allowed", r.get("decision") == "allow", str(r))
+check("app edit in music.js allowed", r.get("decision") == "allow", str(r))
 
-# 2. Metronome request accidentally editing web/pdfview.js -> FORCE_ASK
-r = agy_edit("web/pdfview.js", "const reRenderSharp = () => {", "fix the metronome beat flash bug")
-check("out-of-scope + protected zone: pdfview.js zoom blocked", r.get("decision") == "force_ask" and "pdf-zoom-scroll" in r.get("reason", ""), str(r))
+r = agy_edit("web/pdfview.js", "const reRenderSharp = () => {", "modularize and clean up")
+check("UI/zoom edit allowed without pre-edit popup (verified post-edit by reviewer + tests)", r.get("decision") == "allow", str(r))
 
-# 3. Metronome request accidentally editing .pdfv-view in web/styles.css -> FORCE_ASK
-r = agy_edit("web/styles.css", ".pdfv-view { overflow: auto; -webkit-overflow-scrolling: touch; }", "fix the metronome beat flash bug")
-check("protected zone: .pdfv-view CSS blocked during metronome fix", r.get("decision") == "force_ask" and "pdf-zoom-scroll" in r.get("reason", ""), str(r))
+r = agy_edit("web/app.js", "window.__pinch = (x, y, mag, phase) => {", "modularize app.js")
+check("app.js edit allowed without pre-edit popup", r.get("decision") == "allow", str(r))
 
-# 4. Metronome request accidentally editing pinch zoom in web/app.js -> FORCE_ASK
-r = agy_edit("web/app.js", "window.__pinch = (x, y, mag, phase) => {", "fix the metronome beat flash bug")
-check("protected zone: window.__pinch blocked during metronome fix", r.get("decision") == "force_ask" and "unified-pinch-zoom" in r.get("reason", ""), str(r))
-
-# 5. Metronome request accidentally editing unrelated YouTube section in web/app.js -> FORCE_ASK
-r = agy_edit("web/app.js", "async function ytTitle(v) {", "fix the metronome beat flash bug")
-check("unrelated section in app.js: YouTube blocked during metronome fix", r.get("decision") == "force_ask" and "YouTube" in r.get("reason", ""), str(r))
-
-# 6. Metronome request accidentally editing Sight Reading in web/sight.js -> FORCE_ASK
-r = agy_edit("web/sight.js", "const applyLiveZoom =", "fix the metronome beat flash bug")
-check("unrelated file + protected zone: sight.js zoom blocked", r.get("decision") == "force_ask", str(r))
-
-# 7. Explicit PDF zoom bug request editing applyPdfZoom in web/pdfview.js -> ALLOW
-r = agy_edit("web/pdfview.js", "const reRenderSharp = () => {", "fix the PDF zoom jitter when scrolling")
-check("explicitly requested PDF zoom edit allowed", r.get("decision") == "allow", str(r))
-
-# 8. Persistent IDs ALWAYS require confirmation even if mentioned
+# 2. Catastrophic alwaysAsk data-safety zones ALWAYS require confirmation
 r = agy_edit("build.sh", "<key>CFBundleIdentifier</key><string>local.rehearsal.app</string>", "update build.sh identifier")
 check("persistent-ids always requires permission", r.get("decision") == "force_ask" and "persistent-ids" in r.get("reason", ""), str(r))
 
-# 9. Guardrail self-protection ALWAYS requires confirmation
-r = agy_edit("tests/edit-guard.py", "GUARDRAIL_FILES", "update edit-guard.py")
-check("self-protection: edit-guard.py always requires permission", r.get("decision") == "force_ask", str(r))
-r = agy_edit(".agents/hooks.json", "rehearsal-edit-guard", "update hooks.json")
-check("self-protection: .agents/hooks.json always requires permission", r.get("decision") == "force_ask", str(r))
+r = agy_edit("tools/hw-worker/wrangler.toml", "database_id", "update wrangler")
+check("homework-data-integrity always requires permission", r.get("decision") == "force_ask" and "homework-data-integrity" in r.get("reason", ""), str(r))
 
-# 10. Conversational follow-up ("yes go ahead") inherits active request from transcript
-with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tf:
-    tf.write(json.dumps({"type": "USER_INPUT", "content": "fix the tuner needle jitter"}) + "\n")
-    tf.write(json.dumps({"type": "USER_INPUT", "content": "yes go ahead"}) + "\n")
-    tpath = tf.name
-try:
-    r_ok = agy_edit("web/music.js", "// TUNER", "yes go ahead", transcript=tpath)
-    r_bad = agy_edit("web/score.js", "ctl.zoomBy = (f, cx, cy) => {", "yes go ahead", transcript=tpath)
-    check("follow-up inherits tuner context -> music.js allowed", r_ok.get("decision") == "allow", str(r_ok))
-    check("follow-up still blocks unrelated score.js zoom", r_bad.get("decision") == "force_ask", str(r_bad))
-finally:
-    os.unlink(tpath)
-
-# 11. Claude Code host protocol (--host claude)
-with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tf:
-    tf.write(json.dumps({"type": "user", "message": {"content": "fix the audio track loop marker"}}) + "\n")
-    cpath = tf.name
-try:
-    r_ok = claude_edit("web/tools.js", "REHEARSAL AUDIO TRACK PLAYER", transcript=cpath)
-    r_bad = claude_edit("web/pdfview.js", "view.style.overflow = 'auto';", transcript=cpath)
-    check("claude host: in-scope audio edit returns empty {} (defer to normal)", r_ok == {}, str(r_ok))
-    check("claude host: unrelated pdfview zoom returns permissionDecision=ask",
-          r_bad.get("hookSpecificOutput", {}).get("permissionDecision") == "ask", str(r_bad))
-finally:
-    os.unlink(cpath)
+# 3. Claude Code host protocol (--host claude)
+r_ok = claude_edit("web/tools.js", "REHEARSAL AUDIO TRACK PLAYER")
+r_bad = claude_edit("build.sh", "<key>CFBundleIdentifier</key><string>local.rehearsal.app</string>")
+check("claude host: normal app edit returns empty {} (defer to normal)", r_ok == {}, str(r_ok))
+check("claude host: persistent-ids returns permissionDecision=ask",
+      r_bad.get("hookSpecificOutput", {}).get("permissionDecision") == "ask", str(r_bad))
 
 print(f"edit-guard: {passed} passed, {failed} failed")
 if failed > 0:

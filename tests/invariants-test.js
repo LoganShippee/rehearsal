@@ -29,6 +29,9 @@ const jsFiles = [
   'web/grade.js',
   'web/pdfview.js',
   'web/app.js',
+  'web/widgets.js',
+  'web/quick-edit.js',
+  'web/editor.js',
   'web/looks.js',
   'web/settings.js',
   'web/score.js',
@@ -181,6 +184,37 @@ check('Narrow window: side panel stacks above the stage',
   let ok = false;
   try { const j = JSON.parse(raw); ok = Array.isArray(j.zones) && j.zones.length > 0; } catch (e) {}
   check('Protected zones manifest parses cleanly', ok);
+}
+
+// 8. Combined classic-script scope check (catches duplicate top-level const/let across web/index.html scripts)
+{
+  const scriptRe = /<script\s+src="([^"]+)"/g;
+  let m;
+  const sources = [];
+  while ((m = scriptRe.exec(indexHtml)) !== null) {
+    const raw = m[1].split('?')[0];
+    if (/^https?:\/\//.test(raw) || raw.startsWith('vendor/')) continue;
+    const src = read('web/' + raw);
+    if (src !== null) sources.push(`// --- ${raw} ---\n` + src.replace(/^\s*'use strict';\s*/gm, ''));
+  }
+  let scopeOk = false, scopeErr = '';
+  try {
+    new Function(sources.join('\n;\n'));
+    scopeOk = true;
+  } catch (e) {
+    scopeErr = String(e);
+  }
+  check('index.html classic script chain has no duplicate top-level const/let collisions', scopeOk, scopeErr);
+}
+
+// 9. Anti-bloat file-size ratchets (put new features in dedicated web/<feature>.js/.css files)
+{
+  const appLines = appJs.split('\n').length;
+  const cssLines = stylesCss.split('\n').length;
+  check(`Anti-bloat ratchet: web/app.js <= 4800 lines (currently ${appLines})`, appLines <= 4800,
+    'Extract new features into dedicated web/<feature>.js files instead of growing web/app.js');
+  check(`Anti-bloat ratchet: web/styles.css <= 3250 lines (currently ${cssLines})`, cssLines <= 3250,
+    'Extract new styles into dedicated web/<feature>.css files instead of growing web/styles.css');
 }
 
 print(`invariants: ${passed} passed, ${failures} failed`);

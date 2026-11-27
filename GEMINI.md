@@ -12,12 +12,12 @@ Both Antigravity and Claude Code work on this repo on `main`. Follow these hando
 
 1. **Check git state first.** Before editing, run `git status` and `git log -n 5 --oneline` to see recent commits or any uncommitted changes left by the other assistant. Do not overwrite or discard uncommitted changes without asking the user.
 2. **Keep commits clean and descriptive.** Write clear commit messages explaining *what* changed and *why* (plus any follow-up notes) so the next assistant can pick up context immediately from `git log`. Never force-push or rewrite shared history on `main`.
-3. **Strict scope & live permission guard (mandatory).**
-   - **Only touch code needed for the user's request.** Do not opportunistically refactor or edit unrelated files/sections.
-   - **Live Pre-Edit Permission Gate:** `.agents/hooks.json` (Antigravity) and `.claude/settings.json` (Claude Code) run `tests/edit-guard.py` before every edit. Any edit to unrelated app code, any Protected Zone (`tests/protected-zones.json`), or any guardrail file triggers a mandatory user permission prompt. Never bypass file-edit tools by rewriting source files with shell commands (`sed`, `python`, `>`).
+3. **Strict scope & independent Regression Reviewer (mandatory).**
+   - **Only touch code needed for the user's request.** Do not opportunistically refactor or edit unrelated files/sections, and never rewrite source files with shell commands (`sed`, `python`, `>`).
+   - **Independent Regression & UI Reviewer Agent:** After any multi-file edit, refactor, or UI change, invoke a fresh-context read-only reviewer (following `.claude/agents/regression-reviewer.md`) to double-check `git diff`, `tests/protected-zones.json`, and UI behavior (plus browser visual check for UI changes) so nothing interferes with existing working features.
    - **Verify before handing off:**
-     - Run `tests/run.sh` — verifies syntax for all `web/*.js`, `index.html` ↔ `sw.js` parity, zoom/scrolling/stacking/ID invariants (`tests/invariants-test.js`), edit-guard self-tests (`tests/edit-guard-test.py`), and the grader tests.
-     - Run `tests/check-diff.sh` — audits every changed file and feature section against `HEAD` and fails if any Protected Zone was touched without explicit user approval (`--allow <zone>`).
+     - Run `tests/run.sh` — verifies syntax for all `web/*.js`, `index.html` ↔ `sw.js` parity, anti-bloat file-size ratchets, zoom/scrolling/stacking/ID invariants (`tests/invariants-test.js`), and the grader/homework/OMR tests.
+     - Run `tests/check-diff.sh` — audits every changed file and feature section against `HEAD` and flags any touched Protected Zone for reviewer verification.
    - After editing `native/*.swift`, run `./build.sh` to verify the universal macOS app compiles cleanly.
    - If you add static files needed offline in the web version, add them to `FILES` in `web/sw.js`.
    - If you add files that must ship inside the `.app` bundle, check the diff list in `release.sh`.

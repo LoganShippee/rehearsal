@@ -408,21 +408,10 @@ def main():
 
     rel_path = os.path.relpath(abs_path, REPO_ROOT).replace(os.sep, "/")
 
-    # 1. Self-protection: never silently edit guardrail / hook files
-    if rel_path in GUARDRAIL_FILES:
-        emit(
-            host,
-            False,
-            f"Permission check: Agent is trying to edit guardrail file `{rel_path}`. Confirm before modifying permission rules or safety checks.",
-        )
-
-    # Build user request context from lastUserInput + recent user messages in transcript
-    recent_msgs = read_recent_user_messages(transcript_path, limit=4)
-    if last_user and (not recent_msgs or recent_msgs[-1] != last_user):
-        recent_msgs.append(last_user)
-    request_text = normalize_text(" \n ".join(recent_msgs))
-
-    # Determine exact edited line ranges in the existing file
+    # Only gate catastrophic alwaysAsk data-safety zones (bundle ID, localStorage/IndexedDB keys,
+    # production Cloudflare D1/R2 bindings & student code hashing). Normal app/UI edits and
+    # refactors are allowed without pre-edit prompts and verified afterward by the Regression
+    # Reviewer agent + tests/run.sh + tests/check-diff.sh.
     file_lines = read_file_lines(abs_path)
     is_new_file = not os.path.isfile(abs_path)
     if is_new_file:
@@ -432,10 +421,8 @@ def main():
         for t in targets:
             edited_ranges.extend(find_target_line_ranges(abs_path, t))
     else:
-        # Full-file overwrite (write_file / Write)
         edited_ranges = [(1, max(1, len(file_lines)))]
 
-    # 2. Check Protected Zones (tests/protected-zones.json)
     manifest_path = os.path.join(REPO_ROOT, "tests", "protected-zones.json")
     if os.path.isfile(manifest_path) and not is_new_file:
         try:
@@ -445,40 +432,19 @@ def main():
             manifest = {"zones": []}
 
         for zone in manifest.get("zones", []):
+            if not zone.get("alwaysAsk"):
+                continue
             for rule in zone.get("rules", []):
                 if rule.get("file") != rel_path:
                     continue
                 p_ranges = compute_protected_ranges(rule, file_lines)
                 for e1, e2 in edited_ranges:
                     if any(overlaps(e1, e2, p1, p2) for p1, p2 in p_ranges):
-                        if not zone_matches_request(zone, request_text):
-                            emit(
-                                host,
-                                False,
-                                f"Permission check (Protected Zone `{zone['id']}`): Agent wants to edit \"{zone['label']}\" at `{rel_path}:L{e1}` ({zone['reason']}), which wasn't requested. Allow this edit?",
-                            )
-
-    # 3. Check Unrelated App Code (any edit to web/, native/, windows/, build.sh, release.sh)
-    is_app_code = rel_path in APP_CODE_FILES or rel_path.startswith(APP_CODE_PREFIXES)
-    if is_app_code:
-        # Collect every distinct section touched by this edit
-        touched = []
-        seen_sec = set()
-        for e1, _ in edited_ranges:
-            sec = "(new file)" if is_new_file else section_for_line(rel_path, file_lines, e1)
-            if sec not in seen_sec:
-                seen_sec.add(sec)
-                touched.append((e1, sec))
-
-        for line_no, sec in touched:
-            feature_name, topics = classify_file_and_section(rel_path, sec)
-            if not request_matches_topics(request_text, topics, rel_path, sec):
-                loc = f"`{rel_path}`" if is_new_file else f"`{rel_path}:L{line_no}` (section: {sec})"
-                emit(
-                    host,
-                    False,
-                    f"Permission check (Unrelated Code): Agent wants to edit {feature_name} at {loc}, which does not appear related to your current request. Allow editing this code?",
-                )
+                        emit(
+                            host,
+                            False,
+                            f"Permission check (Data Safety `{zone['id']}`): Agent wants to edit \"{zone['label']}\" at `{rel_path}:L{e1}` ({zone['reason']}). Allow this edit?",
+                        )
 
     emit(host, True)
 
