@@ -45,13 +45,19 @@ final class HoleWebView: WKWebView {
         evaluateJavaScript("window.__pinch && window.__pinch(\(p.x), \(p.y), 0, 'toggle')")
     }
 
-    func makeTransparent() {
+    private var isTransparent = false
+
+    func setTransparent(_ on: Bool) {
+        guard on != isTransparent else { return }
+        isTransparent = on
         // WebKit SPI, widely used; only call it if present so we never crash.
         if responds(to: NSSelectorFromString("setDrawsBackground:")) || responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            setValue(false, forKey: "drawsBackground")
+            setValue(!on, forKey: "drawsBackground")
         }
-        if #available(macOS 12.0, *) { underPageBackgroundColor = .clear }
+        if #available(macOS 12.0, *) { underPageBackgroundColor = on ? .clear : NSColor(red: 0.04, green: 0.22, blue: 0.33, alpha: 1) }
     }
+
+    func makeTransparent() { setTransparent(true) }
 }
 
 final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
@@ -178,6 +184,7 @@ final class WebWindows: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         owner.holes = (body["holes"] as? [Any] ?? []).compactMap(zrect)
         owner.blockers = (body["blockers"] as? [Any] ?? []).compactMap(zrect)
+        owner.setTransparent(!owner.holes.isEmpty)
         // Stack the native views in the same order as the page's windows (items arrive lowest first).
         let order = (body["items"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
         if order != lastOrder {

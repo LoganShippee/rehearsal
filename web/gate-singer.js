@@ -438,15 +438,15 @@
   }
 
   // Permanent fixed vertical pitch ladder across ALL waves & patterns:
-  // low sol (-3) to high do (+7) — Cue Bar is now docked above the canvas so high do' is 100% unobstructed!
+  // low sol (-3) to high do (+7), with dynamic headroom so extreme gates & asteroids stay inside the canvas.
   const FIXED_MIN_DEG = -3;
   const FIXED_MAX_DEG = 7;
   function degreeToY(d) {
-    const topPad = 68;
-    const botPad = 62;
+    const openH = Number(CFG.openingH) || 104;
+    const pad = Math.min(G.H * 0.24, Math.max(58, openH * 0.72));
     const span = FIXED_MAX_DEG - FIXED_MIN_DEG;
     const norm = Math.max(0, Math.min(1, (d - FIXED_MIN_DEG) / span));
-    return G.H - botPad - norm * (G.H - topPad - botPad);
+    return G.H - pad - norm * Math.max(40, G.H - pad * 2);
   }
 
   // ---------- Audio: Guide Synth, Charge-Up SFX, Harmony Ring Clears, Space Music, Drone ----------
@@ -1076,7 +1076,7 @@
   // ---------- Live Pitch Polling (Fast 60 Hz Fresh-Window Detection) ----------
   function pollPitch(nowMs) {
     if (G.autoPilot || G.boostTimer > 0 || G.inputMode !== 'mic' || !G.audio.an) return;
-    if (nowMs - G.audio.lastPoll < 15) return;
+    if (nowMs - G.audio.lastPoll < 12) return;
     G.audio.lastPoll = nowMs;
 
     const an = G.audio.an;
@@ -1169,6 +1169,7 @@
       ? ['#fde047', '#f472b6', '#38bdf8', '#34d399', '#c084fc']
       : ['#fbbf24', '#fb923c', '#38bdf8', '#fef08a'];
     for (let i = 0; i < count; i++) {
+      if (G.particles.length >= 160) G.particles.shift();
       G.particles.push({
         x: G.bird.x - 24,
         y: G.bird.y + (Math.random() - 0.5) * 9,
@@ -1204,6 +1205,7 @@
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = 70 + Math.random() * 230;
+      if (G.particles.length >= 160) G.particles.shift();
       G.particles.push({
         x, y,
         vx: Math.cos(ang) * spd,
@@ -1216,7 +1218,14 @@
     }
   }
   function spawnPopup(x, y, text, color) {
-    G.popups.push({ x, y, text, color, life: 0.95, maxLife: 0.95 });
+    let sy = y;
+    for (let i = 0; i < G.popups.length; i++) {
+      const o = G.popups[i];
+      if (Math.abs(o.x - x) < 120 && Math.abs(o.y - sy) < 24) sy = o.y + 26;
+    }
+    sy = Math.max(28, Math.min(G.H - 24, sy));
+    G.popups.push({ x, y: sy, text, color, life: 0.95, maxLife: 0.95 });
+    if (G.popups.length > 10) G.popups.shift();
   }
 
   // ---------- Game Lifecycle & HUD ----------
@@ -1241,7 +1250,7 @@
         healLabel.textContent = `Next ❤️: ${G.healStreak}/${needHeal}`;
         healBar.style.width = `${Math.min(100, (G.healStreak / needHeal) * 100)}%`;
       } else {
-        healLabel.textContent = `Full ❤️ (${needHeal} streak = +1 ❤️)`;
+        healLabel.textContent = '❤️ Full';
         healBar.style.width = '100%';
       }
     }
@@ -1376,7 +1385,11 @@
   }
 
   // ---------- Main Update Loop ----------
+  const topbarEl = document.querySelector('.topbar');
+  let lastBoostHudMs = 0;
   function update(dt, nowMs) {
+    if (topbarEl) topbarEl.classList.toggle('is-playing', G.state === 'playing');
+    if (G.state === 'paused') return;
     G.t += dt;
     pollPitch(nowMs);
     G.bird.x = Math.floor(G.W * ((Number(CFG.birdXFrac) || 20) / 100));
@@ -1387,6 +1400,7 @@
       return;
     }
 
+    rebuildPathCache();
     const base = Number(CFG.baseSpeed) || 185;
     const perWave = Number(CFG.speedPerWave) || 15;
     const isBoosting = G.boostTimer > 0;
@@ -1395,8 +1409,11 @@
       if (G.boostTimer <= 0) {
         G.bird.noteGrace = 0.85;
         spawnPopup(G.W * 0.5, G.H * 0.30, 'Hyperdrive Complete — Back to You!', '#38bdf8');
+        syncHud();
+      } else if (nowMs - lastBoostHudMs >= 100) {
+        lastBoostHudMs = nowMs;
+        syncHud();
       }
-      syncHud();
     }
     const boostMult = isBoosting ? 2.15 : 1.0;
     const speed = (base + G.waveIdx * perWave) * (Number(speedSel.value) || 1.25) * boostMult;
@@ -1481,8 +1498,8 @@
     if ((curGate && curGate.locked) || inBreathBreak || G.boostTimer > 0) {
       const safeCenter = globalPathYAt(G.bird.x);
       const maxOffset = Math.max(12, ((Number(CFG.openingH) || 104) * 0.5) - 22);
-      if (G.bird.y < safeCenter - maxOffset) G.bird.y = safeCenter - maxOffset;
-      if (G.bird.y > safeCenter + maxOffset) G.bird.y = safeCenter + maxOffset;
+      const clampedTarget = Math.max(safeCenter - maxOffset, Math.min(safeCenter + maxOffset, G.bird.y));
+      G.bird.y += (clampedTarget - G.bird.y) * (1 - Math.exp(-16 * dt));
     }
     if (G.bird.y < 54) G.bird.y = 54;
     if (G.bird.y > G.H - 44) G.bird.y = G.H - 44;
@@ -1707,13 +1724,18 @@
   }
 
   // ---------- Rendering: Deep Space, Nebula, Debris, Varied Obstacles & Solfege Rocket ----------
+  let cachedSkyH = 0;
+  let cachedSkyGrad = null;
   function drawBackground() {
-    const grad = ctx.createLinearGradient(0, 0, 0, G.H);
-    grad.addColorStop(0, '#090e1f');
-    grad.addColorStop(0.55, '#101833');
-    grad.addColorStop(1, '#14203e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, G.W, G.H);
+    if (cachedSkyH !== G.H || !cachedSkyGrad) {
+      cachedSkyH = G.H;
+      cachedSkyGrad = ctx.createLinearGradient(0, 0, 0, G.H);
+      cachedSkyGrad.addColorStop(0, '#090e1f');
+      cachedSkyGrad.addColorStop(0.55, '#101833');
+      cachedSkyGrad.addColorStop(1, '#14203e');
+    }
+    ctx.fillStyle = cachedSkyGrad;
+    ctx.fillRect(-16, -16, G.W + 32, G.H + 32);
 
     const drawNebula = (cx, cy, r, col) => {
       const ng = ctx.createRadialGradient(cx, cy, 10, cx, cy, r);
@@ -1731,6 +1753,7 @@
     for (let i = 0; i < G.stars.length; i++) {
       const s = G.stars[i];
       const sx = ((s.x - G.scrollX * s.p) % G.W + G.W) % G.W;
+      const sy = s.y % Math.max(1, G.H);
       const tw = 0.55 + 0.45 * Math.sin(G.t * 2.5 + i);
       ctx.fillStyle = i % 5 === 0
         ? `rgba(196, 181, 253, ${(0.75 * tw).toFixed(2)})`
@@ -1738,31 +1761,43 @@
       if (i % 7 === 0) {
         const r = s.r * 3.2;
         ctx.beginPath();
-        ctx.moveTo(sx, s.y - r);
-        ctx.quadraticCurveTo(sx, s.y, sx + r, s.y);
-        ctx.quadraticCurveTo(sx, s.y, sx, s.y + r);
-        ctx.quadraticCurveTo(sx, s.y, sx - r, s.y);
-        ctx.quadraticCurveTo(sx, s.y, sx, s.y - r);
+        ctx.moveTo(sx, sy - r);
+        ctx.quadraticCurveTo(sx, sy, sx + r, sy);
+        ctx.quadraticCurveTo(sx, sy, sx, sy + r);
+        ctx.quadraticCurveTo(sx, sy, sx - r, sy);
+        ctx.quadraticCurveTo(sx, sy, sx, sy - r);
         ctx.fill();
       } else {
         ctx.beginPath();
-        ctx.arc(sx, s.y, s.r, 0, Math.PI * 2);
+        ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Subtle holographic 5-line musical staff grid
-    const staffTop = G.H * 0.34;
-    const gap = 24;
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.08)';
-    ctx.lineWidth = 1.1;
-    for (let i = 0; i < 5; i++) {
-      const y = staffTop + i * gap;
+    // Pitch-ladder guide lines aligned to degreeToY(d) so students see tonic/dominant altitude
+    const ladderAnchors = [
+      { d: 7, lbl: "do'", hi: true },
+      { d: 4, lbl: 'sol', hi: false },
+      { d: 2, lbl: 'mi',  hi: false },
+      { d: 0, lbl: 'do',  hi: true },
+      { d: -3, lbl: 'sol,', hi: false }
+    ];
+    ctx.save();
+    ctx.font = '700 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (const a of ladderAnchors) {
+      const y = degreeToY(a.d);
+      ctx.strokeStyle = a.hi ? 'rgba(56, 189, 248, 0.14)' : 'rgba(148, 163, 184, 0.07)';
+      ctx.lineWidth = a.hi ? 1.2 : 1;
       ctx.beginPath();
-      ctx.moveTo(0, y);
+      ctx.moveTo(30, y);
       ctx.lineTo(G.W, y);
       ctx.stroke();
+      ctx.fillStyle = a.hi ? 'rgba(125, 211, 252, 0.42)' : 'rgba(148, 163, 184, 0.28)';
+      ctx.fillText(a.lbl, 7, y);
     }
+    ctx.restore();
 
     // Hyperspace rainbow speed lines during Hyperdrive Boost
     if (G.boostTimer > 0) {
@@ -1906,23 +1941,29 @@
     ctx.restore();
   }
 
-  // Continuous safe flight path across ALL patterns AND every breath break between them
-  function globalPathYAt(x) {
-    const pts = [];
+  // Continuous safe flight path across ALL patterns AND every breath break between them (cached once per frame)
+  let _pathPts = [];
+  function rebuildPathCache() {
+    _pathPts.length = 0;
     for (const pat of G.patterns) {
-      for (const g of pat.gates) pts.push({ x: g.x + g.w / 2, y: g.cy });
+      for (const g of pat.gates) _pathPts.push({ x: g.x + g.w / 2, y: g.cy });
     }
+    if (_pathPts.length > 1) _pathPts.sort((a, b) => a.x - b.x);
+  }
+  function globalPathYAt(x) {
+    const pts = _pathPts;
     if (!pts.length) return degreeToY(0);
-    pts.sort((a, b) => a.x - b.x);
     if (x <= pts[0].x) return pts[0].y;
-    for (let i = 0; i < pts.length - 1; i++) {
+    const last = pts.length - 1;
+    if (x >= pts[last].x) return pts[last].y;
+    for (let i = 0; i < last; i++) {
       if (x <= pts[i + 1].x) {
         const u = Math.max(0, Math.min(1, (x - pts[i].x) / Math.max(1, pts[i + 1].x - pts[i].x)));
         const s = u * u * (3 - 2 * u);
         return pts[i].y + (pts[i + 1].y - pts[i].y) * s;
       }
     }
-    return pts[pts.length - 1].y;
+    return pts[last].y;
   }
 
   function drawAllPatternObstacles() {
@@ -2035,7 +2076,7 @@
     }
   }
 
-  function drawPattern(pat, isActive, curGate) {
+  function drawPatternContour(pat, isActive) {
     if (CFG.showContour && pat.gates.length > 1) {
       const traceContour = () => {
         ctx.beginPath();
@@ -2067,7 +2108,9 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
 
+  function drawPatternGates(pat, curGate) {
     for (const g of pat.gates) {
       const isCur = curGate && g.uid === curGate.uid;
       const cx = g.x + g.w / 2;
@@ -2080,14 +2123,14 @@
         : G.boostTimer > 0 ? '#fde047'
         : g.locked ? '#34d399'
         : isCur ? '#38bdf8'
-        : 'rgba(148, 163, 184, 0.35)';
+        : 'rgba(148, 163, 184, 0.45)';
       ctx.strokeStyle = glowCol;
       ctx.lineWidth = g.locked ? 3.5 : isCur ? 2.4 : 1.5;
       if (g.locked || isCur) {
         ctx.shadowColor = glowCol;
-        ctx.shadowBlur = g.locked ? 20 : 10;
+        ctx.shadowBlur = g.locked ? 18 : 10;
       }
-      ctx.fillStyle = g.locked ? 'rgba(52, 211, 153, 0.16)' : isCur ? 'rgba(56, 189, 248, 0.10)' : 'rgba(15, 23, 42, 0.25)';
+      ctx.fillStyle = g.locked ? 'rgba(52, 211, 153, 0.18)' : isCur ? 'rgba(56, 189, 248, 0.14)' : 'rgba(13, 17, 29, 0.52)';
       ctx.beginPath();
       ctx.arc(cx, g.cy, ringR, 0, Math.PI * 2);
       ctx.fill();
@@ -2101,22 +2144,26 @@
           : (pat.cueMode === 'leap' || g.locked || g.status !== 'pending');
 
       ctx.save();
-      const txtCol = missed ? '#fb7185' : g.locked ? '#6ee7b7' : isCur ? '#ffffff' : 'rgba(226, 232, 240, 0.65)';
+      const txtCol = missed ? '#fb7185' : g.locked ? '#6ee7b7' : isCur ? '#ffffff' : 'rgba(226, 232, 240, 0.85)';
+      const fontPx = Math.max(11, Math.min(18, Math.round(ringR * 0.56)));
       ctx.fillStyle = txtCol;
       if (g.locked || isCur) {
         ctx.shadowColor = g.locked ? '#34d399' : '#38bdf8';
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 10;
       }
-      ctx.font = '900 18px system-ui, -apple-system, sans-serif';
+      ctx.font = `900 ${fontPx}px system-ui, -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(showSyl ? g.info.label.toUpperCase() : '?', cx, g.cy);
+      ctx.fillText(showSyl ? g.info.label.toUpperCase() : '?', cx, g.cy, Math.max(20, ringR * 1.75));
       ctx.restore();
     }
   }
 
   function drawGuideBeam(curGate) {
     if (!curGate || !curGate.locked || G.state !== 'playing') return;
+    const startX = G.bird.x + 28;
+    const endX = curGate.x + curGate.w / 2 - 18;
+    if (endX <= startX) return;
     ctx.save();
     ctx.strokeStyle = G.boostTimer > 0 ? 'rgba(253, 224, 71, 0.8)' : 'rgba(52, 211, 153, 0.65)';
     ctx.lineWidth = 2.5;
@@ -2124,19 +2171,29 @@
     ctx.shadowColor = G.boostTimer > 0 ? '#fde047' : '#34d399';
     ctx.shadowBlur = 8;
     ctx.beginPath();
-    ctx.moveTo(G.bird.x + 28, G.bird.y);
-    ctx.lineTo(curGate.x + curGate.w / 2 - 18, curGate.cy);
+    ctx.moveTo(startX, G.bird.y);
+    ctx.lineTo(endX, curGate.cy);
     ctx.stroke();
     ctx.restore();
   }
 
   function drawBird() {
     const b = G.bird;
-    if (b.invuln > 0 && Math.floor(G.t * 16) % 2 === 0) return;
 
     ctx.save();
+    if (b.invuln > 0) {
+      ctx.globalAlpha = 0.55 + 0.35 * Math.sin(G.t * 24);
+    }
     ctx.translate(b.x, b.y);
     ctx.rotate(b.tilt || 0);
+
+    if (b.invuln > 0) {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 30 + Math.sin(G.t * 18) * 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // Rainbow Star-Power shield aura during Hyperdrive Boost
     if (G.boostTimer > 0) {
@@ -2276,15 +2333,21 @@
     for (const pop of G.popups) {
       ctx.save();
       ctx.globalAlpha = Math.max(0, pop.life / pop.maxLife);
-      ctx.font = '800 18px system-ui, -apple-system, sans-serif';
+      ctx.font = '800 17px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'center';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(9, 14, 31, 0.88)';
+      const maxW = Math.max(160, G.W - 32);
+      ctx.strokeText(pop.text, pop.x, pop.y, maxW);
       ctx.fillStyle = pop.color;
-      ctx.fillText(pop.text, pop.x, pop.y);
+      ctx.fillText(pop.text, pop.x, pop.y, maxW);
       ctx.restore();
     }
   }
 
   function render() {
+    rebuildPathCache();
     ctx.save();
     if (G.shake > 0) {
       const mag = G.shake * 9;
@@ -2294,9 +2357,12 @@
     const actPat = activePattern();
     const curGate = activeGate(actPat);
     for (const pat of G.patterns) {
-      drawPattern(pat, pat === actPat, pat === actPat ? curGate : null);
+      drawPatternContour(pat, pat === actPat);
     }
     drawAllPatternObstacles();
+    for (const pat of G.patterns) {
+      drawPatternGates(pat, pat === actPat ? curGate : null);
+    }
     drawGuideBeam(curGate);
     drawBird();
     drawParticlesAndPopups();
@@ -2561,11 +2627,13 @@
     const rect = canvas.parentElement.getBoundingClientRect();
     G.dpr = Math.min(2, window.devicePixelRatio || 1);
     G.W = Math.max(320, Math.floor(rect.width));
-    G.H = Math.max(260, Math.floor(rect.height));
+    G.H = Math.max(200, Math.floor(rect.height));
     canvas.width = G.W * G.dpr;
     canvas.height = G.H * G.dpr;
     ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0);
     G.bird.x = Math.floor(G.W * ((Number(CFG.birdXFrac) || 20) / 100));
+    G.bird.y = Math.max(44, Math.min(G.H - 40, G.bird.y || G.H * 0.5));
+    G.bird.targetY = Math.max(44, Math.min(G.H - 40, G.bird.targetY || G.H * 0.5));
     // Re-sync existing pattern gate heights cleanly whenever canvas resizes (e.g. Cue Bar showing/hiding)
     for (const pat of G.patterns) {
       for (const g of pat.gates) {
@@ -2576,14 +2644,21 @@
     }
     if (!G.stars.length) {
       for (let i = 0; i < 48; i++) {
-        G.stars.push({ x: Math.random() * 1400, y: Math.random() * 600, r: 1 + Math.random() * 1.6, p: 0.12 + Math.random() * 0.25 });
+        G.stars.push({ x: Math.random() * Math.max(1400, G.W), y: Math.random() * Math.max(900, G.H), r: 1 + Math.random() * 1.6, p: 0.12 + Math.random() * 0.25 });
       }
     }
     if (!G.ambientRocks.length) rebuildAmbientRocks();
+    else for (const ar of G.ambientRocks) ar.y = Math.max(20, Math.min(G.H - 20, ar.y));
     if (!G.debris.length) rebuildDebris();
+    else for (const d of G.debris) d.y = Math.max(20, Math.min(G.H - 20, d.y));
   }
 
-  window.addEventListener('resize', resize);
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => resize());
+    ro.observe(canvas.parentElement);
+  } else {
+    window.addEventListener('resize', resize);
+  }
 
   startMicBtn.addEventListener('click', () => startGame('mic'));
   startKeysBtn.addEventListener('click', () => startGame('keys'));

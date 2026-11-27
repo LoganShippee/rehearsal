@@ -20,7 +20,11 @@ const IS_MAC_OS = /Mac/i.test(navigator.platform || navigator.userAgent || '') &
 // what to call this device in messages ("saved on this iPad")
 const DEVICE = IS_NATIVE ? (window.__REHEARSAL_PLATFORM === 'windows' ? 'PC' : 'Mac') : /iPad|iPhone/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : 'computer';
 function toast(msg, ms = 2600) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  const t = document.createElement('div'); t.className = 'toast';
+  const span = document.createElement('span'); span.textContent = msg; t.appendChild(span);
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'toast-x'; x.setAttribute('aria-label', 'Dismiss'); x.title = 'Dismiss'; x.textContent = '×';
+  x.onclick = () => t.remove();
+  t.appendChild(x);
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
   return t;
 }
@@ -31,7 +35,7 @@ function undoToast(msg, onUndo, ms = 4500) {
   b.textContent = 'Undo';
   b.style.cssText = 'margin-left:10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;font-weight:700';
   b.onclick = () => { onUndo(); el.remove(); };
-  el.appendChild(b);
+  el.insertBefore(b, el.querySelector('.toast-x'));
   return el;
 }
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -659,6 +663,7 @@ function runAutomations(t) {
   const due = (key, at) => { const dt = ms - at; if (dt >= 0 && dt < 30000 && !P.fired.has(key)) { P.fired.add(key); return true; } return false; };
   for (const p of periodsFor(t)) {
     if (!p.cls) continue;
+    if (P.pinned && p.cls.id !== P.pinned) continue;
     for (const a of p.cls.automations) {
       if (a.enabled === false) continue;
       const off = (Number(a.offset) || 0) * 60000;
@@ -778,7 +783,7 @@ function tickOverlay() {
   if (P.overlay && Date.now() > P.overlay.until) { P.overlay = null; el.classList.remove('on'); el.innerHTML = ''; }
   if (!P.overlay && P.overlayQ.length) {
     P.overlay = P.overlayQ.shift(); P.overlay.until = Date.now() + P.overlay.seconds * 1000;
-    el.innerHTML = `<div class="p-msg">${esc(P.overlay.text)}<div class="sub">click to dismiss</div></div>`;
+    el.innerHTML = `<div class="p-msg"><button type="button" class="pop-x msg-x" data-action="overlay-dismiss" aria-label="Dismiss" title="Dismiss">×</button>${esc(P.overlay.text)}<div class="sub">click to dismiss</div></div>`;
     el.classList.add('on');
   }
 }
@@ -994,6 +999,10 @@ function themeImgURL(img) {
 }
 function applyTheme(el, theme) {
   const th = theme || THEMES[0];
+  const imgUrl = th.image ? themeImgURL(th.image) : '';
+  const sig = `${th.bg}|${th.accent}|${th.text || '#fff'}|${th.titleText || ''}|${th.clockText || ''}|${th.panel ?? ''}|${th.sideLinked ?? ''}|${th.sideFont ?? ''}|${th.sidePanel ?? ''}|${th.dim ?? 0.25}|${imgUrl}`;
+  if (el._themeSig === sig) return;
+  el._themeSig = sig;
   // panel opacity: panels take the class background colour at the chosen strength (default = light tint)
   if (th.panel != null) { el.style.setProperty('--card', hexA(th.bg, th.panel)); el.style.setProperty('--panel-blur', th.panel > 0.4 ? '0px' : '8px'); }
   else { el.style.removeProperty('--card'); el.style.removeProperty('--panel-blur'); }
@@ -1409,7 +1418,9 @@ function tick() {
   root.classList.toggle('editing', !!P.editMode);
   root.classList.toggle('stage-max', !!P.stageMax && ctx.mode === 'class');
   setHTML('#p-clock', `<div class="time">${fmtClock(t)}</div><div class="left">${left}</div>`);
-  $('#p-bar').style.width = (clamp(frac, 0, 1) * 100).toFixed(2) + '%';
+  const pBar = $('#p-bar');
+  const pBarW = (clamp(frac, 0, 1) * 100).toFixed(2) + '%';
+  if (pBar && pBar._w !== pBarW) { pBar.style.width = pBarW; pBar._w = pBarW; }
 
   // body
   const layoutKey = ctx.mode + '|' + (ctx.cls?.id || '') + '|' + ctx.key;
@@ -1419,8 +1430,19 @@ function tick() {
 
   // signal
   const sg = $('#p-signal');
-  if (P.signal) { sg.textContent = P.signal.text; sg.style.background = P.signal.color; sg.style.color = '#fff'; sg.classList.add('on'); }
-  else sg.classList.remove('on');
+  if (P.signal) {
+    const sigKey = `${P.signal.text}|${P.signal.color}`;
+    if (sg._sig !== sigKey) {
+      sg._sig = sigKey;
+      sg.innerHTML = `<span>${esc(P.signal.text)}</span><button type="button" class="pop-x" data-action="signal-clear" aria-label="Dismiss" title="Dismiss">×</button>`;
+      sg.style.background = P.signal.color;
+      sg.style.color = '#fff';
+    }
+    sg.classList.add('on');
+  } else {
+    sg._sig = '';
+    sg.classList.remove('on');
+  }
 
   renderWins(ctx);
   tickTimers(); tickOverlay(); tickNoise(); syncNative();
@@ -1688,7 +1710,7 @@ function mountSightHosts(root = document) {
 function winTitle(w) {
   if (w.customTitle) return w.customTitle;
   if (w.kind === 'sight') return 'Sight reading';
-  if (w.kind === 'dash') return 'Rhythm Rush';
+  if (w.kind === 'rush' || w.kind === 'dash') return 'Rhythm Rush';
   if (w.kind === 'rocket') return 'Solfege Rocket';
   if (w.kind === 'score') return (w.score?.name || S.files[w.score?.fileId]?.name || 'Score').replace(/\.(mxl|musicxml|xml|mscz|mscx)$/i, '');
   if (w.kind === 'scan') return 'Scan & fix';
@@ -1715,7 +1737,7 @@ function winIcon(w) {
 function winIcon0(w) {
   if (w.icon) return w.icon;
   if (w.kind === 'sight') return 'ico:sight';
-  if (w.kind === 'dash') return 'ico:sight';
+  if (w.kind === 'rush' || w.kind === 'dash') return 'ico:sight';
   if (w.kind === 'rocket') return 'ico:sight';
   if (w.kind === 'score') return 'ico:score';
   if (w.kind === 'scan') return 'ico:scan';
@@ -1741,6 +1763,7 @@ function setSpaceTargetForWin(w) {
   else if (k === 'rec') window.__spaceTarget = 'rec';
   else if (k === 'metro') window.__spaceTarget = 'met';
   else if (k === 'scan') window.__spaceTarget = 'sf';
+  else if (k === 'rush' || k === 'dash') window.__spaceTarget = 'rush';
   else if (k === 'aud') {
     window.__spaceTarget = 'aud';
     const audEl = $(`.win[data-win="${w.id}"] .aud-host`);
@@ -1808,7 +1831,7 @@ function winBodyHTML(w) {
   if (w.id === '__tour_win') return `<div class="win-start"><div><b>Floating Window Preview</b><br><span style="font-size:13px;color:#6b7385">Use <b>Pin</b> (${IC('ico:pin')}) in the top bar to save any tool or web page as a class tab, or <b>Tile</b> (${IC('ico:tile')}) to snap it to part of the screen.</span></div></div>`;
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
-  if (w.kind === 'dash') return `<iframe class="dash-frame" src="rhythm-dash.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
+  if (w.kind === 'rush' || w.kind === 'dash') return `<iframe class="rush-frame" src="rhythm-rush.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
   if (w.kind === 'rocket') return `<iframe class="rocket-frame" src="gate-singer.html" style="width:100%;height:100%;border:0;display:block;background:#0b1020" allow="microphone; autoplay"></iframe>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
   if (w.kind === 'scan') return `<div class="sf-host" data-scan-win="${w.id}"></div>`;
@@ -1875,6 +1898,30 @@ function winHTML(w) {
     <div class="win-body">${winBodyHTML(w)}</div>
     <div class="win-rs" data-wresize="${w.id}"></div></div>`;
 }
+function ensureRushKeyForwarder() {
+  if (window.__appRushKeysWired) return;
+  window.__appRushKeysWired = true;
+  const fwd = (action, e) => {
+    if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (e.code !== 'Space' && e.key !== ' ' && e.code !== 'ArrowUp') return;
+    const frames = [...document.querySelectorAll('.rush-frame')];
+    if (!frames.length) return;
+    const topFrame = frames.reduce((best, fr) => {
+      const bz = Number(best.closest('.win')?.style.zIndex || 0);
+      const fz = Number(fr.closest('.win')?.style.zIndex || 0);
+      return fz >= bz ? fr : best;
+    }, frames[0]);
+    const topZAll = Math.max(0, ...[...document.querySelectorAll('#p-wins .win')].map(el => Number(el.style.zIndex || 0)));
+    const rushZ = Number(topFrame.closest('.win')?.style.zIndex || 0);
+    if ((window.__spaceTarget && window.__spaceTarget !== 'rush') || rushZ < topZAll) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (action === 'down' && e.repeat) return;
+    try { topFrame.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
+  };
+  window.addEventListener('keydown', e => fwd('down', e), true);
+  window.addEventListener('keyup', e => fwd('up', e), true);
+}
 function renderWins(ctx, force = false) {
   const host = $('#p-wins'); if (!host) return;
   const key = winKeyOf(ctx), baseList = winList(key);
@@ -1889,6 +1936,7 @@ function renderWins(ctx, force = false) {
   host.innerHTML = list.map(winHTML).join('');
   applyWinGeom();
   mountSightHosts(host);
+  if (host.querySelector('.rush-frame')) ensureRushKeyForwarder();
   for (const w of list) if ((w.zoom || 1) !== 1) applyZoom(w);
 }
 function applyWinGeom() {
@@ -3172,24 +3220,10 @@ const A = {
     const w = addWindow({ kind: 'rocket' }); w.w = 0.82; w.h = 0.86; save(); applyWinGeom();
     setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .rocket-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
   },
-  'wm-dash': () => {
-    const w = addWindow({ kind: 'dash' }); w.w = 0.78; w.h = 0.84; save(); applyWinGeom();
-    setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .dash-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
-    if (!window.__appDashKeysWired) {
-      window.__appDashKeysWired = true;
-      const fwd = (action, e) => {
-        if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-        if (e.code !== 'Space' && e.key !== ' ' && e.code !== 'ArrowUp') return;
-        const frames = document.querySelectorAll('.dash-frame');
-        if (!frames.length) return;
-        const topFrame = frames[frames.length - 1];
-        if (action === 'down' && e.repeat) return;
-        e.preventDefault();
-        try { topFrame.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
-      };
-      window.addEventListener('keydown', e => fwd('down', e), true);
-      window.addEventListener('keyup', e => fwd('up', e), true);
-    }
+  'wm-rush': () => {
+    const w = addWindow({ kind: 'rush' }); w.w = 0.78; w.h = 0.84; save(); applyWinGeom();
+    setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .rush-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
+    ensureRushKeyForwarder();
   },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),

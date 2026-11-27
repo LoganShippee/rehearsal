@@ -6,14 +6,14 @@
   <title>Solfege Rocket — Rehearsal Solfege Arcade</title>
   <style>
     :root {
-      --bg: #0b1020;
-      --card: #141c31;
-      --card-2: #1b2540;
-      --border: #2a3759;
-      --text: #eaf1fb;
+      --bg: #0d111d;
+      --card: #151b2c;
+      --card-2: #1c243a;
+      --border: #2e3b59;
+      --text: #e6edf7;
       --muted: #94a3b8;
       --primary: #38bdf8;
-      --primary-ink: #061424;
+      --primary-ink: #071320;
       --accent: #a78bfa;
       --success: #34d399;
       --warning: #fbbf24;
@@ -31,13 +31,15 @@
       -webkit-font-smoothing: antialiased;
       user-select: none;
       -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
       overflow: hidden;
     }
     body {
       display: flex;
       flex-direction: column;
       padding: 10px 14px;
-      gap: 8px;
+      gap: 6px;
       max-width: 1320px;
       margin: 0 auto;
     }
@@ -48,12 +50,15 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 8px 12px;
+      border-radius: 10px;
+      padding: 6px 10px;
+      transition: opacity 220ms ease;
     }
+    .topbar.is-playing { opacity: 0.36; }
+    .topbar.is-playing:hover, .topbar.is-playing:focus-within { opacity: 1; }
     .brand {
       display: flex;
       align-items: center;
@@ -93,10 +98,11 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      height: 28px;
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 3px 7px;
+      border-radius: 7px;
+      padding: 0 7px;
     }
     .ctrl-group label {
       color: var(--muted);
@@ -113,7 +119,8 @@
     }
     select {
       font-weight: 600;
-      padding: 2px 2px;
+      padding: 0 2px;
+      height: 24px;
     }
     select option {
       background: var(--card);
@@ -123,13 +130,18 @@
     .btn {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      padding: 6px 11px;
-      border-radius: 8px;
+      justify-content: center;
+      gap: 4px;
+      height: 28px;
+      line-height: 1;
+      padding: 0 10px;
+      border-radius: 7px;
       border: 1px solid var(--border);
       background: var(--card-2);
+      color: var(--text);
       font-weight: 700;
       font-size: 12px;
+      white-space: nowrap;
       transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
     }
     .btn:hover { border-color: var(--primary); }
@@ -141,9 +153,9 @@
     }
     .btn.primary:hover { filter: brightness(1.08); }
     .btn.active {
-      background: rgba(167, 139, 250, 0.22);
+      background: rgba(167, 139, 250, 0.28);
       border-color: var(--accent);
-      color: #ddd6fe;
+      color: #f5f3ff;
     }
 
     /* Compact Pattern Cue (lives inline in the bottom HUD bar so 100% of the canvas is game space!) */
@@ -174,7 +186,7 @@
     .canvas-host {
       position: relative;
       flex: 1 1 auto;
-      min-height: 220px;
+      min-height: 200px;
       overflow: hidden;
     }
     .cue-meta {
@@ -188,6 +200,7 @@
       width: 100%;
       height: 100%;
       touch-action: none;
+      transform: translateZ(0);
     }
     .cue-tag {
       font-size: 9.5px;
@@ -206,7 +219,7 @@
       display: none;
     }
     #vexBox {
-      background: #f8fafc;
+      background: #ffffff;
       border-radius: 7px;
       padding: 0 4px;
       height: 68px;
@@ -363,17 +376,18 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 8px 14px;
-      font-size: 12.5px;
+      border-radius: 10px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
     }
     .hud-left, .hud-right {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       flex-wrap: wrap;
     }
     .mic-pill {
@@ -1031,12 +1045,12 @@
     </div>
     <div class="hud-right">
       <span class="pill">Wave <b id="hudWave">1</b> · <span id="hudRange">do – mi</span></span>
-      <span class="pill streak" title="Consecutive correct pitches in a row">🔥 Pitch Streak <b id="hudStreak">0</b> (<span id="hudMult">1×</span>)</span>
+      <span class="pill streak" title="Consecutive correct pitches in a row">🔥 Streak <b id="hudStreak">0</b> (<span id="hudMult">1×</span>)</span>
       <span id="boostProgPill" class="boost-prog" title="Hit a 30-pitch streak to trigger Mario Kart–style Hyperdrive Boost (auto-clears at warp speed!)">
         <span id="boostLabel">⚡ Boost: 0/30</span>
         <span class="heal-bar-wrap"><span id="boostBar" class="boost-bar"></span></span>
       </span>
-      <span class="pill correct" title="Total correct pitches sung out of total attempted">✓ Pitches <b id="hudCorrect">0</b><span id="hudTotal" style="color:var(--muted);font-weight:600;"> / 0</span></span>
+      <span class="pill correct" title="Total correct pitches sung out of total attempted">✓ Hits <b id="hudCorrect">0</b><span id="hudTotal" style="color:var(--muted);font-weight:600;"> / 0</span></span>
       <span class="pill">Score <b id="hudScore">0</b></span>
       <span id="healProgPill" class="heal-prog" title="Sing consecutive correct pitches to restore a lost life">
         <span id="healLabel">+1 ❤️: 0/8</span>

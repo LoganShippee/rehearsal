@@ -5,7 +5,7 @@
 const CACHE = 'rehearsal-app';
 const FILES = ['./', 'index.html', 'styles.css', 'hw-teacher.css', 'scan.css', 'icons.js', 'sight.js', 'music.js', 'grade.js', 'app.js', 'widgets.js', 'quick-edit.js', 'editor.js', 'looks.js', 'settings.js', 'score.js', 'scan-model.js', 'scan-wordlist.js', 'scan-consensus.js', 'scan-flags.js', 'scan-client.js', 'scan-ui.js', 'tools.js',
   'hw-teacher-demo.js', 'hw-teacher-api.js', 'hw-teacher-drawer.js', 'hw-teacher.js', 'hw-sync.js',
-  'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html', 'embed-sight.html', 'embed-score.html', 'rhythm-dash.html', 'rhythm-dash.js', 'gate-singer.html', 'gate-singer.js', 'demo/ode-to-joy.musicxml', 'demo/ode-to-joy.mxl',
+  'hw.html', 'hw.css', 'hw-shim.js', 'hw-api.js', 'hw-student.js', 'hw-oauth.html', 'embed-sight.html', 'embed-score.html', 'rhythm-rush.html', 'rhythm-rush.js', 'gate-singer.html', 'gate-singer.js', 'demo/ode-to-joy.musicxml', 'demo/ode-to-joy.mxl',
   'privacy.html', 'privacy-sdpc.html', 'it-whitelisting.html',
   'pdfview.js', 'version.json', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-192-maskable.png', 'icon-512-maskable.png', 'favicon.ico',
   'backgrounds/risers.svg', 'backgrounds/keys.svg', 'backgrounds/staff.svg', 'backgrounds/spotlight.svg', 'backgrounds/waves.svg', 'backgrounds/sunset.svg', 'backgrounds/notes.svg',

@@ -140,7 +140,7 @@
       }
 
       const WORLDS = [
-        { id: 'w1', num: 1, name: 'Pulse City',          ts: '4/4', bpm: 76,  ties: false, cells: ['q', 'h', 'w', 'qr'],                          biome: 'grid',      hue: 218, gimmick: 'classic',    gimmickLabel: '⚡ Classic Dash',   desc: 'Quarter, half, whole & rest' },
+        { id: 'w1', num: 1, name: 'Pulse City',          ts: '4/4', bpm: 76,  ties: false, cells: ['q', 'h', 'w', 'qr'],                          biome: 'grid',      hue: 218, gimmick: 'classic',    gimmickLabel: '⚡ Classic Rush',   desc: 'Quarter, half, whole & rest' },
         { id: 'w2', num: 2, name: 'Eighth Alley',        ts: '4/4', bpm: 84,  ties: false, cells: ['q', 'h', 'ee', 'qr', 'hr'],                   biome: 'stage',     hue: 320, gimmick: 'bounce',     gimmickLabel: '🦘 Hyper Bounce',   desc: 'Bouncy jump pads + 8ths' },
         { id: 'w3', num: 3, name: 'Waltz Heights',       ts: '3/4', bpm: 86,  ties: true,  cells: ['q', 'h', 'hd', 'ee', 'qr'],                   biome: 'mountains', hue: 270, gimmick: 'fly',        gimmickLabel: '✈ Sky Ship',        desc: '3/4 flying ship mode & ties' },
         { id: 'w4', num: 4, name: 'Syncopation Station', ts: '4/4', bpm: 88,  ties: false, cells: ['q', 'h', 'ee', 'qr', 'qde', 'er', 'syn'],     biome: 'grid',      hue: 165, gimmick: 'flip',       gimmickLabel: '↕ Gravity Flip',    desc: 'Upside-down ceiling flips each bar' },
@@ -166,7 +166,8 @@
         { id: 'nova',     name: 'Supernova Flame 🔥', stars: 21 }
       ];
       const BIOMES = ['grid', 'mountains', 'sonar', 'starfield', 'stage'];
-      const PROG_KEY_BASE = 'rehearsal-rhythm-dash-prog-v1';
+      const PROG_KEY_BASE = 'rehearsal-rhythm-rush-prog-v1';
+      const LEGACY_PROG_KEY_BASE = 'rehearsal-rhythm-dash-prog-v1';
       const urlParams = new URLSearchParams(window.location.search || '');
       let accountId = (urlParams.get('studentId') || '').trim();
       let accountName = (urlParams.get('studentName') || '').trim();
@@ -238,8 +239,11 @@
 
       function loadProg() {
         try {
-          const raw = localStorage.getItem(progStorageKey());
+          const key = progStorageKey();
+          const legacyKey = accountId ? `${LEGACY_PROG_KEY_BASE}:${accountId}` : LEGACY_PROG_KEY_BASE;
+          const raw = localStorage.getItem(key) || localStorage.getItem(legacyKey);
           if (raw) {
+            if (!localStorage.getItem(key)) { try { localStorage.setItem(key, raw); } catch {} }
             const p = JSON.parse(raw);
             if (p && typeof p === 'object') {
               return {
@@ -391,8 +395,9 @@
       const gameCanvas = document.getElementById('gameCanvas');
       const notationCanvas = document.getElementById('notationCanvas');
       const touchPad = document.getElementById('touchPad');
-      const gCtx = gameCanvas.getContext('2d');
-      const nCtx = notationCanvas.getContext('2d');
+      const gCtx = gameCanvas.getContext('2d', { alpha: false });
+      const nCtx = notationCanvas.getContext('2d', { alpha: false });
+      const IS_WEBKIT_ENGINE = /AppleWebKit/i.test(navigator.userAgent || '') && !/Chrome|Chromium|Edg/i.test(navigator.userAgent || '');
 
       let cachedTheme = null;
       function getTheme() {
@@ -712,7 +717,7 @@
                   cnt: `(${rhythmSyllable(posQ, kind, false, qLen, cell.id, ei)})`,
                   echoFired: false,
                   result: 'perfect',
-                  signedMs: 0,
+                  signedMs: null,
                   holdHeldQ: 0,
                   restViolated: false,
                   fakeSpike: false,
@@ -802,7 +807,8 @@
 
         elevSegments = [];
         const isAirCorridor = activeGimmick() === 'fly' || activeGimmick() === 'underwater';
-        let curLevel = isAirCorridor ? 0 : Math.max(0, Math.min(4, startLevel || 0));
+        const maxLvl = 3;
+        let curLevel = isAirCorridor ? 0 : Math.max(0, Math.min(maxLvl, startLevel || 0));
         const stepQ = mi.kind === 'compound' ? 1.5 : 2;
         for (let b = 0; b < totalQ; b += stepQ) {
           if (b > 0 && !isAirCorridor) {
@@ -811,7 +817,7 @@
             if (!straddles) {
               const r = Math.random();
               if (curLevel === 0) curLevel = (hasJumpBefore && r < 0.75) ? 1 : 0;
-              else if (curLevel >= 4) curLevel = r < 0.72 ? 3 : 4;
+              else if (curLevel >= maxLvl) curLevel = r < 0.72 ? maxLvl - 1 : maxLvl;
               else if (hasJumpBefore) curLevel = r < 0.52 ? curLevel + 1 : r < 0.84 ? curLevel - 1 : curLevel;
               else curLevel = r < 0.68 ? curLevel - 1 : curLevel;
             }
@@ -854,7 +860,7 @@
             if (!straddles) {
               const r = Math.random();
               if (streamLastElev === 0) streamLastElev = (hasJumpBefore && r < 0.75) ? 1 : 0;
-              else if (streamLastElev >= 4) streamLastElev = r < 0.72 ? 3 : 4;
+              else if (streamLastElev >= 3) streamLastElev = r < 0.72 ? 2 : 3;
               else if (hasJumpBefore) streamLastElev = r < 0.52 ? streamLastElev + 1 : r < 0.84 ? streamLastElev - 1 : streamLastElev;
               else streamLastElev = r < 0.68 ? streamLastElev - 1 : streamLastElev;
             }
@@ -900,9 +906,19 @@
       let activePortalMode = 'live';
       let readEnforceMode = 'tricks'; // 'tricks' | 'pure' | 'visual'
       let lastHitTiming = { ms: 0, life: 0 };
-      let activePointerId = null;
+      const activePointerIds = new Set();
+      const activeKeys = new Set();
+      let remoteKeyDown = false;
       const setPadDown = (down) => {
         if (touchPad) touchPad.classList.toggle('is-down', !!down);
+      };
+      const hasHeldInput = () => activePointerIds.size > 0 || activeKeys.size > 0 || remoteKeyDown;
+      const clearHeldInputs = () => {
+        activePointerIds.clear();
+        activeKeys.clear();
+        remoteKeyDown = false;
+        isPointerOrKeyDown = false;
+        setPadDown(false);
       };
       let lastOdBorderCol = '';
       let lastCooldownBpm = -1;
@@ -921,6 +937,8 @@
       let grooveStyle = 'electro';
       let autoRestartOnMiss = true;
       let autoRestartTimer = null;
+      let hadInputThisRun = false;
+      let noInputFailStreak = 0;
       let showCounts = true;
 
       let phase = 'idle'; // 'idle' | 'echo_listen' | 'countin' | 'live' | 'read_slow' | 'turbo_dash' | 'crashed'
@@ -1163,7 +1181,7 @@
 
       function refreshModeBadge() {
         const t = getTheme();
-        let label = 'TURBO DASH';
+        let label = 'TURBO RUSH';
         let col = t.warning;
         if (activePortalMode === 'live') { label = 'LIVE SIGHT'; col = t.primary; }
         else if (activePortalMode === 'blind') { label = 'PURE SIGHT'; col = t.success; }
@@ -1418,9 +1436,7 @@
         }
         recordedTaps = [];
         activeTapRec = null;
-        isPointerOrKeyDown = false;
-        activePointerId = null;
-        setPadDown(false);
+        clearHeldInputs();
         liveActiveGlide = null;
         lastOdBorderCol = '';
         lastCooldownBpm = -1;
@@ -1456,6 +1472,8 @@
         portalBarOffset = 0;
         justWarpedPortal = false;
         if (calState && calState.timer) { clearTimeout(calState.timer); calState = null; }
+        hadInputThisRun = false;
+        noInputFailStreak = 0;
         particles = [];
         shockwaves = [];
         popups = [];
@@ -1489,7 +1507,7 @@
           events.forEach((e) => {
             e.echoFired = false;
             e.result = e.kind === 'tied' ? 'perfect' : null;
-            e.signedMs = e.kind === 'tied' ? 0 : null;
+            e.signedMs = null;
             e.holdHeldQ = 0;
             e.holdDismounted = false;
             e.holdOverheld = false;
@@ -1503,6 +1521,7 @@
         crashInfo = null;
         justWarpedPortal = fromPortal;
         if (!fromPortal) {
+          hadInputThisRun = false;
           cubeTrail = [];
           cubeY = 0;
           cubeVy = 0;
@@ -1531,7 +1550,7 @@
           phaseStartSec = nowSec - (carryQ / qps(modeSpeedMult()));
           phaseBeat = -countInQ + carryQ;
           lastSubStep = Math.floor(-countInQ * 2) - 1;
-          statusText.textContent = `TURBO DASH (4 bars @ ${effectiveBpm()} BPM): Simple rhythms, fast tempo!`;
+          statusText.textContent = `TURBO RUSH (4 bars @ ${effectiveBpm()} BPM): Simple rhythms, fast tempo!`;
         } else {
           phase = 'countin';
           phaseStartPerf = now - (carryQ / qps(1.0)) * 1000;
@@ -1552,6 +1571,8 @@
       function startRun() {
         ensureAudio();
         if (calState && calState.timer) { clearTimeout(calState.timer); calState = null; }
+        hadInputThisRun = false;
+        noInputFailStreak = 0;
         particles = [];
         shockwaves = [];
         popups = [];
@@ -1562,6 +1583,22 @@
         activePortalMode = (rouletteSetting === 'random' || isOverdriveRun()) ? activePortalMode : rouletteSetting;
         playBtn.textContent = 'Stop';
         beginPatternRun(performance.now(), 0, phase === 'crashed');
+      }
+
+      function playerYFor(yVal, nowMs = performance.now()) {
+        const ceilDeckY = 28;
+        const floorY = gameGroundY - 12 - yVal;
+        const gim = activeGimmick();
+        if (gim === 'fly') return Math.round((gameGroundY + ceilDeckY) * 0.52) - yVal * 0.65;
+        if (gim === 'underwater') {
+          const subBob = Math.sin(nowMs * 0.0035) * 3.5;
+          return Math.round((gameGroundY + ceilDeckY) * 0.58) - yVal * 0.65 + subBob;
+        }
+        if (gim === 'flip') {
+          const ceilY = ceilDeckY + 12 + yVal;
+          return floorY + (ceilY - floorY) * flipBlend;
+        }
+        return floorY;
       }
 
       function spawnBurst(x, y, color, count = 12) {
@@ -1586,8 +1623,9 @@
           readCombo = 0;
           shieldFlash = 1.0;
           screenShake = 0.45;
-          spawnBurst(PLAYER_X, gameGroundY - 12 - cubeY, '#60efff', 22);
-          shockwaves.push({ x: PLAYER_X, y: gameGroundY - 12 - cubeY, r: 12, color: '#60efff', life: 1.0 });
+          const py = playerYFor(cubeY);
+          spawnBurst(PLAYER_X, py, '#60efff', 22);
+          shockwaves.push({ x: PLAYER_X, y: py, r: 12, color: '#60efff', life: 1.0 });
           playVoiceNote(523.25, 0.12, 'triangle', 0.18);
           playVoiceNote(392.0, 0.18, 'sine', 0.16);
           popups.push({ text: '🛡 SHIELD SAVED!', color: '#60efff', beat: Math.max(0, beat), life: 1.3 });
@@ -1596,9 +1634,7 @@
           return;
         }
         notationWrap.style.borderColor = t.error;
-        isPointerOrKeyDown = false;
-        activePointerId = null;
-        setPadDown(false);
+        clearHeldInputs();
         liveActiveGlide = null;
         notationDirty = true;
         let crashEv = null;
@@ -1613,10 +1649,25 @@
         readCombo = 0;
         runPortals = 0;
         ghostSamples = [];
-        spawnBurst(PLAYER_X, gameGroundY - 12 - cubeY, '#ffffff', 24);
-        shockwaves.push({ x: PLAYER_X, y: gameGroundY - 12 - cubeY, r: 10, color: '#ffffff', life: 1.0 });
+        const crashPy = playerYFor(cubeY);
+        spawnBurst(PLAYER_X, crashPy, '#ffffff', 24);
+        shockwaves.push({ x: PLAYER_X, y: crashPy, r: 10, color: '#ffffff', life: 1.0 });
         playCrashSfx();
         recordRunToProg();
+
+        if (!hadInputThisRun) noInputFailStreak += 1;
+        else noInputFailStreak = 0;
+        if (noInputFailStreak >= 3) {
+          noInputFailStreak = 0;
+          if (autoRestartTimer) { clearTimeout(autoRestartTimer); autoRestartTimer = null; }
+          phase = 'idle';
+          playBtn.textContent = 'Start';
+          statusText.textContent = 'Stopped after 3 runs with no input · Press Start or Space';
+          syncFocusChrome();
+          updateHud();
+          drawAll();
+          return;
+        }
 
         if (isOverdriveRun()) {
           overdriveBest = Math.max(overdriveBest, overdrivePortals);
@@ -1656,6 +1707,8 @@
       function handlePress() {
         ensureAudio();
         isPointerOrKeyDown = true;
+        hadInputThisRun = true;
+        noInputFailStreak = 0;
 
         if (calState) {
           const tNow = nowClockSec();
@@ -1761,8 +1814,9 @@
               shieldFlash = 1.0;
               playVoiceNote(783.99, 0.14, 'triangle', 0.2);
               setTimeout(() => playVoiceNote(1046.5, 0.22, 'triangle', 0.2), 85);
-              spawnBurst(PLAYER_X, gameGroundY - 14 - cubeY, '#60efff', 18);
-              shockwaves.push({ x: PLAYER_X, y: gameGroundY - 14 - cubeY, r: 12, color: '#60efff', life: 1.0 });
+              const shieldPy = playerYFor(cubeY);
+              spawnBurst(PLAYER_X, shieldPy, '#60efff', 18);
+              shockwaves.push({ x: PLAYER_X, y: shieldPy, r: 12, color: '#60efff', life: 1.0 });
               popups.push({ text: '🛡 +1 EXTRA LIFE!', color: '#60efff', beat: best.beat, life: 1.3 });
             }
           }
@@ -1779,15 +1833,15 @@
             // Controlled mid-air Jump Orb bounce so fast repeated notes stay at orb height
             liveActiveGlide = null;
             cubeVy = (cubeY > curFloor + 58 ? 150 : (best.is16 ? 215 : 285)) * jumpScale;
-            shockwaves.push({ x: PLAYER_X, y: gameGroundY - 10 - cubeY, r: 9, color: best.is16 ? '#ff5ef7' : '#ffe64d', life: 1.0 });
+            shockwaves.push({ x: PLAYER_X, y: playerYFor(cubeY), r: 9, color: best.is16 ? '#ff5ef7' : '#ffe64d', life: 1.0 });
           } else {
             liveActiveGlide = null;
             cubeVy = JUMP_VY * jumpScale;
           }
           if (best.isCluster && !best.isAirOrb) {
-            shockwaves.push({ x: PLAYER_X, y: gameGroundY - 26 - curFloor, r: 8, color: '#ffe64d', life: 1.0 });
+            shockwaves.push({ x: PLAYER_X, y: playerYFor(curFloor), r: 8, color: '#ffe64d', life: 1.0 });
           }
-          spawnBurst(PLAYER_X, gameGroundY - 12 - cubeY, best.result === 'perfect' ? '#66ff88' : '#ffe64d', activePortalMode === 'turbo' ? 12 : 9);
+          spawnBurst(PLAYER_X, playerYFor(cubeY), best.result === 'perfect' ? '#66ff88' : '#ffe64d', activePortalMode === 'turbo' ? 12 : 9);
           updateHud();
         } else if (inRest) {
           notationDirty = true;
@@ -1871,10 +1925,10 @@
           overdriveBest = Math.max(overdriveBest, overdrivePortals);
           bpm = Math.min(188, bpm + 6);
           const odCol = odHue(40);
-          spawnBurst(PLAYER_X, 124, odCol, 28);
+          spawnBurst(PLAYER_X, playerYFor(cubeY), odCol, 28);
           popups.push({ text: `🔥 OVERDRIVE ${bpm} BPM!`, color: odCol, beat: 1.0, life: 1.4 });
         } else {
-          spawnBurst(PLAYER_X, 124, isBossPortal ? '#ffd84d' : t.success, 26);
+          spawnBurst(PLAYER_X, playerYFor(cubeY), isBossPortal ? '#ffd84d' : t.success, 26);
           const spdCfg = SPEED_LEVELS[speedPreset];
           const prevBpm = bpm;
           if (spdCfg.inc > 0) {
@@ -1890,8 +1944,14 @@
 
         portalBarOffset += numMeasures + 1;
         portalHueIdx = (portalHueIdx + 1) % PORTAL_HUES.length;
-        targetStageHue = PORTAL_HUES[portalHueIdx];
-        biomeIdx = (biomeIdx + 1) % BIOMES.length;
+        const wObj = activeWorldObj();
+        if (wObj && wObj.hue != null) {
+          const shift = ((portalHueIdx % 3) - 1) * 18;
+          targetStageHue = (wObj.hue + shift + 360) % 360;
+        } else {
+          targetStageHue = PORTAL_HUES[portalHueIdx];
+          biomeIdx = (biomeIdx + 1) % BIOMES.length;
+        }
         isBossPortal = ((portalsCleared + 1) % 4 === 0);
         if (weeklyChallengeActive) {
           weeklyChallengeActive = false;
@@ -1902,9 +1962,11 @@
       }
 
       // ---------- Continuous Loop ----------
-      function tick() {
-        const now = performance.now();
+      function tick(rafTs) {
+        const perfNow = performance.now();
+        const now = (typeof rafTs === 'number' && isFinite(rafTs) && Math.abs(rafTs - perfNow) < 250) ? rafTs : perfNow;
         const dtSec = lastTickPerf ? Math.min(0.05, Math.max(0, (now - lastTickPerf) / 1000)) : 0.016;
+        const f60 = Math.max(0.25, Math.min(3, dtSec * 60));
         lastTickPerf = now;
         const dh = ((targetStageHue - stageHue + 540) % 360) - 180;
         stageHue = (stageHue + dh * Math.min(1, dtSec * 5.5) + 360) % 360;
@@ -1913,7 +1975,7 @@
         }
         const t = getTheme();
 
-        const nowSec = nowClockSec();
+        const nowSec = now / 1000;
         if (phase === 'echo_listen') {
           const leadQ = echoLeadQ();
           const curQps = qps(1.0);
@@ -1975,7 +2037,7 @@
               const macro = Math.max(1, Math.min(mi.beats, Math.floor((s + countInQ * 2) / macroSub) + 1));
               const odPrefix = isOverdriveRun() ? `🔥 OVERDRIVE (${bpm} BPM · Portal ${overdrivePortals + 1}) · ` : '';
               if (activePortalMode === 'turbo') {
-                statusText.textContent = `⚡ TURBO DASH (4 bars @ ${effectiveBpm()} BPM) · Count in ${macro}`;
+                statusText.textContent = `⚡ TURBO RUSH (4 bars @ ${effectiveBpm()} BPM) · Count in ${macro}`;
               } else if (activePortalMode === 'blind') {
                 statusText.textContent = `${odPrefix}PURE SIGHT (${bpm} BPM) · Count in ${macro}`;
               } else if (activePortalMode === 'stream') {
@@ -1984,9 +2046,9 @@
                 statusText.textContent = `${odPrefix}LIVE SIGHT (${bpm} BPM) · Count in ${macro}`;
               }
             }
-            if (Math.random() < 0.5) {
+            if (Math.random() < Math.min(1, 0.5 * f60)) {
               particles.push({
-                x: PLAYER_X - 10, y: gameGroundY - 20 - cubeY,
+                x: PLAYER_X - 10, y: playerYFor(cubeY, now),
                 vx: -(1.8 + Math.random() * 1.4), vy: (Math.random() - 0.5) * 0.7,
                 color: isOverdriveRun() ? odHue(0) : activePortalMode === 'turbo' ? t.warning : activePortalMode === 'blind' ? t.success : t.primary, life: 0.5
               });
@@ -1996,7 +2058,7 @@
             const odPrefix = isOverdriveRun() ? `🔥 OVERDRIVE (${bpm} BPM · Best ${overdriveBest}) · ` : '';
             if (activePortalMode === 'turbo') {
               notationWrap.style.borderColor = t.warning;
-              statusText.textContent = `⚡ TURBO DASH (4 bars @ ${effectiveBpm()} BPM) — Go fast!`;
+              statusText.textContent = `⚡ TURBO RUSH (4 bars @ ${effectiveBpm()} BPM) — Go fast!`;
             } else if (activePortalMode === 'blind') {
               notationWrap.style.borderColor = isOverdriveRun() && overdriveIntensity() > 0.05 ? odHue(0) : t.success;
               statusText.textContent = `${odPrefix}PURE SIGHT (${bpm} BPM) — Read the music! Obstacles reveal as you pass!`;
@@ -2021,9 +2083,10 @@
             triggerGroove(s, false, at);
           }
 
+          const judgeBeat = phaseBeat - (avOffsetMs / 1000) * curQps;
           for (const e of events) {
             const win = hitWindowQ(curQps, e);
-            if (e.kind === 'note' && e.result === null && phaseBeat > e.beat + win) {
+            if (e.kind === 'note' && e.result === null && judgeBeat > e.beat + win) {
               e.result = 'miss';
               notationDirty = true;
               totalJudged += 1;
@@ -2051,7 +2114,7 @@
             if (!isStreamMode() && (!ghostSamples.length || phaseBeat - ghostSamples[ghostSamples.length - 1].b >= 0.08)) {
               ghostSamples.push({ b: phaseBeat, y: cubeY, r: cubeRot });
             }
-            if (prog.trail !== 'spark' && Math.random() < (prog.trail === 'nova' ? 0.78 : prog.trail === 'stardust' ? 0.62 : 0.48)) {
+            if (prog.trail !== 'spark' && Math.random() < Math.min(1, (prog.trail === 'nova' ? 0.78 : prog.trail === 'stardust' ? 0.62 : 0.48) * f60)) {
               const nowMs = performance.now();
               const tCol = prog.trail === 'nova'
                 ? `hsl(${Math.round((nowMs * 0.45 + Math.random() * 50) % 360)}, 98%, 66%)`
@@ -2062,7 +2125,7 @@
                 : prog.trail === 'stardust' ? '✦'
                 : prog.trail === 'nova' ? (Math.random() < 0.5 ? '♫' : '★') : null;
               particles.push({
-                x: PLAYER_X - 11, y: gameGroundY - 12 - cubeY + (Math.random() - 0.5) * (prog.trail === 'nova' ? 12 : 6),
+                x: PLAYER_X - 11, y: playerYFor(cubeY, nowMs) + (Math.random() - 0.5) * (prog.trail === 'nova' ? 12 : 6),
                 vx: -(2.4 + Math.random() * (prog.trail === 'laser' ? 2.4 : 1.4)), vy: (Math.random() - 0.5) * (prog.trail === 'nova' ? 1.1 : 0.5),
                 color: tCol, life: prog.trail === 'nova' ? 0.72 : 0.58, glyph
               });
@@ -2075,8 +2138,8 @@
             const gravScale = gim === 'underwater' ? 0.76 : gim === 'fly' ? 0.78 : gim === 'wave' ? 0.86 : 1.0;
             const targetFlip = isFlippedBar ? 1 : 0;
             flipBlend += (targetFlip - flipBlend) * Math.min(1, dtSec * 12);
-            if (gim === 'underwater' && Math.random() < (liveActiveGlide ? 0.65 : 0.38)) {
-              const subY = Math.round((gameGroundY + 28) * 0.58) - cubeY * 0.65;
+            if (gim === 'underwater' && Math.random() < Math.min(1, (liveActiveGlide ? 0.65 : 0.38) * f60)) {
+              const subY = playerYFor(cubeY, now);
               particles.push({
                 x: PLAYER_X - 16, y: subY + (Math.random() - 0.5) * 6,
                 vx: -(1.5 + Math.random() * 1.1), vy: -(0.6 + Math.random() * 0.7),
@@ -2084,7 +2147,7 @@
               });
             }
             if (liveActiveGlide && phaseBeat <= liveActiveGlide.beat + liveActiveGlide.dur - holdGraceQ(liveActiveGlide) && isPointerOrKeyDown) {
-              cubeY += ((curFloor + (gim === 'fly' || gim === 'underwater' ? 28 : 44)) - cubeY) * 0.34;
+              cubeY += ((curFloor + (gim === 'fly' || gim === 'underwater' ? 28 : 44)) - cubeY) * (1 - Math.pow(1 - 0.34, f60));
               cubeVy = 0; cubeRot = 0;
             } else {
               liveActiveGlide = null;
@@ -2100,9 +2163,9 @@
               if (curFloor > 0 && prevY >= curFloor - 10 && cubeY <= curFloor && cubeVy <= 0) {
                 cubeY = curFloor; cubeVy = 0;
                 cubeRot = Math.round(cubeRot / (Math.PI / 2)) * (Math.PI / 2);
-                if (Math.random() < 0.55) {
+                if (gim !== 'fly' && gim !== 'underwater' && Math.random() < Math.min(1, 0.55 * f60)) {
                   particles.push({
-                    x: PLAYER_X - 11, y: gameGroundY - 2 - curFloor,
+                    x: PLAYER_X - 11, y: playerYFor(curFloor, now) + 10,
                     vx: -(1.6 + Math.random() * 1.4), vy: -(0.3 + Math.random() * 0.9),
                     color: 'rgba(255,255,255,0.85)', life: 0.35
                   });
@@ -2119,9 +2182,9 @@
               } else if (cubeY <= 0) {
                 cubeY = 0; cubeVy = 0;
                 cubeRot = Math.round(cubeRot / (Math.PI / 2)) * (Math.PI / 2);
-                if (Math.random() < 0.55) {
+                if (gim !== 'fly' && gim !== 'underwater' && Math.random() < Math.min(1, 0.55 * f60)) {
                   particles.push({
-                    x: PLAYER_X - 11, y: gameGroundY - 2,
+                    x: PLAYER_X - 11, y: playerYFor(0, now) + 10,
                     vx: -(1.6 + Math.random() * 1.4), vy: -(0.3 + Math.random() * 0.9),
                     color: 'rgba(255,255,255,0.85)', life: 0.35
                   });
@@ -2134,11 +2197,13 @@
 
             if (isOverdriveRun()) {
               const od = overdriveIntensity();
-              cubeTrail.push({ y: cubeY, rot: cubeRot, col: odHue(15, od), life: 1.0 });
-              if (cubeTrail.length > 5) cubeTrail.shift();
-              if (Math.random() < od * 0.45) {
+              if (!cubeTrail.length || (now - (cubeTrail[cubeTrail.length - 1].ts || 0)) >= 18) {
+                cubeTrail.push({ y: cubeY, rot: cubeRot, col: odHue(15, od), life: 1.0, ts: now });
+                if (cubeTrail.length > 5) cubeTrail.shift();
+              }
+              if (Math.random() < Math.min(1, od * 0.45 * f60)) {
                 particles.push({
-                  x: PLAYER_X - 10, y: gameGroundY - 16 - cubeY + (Math.random() - 0.5) * 8,
+                  x: PLAYER_X - 10, y: playerYFor(cubeY, now) + (Math.random() - 0.5) * 8,
                   vx: -(2.0 + od * 2.2), vy: (Math.random() - 0.5) * (0.8 + od * 0.8),
                   color: odHue(25, od), life: 0.4 + od * 0.25
                 });
@@ -2189,8 +2254,8 @@
           const p = Math.min(1, (now - cooldownStartPerf) / 1150);
           const eased = 1 - Math.pow(1 - p, 2);
           bpm = Math.round(cooldownFromBpm + (baseBpm - cooldownFromBpm) * eased);
-          phaseBeat += 0.012 * (1 - p);
-          cubeY = Math.max(0, cubeY * 0.88);
+          phaseBeat += 0.012 * (1 - p) * f60;
+          cubeY = Math.max(0, cubeY * Math.pow(0.88, f60));
           if (bpm !== lastCooldownBpm) {
             lastCooldownBpm = bpm;
             updateHud();
@@ -2202,7 +2267,6 @@
           }
         }
 
-        const f60 = Math.max(0.25, Math.min(3, dtSec * 60));
         downbeatPulse *= Math.pow(0.88, f60);
         beatPulse *= Math.pow(0.86, f60);
         portalFlash *= Math.pow(0.88, f60);
@@ -2244,8 +2308,23 @@
       // ---------- Canvas Rendering (Cached Sizes & DPR Cap for Smooth 60fps) ----------
       const canvasMetrics = new WeakMap();
       let gameGroundY = 166;
+      let cachedSkyKey = '';
+      let cachedSkyGrad = null;
+      let cachedGlazeKey = '';
+      let cachedGlazeGrad = null;
+      const badgeSprite = document.createElement('canvas');
+      const badgeCtx = badgeSprite.getContext('2d');
+      let badgeSpriteKey = '';
+      let badgeSpriteW = 0;
+      const shieldSprite = document.createElement('canvas');
+      const shieldCtx = shieldSprite.getContext('2d');
+      let shieldSpriteKey = '';
       function measureCanvas(canvas) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        const rawDpr = window.devicePixelRatio || 1;
+        // In WebKit/WKWebView (macOS app & Safari), non-integer 1.5x DPR triggers expensive resampling;
+        // integer 1x on the animated gameCanvas keeps 60fps locked while notationCanvas stays crisp.
+        const maxDpr = (canvas === gameCanvas && IS_WEBKIT_ENGINE) ? 1 : 1.5;
+        const dpr = Math.min(rawDpr, maxDpr);
         const rect = canvas.getBoundingClientRect();
         const w = Math.max(320, Math.round(rect.width));
         const h = Math.max(88, Math.round(rect.height));
@@ -2284,12 +2363,11 @@
 
       function drawGame() {
         const { w, h } = prepCanvas(gameCanvas, gCtx);
-        const camScale = Math.max(1.0, Math.min(1.85, h / 230));
+        const camScale = Math.max(1.0, Math.min(1.65, h / 230));
         const vw = w / camScale;
         const vh = h / camScale;
         PLAYER_X = Math.round(Math.max(115, Math.min(200, vw * 0.25)));
         const t = getTheme();
-        gCtx.clearRect(0, 0, w, h);
 
         gCtx.save();
         gCtx.scale(camScale, camScale);
@@ -2345,13 +2423,19 @@
         }
 
         // Dark-rich neon sky gradient + softer parallax biomes for strong figure-ground separation
-        const skyGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
-        skyGrad.addColorStop(0, gdSkyTop(od, beatPulse));
-        skyGrad.addColorStop(1, gdSkyBot(od, beatPulse));
-        gCtx.fillStyle = skyGrad;
+        const skyTopCol = gdSkyTop(od, beatPulse);
+        const skyBotCol = gdSkyBot(od, beatPulse);
+        const skyKey = `${skyTopCol}|${skyBotCol}|${Math.round(groundY)}`;
+        if (skyKey !== cachedSkyKey) {
+          cachedSkyKey = skyKey;
+          cachedSkyGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
+          cachedSkyGrad.addColorStop(0, skyTopCol);
+          cachedSkyGrad.addColorStop(1, skyBotCol);
+        }
+        gCtx.fillStyle = cachedSkyGrad;
         gCtx.fillRect(0, 0, vw, groundY);
 
-        // Dynamic Beat-Synced Biomes (dimmed ~40% so foreground hazards pop cleanly)
+        // Dynamic Beat-Synced Biomes (batched paths for 60fps in WebKit/WKWebView)
         const biome = BIOMES[biomeIdx % BIOMES.length];
         if (biome === 'grid') {
           const wallTile = 68;
@@ -2359,24 +2443,27 @@
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.10)';
           gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.03 + beatPulse * 0.025).toFixed(3)})`;
           gCtx.lineWidth = 1.1;
+          gCtx.beginPath();
           for (let wy = groundY - wallTile; wy > -wallTile; wy -= wallTile) {
             for (let wxBg = wallOff - wallTile; wxBg < vw + wallTile; wxBg += wallTile) {
-              gCtx.fillRect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
-              gCtx.strokeRect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
+              gCtx.rect(wxBg + 4, wy + 4, wallTile - 8, wallTile - 8);
             }
           }
+          gCtx.fill();
+          gCtx.stroke();
           const bgCount = 8;
           const bgSlot = (vw + 160) / bgCount;
           const bgShift = ((worldScrollBeat * pxPerQ * 0.08) % bgSlot + bgSlot) % bgSlot;
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+          gCtx.beginPath();
           for (let bi = -1; bi <= bgCount; bi++) {
             const bxBg = bi * bgSlot - bgShift;
             const baseBH = 22 + ((bi * 37 + 19) % 44);
             const pulseBH = baseBH + beatPulse * (4 + od * 8);
-            gCtx.fillRect(bxBg, groundY - pulseBH, bgSlot * 0.62, pulseBH);
+            gCtx.rect(bxBg, groundY - pulseBH, bgSlot * 0.62, pulseBH);
           }
+          gCtx.fill();
         } else if (biome === 'mountains') {
-          gCtx.save();
           gCtx.fillStyle = 'rgba(255, 210, 90, 0.09)';
           gCtx.beginPath();
           gCtx.arc(vw * 0.72, groundY - 46, 32 + beatPulse * 4, 0, Math.PI * 2);
@@ -2386,99 +2473,91 @@
           gCtx.fillStyle = 'rgba(0, 0, 0, 0.18)';
           gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.07 + beatPulse * 0.06).toFixed(3)})`;
           gCtx.lineWidth = 1.2;
+          gCtx.beginPath();
           for (let mi = -1; mi <= Math.ceil(vw / mSlot) + 1; mi++) {
             const mx = mi * mSlot - mOff;
             const mh = 42 + ((mi * 29 + 13) % 34) + beatPulse * 5;
-            gCtx.beginPath();
             gCtx.moveTo(mx - 20, groundY);
             gCtx.lineTo(mx + mSlot * 0.5, groundY - mh);
             gCtx.lineTo(mx + mSlot + 20, groundY);
             gCtx.closePath();
-            gCtx.fill();
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.fill();
+          gCtx.stroke();
         } else if (biome === 'sonar') {
-          gCtx.save();
           gCtx.strokeStyle = 'rgba(120, 240, 255, 0.13)';
           gCtx.lineWidth = 1.1;
+          gCtx.beginPath();
           for (let bi = 0; bi < 14; bi++) {
             const bx = ((bi * 97 - worldScrollBeat * pxPerQ * 0.22) % (vw + 40) + vw + 40) % (vw + 40) - 20;
             const by = groundY - 12 - (((bi * 31 + nowMs * 0.025) % (groundY - 24)));
-            gCtx.beginPath();
-            gCtx.arc(bx, by, 3 + (bi % 4) * 2, 0, Math.PI * 2);
-            gCtx.stroke();
+            const br = 3 + (bi % 4) * 2;
+            gCtx.moveTo(bx + br, by);
+            gCtx.arc(bx, by, br, 0, Math.PI * 2);
           }
-          gCtx.restore();
+          gCtx.stroke();
         } else if (biome === 'starfield') {
-          gCtx.save();
+          gCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+          gCtx.lineWidth = 1.2;
+          gCtx.beginPath();
           for (let si = 0; si < 26; si++) {
             const sx = ((si * 67 - worldScrollBeat * pxPerQ * (0.18 + (si % 3) * 0.12)) % vw + vw) % vw;
             const sy = 14 + ((si * 43) % (groundY - 26));
             const len = 4 + (si % 3) * 5 + beatPulse * 5;
-            gCtx.strokeStyle = `rgba(255, 255, 255, ${(0.11 + (si % 3) * 0.07).toFixed(2)})`;
-            gCtx.lineWidth = 1.2;
-            gCtx.beginPath();
             gCtx.moveTo(sx, sy);
             gCtx.lineTo(sx - len, sy);
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.stroke();
         } else {
-          gCtx.save();
+          gCtx.fillStyle = `rgba(255, 255, 255, ${(0.045 + beatPulse * 0.035).toFixed(3)})`;
+          gCtx.beginPath();
           for (let li = 0; li < 4; li++) {
             const lx = (vw / 5) * (li + 1);
-            const sway = Math.sin(performance.now() * 0.0018 + li * 1.4) * 52;
-            const grad = gCtx.createLinearGradient(lx, 0, lx + sway, groundY);
-            grad.addColorStop(0, `rgba(255, 255, 255, ${(0.09 + beatPulse * 0.07).toFixed(3)})`);
-            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            gCtx.fillStyle = grad;
-            gCtx.beginPath();
+            const sway = Math.sin(nowMs * 0.0018 + li * 1.4) * 52;
             gCtx.moveTo(lx - 6, 0);
             gCtx.lineTo(lx + 6, 0);
             gCtx.lineTo(lx + sway + 34, groundY);
             gCtx.lineTo(lx + sway - 34, groundY);
             gCtx.closePath();
-            gCtx.fill();
           }
-          gCtx.restore();
+          gCtx.fill();
         }
         // Subtle atmospheric depth glaze so foreground obstacles and the runner always pop
-        const depthGlaze = gCtx.createLinearGradient(0, 0, 0, groundY);
-        depthGlaze.addColorStop(0, gimmick === 'underwater' ? 'rgba(6, 54, 72, 0.34)' : 'rgba(4, 7, 16, 0.24)');
-        depthGlaze.addColorStop(1, gimmick === 'underwater' ? 'rgba(8, 72, 88, 0.16)' : 'rgba(4, 7, 16, 0.08)');
-        gCtx.fillStyle = depthGlaze;
+        const glazeKey = `${isUnderwater ? 1 : 0}|${Math.round(groundY)}`;
+        if (glazeKey !== cachedGlazeKey) {
+          cachedGlazeKey = glazeKey;
+          cachedGlazeGrad = gCtx.createLinearGradient(0, 0, 0, groundY);
+          cachedGlazeGrad.addColorStop(0, isUnderwater ? 'rgba(6, 54, 72, 0.34)' : 'rgba(4, 7, 16, 0.24)');
+          cachedGlazeGrad.addColorStop(1, isUnderwater ? 'rgba(8, 72, 88, 0.16)' : 'rgba(4, 7, 16, 0.08)');
+        }
+        gCtx.fillStyle = cachedGlazeGrad;
         gCtx.fillRect(0, 0, vw, groundY);
-        if (gimmick === 'underwater') {
-          gCtx.save();
-          const nowT = performance.now() * 0.0012;
+        if (isUnderwater) {
+          const nowT = nowMs * 0.0012;
+          gCtx.fillStyle = 'rgba(120, 245, 255, 0.07)';
+          gCtx.beginPath();
           for (let ci = 0; ci < 5; ci++) {
             const cx = ((ci * 135 + Math.sin(nowT + ci) * 26) % (vw + 60)) - 30;
-            const cGrad = gCtx.createLinearGradient(cx, 0, cx + 28, groundY);
-            cGrad.addColorStop(0, 'rgba(120, 245, 255, 0.14)');
-            cGrad.addColorStop(1, 'rgba(120, 245, 255, 0)');
-            gCtx.fillStyle = cGrad;
-            gCtx.beginPath();
             gCtx.moveTo(cx - 10, 0);
             gCtx.lineTo(cx + 14, 0);
             gCtx.lineTo(cx + 44, groundY);
             gCtx.lineTo(cx + 10, groundY);
             gCtx.closePath();
-            gCtx.fill();
           }
+          gCtx.fill();
           // Swaying underwater kelp fronds along the seabed
           const kelpOff = -(((worldScrollBeat * pxPerQ * 0.35) % 90 + 90) % 90);
           gCtx.strokeStyle = 'rgba(45, 212, 191, 0.28)';
           gCtx.lineWidth = 3;
           gCtx.lineCap = 'round';
+          gCtx.beginPath();
           for (let kx = kelpOff; kx < vw + 90; kx += 90) {
             const sway = Math.sin(nowT * 2 + kx * 0.05) * 8;
-            gCtx.beginPath();
             gCtx.moveTo(kx, groundY);
             gCtx.quadraticCurveTo(kx + sway, groundY - 18, kx - sway * 0.6, groundY - 36);
-            gCtx.stroke();
           }
-          gCtx.restore();
+          gCtx.stroke();
+          gCtx.lineCap = 'butt';
         }
         if (isGravityWorld || isSkyShip || isUnderwater) {
           // Top ceiling rail / ocean surface for Gravity Flip, Sky Ship & Underwater corridors
@@ -2561,25 +2640,26 @@
         if (justWarpedPortal && phase === 'countin') {
           const exitPortalX = wx(-countInQ);
           if (exitPortalX > -30 && exitPortalX < vw + 30) {
+            const exitY = isSkyShip ? midCruiseY : isUnderwater ? subCruiseY : (groundY - 25);
             const epCol = `hsl(${Math.round(stageHue)}, 90%, 66%)`;
             gCtx.strokeStyle = epCol;
             gCtx.lineWidth = 5.5;
             gCtx.globalAlpha = 0.36;
             gCtx.beginPath();
-            gCtx.ellipse(exitPortalX, groundY - 25, 9, 24, 0, 0, Math.PI * 2);
+            gCtx.ellipse(exitPortalX, exitY, 9, 24, 0, 0, Math.PI * 2);
             gCtx.stroke();
             gCtx.globalAlpha = 1;
             gCtx.strokeStyle = '#ffffff';
             gCtx.lineWidth = 2;
             gCtx.beginPath();
-            gCtx.ellipse(exitPortalX, groundY - 25, 7.5, 22, 0, 0, Math.PI * 2);
+            gCtx.ellipse(exitPortalX, exitY, 7.5, 22, 0, 0, Math.PI * 2);
             gCtx.stroke();
           }
         }
 
         const startPortalX = wx(0);
         if (startPortalX > -30 && startPortalX < vw + 30) {
-          const startY = isSkyShip ? midCruiseY : (groundY - floorHeightAt(0) - 25);
+          const startY = isSkyShip ? midCruiseY : isUnderwater ? subCruiseY : (groundY - floorHeightAt(0) - 25);
           const pCol = activePortalMode === 'turbo' ? '#ffd84d' : '#60efff';
           gCtx.strokeStyle = pCol;
           gCtx.lineWidth = 5;
@@ -2635,8 +2715,9 @@
 
         const goalPortalX = wx(totalQ);
         if (!isStreamMode() && goalPortalX > -30 && goalPortalX < vw + 30) {
-          const endGroundY = groundY - floorHeightAt(totalQ - 0.05);
-          const goalY = isSkyShip ? midCruiseY : isUnderwater ? subCruiseY : (endGroundY - 25);
+          const endBarFlipped = isGravityWorld && Math.floor(Math.max(0, totalQ - 0.05) / barQ) % 2 === 1;
+          const endGroundY = groundY - (endBarFlipped ? 0 : floorHeightAt(totalQ - 0.05));
+          const goalY = isSkyShip ? midCruiseY : isUnderwater ? subCruiseY : endBarFlipped ? (ceilDeckY + 25) : (endGroundY - 25);
           const pCol = portalFlash > 0.2 ? '#66ff88' : '#b37dff';
           gCtx.strokeStyle = pCol;
           gCtx.lineWidth = 6;
@@ -2653,21 +2734,49 @@
           gCtx.fillStyle = '#ffffff';
           gCtx.font = 'bold 9px system-ui, sans-serif';
           gCtx.textAlign = 'center';
-          gCtx.fillText('WARP', goalPortalX, goalY - 29);
+          gCtx.fillText('WARP', goalPortalX, endBarFlipped ? (goalY + 34) : Math.max(38, goalY - 29));
         }
 
-        // Render stepped & floating air platforms (dark blocks + white outlines)
+        // Authentic scrolling ground deck drawn before elevated blocks & gap trenches so Level-0 gaps stay visible
+        gCtx.fillStyle = gdGroundCol(od);
+        gCtx.fillRect(0, groundY, vw, vh - groundY);
+        const gTile = 28;
+        const gOff = -(((worldScrollBeat * pxPerQ) % gTile + gTile) % gTile);
+        gCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+        gCtx.lineWidth = 1;
+        gCtx.beginPath();
+        for (let gx = (PLAYER_X % gTile) + gOff - gTile; gx < vw + gTile; gx += gTile) {
+          gCtx.rect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
+        }
+        gCtx.fill();
+        gCtx.stroke();
+        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+        gCtx.lineWidth = 6;
+        gCtx.beginPath();
+        gCtx.moveTo(0, groundY);
+        gCtx.lineTo(vw, groundY);
+        gCtx.stroke();
+        gCtx.strokeStyle = '#ffffff';
+        gCtx.lineWidth = 2.2;
+        gCtx.beginPath();
+        gCtx.moveTo(0, groundY);
+        gCtx.lineTo(vw, groundY);
+        gCtx.stroke();
+
+        // Render stepped & floating air platforms (dark blocks + white outlines; skipped on flipped gravity bars)
         for (let si = 0; si < elevSegments.length; si++) {
           const seg = elevSegments[si];
           if (seg.level <= 0) continue;
+          if (isGravityWorld && Math.floor(seg.startBeat / barQ) % 2 === 1) continue;
           const sx1 = wx(seg.startBeat);
           const sx2 = wx(seg.endBeat);
           if (sx2 < -20 || sx1 > vw + 20) continue;
           const topY = groundY - seg.level * ELEV_STEP_PX;
-          const slabH = seg.floating ? Math.min(18, groundY - topY) : (groundY - topY);
+          const slabH = (seg.floating && gimmick !== 'canyon') ? Math.min(18, groundY - topY) : (groundY - topY);
           const botY = topY + slabH;
           gCtx.save();
-          gCtx.fillStyle = 'rgba(8, 12, 26, 0.90)';
+          gCtx.fillStyle = gimmick === 'canyon' ? 'rgba(38, 22, 14, 0.92)' : 'rgba(8, 12, 26, 0.90)';
           gCtx.fillRect(sx1, topY, sx2 - sx1, slabH);
 
           gCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
@@ -2765,14 +2874,12 @@
                     gCtx.fillStyle = 'rgba(102, 255, 136, 0.10)';
                     gCtx.fillRect(safeX, tunnelY - 14, rx2 - safeX, 28);
                     gCtx.strokeStyle = '#66ff88';
-                    gCtx.globalAlpha = 0.72;
-                    gCtx.setLineDash([3, 3]);
-                    gCtx.lineWidth = 2.6;
+                    gCtx.globalAlpha = 0.52;
+                    gCtx.lineWidth = 2.2;
                     gCtx.beginPath();
                     gCtx.moveTo(safeX, tunnelY - 14); gCtx.lineTo(rx2, tunnelY - 14);
                     gCtx.moveTo(safeX, tunnelY + 14); gCtx.lineTo(rx2, tunnelY + 14);
                     gCtx.stroke();
-                    gCtx.setLineDash([]);
                     gCtx.globalAlpha = 1;
                   }
                   gCtx.fillStyle = '#66ff88';
@@ -2868,14 +2975,12 @@
                     gCtx.fillStyle = 'rgba(102, 255, 136, 0.11)';
                     gCtx.fillRect(safeX, tunnelY - 14, rx2 - safeX, 28);
                     gCtx.strokeStyle = '#66ff88';
-                    gCtx.globalAlpha = 0.72;
-                    gCtx.setLineDash([3, 3]);
-                    gCtx.lineWidth = 2.6;
+                    gCtx.globalAlpha = 0.52;
+                    gCtx.lineWidth = 2.2;
                     gCtx.beginPath();
                     gCtx.moveTo(safeX, tunnelY - 14); gCtx.lineTo(rx2, tunnelY - 14);
                     gCtx.moveTo(safeX, tunnelY + 14); gCtx.lineTo(rx2, tunnelY + 14);
                     gCtx.stroke();
-                    gCtx.setLineDash([]);
                     gCtx.globalAlpha = 1;
                   }
                   gCtx.fillStyle = '#66ff88';
@@ -2891,7 +2996,7 @@
               } else {
                 // Tethered sea-mine anchored to seabed + sonar ring above to pulse through
                 const mxMine = x + 12;
-                const mineY = subCruiseY + 11;
+                const mineY = Math.min(groundY - 12, subCruiseY + 17);
                 const ringY = subCruiseY - (e.isAirOrb ? 26 : 16);
                 // Anchor chain from seabed up to mine
                 gCtx.strokeStyle = 'rgba(148, 163, 184, 0.72)';
@@ -2925,8 +3030,8 @@
               const rx1 = x + 4;
               const rx2 = Math.max(rx1 + 16, wx(e.beat + e.dur - Math.min(REST_END_GRACE_Q, e.dur * 0.45)));
               const rw = rx2 - rx1;
-              const topEnd = subCruiseY - 16;
-              const netH = Math.max(12, topEnd - ceilDeckY);
+              const topEnd = subCruiseY - 20;
+              const netH = Math.max(10, topEnd - ceilDeckY);
               gCtx.fillStyle = 'rgba(12, 24, 38, 0.88)';
               gCtx.fillRect(rx1, ceilDeckY, rw, netH);
               // Crosshatched sonar net lines
@@ -3072,7 +3177,7 @@
             if (e.isHold) {
               const rx1 = x + 8;
               const rx2 = Math.max(rx1 + 28, xEnd - 22);
-              const ry = Math.max(30, evGroundY - (isTurboDash ? 50 : 44));
+              const ry = Math.max(36, evGroundY - 44);
 
               // Danger zone underneath glide rail (red glow + classic white-outlined GD spikes/saws)
               gCtx.fillStyle = '#ff4d6d';
@@ -3110,14 +3215,7 @@
               const safeX = Math.max(rx1 + 16, wx(e.beat + e.dur - holdGraceQ(e)));
               const mistHold = tricksActive && e.result === null;
               const railEndX = mistHold ? Math.min(safeX, rx1 + Math.max(28, (safeX - rx1) * 0.48)) : safeX;
-              let railStroke = col;
-              if (mistHold) {
-                const grad = gCtx.createLinearGradient(rx1, ry, railEndX, ry);
-                grad.addColorStop(0, col);
-                grad.addColorStop(0.65, col);
-                grad.addColorStop(1, 'rgba(96, 239, 255, 0)');
-                railStroke = grad;
-              }
+              const railStroke = col;
               gCtx.save();
               gCtx.lineCap = 'round';
               // Outer neon glow halo
@@ -3158,17 +3256,17 @@
               gCtx.beginPath();
               gCtx.arc(rx1, ry, 3, 0, Math.PI * 2);
               gCtx.fill();
-              // Forward chevrons (>) along the active dash rail
+              // Forward chevrons (>) along the active hold rail (batched)
               gCtx.strokeStyle = col;
               gCtx.lineWidth = 1.6;
               gCtx.globalAlpha = 0.85;
+              gCtx.beginPath();
               for (let cx = rx1 + 14; cx < railEndX - 10; cx += 24) {
-                gCtx.beginPath();
                 gCtx.moveTo(cx - 3, ry - 4);
                 gCtx.lineTo(cx + 2, ry);
                 gCtx.lineTo(cx - 3, ry + 4);
-                gCtx.stroke();
               }
+              gCtx.stroke();
               gCtx.restore();
 
               if (!mistHold) {
@@ -3239,7 +3337,22 @@
               gCtx.stroke();
             } else if (e.dur < 0.7) {
               const sx = x + 14;
-              if (e.obsStyle === 'mini_saw') {
+              const stepUpShort = floorHeightAt(e.beat + 0.65) > floorHeightAt(e.beat);
+              if (stepUpShort || gimmick === 'bounce') {
+                gCtx.fillStyle = gimmick === 'bounce' ? '#f472b6' : '#ffe64d';
+                gCtx.globalAlpha = 0.28;
+                gCtx.beginPath();
+                gCtx.arc(sx, evGroundY, 11, Math.PI, 0);
+                gCtx.fill();
+                gCtx.globalAlpha = 1;
+                gCtx.fillStyle = judgedCol || (gimmick === 'bounce' ? '#f472b6' : '#ffe64d');
+                gCtx.beginPath();
+                gCtx.ellipse(sx, evGroundY - 2, 9.5, 4.5, 0, Math.PI, 0);
+                gCtx.fill();
+                gCtx.strokeStyle = '#ffffff';
+                gCtx.lineWidth = 1.3;
+                gCtx.stroke();
+              } else if (e.obsStyle === 'mini_saw') {
                 drawSaw(sx, evGroundY - 8.5, isTurboDash ? 9.5 : 8, 8, col);
               } else {
                 const sh = isTurboDash ? 20 : 17;
@@ -3258,15 +3371,16 @@
               const sx = x + 18;
               const style = e.obsStyle || 'spike';
               const stepUp = floorHeightAt(e.beat + 0.9) > floorHeightAt(e.beat);
-              if (stepUp) {
-                // Yellow Jump Pad at ledge step-ups
-                gCtx.fillStyle = '#ffe64d';
+              if (stepUp || gimmick === 'bounce') {
+                const padCol = gimmick === 'bounce' ? '#f472b6' : '#ffe64d';
+                // Jump Pad at ledge step-ups & W2 Hyper Bounce
+                gCtx.fillStyle = padCol;
                 gCtx.globalAlpha = 0.28;
                 gCtx.beginPath();
                 gCtx.arc(sx, evGroundY, 13, Math.PI, 0);
                 gCtx.fill();
                 gCtx.globalAlpha = 1;
-                gCtx.fillStyle = judgedCol || '#ffe64d';
+                gCtx.fillStyle = judgedCol || padCol;
                 gCtx.beginPath();
                 gCtx.ellipse(sx, evGroundY - 2, 11, 5, 0, Math.PI, 0);
                 gCtx.fill();
@@ -3382,7 +3496,7 @@
             const rx2 = Math.max(rx1 + 14, wx(e.beat + e.dur - restGraceQ));
             const rw = rx2 - rx1;
             const isShortRest = e.dur <= 0.55;
-            const ceilY = Math.max(36, evGroundY - (isShortRest ? 52 : 38));
+            const ceilY = Math.max(36, Math.min(evGroundY - 34, evGroundY - (isShortRest ? 52 : 42)));
             const blockH = Math.max(12, ceilY - 22);
 
             // Red hazard underglow beneath the ceiling crusher
@@ -3395,21 +3509,28 @@
             gCtx.fillStyle = 'rgba(12, 10, 22, 0.92)';
             gCtx.fillRect(rx1, 22, rw, blockH);
 
-            // Diagonal crimson caution stripes clipped inside the crusher block
-            gCtx.save();
-            gCtx.beginPath();
-            gCtx.rect(rx1 + 1, 23, Math.max(0, rw - 2), Math.max(0, blockH - 2));
-            gCtx.clip();
-            gCtx.strokeStyle = col;
-            gCtx.globalAlpha = 0.28;
-            gCtx.lineWidth = 4;
-            for (let sx = rx1 - blockH; sx < rx2 + blockH; sx += 12) {
+            // Diagonal crimson caution stripes clamped mathematically (no clip()/save()/restore() overhead in WebKit)
+            const xMin = rx1 + 2;
+            const xMax = rx2 - 2;
+            const yTop = 23;
+            const yBot = 22 + blockH - 1;
+            if (xMax > xMin && yBot > yTop) {
+              gCtx.strokeStyle = col;
+              gCtx.globalAlpha = 0.24;
+              gCtx.lineWidth = 3.5;
               gCtx.beginPath();
-              gCtx.moveTo(sx, 22);
-              gCtx.lineTo(sx + blockH, 22 + blockH);
+              for (let sx = rx1 - blockH; sx < rx2 + blockH; sx += 14) {
+                let ax = sx, ay = yTop, bx = sx + (yBot - yTop), by = yBot;
+                if (ax < xMin) { ay += (xMin - ax); ax = xMin; }
+                if (bx > xMax) { by -= (bx - xMax); bx = xMax; }
+                if (ax < bx && ay < by) {
+                  gCtx.moveTo(ax, ay);
+                  gCtx.lineTo(bx, by);
+                }
+              }
               gCtx.stroke();
+              gCtx.globalAlpha = 1;
             }
-            gCtx.restore();
 
             // Crisp hazard border around the ceiling block
             gCtx.strokeStyle = col;
@@ -3432,7 +3553,7 @@
                 for (let sx = rx1 + 6; sx <= rx2 - 6; sx += 12) {
                   gCtx.moveTo(sx - 5.5, ceilY);
                   gCtx.lineTo(sx + 5.5, ceilY);
-                  gCtx.lineTo(sx, ceilY + 13);
+                  gCtx.lineTo(sx, ceilY + 11);
                   gCtx.closePath();
                 }
                 gCtx.fill();
@@ -3453,39 +3574,12 @@
           gCtx.restore();
         }
 
-        // Authentic scrolling GD ground deck with 28x28 tiles + glowing white horizon
-        gCtx.fillStyle = gdGroundCol(od);
-        gCtx.fillRect(0, groundY, vw, vh - groundY);
-        const gTile = 28;
-        const gOff = -(((worldScrollBeat * pxPerQ) % gTile + gTile) % gTile);
-        gCtx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-        gCtx.lineWidth = 1;
-        for (let gx = (PLAYER_X % gTile) + gOff - gTile; gx < vw + gTile; gx += gTile) {
-          gCtx.fillRect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
-          gCtx.strokeRect(gx + 3, groundY + 4, gTile - 6, gTile - 7);
-        }
-        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-        gCtx.lineWidth = 6;
-        gCtx.beginPath();
-        gCtx.moveTo(0, groundY);
-        gCtx.lineTo(vw, groundY);
-        gCtx.stroke();
-        gCtx.strokeStyle = '#ffffff';
-        gCtx.lineWidth = 2.2;
-        gCtx.beginPath();
-        gCtx.moveTo(0, groundY);
-        gCtx.lineTo(vw, groundY);
-        gCtx.stroke();
-
-        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-        gCtx.setLineDash([4, 4]);
+        gCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
         gCtx.lineWidth = 1;
         gCtx.beginPath();
         gCtx.moveTo(PLAYER_X, 24);
         gCtx.lineTo(PLAYER_X, groundY);
         gCtx.stroke();
-        gCtx.setLineDash([]);
 
         if (hideObstacles) {
           const fogStart = Math.max(PLAYER_X + 10, phase === 'echo_listen' ? wx(0) - 18 : PLAYER_X + 10);
@@ -3542,13 +3636,19 @@
             const tr = cubeTrail[ti];
             const age = cubeTrail.length - ti;
             const gx = PLAYER_X - age * (5 + od * 3);
-            const gy = groundY - 12 - tr.y;
+            const gy = playerYFor(tr.y, nowMs);
             gCtx.save();
             gCtx.globalAlpha = (0.05 + od * 0.16) * ((ti + 1) / cubeTrail.length);
             gCtx.translate(gx, gy);
-            gCtx.rotate(tr.rot);
+            gCtx.rotate(isSkyShip || isUnderwater ? 0 : tr.rot);
             gCtx.fillStyle = tr.col;
-            gCtx.fillRect(-10, -10, 20, 20);
+            if (isSkyShip || isUnderwater) {
+              gCtx.beginPath();
+              gCtx.ellipse(0, 0, 12, 7, 0, 0, Math.PI * 2);
+              gCtx.fill();
+            } else {
+              gCtx.fillRect(-10, -10, 20, 20);
+            }
             gCtx.restore();
           }
         }
@@ -3560,7 +3660,7 @@
             if (bestGhostSamples[gi].b <= phaseBeat) gs = bestGhostSamples[gi];
             else break;
           }
-          const gy = groundY - 12 - gs.y;
+          const gy = playerYFor(gs.y, nowMs);
           gCtx.save();
           gCtx.globalAlpha = 0.28;
           gCtx.translate(PLAYER_X, gy);
@@ -3852,6 +3952,22 @@
           gCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
           gCtx.stroke();
         }
+        if (popups.length) {
+          gCtx.font = 'bold 11px system-ui, sans-serif';
+          gCtx.textAlign = 'center';
+          gCtx.lineJoin = 'round';
+          gCtx.lineWidth = 3;
+          gCtx.strokeStyle = 'rgba(6, 9, 18, 0.85)';
+          for (const p of popups) {
+            const px = wx(p.beat);
+            if (px < -40 || px > vw + 40) continue;
+            const py = Math.max(36, cubeRenderY - 26 - (1 - p.life) * 18);
+            gCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
+            gCtx.strokeText(p.text, px, py);
+            gCtx.fillStyle = p.color;
+            gCtx.fillText(p.text, px, py);
+          }
+        }
         gCtx.globalAlpha = 1;
 
         // On-cube micro timing feedback bar right beneath the cube
@@ -3888,24 +4004,24 @@
           bCol = '#ff6b81';
         } else if (phase === 'echo_listen') {
           badge = `${odBannerPrefix}MEMORY ECHO (2 BARS) — LISTEN CLOSELY!`;
-          bCol = isOverdrive && od > 0.05 ? odHue(0, od) : '#c084fc';
+          bCol = isOverdrive && od > 0.05 ? '#fde047' : '#c084fc';
         } else if (phase === 'countin') {
           const mi = meterInfo();
           const macro = Math.max(1, Math.min(mi.beats, Math.floor((phaseBeat + countInQ) / mi.beatQ) + 1));
           badge = activePortalMode === 'turbo'
-            ? `⚡ TURBO DASH (4 BARS @ ${effectiveBpm()} BPM) · COUNT-IN: ${macro}`
+            ? `⚡ TURBO RUSH (4 BARS @ ${effectiveBpm()} BPM) · COUNT-IN: ${macro}`
             : activePortalMode === 'blind'
               ? `${odBannerPrefix}PURE SIGHT (${bpm} BPM) · COUNT-IN: ${macro}`
               : activePortalMode === 'stream'
                 ? `∞ ENDLESS STREAM (${bpm} BPM) · ONE COUNT-IN: ${macro}`
                 : `${odBannerPrefix}LIVE SIGHT (${bpm} BPM) · COUNT-IN: ${macro}`;
-          bCol = (isOverdrive && od > 0.05) ? odHue(0, od) : '#ffe64d';
+          bCol = '#ffe64d';
         } else if (phase === 'live') {
-          const gimTag = isGravityFlipped ? '↕ FLIPPED · ' : gimmick === 'fly' ? '✈ SKY SHIP · ' : gimmick === 'underwater' ? '🌊 UNDERWATER · ' : gimmick === 'wave' ? '🚀 ZERO-G · ' : '';
+          const gimTag = isGravityFlipped ? '↕ FLIPPED · ' : gimmick === 'fly' ? '✈ SKY SHIP · ' : gimmick === 'underwater' ? '🌊 UNDERWATER · ' : gimmick === 'wave' ? '🚀 ZERO-G · ' : gimmick === 'bounce' ? '🦘 BOUNCE · ' : gimmick === 'canyon' ? '🏔 CANYON · ' : '';
           badge = activePortalMode === 'echo'
             ? `${odBannerPrefix}${gimTag}MEMORY ECHO (2 BARS) — JUMP FROM MEMORY!`
             : activePortalMode === 'turbo'
-              ? `⚡ TURBO DASH (4 BARS @ ${effectiveBpm()} BPM) — GO FAST!`
+              ? `⚡ TURBO RUSH (4 BARS @ ${effectiveBpm()} BPM) — GO FAST!`
               : activePortalMode === 'blind'
                 ? `${odBannerPrefix}${gimTag}PURE SIGHT (${bpm} BPM) — TRACK REVEALS BEHIND YOU`
                 : activePortalMode === 'stream'
@@ -3917,102 +4033,103 @@
           bCol = '#ff6b81';
         }
 
-        // Compact top-left status pill (keeps center sky completely unobstructed)
-        gCtx.font = 'bold 10px system-ui, sans-serif';
-        if (badge !== lastBadgeText) {
-          lastBadgeText = badge;
-          lastBadgeW = gCtx.measureText(badge).width + 16;
-        }
-        const tw = lastBadgeW;
-        gCtx.fillStyle = 'rgba(6, 9, 18, 0.56)';
-        gCtx.fillRect(8, 5, tw, 16);
-        gCtx.fillStyle = bCol;
-        gCtx.textAlign = 'left';
-        gCtx.fillText(badge, 16, 16);
-
-        // High-visibility Sky Shield & Streak-to-Shield HUD in upper-right sky
-        const shW = 146;
-        const shH = 28;
+        // High-visibility Sky Shield & Streak-to-Shield HUD in upper-right sky (cached offscreen sprite, clears ceilDeckY = 28)
+        const shW = 142;
+        const shH = 24;
         const shX = vw - shW - 8;
-        const shY = 5;
+        const shY = 3;
+
+        // Compact top-left status pill (clamped so it never collides with shieldSprite)
+        const maxBadgeW = Math.max(120, Math.floor(shX - 16));
+        const bKey = `${badge}|${bCol}|${maxBadgeW}`;
+        if (bKey !== badgeSpriteKey) {
+          badgeSpriteKey = bKey;
+          badgeCtx.font = 'bold 10px system-ui, sans-serif';
+          badgeSpriteW = Math.min(maxBadgeW, Math.ceil(badgeCtx.measureText(badge).width + 16));
+          badgeSprite.width = Math.max(16, badgeSpriteW * 2);
+          badgeSprite.height = 36;
+          badgeCtx.setTransform(2, 0, 0, 2, 0, 0);
+          badgeCtx.clearRect(0, 0, badgeSpriteW, 18);
+          badgeCtx.fillStyle = 'rgba(6, 9, 18, 0.62)';
+          badgeCtx.beginPath();
+          badgeCtx.roundRect ? badgeCtx.roundRect(0, 0, badgeSpriteW, 18, 5) : badgeCtx.rect(0, 0, badgeSpriteW, 18);
+          badgeCtx.fill();
+          badgeCtx.font = 'bold 10px system-ui, sans-serif';
+          badgeCtx.fillStyle = bCol;
+          badgeCtx.textAlign = 'left';
+          badgeCtx.fillText(badge, 8, 12.5, badgeSpriteW - 14);
+        }
+        gCtx.drawImage(badgeSprite, 8, 4, badgeSpriteW, 18);
+
         const liveAcc = totalJudged > 0 ? Math.round((totalHits / totalJudged) * 100) : 100;
-        gCtx.fillStyle = 'rgba(6, 9, 18, 0.62)';
-        gCtx.fillRect(shX, shY, shW, shH);
-        gCtx.strokeStyle = (extraLives > 0 || shieldFlash > 0.05) ? '#60efff' : 'rgba(148, 163, 184, 0.35)';
-        gCtx.lineWidth = (extraLives > 0 || shieldFlash > 0.05) ? (1.4 + shieldFlash * 1.6) : 1;
-        gCtx.strokeRect(shX, shY, shW, shH);
-        // 2 shield slot diamonds
-        for (let si = 0; si < 2; si++) {
-          const dcx = shX + 12 + si * 13;
-          const dcy = shY + 8.5;
-          const filled = si < extraLives;
-          gCtx.beginPath();
-          gCtx.moveTo(dcx, dcy - 4.4);
-          gCtx.lineTo(dcx + 4.2, dcy - 1.2);
-          gCtx.lineTo(dcx + 3.2, dcy + 3.2);
-          gCtx.lineTo(dcx, dcy + 4.8);
-          gCtx.lineTo(dcx - 3.2, dcy + 3.2);
-          gCtx.lineTo(dcx - 4.2, dcy - 1.2);
-          gCtx.closePath();
-          if (filled) {
-            gCtx.fillStyle = '#60efff';
-            gCtx.fill();
-            gCtx.strokeStyle = '#ffffff';
-            gCtx.lineWidth = 0.9;
-            gCtx.stroke();
-          } else {
-            gCtx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
-            gCtx.lineWidth = 1.1;
-            gCtx.stroke();
+        const flashBucket = shieldFlash > 0.05 ? Math.round(shieldFlash * 5) : 0;
+        const sKey = `${extraLives}|${streak < 4 ? streak : 4}|${Math.round(shieldCharge)}|${liveAcc}|${flashBucket}`;
+        if (sKey !== shieldSpriteKey) {
+          shieldSpriteKey = sKey;
+          if (shieldSprite.width !== shW * 2 || shieldSprite.height !== shH * 2) {
+            shieldSprite.width = shW * 2;
+            shieldSprite.height = shH * 2;
           }
+          shieldCtx.setTransform(2, 0, 0, 2, 0, 0);
+          shieldCtx.clearRect(0, 0, shW, shH);
+          shieldCtx.fillStyle = 'rgba(6, 9, 18, 0.66)';
+          shieldCtx.beginPath();
+          shieldCtx.roundRect ? shieldCtx.roundRect(0.5, 0.5, shW - 1, shH - 1, 5) : shieldCtx.rect(0.5, 0.5, shW - 1, shH - 1);
+          shieldCtx.fill();
+          shieldCtx.strokeStyle = (extraLives > 0 || flashBucket > 0) ? '#60efff' : 'rgba(148, 163, 184, 0.35)';
+          shieldCtx.lineWidth = (extraLives > 0 || flashBucket > 0) ? (1.4 + (flashBucket / 5) * 1.6) : 1;
+          shieldCtx.stroke();
+          for (let si = 0; si < 2; si++) {
+            const dcx = 11 + si * 12;
+            const dcy = 7.5;
+            const filled = si < extraLives;
+            shieldCtx.beginPath();
+            shieldCtx.moveTo(dcx, dcy - 4);
+            shieldCtx.lineTo(dcx + 3.8, dcy - 1);
+            shieldCtx.lineTo(dcx + 2.8, dcy + 2.8);
+            shieldCtx.lineTo(dcx, dcy + 4.2);
+            shieldCtx.lineTo(dcx - 2.8, dcy + 2.8);
+            shieldCtx.lineTo(dcx - 3.8, dcy - 1);
+            shieldCtx.closePath();
+            if (filled) {
+              shieldCtx.fillStyle = '#60efff';
+              shieldCtx.fill();
+              shieldCtx.strokeStyle = '#ffffff';
+              shieldCtx.lineWidth = 0.85;
+              shieldCtx.stroke();
+            } else {
+              shieldCtx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+              shieldCtx.lineWidth = 1;
+              shieldCtx.stroke();
+            }
+          }
+          const shTitle = extraLives >= 2 ? 'SHIELD ×2' : extraLives === 1 ? 'SHIELD READY' : 'NO SHIELD';
+          shieldCtx.font = 'bold 9px system-ui, sans-serif';
+          shieldCtx.fillStyle = extraLives > 0 ? '#60efff' : '#94a3b8';
+          shieldCtx.textAlign = 'left';
+          shieldCtx.fillText(shTitle, 32, 10.5);
+          const barX = 7, barY = 13, barW = 128, barH = 2.8;
+          shieldCtx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+          shieldCtx.fillRect(barX, barY, barW, barH);
+          let fillPct = 0, fillCol = '#34d399', subText = '', subCol = '#cbd5e1';
+          if (extraLives >= 2) {
+            fillPct = 1; fillCol = '#60efff'; subText = 'MAX SHIELDS'; subCol = '#60efff';
+          } else if (streak < 4) {
+            fillPct = Math.max(0, Math.min(1, streak / 4)); fillCol = '#fbbf24'; subText = `STREAK ${streak}/4 → SHIELD`; subCol = '#cbd5e1';
+          } else if (liveAcc < 85) {
+            fillPct = Math.max(0, Math.min(1, shieldCharge / 100)); fillCol = '#94a3b8'; subText = `NEED 85%+ ACC (${liveAcc}%)`; subCol = '#fbbf24';
+          } else {
+            fillPct = Math.max(0, Math.min(1, shieldCharge / 100)); fillCol = '#34d399'; subText = `CHARGING ${Math.round(shieldCharge)}% · ${liveAcc}% ACC`; subCol = '#6ee7b7';
+          }
+          if (fillPct > 0) {
+            shieldCtx.fillStyle = fillCol;
+            shieldCtx.fillRect(barX, barY, Math.round(barW * fillPct), barH);
+          }
+          shieldCtx.font = 'bold 7.2px system-ui, sans-serif';
+          shieldCtx.fillStyle = subCol;
+          shieldCtx.fillText(subText, barX, 22);
         }
-        const shTitle = extraLives >= 2 ? 'SHIELD ×2' : extraLives === 1 ? 'SHIELD READY' : 'NO SHIELD';
-        gCtx.font = 'bold 9.5px system-ui, sans-serif';
-        gCtx.fillStyle = extraLives > 0 ? '#60efff' : '#94a3b8';
-        gCtx.textAlign = 'left';
-        gCtx.fillText(shTitle, shX + 35, shY + 11.5);
-        // Horizontal charge bar (130px wide) + status line
-        const barX = shX + 8;
-        const barY = shY + 14.5;
-        const barW = 130;
-        const barH = 3.2;
-        gCtx.fillStyle = 'rgba(30, 41, 59, 0.9)';
-        gCtx.fillRect(barX, barY, barW, barH);
-        let fillPct = 0;
-        let fillCol = '#34d399';
-        let subText = '';
-        let subCol = '#cbd5e1';
-        if (extraLives >= 2) {
-          fillPct = 1;
-          fillCol = '#60efff';
-          subText = 'MAX SHIELDS';
-          subCol = '#60efff';
-        } else if (streak < 4) {
-          fillPct = Math.max(0, Math.min(1, streak / 4));
-          fillCol = '#fbbf24';
-          subText = `STREAK ${streak}/4 → SHIELD`;
-          subCol = '#cbd5e1';
-        } else if (liveAcc < 85) {
-          fillPct = Math.max(0, Math.min(1, shieldCharge / 100));
-          fillCol = '#94a3b8';
-          subText = `NEED 85%+ ACC (${liveAcc}%)`;
-          subCol = '#fbbf24';
-        } else {
-          fillPct = Math.max(0, Math.min(1, shieldCharge / 100));
-          const chGrad = gCtx.createLinearGradient(barX, barY, barX + barW, barY);
-          chGrad.addColorStop(0, '#34d399');
-          chGrad.addColorStop(1, '#60efff');
-          fillCol = chGrad;
-          subText = `CHARGING ${Math.round(shieldCharge)}% · ${liveAcc}% ACC`;
-          subCol = '#6ee7b7';
-        }
-        if (fillPct > 0) {
-          gCtx.fillStyle = fillCol;
-          gCtx.fillRect(barX, barY, Math.round(barW * fillPct), barH);
-        }
-        gCtx.font = 'bold 7.5px system-ui, sans-serif';
-        gCtx.fillStyle = subCol;
-        gCtx.fillText(subText, barX, shY + 25.5);
+        gCtx.drawImage(shieldSprite, shX, shY, shW, shH);
 
         gCtx.restore();
       }
@@ -4020,7 +4137,8 @@
       function drawNotation() {
         const { w, h } = prepCanvas(notationCanvas, nCtx);
         const t = getTheme();
-        nCtx.clearRect(0, 0, w, h);
+        nCtx.fillStyle = t.card;
+        nCtx.fillRect(0, 0, w, h);
 
         const gateX = 56;
         const portalX = w - 28;
@@ -4190,11 +4308,8 @@
               const code = e.durCode || '';
               const isWhole = code === 'w' || (!e.tiedToNext && e.dur >= 3.99);
               const isOpen = isWhole || code === 'h' || code === 'hd' || (!e.tiedToNext && e.dur >= 1.99);
-              nCtx.save();
-              nCtx.translate(x, staffY);
-              nCtx.rotate(isWhole ? 0 : -0.28);
               nCtx.beginPath();
-              nCtx.ellipse(0, 0, isWhole ? 7.8 : 6.6, isWhole ? 5.2 : 4.6, 0, 0, Math.PI * 2);
+              nCtx.ellipse(x, staffY, isWhole ? 7.8 : 6.6, isWhole ? 5.2 : 4.6, isWhole ? 0 : -0.28, 0, Math.PI * 2);
               if (isOpen) {
                 nCtx.fillStyle = t.card;
                 nCtx.fill();
@@ -4205,7 +4320,6 @@
                 nCtx.fillStyle = col;
                 nCtx.fill();
               }
-              nCtx.restore();
 
               if (e.dot) {
                 nCtx.fillStyle = col;
@@ -4284,8 +4398,11 @@
             }
 
             if (showCounts && e.cnt) {
+              const nextEv = ei + 1 < events.length ? events[ei + 1] : null;
+              const gapPx = nextEv ? Math.abs(bx(nextEv.beat) - x) : 999;
+              const cntFontSize = (gapPx < 22 || e.cnt.length >= 4 && gapPx < 34) ? 10 : gapPx < 30 ? 11 : 13;
               nCtx.fillStyle = e.kind === 'rest' ? t.muted : col;
-              nCtx.font = 'bold 13px ui-monospace, monospace';
+              nCtx.font = `bold ${cntFontSize}px ui-monospace, monospace`;
               nCtx.textAlign = 'center';
               nCtx.fillText(e.cnt, x, staffY + 38);
             }
@@ -4301,15 +4418,16 @@
               const lbl = e.cnt ? `COUNT: ${e.cnt}` : (e.kind === 'rest' ? 'REST!' : 'HERE!');
               nCtx.font = 'bold 10px system-ui, sans-serif';
               const lw = nCtx.measureText(lbl).width + 10;
+              const clampedX = Math.max(gateX + lw / 2, Math.min(portalX - lw / 2, x));
               nCtx.fillStyle = '#ff4d6d';
-              nCtx.fillRect(x - lw / 2, 3, lw, 14);
+              nCtx.fillRect(clampedX - lw / 2, 2, lw, 14);
               nCtx.fillStyle = '#ffffff';
               nCtx.textAlign = 'center';
-              nCtx.fillText(lbl, x, 13);
+              nCtx.fillText(lbl, clampedX, 12);
               nCtx.restore();
             }
 
-            if (isFinite(e.signedMs)) {
+            if (e.signedMs !== null && Number.isFinite(e.signedMs)) {
               const dx = Math.max(-10, Math.min(10, (e.signedMs / 140) * 10));
               nCtx.fillStyle = col;
               nCtx.beginPath();
@@ -4339,14 +4457,20 @@
           nCtx.stroke();
         }
 
-        for (const p of popups) {
-          const px = bx(p.beat);
-          if (isStream && (px < gateX - 20 || px > portalX + 20)) continue;
-          nCtx.globalAlpha = Math.max(0, p.life);
-          nCtx.fillStyle = p.color;
+        if (popups.length) {
           nCtx.font = 'bold 10px system-ui, sans-serif';
           nCtx.textAlign = 'center';
-          nCtx.fillText(p.text, px, 16);
+          nCtx.lineJoin = 'round';
+          nCtx.lineWidth = 3;
+          nCtx.strokeStyle = 'rgba(13, 17, 29, 0.9)';
+          for (const p of popups) {
+            const px = bx(p.beat);
+            if (isStream && (px < gateX - 20 || px > portalX + 20)) continue;
+            nCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
+            nCtx.strokeText(p.text, px, 26);
+            nCtx.fillStyle = p.color;
+            nCtx.fillText(p.text, px, 26);
+          }
         }
         nCtx.globalAlpha = 1;
       }
@@ -4537,12 +4661,15 @@
         saveProg();
       });
 
+      avOffsetSlider.addEventListener('change', () => avOffsetSlider.blur());
+
       volSlider.addEventListener('input', () => {
         const pct = Number(volSlider.value) || 0;
         masterVol = pct / 100;
         volVal.textContent = `${pct}%`;
         if (masterGain) masterGain.gain.value = masterVol;
       });
+      volSlider.addEventListener('change', () => volSlider.blur());
 
       avCalBtn.addEventListener('click', () => {
         avCalBtn.blur();
@@ -4597,10 +4724,12 @@
       });
 
       const onPointerDone = (e) => {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        activePointerId = null;
-        setPadDown(false);
-        handleRelease();
+        if (!activePointerIds.has(e.pointerId)) return;
+        activePointerIds.delete(e.pointerId);
+        if (!hasHeldInput()) {
+          setPadDown(false);
+          handleRelease();
+        }
       };
       [gameCanvas, notationCanvas, touchPad].forEach((c) => {
         if (!c) return;
@@ -4609,46 +4738,73 @@
           if (e.button && e.button !== 0) return;
           e.preventDefault();
           try { window.focus(); document.body.focus(); } catch {}
-          if (activePointerId !== null) return;
-          activePointerId = e.pointerId;
+          activePointerIds.add(e.pointerId);
           try { if (c.setPointerCapture) c.setPointerCapture(e.pointerId); } catch {}
           if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
           setPadDown(true);
           handlePress();
         });
-        ['pointerup', 'pointercancel'].forEach((ev) => c.addEventListener(ev, onPointerDone));
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => c.addEventListener(ev, onPointerDone));
       });
       ['pointerup', 'pointercancel'].forEach((ev) => window.addEventListener(ev, onPointerDone));
       window.addEventListener('blur', () => {
-        if (activePointerId !== null || isPointerOrKeyDown) {
-          activePointerId = null;
-          setPadDown(false);
+        if (hasHeldInput() || isPointerOrKeyDown) {
+          clearHeldInputs();
           handleRelease();
         }
       });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && ['echo_listen', 'countin', 'live', 'cooldown'].includes(phase)) {
-          activePointerId = null;
-          setPadDown(false);
+          clearHeldInputs();
           resetToIdle();
           statusText.textContent = 'Paused (tab switched) · Press Start or Space';
         }
       });
 
+      function isTextEntryTarget(el) {
+        if (!el) return false;
+        if (el.isContentEditable) return true;
+        if (el.tagName === 'TEXTAREA') return true;
+        if (el.tagName === 'INPUT') {
+          const tp = String(el.type || '').toLowerCase();
+          return !/^(checkbox|radio|range|button|submit|reset)$/.test(tp);
+        }
+        return false;
+      }
+
       function onKeyDown(e) {
-        if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
-          if (e.repeat) return;
-          if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+        const isSpace = e.code === 'Space' || e.key === ' ';
+        const isUp = e.code === 'ArrowUp';
+        if (isSpace || isUp) {
+          if (isTextEntryTarget(e.target)) return;
+          if (isUp && e.target && e.target.tagName === 'SELECT') return;
+          if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) {
+            document.activeElement.blur();
+          }
           e.preventDefault();
+          e.stopPropagation();
+          if (e.repeat) return;
+          const keyId = isSpace ? 'Space' : 'ArrowUp';
+          if (activeKeys.has(keyId)) return;
+          activeKeys.add(keyId);
           setPadDown(true);
           handlePress();
         }
       }
       function onKeyUp(e) {
-        if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
+        const isSpace = e.code === 'Space' || e.key === ' ';
+        const isUp = e.code === 'ArrowUp';
+        if (isSpace || isUp) {
+          if (isTextEntryTarget(e.target)) return;
           e.preventDefault();
-          setPadDown(false);
-          handleRelease();
+          e.stopPropagation();
+          const keyId = isSpace ? 'Space' : 'ArrowUp';
+          activeKeys.delete(keyId);
+          remoteKeyDown = false;
+          if (!hasHeldInput()) {
+            setPadDown(false);
+            handleRelease();
+          }
         }
       }
       window.addEventListener('keydown', onKeyDown, true);
@@ -4682,16 +4838,22 @@
         }
         if (d.type !== 'rd-key') return;
         if (d.action === 'down') {
+          remoteKeyDown = true;
           setPadDown(true);
           handlePress();
         } else if (d.action === 'up') {
-          setPadDown(false);
-          handleRelease();
+          remoteKeyDown = false;
+          if (!hasHeldInput()) {
+            setPadDown(false);
+            handleRelease();
+          }
         }
       });
 
       window.addEventListener('themechange', () => { cachedTheme = null; refreshModeBadge(); renderRhythmChips(); drawAll(); });
-      window.addEventListener('resize', () => { measureCanvas(gameCanvas); measureCanvas(notationCanvas); drawAll(); });
+      if (typeof ResizeObserver === 'undefined') {
+        window.addEventListener('resize', () => { measureCanvas(gameCanvas); measureCanvas(notationCanvas); drawAll(); });
+      }
 
       updateAccountSaveBadge();
       refreshAllUI();
