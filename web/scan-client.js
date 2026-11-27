@@ -270,8 +270,46 @@
     });
   }
 
+  async function apiRequest(path, opts = {}, errMsg, errCode) {
+    const auth = getMemberAuth();
+    const headers = Object.assign({}, opts.headers);
+    if (opts.json !== undefined) headers['Content-Type'] = 'application/json';
+    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+    const r = await fetchJson(getBaseUrl() + path, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
+      signal: opts.signal
+    }, opts.timeoutMs || 15000);
+    if (!r.ok) {
+      const fallbackCode = typeof errCode === 'function' ? errCode(r) : errCode;
+      return {
+        ok: false,
+        status: r.status,
+        unreachable: !!r.unreachable,
+        aborted: !!r.aborted,
+        error: r.data?.error || r.error || errMsg,
+        errorCode: r.data?.errorCode || fallbackCode
+      };
+    }
+    return Object.assign({ ok: true, httpStatus: r.status }, r.data);
+  }
+
+  function waitMs(ms, signal) {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      if (signal) signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+    });
+  }
+
+  function withAlternateRuns(res) {
+    if (!res.ok) return res;
+    res.alternateRuns = Array.isArray(res.alternateRuns) ? res.alternateRuns : [];
+    res.multiRun = res.multiRun || 'off';
+    return res;
+  }
+
   async function createJob(file, opts = {}) {
-    const base = getBaseUrl();
     const fd = new FormData();
     fd.append('file', file, file.name || 'scan.png');
     if (opts.instrument) fd.append('instrument', String(opts.instrument));
@@ -279,51 +317,20 @@
     if (opts.scanMode) fd.append('scanMode', String(opts.scanMode));
     if (opts.multiRun != null) fd.append('multiRun', String(opts.multiRun));
     if (opts.skipCache) fd.append('skipCache', '1');
-    const auth = getMemberAuth();
-    const headers = {};
-    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
-    const r = await fetchJson(base + '/api/scan/jobs', {
+    return apiRequest('/api/scan/jobs', {
       method: 'POST',
-      headers,
       body: fd,
-      signal: opts.signal
-    }, 30000);
-    if (!r.ok) {
-      return {
-        ok: false,
-        status: r.status,
-        unreachable: !!r.unreachable,
-        error: r.data?.error || r.error || 'Could not start the scan.',
-        errorCode: r.data?.errorCode || (r.unreachable ? 'SERVER_UNREACHABLE' : 'UPLOAD_FAILED')
-      };
-    }
-    return Object.assign({ ok: true, httpStatus: r.status }, r.data);
+      signal: opts.signal,
+      timeoutMs: 30000
+    }, 'Could not start the scan.', (r) => r.unreachable ? 'SERVER_UNREACHABLE' : 'UPLOAD_FAILED');
   }
 
   async function getJob(jobId, signal) {
-    const base = getBaseUrl();
-    const auth = getMemberAuth();
-    const headers = {};
-    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
-    const r = await fetchJson(base + '/api/scan/jobs/' + encodeURIComponent(jobId), {
-      method: 'GET',
-      headers,
-      signal
-    }, 15000);
-    if (!r.ok) {
-      return {
-        ok: false,
-        status: r.status,
-        unreachable: !!r.unreachable,
-        aborted: !!r.aborted,
-        error: r.data?.error || r.error || 'Could not check scan status.',
-        errorCode: r.data?.errorCode || 'POLL_FAILED'
-      };
-    }
-    return Object.assign({ ok: true }, r.data, {
-      alternateRuns: Array.isArray(r.data?.alternateRuns) ? r.data.alternateRuns : [],
-      multiRun: r.data?.multiRun || 'off'
-    });
+    const res = await apiRequest('/api/scan/jobs/' + encodeURIComponent(jobId), {
+      signal,
+      timeoutMs: 15000
+    }, 'Could not check scan status.', 'POLL_FAILED');
+    return withAlternateRuns(res);
   }
 
   async function pollJob(jobId, opts = {}) {
@@ -339,12 +346,7 @@
       if (!job.ok) {
         if (!job.aborted && (job.timedOut || job.unreachable) && consecutiveErrors < 5) {
           consecutiveErrors += 1;
-          await new Promise((resolve) => {
-            const t = setTimeout(resolve, intervalMs);
-            if (opts.signal) {
-              opts.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-            }
-          });
+          await waitMs(intervalMs, opts.signal);
           continue;
         }
         return job;
@@ -360,64 +362,29 @@
           errorCode: 'POLL_TIMEOUT'
         };
       }
-      await new Promise((resolve) => {
-        const t = setTimeout(resolve, intervalMs);
-        if (opts.signal) {
-          opts.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-        }
-      });
+      await waitMs(intervalMs, opts.signal);
     }
   }
 
   async function confirmJob(jobId, payload) {
-    const base = getBaseUrl();
-    const auth = getMemberAuth();
-    const headers = { 'Content-Type': 'application/json' };
-    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
-    const r = await fetchJson(base + '/api/scan/jobs/' + encodeURIComponent(jobId) + '/confirm', {
+    const res = await apiRequest('/api/scan/jobs/' + encodeURIComponent(jobId) + '/confirm', {
       method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    }, 20000);
-    if (!r.ok) {
-      return {
-        ok: false,
-        status: r.status,
-        unreachable: !!r.unreachable,
-        error: r.data?.error || r.error || 'Could not save verified scan.',
-        errorCode: r.data?.errorCode || (r.status === 401 ? 'UNAUTHORIZED' : 'CONFIRM_FAILED')
-      };
-    }
-    return Object.assign({ ok: true }, r.data, {
-      alternateRuns: Array.isArray(r.data?.alternateRuns) ? r.data.alternateRuns : [],
-      multiRun: r.data?.multiRun || 'off'
-    });
+      json: payload,
+      timeoutMs: 20000
+    }, 'Could not save verified scan.', (r) => r.status === 401 ? 'UNAUTHORIZED' : 'CONFIRM_FAILED');
+    return withAlternateRuns(res);
   }
 
   async function verifyMeasures(jobId, measureIndices, model) {
-    const base = getBaseUrl();
-    const auth = getMemberAuth();
-    const headers = { 'Content-Type': 'application/json' };
-    if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
     const payload = {
       measures: Array.isArray(measureIndices) ? measureIndices : []
     };
     if (model) payload.model = model;
-    const r = await fetchJson(base + '/api/scan/jobs/' + encodeURIComponent(jobId) + '/verify-measures', {
+    return apiRequest('/api/scan/jobs/' + encodeURIComponent(jobId) + '/verify-measures', {
       method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    }, 25000);
-    if (!r.ok) {
-      return {
-        ok: false,
-        status: r.status,
-        unreachable: !!r.unreachable,
-        error: r.data?.error || r.error || 'Could not verify measures with AI.',
-        errorCode: r.data?.errorCode || (r.status === 401 ? 'UNAUTHORIZED' : 'AI_VERIFY_FAILED')
-      };
-    }
-    return Object.assign({ ok: true }, r.data);
+      json: payload,
+      timeoutMs: 25000
+    }, 'Could not verify measures with AI.', (r) => r.status === 401 ? 'UNAUTHORIZED' : 'AI_VERIFY_FAILED');
   }
 
   function originalUrl(jobId) {
