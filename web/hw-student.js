@@ -1456,7 +1456,27 @@ function hwOpenRhythmDash() {
   const body = $('#hw-runner-body');
   if (!body) return;
   body.classList.remove('hw-student-view', 'hw-teacher-mode', 'hw-free');
-  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe title="Rhythm Dash" src="rhythm-dash.html" style="width:100%;height:560px;max-height:78vh;border:0;display:block" allow="autoplay"></iframe></div>`;
+  body.innerHTML = `<div class="hw-card" style="padding:0;overflow:hidden;background:#0d111d"><iframe id="hw-dash-frame" title="Rhythm Dash" src="rhythm-dash.html" style="width:100%;height:calc(100vh - 150px);min-height:520px;max-height:760px;border:0;display:block" allow="autoplay"></iframe></div>`;
+  const fr = $('#hw-dash-frame');
+  if (fr) {
+    fr.addEventListener('load', () => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} });
+    setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch {} }, 120);
+  }
+  if (!window.__hwDashKeysWired) {
+    window.__hwDashKeysWired = true;
+    const forwardDash = (action, e) => {
+      const f = document.getElementById('hw-dash-frame');
+      if (!f || HW_STATE.view !== 'runner') return;
+      if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return;
+      if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
+        if (action === 'down' && e.repeat) return;
+        e.preventDefault();
+        try { f.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
+      }
+    };
+    window.addEventListener('keydown', (e) => forwardDash('down', e), true);
+    window.addEventListener('keyup', (e) => forwardDash('up', e), true);
+  }
 }
 
 async function hwOpenPracticeTracks() {

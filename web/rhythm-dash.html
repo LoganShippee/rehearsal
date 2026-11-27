@@ -23,6 +23,8 @@
     html, body {
       margin: 0;
       padding: 0;
+      width: 100%;
+      height: 100%;
       background: var(--background);
       color: var(--foreground);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -34,7 +36,30 @@
       -webkit-tap-highlight-color: transparent;
       overscroll-behavior: none;
     }
-    body { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
+    body {
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+    #rdRoot {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+      width: 100%;
+    }
+    #gameWrap {
+      flex: 1;
+      min-height: 200px;
+      display: flex;
+    }
+    #gameCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
     button, select, input { font: inherit; color: inherit; }
     button { background: transparent; border: 0; }
     select { background: var(--card); color: var(--foreground); }
@@ -178,8 +203,8 @@
     .accent-\[var\(--primary\)\] { accent-color: var(--primary); }
   </style>
 </head>
-<body class="bg-transparent text-[var(--foreground)] antialiased p-0 m-0 select-none">
-  <div class="py-1 space-y-1.5">
+<body class="text-[var(--foreground)] antialiased select-none" tabindex="-1">
+  <div id="rdRoot">
     <!-- Row 1: Speed Difficulty, Portal Mode Roulette, Active Badge, HUD, Start/Stop -->
     <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
       <div class="flex flex-wrap items-center gap-1.5">
@@ -386,13 +411,13 @@
     </div>
 
     <!-- Continuous Forward Side-Scrolling Geometry Dash Course -->
-    <div class="w-full rounded border border-[var(--card-border)] bg-[var(--card)] overflow-hidden">
-      <canvas id="gameCanvas" class="block w-full cursor-pointer touch-none" style="height: 194px;"></canvas>
+    <div id="gameWrap" class="w-full rounded border border-[var(--card-border)] bg-[var(--card)] overflow-hidden">
+      <canvas id="gameCanvas" class="block w-full cursor-pointer touch-none"></canvas>
     </div>
 
     <!-- Synced Western Notation Strip (Anchored at Bottom) -->
     <div class="w-full rounded border border-[var(--card-border)] bg-[var(--card)] overflow-hidden transition-colors" id="notationWrap">
-      <canvas id="notationCanvas" class="block w-full cursor-pointer touch-none" style="height: 96px;"></canvas>
+      <canvas id="notationCanvas" class="block w-full cursor-pointer touch-none" style="height: 104px;"></canvas>
     </div>
 
     <!-- Dedicated Touch / Tap & Hold Pad (phones, iPads, touchscreen Chromebooks & desktop click) -->

@@ -226,10 +226,27 @@
         document.querySelectorAll('[data-demo]').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
         ['sight', 'score', 'dash'].forEach(function (k) {
           var box = document.getElementById('demo-' + k); box.hidden = (k !== b.dataset.demo);
-          var f = box.querySelector('iframe'); if (!box.hidden && f.dataset.src && !f.src) f.src = f.dataset.src;
+          var f = box.querySelector('iframe');
+          if (!box.hidden && f.dataset.src && !f.src) f.src = f.dataset.src;
+          if (!box.hidden && k === 'dash' && f) { try { f.focus(); } catch (e) {} }
         });
       });
     });
+    (function () {
+      var fwd = function (action, e) {
+        var box = document.getElementById('demo-dash');
+        if (!box || box.hidden) return;
+        if (e.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
+        if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
+          if (action === 'down' && e.repeat) return;
+          e.preventDefault();
+          var f = box.querySelector('iframe');
+          if (f && f.contentWindow) f.contentWindow.postMessage({ type: 'rd-key', action: action }, '*');
+        }
+      };
+      window.addEventListener('keydown', function (e) { fwd('down', e); }, true);
+      window.addEventListener('keyup', function (e) { fwd('up', e); }, true);
+    })();
   </script>
   <script>
     // Respect "reduce motion": show the still picture instead of the looping tour.

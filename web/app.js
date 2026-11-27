@@ -5772,7 +5772,25 @@ const A = {
   },
   'wm-prog': () => { const ex = winList().find(w => w.kind === 'prog'); if (ex) return bringToFront(ex); const w = addWindow({ kind: 'prog' }); w.w = 0.5; w.h = 0.8; save(); applyWinGeom(); },
   'wm-sight': () => { const w = addWindow({ kind: 'sight', sr: srDefaults() }); w.w = 0.7; w.h = 0.85; save(); applyWinGeom(); },
-  'wm-dash': () => { const w = addWindow({ kind: 'dash' }); w.w = 0.72; w.h = 0.82; save(); applyWinGeom(); },
+  'wm-dash': () => {
+    const w = addWindow({ kind: 'dash' }); w.w = 0.78; w.h = 0.84; save(); applyWinGeom();
+    setTimeout(() => { const f = document.querySelector(`.win[data-win="${w.id}"] .dash-frame`); try { f?.focus(); f?.contentWindow?.focus(); } catch {} }, 120);
+    if (!window.__appDashKeysWired) {
+      window.__appDashKeysWired = true;
+      const fwd = (action, e) => {
+        if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+        if (e.code !== 'Space' && e.key !== ' ' && e.code !== 'ArrowUp') return;
+        const frames = document.querySelectorAll('.dash-frame');
+        if (!frames.length) return;
+        const topFrame = frames[frames.length - 1];
+        if (action === 'down' && e.repeat) return;
+        e.preventDefault();
+        try { topFrame.contentWindow?.postMessage({ type: 'rd-key', action }, '*'); } catch {}
+      };
+      window.addEventListener('keydown', e => fwd('down', e), true);
+      window.addEventListener('keyup', e => fwd('up', e), true);
+    }
+  },
   'wm-warmup': () => addWindow({ kind: 'warmup' }),
   'wm-res': el => addWindow({ kind: 'res', resId: el.dataset.id }),
   'wm-lib': el => { const id = el.dataset.id, n = S.files[id]?.name; addWindow(spIsScoreName(n) ? { kind: 'score', score: { fileId: id, name: n } } : { kind: 'file', fileId: id }); },

@@ -3,8 +3,8 @@
     (() => {
       if (window.self === window.top) {
         document.body.style.background = 'var(--background)';
-        document.body.style.padding = '16px';
-        document.body.style.maxWidth = '920px';
+        document.body.style.padding = '14px 18px';
+        document.body.style.maxWidth = '1280px';
         document.body.style.margin = '0 auto';
       }
       // ---------- Borrowed from Rehearsal web/sight.js: Rhythm Building Blocks & Counting ----------
@@ -357,10 +357,12 @@
       const gCtx = gameCanvas.getContext('2d');
       const nCtx = notationCanvas.getContext('2d');
 
+      let cachedTheme = null;
       function getTheme() {
+        if (cachedTheme) return cachedTheme;
         const cs = getComputedStyle(document.documentElement);
         const val = (n, fb) => cs.getPropertyValue(n).trim() || fb;
-        return {
+        cachedTheme = {
           fg: val('--foreground', '#e5e7eb'),
           muted: val('--muted-foreground', '#9ca3af'),
           card: val('--card', '#18181b'),
@@ -372,6 +374,7 @@
           warning: val('--warning', '#f59e0b'),
           error: val('--error', '#ef4444')
         };
+        return cachedTheme;
       }
 
       // ---------- Web Audio Groove, Limiter Bus & Lookahead SFX ----------
@@ -1583,8 +1586,8 @@
         readCombo = 0;
         runPortals = 0;
         ghostSamples = [];
-        spawnBurst(PLAYER_X, 154 - cubeY, '#ffffff', 24);
-        shockwaves.push({ x: PLAYER_X, y: 154 - cubeY, r: 10, color: '#ffffff', life: 1.0 });
+        spawnBurst(PLAYER_X, gameGroundY - 12 - cubeY, '#ffffff', 24);
+        shockwaves.push({ x: PLAYER_X, y: gameGroundY - 12 - cubeY, r: 10, color: '#ffffff', life: 1.0 });
         playCrashSfx();
         recordRunToProg();
 
@@ -1725,15 +1728,15 @@
             // Controlled GD mid-air Jump Orb bounce so fast repeated notes stay at orb height
             liveActiveGlide = null;
             cubeVy = cubeY > curFloor + 64 ? 175 : (best.is16 ? 255 : 305);
-            shockwaves.push({ x: PLAYER_X, y: 164 - cubeY, r: 9, color: best.is16 ? '#ff5ef7' : '#ffe64d', life: 1.0 });
+            shockwaves.push({ x: PLAYER_X, y: gameGroundY - 10 - cubeY, r: 9, color: best.is16 ? '#ff5ef7' : '#ffe64d', life: 1.0 });
           } else {
             liveActiveGlide = null;
             cubeVy = JUMP_VY;
           }
           if (best.isCluster && !best.isAirOrb) {
-            shockwaves.push({ x: PLAYER_X, y: 140 - curFloor, r: 8, color: '#ffe64d', life: 1.0 });
+            shockwaves.push({ x: PLAYER_X, y: gameGroundY - 26 - curFloor, r: 8, color: '#ffe64d', life: 1.0 });
           }
-          spawnBurst(PLAYER_X, 154 - cubeY, best.result === 'perfect' ? '#66ff88' : '#ffe64d', activePortalMode === 'turbo' ? 12 : 9);
+          spawnBurst(PLAYER_X, gameGroundY - 12 - cubeY, best.result === 'perfect' ? '#66ff88' : '#ffe64d', activePortalMode === 'turbo' ? 12 : 9);
           updateHud();
         } else if (inRest) {
           inRest.restViolated = true;
@@ -1925,7 +1928,7 @@
             }
             if (Math.random() < 0.5) {
               particles.push({
-                x: PLAYER_X - 10, y: 136 - cubeY,
+                x: PLAYER_X - 10, y: gameGroundY - 20 - cubeY,
                 vx: -(1.8 + Math.random() * 1.4), vy: (Math.random() - 0.5) * 0.7,
                 color: isOverdriveRun() ? odHue(0) : activePortalMode === 'turbo' ? t.warning : activePortalMode === 'blind' ? t.success : t.primary, life: 0.5
               });
@@ -1981,7 +1984,7 @@
               e.fakeCleared = true;
               readCombo = Math.min(4, readCombo + 1);
               score += 120 * readCombo;
-              spawnBurst(PLAYER_X, 152 - cubeY, '#60efff', 7);
+              spawnBurst(PLAYER_X, gameGroundY - 14 - cubeY, '#60efff', 7);
               popups.push({ text: readCombo >= 2 ? `FAKE! READ ×${readCombo}` : 'FAKE!', color: '#60efff', beat: e.beat + 0.25, life: 0.95 });
               updateHud();
             }
@@ -1996,7 +1999,7 @@
                 ? `hsl(${Math.round((performance.now() * 0.3) % 360)}, 95%, 65%)`
                 : prog.trail === 'laser' ? '#60efff' : '#ffd84d';
               particles.push({
-                x: PLAYER_X - 11, y: 154 - cubeY + (Math.random() - 0.5) * 6,
+                x: PLAYER_X - 11, y: gameGroundY - 12 - cubeY + (Math.random() - 0.5) * 6,
                 vx: -(2.4 + Math.random() * 1.2), vy: (Math.random() - 0.5) * 0.5,
                 color: tCol, life: 0.55, glyph: prog.trail === 'notes' ? '♪' : null
               });
@@ -2016,7 +2019,7 @@
                 cubeRot = Math.round(cubeRot / (Math.PI / 2)) * (Math.PI / 2);
                 if (Math.random() < 0.55) {
                   particles.push({
-                    x: PLAYER_X - 11, y: 164 - curFloor,
+                    x: PLAYER_X - 11, y: gameGroundY - 2 - curFloor,
                     vx: -(1.6 + Math.random() * 1.4), vy: -(0.3 + Math.random() * 0.9),
                     color: 'rgba(255,255,255,0.85)', life: 0.35
                   });
@@ -2026,7 +2029,7 @@
                 cubeRot = Math.round(cubeRot / (Math.PI / 2)) * (Math.PI / 2);
                 if (Math.random() < 0.55) {
                   particles.push({
-                    x: PLAYER_X - 11, y: 164,
+                    x: PLAYER_X - 11, y: gameGroundY - 2,
                     vx: -(1.6 + Math.random() * 1.4), vy: -(0.3 + Math.random() * 0.9),
                     color: 'rgba(255,255,255,0.85)', life: 0.35
                   });
@@ -2045,7 +2048,7 @@
               if (cubeTrail.length > 5) cubeTrail.shift();
               if (Math.random() < od * 0.45) {
                 particles.push({
-                  x: PLAYER_X - 10, y: 150 - cubeY + (Math.random() - 0.5) * 8,
+                  x: PLAYER_X - 10, y: gameGroundY - 16 - cubeY + (Math.random() - 0.5) * 8,
                   vx: -(2.0 + od * 2.2), vy: (Math.random() - 0.5) * (0.8 + od * 0.8),
                   color: odHue(25, od), life: 0.4 + od * 0.25
                 });
@@ -2102,22 +2105,23 @@
           }
         }
 
-        downbeatPulse *= 0.88;
-        beatPulse *= 0.86;
-        portalFlash *= 0.88;
-        screenShake *= 0.85;
+        const f60 = Math.max(0.25, Math.min(3, dtSec * 60));
+        downbeatPulse *= Math.pow(0.88, f60);
+        beatPulse *= Math.pow(0.86, f60);
+        portalFlash *= Math.pow(0.88, f60);
+        screenShake *= Math.pow(0.85, f60);
         for (let i = particles.length - 1; i >= 0; i--) {
           const p = particles[i];
-          p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life -= 0.038;
+          p.x += p.vx * f60; p.y += p.vy * f60; p.vy += 0.08 * f60; p.life -= 0.038 * f60;
           if (p.life <= 0) particles.splice(i, 1);
         }
         for (let i = shockwaves.length - 1; i >= 0; i--) {
           const s = shockwaves[i];
-          s.r += 4.2; s.life -= 0.06;
+          s.r += 4.2 * f60; s.life -= 0.06 * f60;
           if (s.life <= 0) shockwaves.splice(i, 1);
         }
         for (let i = popups.length - 1; i >= 0; i--) {
-          popups[i].life -= 0.04;
+          popups[i].life -= 0.04 * f60;
           if (popups[i].life <= 0) popups.splice(i, 1);
         }
 
@@ -2129,18 +2133,37 @@
         }
       }
 
-      // ---------- Canvas Rendering ----------
-      function prepCanvas(canvas, ctx) {
-        const dpr = window.devicePixelRatio || 1;
+      // ---------- Canvas Rendering (Cached Sizes & DPR Cap for Smooth 60fps) ----------
+      const canvasMetrics = new WeakMap();
+      let gameGroundY = 166;
+      function measureCanvas(canvas) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
         const rect = canvas.getBoundingClientRect();
         const w = Math.max(320, Math.round(rect.width));
-        const h = Math.round(rect.height);
-        if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-          canvas.width = Math.round(w * dpr);
-          canvas.height = Math.round(h * dpr);
+        const h = Math.max(88, Math.round(rect.height));
+        const bw = Math.round(w * dpr);
+        const bh = Math.round(h * dpr);
+        if (canvas.width !== bw || canvas.height !== bh) {
+          canvas.width = bw;
+          canvas.height = bh;
         }
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        return { w, h };
+        const m = { w, h, dpr };
+        canvasMetrics.set(canvas, m);
+        return m;
+      }
+      function prepCanvas(canvas, ctx) {
+        const m = canvasMetrics.get(canvas) || measureCanvas(canvas);
+        ctx.setTransform(m.dpr, 0, 0, m.dpr, 0, 0);
+        return m;
+      }
+      if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => {
+          measureCanvas(gameCanvas);
+          measureCanvas(notationCanvas);
+          drawAll();
+        });
+        ro.observe(gameCanvas);
+        ro.observe(notationCanvas);
       }
 
       function evColor(e, t) {
@@ -2163,6 +2186,7 @@
         }
 
         const groundY = h - 28;
+        gameGroundY = groundY;
         const isTurboDash = activePortalMode === 'turbo' && phase === 'live';
         const isOverdrive = isOverdriveRun();
         const od = overdriveIntensity();
@@ -3811,11 +3835,12 @@
 
       playBtn.addEventListener('click', () => {
         playBtn.blur();
+        try { window.focus(); document.body.focus(); } catch {}
         if (['echo_listen', 'countin', 'live', 'cooldown'].includes(phase)) {
           renderWorldsUI();
-      renderSkinsUI();
-      renderBoardUI();
-      resetToIdle();
+          renderSkinsUI();
+          renderBoardUI();
+          resetToIdle();
         } else {
           startRun();
         }
@@ -3833,10 +3858,11 @@
         c.addEventListener('pointerdown', (e) => {
           if (e.button && e.button !== 0) return;
           e.preventDefault();
+          try { window.focus(); document.body.focus(); } catch {}
           if (activePointerId !== null) return;
           activePointerId = e.pointerId;
           try { if (c.setPointerCapture) c.setPointerCapture(e.pointerId); } catch {}
-          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
           setPadDown(true);
           handlePress();
         });
@@ -3867,24 +3893,40 @@
         }
       });
 
-      window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' || e.code === 'ArrowUp') {
+      function onKeyDown(e) {
+        if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
           if (e.repeat) return;
+          if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
           e.preventDefault();
           setPadDown(true);
           handlePress();
         }
-      });
-      window.addEventListener('keyup', (e) => {
-        if (e.code === 'Space' || e.code === 'ArrowUp') {
+      }
+      function onKeyUp(e) {
+        if (e.code === 'Space' || e.key === ' ' || e.code === 'ArrowUp') {
           e.preventDefault();
+          setPadDown(false);
+          handleRelease();
+        }
+      }
+      window.addEventListener('keydown', onKeyDown, true);
+      window.addEventListener('keyup', onKeyUp, true);
+
+      // Accept Space / ArrowUp forwarded from parent page (hw.html, app.js, rehearsalmusic.com)
+      window.addEventListener('message', (ev) => {
+        const d = ev.data;
+        if (!d || d.type !== 'rd-key') return;
+        if (d.action === 'down') {
+          setPadDown(true);
+          handlePress();
+        } else if (d.action === 'up') {
           setPadDown(false);
           handleRelease();
         }
       });
 
-      window.addEventListener('themechange', () => { refreshModeBadge(); renderRhythmChips(); drawAll(); });
-      window.addEventListener('resize', drawAll);
+      window.addEventListener('themechange', () => { cachedTheme = null; refreshModeBadge(); renderRhythmChips(); drawAll(); });
+      window.addEventListener('resize', () => { measureCanvas(gameCanvas); measureCanvas(notationCanvas); drawAll(); });
 
       renderWorldsUI();
       renderSkinsUI();
