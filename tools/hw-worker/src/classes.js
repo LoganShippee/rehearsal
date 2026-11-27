@@ -2,8 +2,8 @@
 // Zero external dependencies; pure Cloudflare Worker ESM.
 
 import {
-  cleanText, errResponse, jsonResponse, makeId, normalizeEmail,
-  nowMs, readJsonBody, safeJsonParse,
+  bestEffortDeleteR2Keys, cleanText, errResponse, getOwnedClass, jsonResponse,
+  makeId, normalizeEmail, nowMs, readJsonBody, safeJsonParse,
 } from './util.js';
 import {
   decryptStudentCode, encryptStudentCode, generateReadableCode, hashStudentCode, studentCodeLookupKey,
@@ -13,12 +13,6 @@ import { createStudentSession } from './auth.js';
 
 const MAX_BULK_STUDENTS = 250;
 const MAX_CODE_GEN_ATTEMPTS = 10;
-
-async function getOwnedClass(env, classId, teacherId) {
-  return await env.DB.prepare(
-    'SELECT * FROM classes WHERE id = ? AND teacher_id = ?'
-  ).bind(classId, teacherId).first();
-}
 
 async function getOwnedStudent(env, classId, studentId) {
   return await env.DB.prepare(
@@ -116,23 +110,6 @@ async function generateUniqueStudentCode(env, classId, usedLookups = null) {
     return { code, lookup, hash, salt };
   }
   return null;
-}
-
-async function bestEffortDeleteR2Keys(env, rawKeys) {
-  const uniqueKeys = [...new Set((rawKeys || []).filter(k => typeof k === 'string' && k.length > 0))];
-  if (!uniqueKeys.length || !env?.BUCKET || typeof env.BUCKET.delete !== 'function') {
-    return 0;
-  }
-  let deleted = 0;
-  for (const key of uniqueKeys) {
-    try {
-      await env.BUCKET.delete(key);
-      deleted++;
-    } catch {
-      // Best-effort cleanup; never block FERPA deletion on an R2 error.
-    }
-  }
-  return deleted;
 }
 
 function safeFileSlug(raw, fallback = 'student') {

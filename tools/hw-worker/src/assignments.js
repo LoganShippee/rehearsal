@@ -3,18 +3,24 @@
 
 import {
   MAX_SCORE_BYTES,
+  bestEffortDeleteR2Key,
+  bestEffortDeleteR2Keys,
   clamp,
   cleanText,
   corsHeaders,
   errResponse,
+  formatAttemptStart,
   jsonResponse,
   makeId,
   nowMs,
   readJsonBody,
+  requireOwnedAssignment,
+  requireOwnedClass,
+  requirePublishedAssignment,
   safeJsonParse,
 } from './util.js';
 import { assertTeacherWritable } from './billing.js';
-import { requireStudent, requireTeacher } from './auth.js';
+import { requireTeacherOrStudent } from './auth.js';
 import { PREVIEW_TOKEN_TTL_MS, signPreviewToken, verifyPreviewToken } from './crypto.js';
 
 const MAX_CONFIG_BYTES = 128 * 1024; // 128 KB max assignment config JSON
@@ -58,17 +64,6 @@ function isActiveAttemptStart(startRow, now) {
   const maxWindowSec = studySec + expectedSec + 120;
   const elapsedSec = (now - Number(startRow.started_at || 0)) / 1000;
   return elapsedSec <= maxWindowSec;
-}
-
-function formatAttemptStart(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    attemptNum: Number(row.attempt_num),
-    startedAt: Number(row.started_at),
-    studySeconds: Number(row.study_seconds || 30),
-    expectedSec: Number(row.expected_sec || 0),
-  };
 }
 
 function formatAssignment(row, configOverride = undefined) {
@@ -203,10 +198,8 @@ export function stripTrueSightReadExcerpt(config) {
 // ---------- Teacher Assignment CRUD
 
 export async function handleListClassAssignments(request, env, auth, classId) {
-  const cls = await env.DB.prepare(
-    'SELECT id FROM classes WHERE id = ? AND teacher_id = ?'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found.', 404, 'CLASS_NOT_FOUND', request, env);
+  const { error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id);
+  if (clsErr) return clsErr;
 
   let includeArchived = false;
   try {
@@ -243,10 +236,8 @@ export async function handleCreateAssignment(request, env, auth, classId) {
   const blocked = assertTeacherWritable(auth.teacher, request, env);
   if (blocked) return blocked;
 
-  const cls = await env.DB.prepare(
-    'SELECT id FROM classes WHERE id = ? AND teacher_id = ? AND archived_at IS NULL'
-  ).bind(classId, auth.teacher.id).first();
-  if (!cls) return errResponse('Class not found or archived.', 404, 'CLASS_NOT_FOUND', request, env);
+  const { error: clsErr } = await requireOwnedClass(request, env, classId, auth.teacher.id, { activeOnly: true });
+  if (clsErr) return clsErr;
 
   const body = await readJsonBody(request);
   if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
@@ -324,19 +315,15 @@ export async function handleCreateAssignment(request, env, auth, classId) {
 }
 
 export async function handleGetAssignment(request, env, auth, assignmentId) {
-  const row = await env.DB.prepare(
-    'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?'
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!row) return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
+  const { assignment: row, error } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id);
+  if (error) return error;
 
   return jsonResponse({ ok: true, assignment: formatAssignment(row) }, 200, request, env);
 }
 
 export async function handleUpdateAssignment(request, env, auth, assignmentId) {
-  const existing = await env.DB.prepare(
-    'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?'
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!existing) return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
+  const { assignment: existing, error } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id);
+  if (error) return error;
 
   const body = await readJsonBody(request);
   if (!body.ok) return errResponse(body.error, body.status, 'BAD_REQUEST', request, env);
@@ -444,10 +431,8 @@ export async function handleUpdateAssignment(request, env, auth, assignmentId) {
 
 // Allowed even in read-only mode (teacher right to delete data).
 export async function handleDeleteAssignment(request, env, auth, assignmentId) {
-  const existing = await env.DB.prepare(
-    'SELECT id, score_r2_key FROM assignments WHERE id = ? AND teacher_id = ?'
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!existing) return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
+  const { assignment: existing, error } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id);
+  if (error) return error;
 
   const subAudioRes = await env.DB.prepare(
     'SELECT audio_r2_key FROM submissions WHERE assignment_id = ? AND audio_r2_key IS NOT NULL'
@@ -459,11 +444,7 @@ export async function handleDeleteAssignment(request, env, auth, assignmentId) {
     if (r.audio_r2_key) keysToDelete.push(r.audio_r2_key);
   }
 
-  if (env.BUCKET && keysToDelete.length) {
-    for (const key of keysToDelete) {
-      try { await env.BUCKET.delete(key); } catch {}
-    }
-  }
+  await bestEffortDeleteR2Keys(env, keysToDelete);
 
   await env.DB.prepare(
     'DELETE FROM assignments WHERE id = ? AND teacher_id = ?'
@@ -590,10 +571,8 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
   const blocked = assertTeacherWritable(auth.teacher, request, env);
   if (blocked) return blocked;
 
-  const assignment = await env.DB.prepare(
-    'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?'
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!assignment) return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
+  const { assignment, error } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id);
+  if (error) return error;
 
   if (assignment.type !== 'score') {
     return errResponse('Score files can only be uploaded to Score Practice assignments.', 400, 'NOT_SCORE_ASSIGNMENT', request, env);
@@ -610,7 +589,7 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
   });
 
   if (oldKey && oldKey !== r2Key) {
-    try { await env.BUCKET.delete(oldKey); } catch {}
+    await bestEffortDeleteR2Key(env, oldKey);
   }
 
   const now = nowMs(env);
@@ -622,7 +601,7 @@ export async function handleUploadAssignmentScore(request, env, auth, assignment
     ).bind(r2Key, safeFilename, bytes.byteLength, now, assignmentId, auth.teacher.id).run();
   } catch (err) {
     if (r2Key !== oldKey) {
-      try { await env.BUCKET.delete(r2Key); } catch {}
+      await bestEffortDeleteR2Key(env, r2Key);
     }
     throw err;
   }
@@ -670,31 +649,15 @@ export async function streamAssignmentScoreResponse(request, env, assignment, ca
 }
 
 export async function handleDownloadAssignmentScore(request, env, assignmentId) {
-  let assignment = null;
+  const actor = await requireTeacherOrStudent(request, env);
+  if (actor.error) return actor.error;
 
-  const teacherAuth = await requireTeacher(request, env);
-  if (!teacherAuth.error) {
-    assignment = await env.DB.prepare(
-      'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?'
-    ).bind(assignmentId, teacherAuth.teacher.id).first();
-    if (!assignment) {
-      return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-    }
-  } else {
-    const studentAuth = await requireStudent(request, env);
-    if (studentAuth.error) {
-      return errResponse('Sign in required.', 401, 'UNAUTHORIZED', request, env);
-    }
-    assignment = await env.DB.prepare(
-      `SELECT * FROM assignments
-       WHERE id = ? AND class_id = ? AND published = 1 AND archived_at IS NULL`
-    ).bind(assignmentId, studentAuth.student.class_id).first();
-    if (!assignment) {
-      return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-    }
-  }
+  const lookup = actor.role === 'teacher'
+    ? await requireOwnedAssignment(request, env, assignmentId, actor.teacher.id)
+    : await requirePublishedAssignment(request, env, assignmentId, actor.student.class_id);
+  if (lookup.error) return lookup.error;
 
-  return streamAssignmentScoreResponse(request, env, assignment, 'private, max-age=300');
+  return streamAssignmentScoreResponse(request, env, lookup.assignment, 'private, max-age=300');
 }
 
 // ---------- Teacher Preview Sandbox (stateless signed token, read-only)
@@ -709,12 +672,8 @@ function readPreviewTokenFromRequest(request) {
 }
 
 export async function handleCreateAssignmentPreview(request, env, auth, assignmentId) {
-  const row = await env.DB.prepare(
-    'SELECT id, class_id, teacher_id FROM assignments WHERE id = ? AND teacher_id = ?'
-  ).bind(assignmentId, auth.teacher.id).first();
-  if (!row) {
-    return errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env);
-  }
+  const { assignment: row, error } = await requireOwnedAssignment(request, env, assignmentId, auth.teacher.id);
+  if (error) return error;
   const expiresAt = nowMs(env) + PREVIEW_TOKEN_TTL_MS;
   const previewToken = await signPreviewToken(
     { assignmentId: row.id, teacherId: auth.teacher.id, expiresAt },

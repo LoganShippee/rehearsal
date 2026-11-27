@@ -156,3 +156,90 @@ export function parseRangeHeader(rangeHeader, totalSize) {
   }
   return { start, end, length: end - start + 1 };
 }
+
+export async function bestEffortDeleteR2Keys(env, rawKeys) {
+  const uniqueKeys = [...new Set((rawKeys || []).filter(k => typeof k === 'string' && k.length > 0))];
+  if (!uniqueKeys.length || !env?.BUCKET || typeof env.BUCKET.delete !== 'function') {
+    return 0;
+  }
+  let deleted = 0;
+  for (const key of uniqueKeys) {
+    try {
+      await env.BUCKET.delete(key);
+      deleted++;
+    } catch {
+      // Best-effort cleanup; never block FERPA deletion on an R2 error.
+    }
+  }
+  return deleted;
+}
+
+export async function bestEffortDeleteR2Key(env, key) {
+  return (await bestEffortDeleteR2Keys(env, [key])) > 0;
+}
+
+export function formatAttemptStart(row, { includeMeta = false } = {}) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    attemptNum: Number(row.attempt_num),
+    startedAt: Number(row.started_at),
+    studySeconds: Number(row.study_seconds || 30),
+    expectedSec: Number(row.expected_sec || 0),
+  };
+  if (includeMeta) {
+    out.assignmentId = row.assignment_id;
+    out.consumedAt = row.consumed_at ?? null;
+  }
+  return out;
+}
+
+// ---------- Shared D1 ownership & published-assignment lookup helpers
+export async function getOwnedClass(env, classId, teacherId, { activeOnly = false } = {}) {
+  return env.DB.prepare(
+    `SELECT * FROM classes WHERE id = ? AND teacher_id = ?${activeOnly ? ' AND archived_at IS NULL' : ''}`
+  ).bind(classId, teacherId).first();
+}
+
+export async function requireOwnedClass(request, env, classId, teacherId, { activeOnly = false } = {}) {
+  const cls = await getOwnedClass(env, classId, teacherId, { activeOnly });
+  if (!cls) {
+    return { error: errResponse(activeOnly ? 'Class not found or archived.' : 'Class not found.', 404, 'CLASS_NOT_FOUND', request, env) };
+  }
+  return { cls };
+}
+
+export async function requireOwnedAssignment(request, env, assignmentId, teacherId, { withClass = false } = {}) {
+  const sql = withClass
+    ? `SELECT a.*, c.name AS class_name FROM assignments a JOIN classes c ON c.id = a.class_id WHERE a.id = ? AND a.teacher_id = ?`
+    : 'SELECT * FROM assignments WHERE id = ? AND teacher_id = ?';
+  const assignment = await env.DB.prepare(sql).bind(assignmentId, teacherId).first();
+  if (!assignment) {
+    return { error: errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env) };
+  }
+  return { assignment };
+}
+
+export async function requirePublishedAssignment(request, env, assignmentId, classId) {
+  const assignment = await env.DB.prepare(
+    `SELECT * FROM assignments
+     WHERE id = ? AND class_id = ? AND published = 1 AND archived_at IS NULL`
+  ).bind(assignmentId, classId).first();
+  if (!assignment) {
+    return { error: errResponse('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND', request, env) };
+  }
+  return { assignment };
+}
+
+export async function requireOwnedSubmission(request, env, submissionId, teacherId) {
+  const sub = await env.DB.prepare(
+    `SELECT s.*
+     FROM submissions s
+     JOIN classes c ON c.id = s.class_id
+     WHERE s.id = ? AND c.teacher_id = ?`
+  ).bind(submissionId, teacherId).first();
+  if (!sub) {
+    return { error: errResponse('Submission not found', 404, 'SUBMISSION_NOT_FOUND', request, env) };
+  }
+  return { sub };
+}

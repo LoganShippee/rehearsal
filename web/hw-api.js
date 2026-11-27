@@ -529,6 +529,21 @@
     return { ok: true, status: res.status, ...data };
   }
 
+  async function demoScoreBlobFallback(demoXml, fallbackFilename) {
+    if (!demoXml) {
+      try {
+        const r = await fetch('demo/ode-to-joy.mxl');
+        if (r.ok) return { ok: true, blob: await r.blob(), filename: 'Ode to Joy.mxl' };
+      } catch {}
+    }
+    const xml = demoXml || (typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '');
+    return {
+      ok: true,
+      blob: new Blob([xml], { type: 'application/xml' }),
+      filename: fallbackFilename || 'Sample Vocal Check-In.musicxml',
+    };
+  }
+
   // ---------- Public API (Live Worker + Faithful Local Preview Mode)
   const HW_API = {
     isDemoMode,
@@ -797,12 +812,7 @@
           responseType: 'blob',
         });
       }
-      try {
-        const r = await fetch('demo/ode-to-joy.mxl');
-        if (r.ok) return { ok: true, blob: await r.blob(), filename: 'Ode to Joy.mxl' };
-      } catch {}
-      const xml = typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '';
-      return { ok: true, blob: new Blob([xml], { type: 'application/xml' }), filename: 'Sample Vocal Check-In.musicxml' };
+      return demoScoreBlobFallback(null);
     },
 
     async getAssignment(assignmentId) {
@@ -972,19 +982,7 @@
       const db = loadDemoDb();
       const a = db.assignments.find(x => x.id === assignmentId);
       // The demo plays a real .mxl file (Ode to Joy), so teachers see an actual score; the built-in sample is the fallback
-      if (!a?.config?.demoXml) {
-        try {
-          const r = await fetch('demo/ode-to-joy.mxl');
-          if (r.ok) return { ok: true, blob: await r.blob(), filename: 'Ode to Joy.mxl' };
-        } catch {}
-      }
-      const xml = a?.config?.demoXml || (typeof HW_SAMPLE_MUSICXML !== 'undefined' ? HW_SAMPLE_MUSICXML : '');
-      const blob = new Blob([xml], { type: 'application/xml' });
-      return {
-        ok: true,
-        blob,
-        filename: a?.scoreFilename || 'Sample Vocal Check-In.musicxml',
-      };
+      return demoScoreBlobFallback(a?.config?.demoXml, a?.scoreFilename);
     },
 
     async fetchSubmissionAudioUrl(submissionId) {
