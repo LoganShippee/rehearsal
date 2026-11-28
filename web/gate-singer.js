@@ -79,28 +79,28 @@
   const DEFAULT_CFG = {
     baseSpeed: 185,
     speedPerWave: 15,
-    gateGapX: 182,
+    gateGapX: 245,
     patternGapX: 260,
     leadInX: 420,
-    openingH: 104,
-    pipeW: 64,
-    rockCount: 4,
-    rockSpread: 145,
-    rockOverlap: 25,
+    openingH: 180,
+    pipeW: 58,
+    rockCount: 8,
+    rockSpread: 240,
+    rockOverlap: 60,
     lookRock: true,
     lookCrystal: true,
     lookIron: true,
     lookIce: true,
-    rockDriftSpeed: 100,
-    rockDriftAmp: 10,
-    rockSpin: 100,
+    rockDriftSpeed: 130,
+    rockDriftAmp: 19,
+    rockSpin: 200,
     ambientCount: 26,
     debrisCount: 18,
     debrisSpeed: 220,
     steerSpeed: 10,
     spaceDrag: 7,
     birdXFrac: 20,
-    showContour: true,
+    showContour: false,
     pipeLabels: 'auto',
     guideVol: 145,
     droneVol: 120,
@@ -123,7 +123,7 @@
     patternsPerWave: 2,
     hearts: 3,
     streakForLife: 8,
-    streakForBoost: 30,
+    streakForBoost: 50,
     boostDur: 6,
     poolAll: false,
     disabledPatterns: [],
@@ -275,6 +275,10 @@
     bestStreak: 0,
     hearts: CFG.hearts,
     waveIdx: CFG.startWave - 1,
+    camMinDeg: 0,
+    camMaxDeg: 2,
+    camTargetMinDeg: 0,
+    camTargetMaxDeg: 2,
     lastPatternId: '',
 
     bird: {
@@ -437,16 +441,76 @@
     return { syl: bestSyl, label: bestLabel, diffSemitones: bestDiff, cents: Math.round(bestDiff * 100) };
   }
 
-  // Permanent fixed vertical pitch ladder across ALL waves & patterns:
-  // low sol (-3) to high do (+7), with dynamic headroom so extreme gates & asteroids stay inside the canvas.
+  // Vertical pitch camera: starts with the full do–do' scale on screen (even spacing per scale step,
+  // gaps kept for unused notes) and only zooms out once notes beyond it, like low sol, show up.
   const FIXED_MIN_DEG = -3;
   const FIXED_MAX_DEG = 7;
+  function computeTargetPitchRange() {
+    let lo = Infinity;
+    let hi = -Infinity;
+    const includeDegs = (degs) => {
+      for (const d of degs) {
+        if (d < lo) lo = d;
+        if (d > hi) hi = d;
+      }
+    };
+    if (CFG.customOnly) {
+      const cust = parseCustomPatterns(CFG.customPatterns);
+      for (const p of cust) includeDegs(p.degs);
+    } else if (CFG.poolAll) {
+      for (const p of ALL_PATTERNS) includeDegs(p.degs);
+    } else {
+      const maxW = Math.max(0, Math.min(WAVES.length - 1, G.waveIdx));
+      for (let wi = 0; wi <= maxW; wi++) {
+        for (const p of WAVES[wi].patterns) includeDegs(p.degs);
+      }
+    }
+    for (const pat of G.patterns) {
+      for (const g of pat.gates) {
+        if (g.info.d < lo) lo = g.info.d;
+        if (g.info.d > hi) hi = g.info.d;
+      }
+    }
+    // Always show the full do–do' scale; only widen (e.g. down to low sol) when a pattern needs it.
+    if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 7; }
+    return { lo: Math.min(0, lo), hi: Math.max(7, hi) };
+  }
+  function snapPitchCamera() {
+    const { lo, hi } = computeTargetPitchRange();
+    G.camTargetMinDeg = lo;
+    G.camTargetMaxDeg = hi;
+    G.camMinDeg = lo;
+    G.camMaxDeg = hi;
+  }
+  function updatePitchCamera(dt) {
+    const { lo, hi } = computeTargetPitchRange();
+    // Zoom out monotonically during a run as new notes appear (never jarringly zoom back in mid-run)
+    G.camTargetMinDeg = Math.min(G.camTargetMinDeg, lo);
+    G.camTargetMaxDeg = Math.max(G.camTargetMaxDeg, hi);
+    const alpha = 1 - Math.exp(-3.2 * dt);
+    const prevLo = G.camMinDeg;
+    const prevHi = G.camMaxDeg;
+    G.camMinDeg += (G.camTargetMinDeg - G.camMinDeg) * alpha;
+    G.camMaxDeg += (G.camTargetMaxDeg - G.camMaxDeg) * alpha;
+    if (Math.abs(G.camTargetMinDeg - G.camMinDeg) < 0.002) G.camMinDeg = G.camTargetMinDeg;
+    if (Math.abs(G.camTargetMaxDeg - G.camMaxDeg) < 0.002) G.camMaxDeg = G.camTargetMaxDeg;
+    if (G.camMinDeg !== prevLo || G.camMaxDeg !== prevHi) {
+      for (const pat of G.patterns) {
+        for (const g of pat.gates) {
+          g.cy = degreeToY(g.info.d);
+          g.y0 = g.cy - g.h / 2;
+          g.y1 = g.cy + g.h / 2;
+        }
+      }
+    }
+  }
   function degreeToY(d) {
-    const openH = Number(CFG.openingH) || 104;
-    const pad = Math.min(G.H * 0.24, Math.max(58, openH * 0.72));
-    const span = FIXED_MAX_DEG - FIXED_MIN_DEG;
-    const norm = Math.max(0, Math.min(1, (d - FIXED_MIN_DEG) / span));
-    return G.H - pad - norm * Math.max(40, G.H - pad * 2);
+    const span = Math.max(2, G.camMaxDeg - G.camMinDeg);
+    // Zoomed-in early waves get comfortable breathing room; wider ranges expand to use ~85% of full height
+    const padFrac = span <= 2.5 ? 0.17 : span <= 4.5 ? 0.13 : span <= 6.5 ? 0.105 : 0.08;
+    const pad = Math.max(28, Math.min(96, G.H * padFrac));
+    const norm = (d - G.camMinDeg) / span;
+    return G.H - pad - norm * Math.max(80, G.H - pad * 2);
   }
 
   // ---------- Audio: Guide Synth, Charge-Up SFX, Harmony Ring Clears, Space Music, Drone ----------
@@ -824,7 +888,8 @@
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     const mkCluster = (sideSign, offsetSeed) => {
       const rocks = [];
-      for (let i = 0; i < 8; i++) {
+      // First 8 hug the path (rock count slider); the rest keep stacking outward to fill the screen edge.
+      for (let i = 0; i < 24; i++) {
         const r = baseR * (i === 0 ? 0.98 : (0.50 + rnd() * 0.58));
         const dxNorm = i === 0 ? 0 : (rnd() - 0.5);
         const extraDist = i === 0 ? 0 : (24 + i * 26 + rnd() * 38);
@@ -913,8 +978,20 @@
     const gateH = Number(CFG.openingH) || 104;
     const gateW = Number(CFG.pipeW) || 64;
     const gapX = Number(CFG.gateGapX) || 182;
+    // Interval-aware spacing: steps sit closer, bigger leaps get more room so the
+    // rocket's path climbs/dives on a gentler slope instead of a sharp spike.
+    // Leaps (do–sol, do–do') get much more room, and every gap is at least ~1.2× its vertical climb
+    // on screen, so the path never turns steeper than about 40° whatever the zoom.
+    const pxPerDeg = Math.abs(degreeToY(0) - degreeToY(1));
+    const gapFor = n => Math.max(
+      gapX * (n <= 1 ? 0.78 : Math.min(2.5, 1.0 + (n - 2) * 0.3)),
+      n * pxPerDeg * 1.2
+    );
+    let runX = startX;
 
     const gates = picked.degs.map((d, idx) => {
+      const lead = idx === 0 ? 0 : gapFor(Math.abs(d - picked.degs[idx - 1]));
+      runX += lead;
       const info = degreeInfo(d);
       const cy = degreeToY(d);
       const uid = G.nextGateUid++;
@@ -922,7 +999,8 @@
         uid,
         idx,
         info,
-        x: startX + idx * gapX,
+        x: runX,
+        lead: lead || gapX,
         w: gateW,
         cy,
         y0: cy - gateH / 2,
@@ -941,13 +1019,14 @@
     // Breath-space asteroids occupying the break BEFORE this pattern, strictly outside globalPathYAt(x)
     const breathGap = Math.max(110, Number(CFG.patternGapX) || 260);
     const breathRocks = [];
-    const breathCount = Math.max(4, Math.round(breathGap / 44));
+    // Twice as many rocks in the break, scattered all the way to the screen edges
+    const breathCount = 2 * Math.max(4, Math.round(breathGap / 44));
     for (let i = 0; i < breathCount; i++) {
       const uid = G.nextGateUid++;
       const frac = (i + 0.5) / breathCount;
       const bx = startX - breathGap + frac * (breathGap - 20) + (Math.random() - 0.5) * 22;
       const side = (i % 2 === 0) ? -1 : 1;
-      const extraDist = 18 + Math.random() * 75;
+      const extraDist = i < breathCount / 2 ? 18 + Math.random() * 75 : 60 + Math.random() * Math.max(120, G.H * 0.9);
       const baseR = Math.max(16, Math.min(44, (Number(CFG.pipeW) || 64) * (0.34 + Math.random() * 0.24)));
       breathRocks.push({
         x: bx,
@@ -1287,6 +1366,7 @@
     G.waveIdx = Math.max(0, Math.min(WAVES.length - 1, (Number(CFG.startWave) || 1) - 1));
     G.lastPatternId = '';
     G.patterns = [];
+    snapPitchCamera();
     G.particles = [];
     G.popups = [];
     G.shake = 0;
@@ -1400,6 +1480,7 @@
       return;
     }
 
+    updatePitchCamera(dt);
     rebuildPathCache();
     const base = Number(CFG.baseSpeed) || 185;
     const perWave = Number(CFG.speedPerWave) || 15;
@@ -1464,7 +1545,7 @@
     const steer = Number(CFG.steerSpeed) || 10;
     const drag = Number(CFG.spaceDrag) || 7;
     const basePathY = globalPathYAt(G.bird.x + 20);
-    const inBreathBreak = !curGate || (curGate.x - G.bird.x > gateSpacing * 1.15);
+    const inBreathBreak = !curGate || (curGate.x - G.bird.x > (curGate.lead || gateSpacing) * 1.15);
 
     let desiredOffset = 0;
     if (curGate && curGate.locked) {
@@ -1489,7 +1570,7 @@
     const offsetAlpha = 1 - Math.exp(-Math.max(2.5, steer * 0.45) * dt);
     G.bird.pitchOffset += (desiredOffset - G.bird.pitchOffset) * offsetAlpha;
 
-    const desiredY = Math.max(54, Math.min(G.H - 44, basePathY + G.bird.pitchOffset));
+    const desiredY = Math.max(24, Math.min(G.H - 24, basePathY + G.bird.pitchOffset));
     const prevY = G.bird.y;
     const followRate = Math.max(3.5, Math.min(14, steer * 0.65 + (15 - drag) * 0.18));
     const yAlpha = 1 - Math.exp(-followRate * dt);
@@ -1501,8 +1582,8 @@
       const clampedTarget = Math.max(safeCenter - maxOffset, Math.min(safeCenter + maxOffset, G.bird.y));
       G.bird.y += (clampedTarget - G.bird.y) * (1 - Math.exp(-16 * dt));
     }
-    if (G.bird.y < 54) G.bird.y = 54;
-    if (G.bird.y > G.H - 44) G.bird.y = G.H - 44;
+    if (G.bird.y < 24) G.bird.y = 24;
+    if (G.bird.y > G.H - 24) G.bird.y = G.H - 24;
 
     const instVy = dt > 0.0001 ? (G.bird.y - prevY) / dt : 0;
     G.bird.vy += (instVy - G.bird.vy) * (1 - Math.exp(-10 * dt));
@@ -1726,6 +1807,8 @@
   // ---------- Rendering: Deep Space, Nebula, Debris, Varied Obstacles & Solfege Rocket ----------
   let cachedSkyH = 0;
   let cachedSkyGrad = null;
+  let _ladderCacheKey = '';
+  let _ladderCache = [];
   function drawBackground() {
     if (cachedSkyH !== G.H || !cachedSkyGrad) {
       cachedSkyH = G.H;
@@ -1774,27 +1857,42 @@
       }
     }
 
-    // Pitch-ladder guide lines aligned to degreeToY(d) so students see tonic/dominant altitude
-    const ladderAnchors = [
-      { d: 7, lbl: "do'", hi: true },
-      { d: 4, lbl: 'sol', hi: false },
-      { d: 2, lbl: 'mi',  hi: false },
-      { d: 0, lbl: 'do',  hi: true },
-      { d: -3, lbl: 'sol,', hi: false }
-    ];
+    // Full diatonic pitch-ladder guide lines aligned to the live zoomed pitch camera
+    // Shows every scale step — including unrepresented gap notes like re & fa between do, mi, sol
+    const minVisibleDeg = Math.floor(G.camMinDeg) - 1;
+    const maxVisibleDeg = Math.ceil(G.camMaxDeg) + 1;
+    const ladderKey = `${keySel.value}|${scaleSel.value}|${minVisibleDeg}|${maxVisibleDeg}`;
+    if (ladderKey !== _ladderCacheKey) {
+      _ladderCacheKey = ladderKey;
+      _ladderCache = [];
+      for (let d = maxVisibleDeg; d >= minVisibleDeg; d--) {
+        const mod = ((d % 7) + 7) % 7;
+        const tier = mod === 0 ? 2 : (mod === 2 || mod === 4) ? 1 : 0;
+        _ladderCache.push({ d, lbl: degreeInfo(d).label, tier });
+      }
+    }
     ctx.save();
     ctx.font = '700 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    for (const a of ladderAnchors) {
+    for (const a of _ladderCache) {
       const y = degreeToY(a.d);
-      ctx.strokeStyle = a.hi ? 'rgba(56, 189, 248, 0.14)' : 'rgba(148, 163, 184, 0.07)';
-      ctx.lineWidth = a.hi ? 1.2 : 1;
+      if (y < 8 || y > G.H - 8) continue;
+      ctx.strokeStyle = a.tier === 2
+        ? 'rgba(56, 189, 248, 0.18)'
+        : a.tier === 1
+          ? 'rgba(148, 163, 184, 0.10)'
+          : 'rgba(148, 163, 184, 0.05)';
+      ctx.lineWidth = a.tier === 2 ? 1.25 : 1;
       ctx.beginPath();
-      ctx.moveTo(30, y);
+      ctx.moveTo(32, y);
       ctx.lineTo(G.W, y);
       ctx.stroke();
-      ctx.fillStyle = a.hi ? 'rgba(125, 211, 252, 0.42)' : 'rgba(148, 163, 184, 0.28)';
+      ctx.fillStyle = a.tier === 2
+        ? 'rgba(125, 211, 252, 0.56)'
+        : a.tier === 1
+          ? 'rgba(203, 213, 225, 0.36)'
+          : 'rgba(148, 163, 184, 0.24)';
       ctx.fillText(a.lbl, 7, y);
     }
     ctx.restore();
@@ -2000,13 +2098,17 @@
         const topFlash = g.hitSide === 'high' ? g.hitFlash : 0;
         const botFlash = g.hitSide === 'low' ? g.hitFlash : 0;
         const addCluster = (cluster, flash) => {
-          for (let idx = 0; idx < Math.min(maxPerSide, cluster.length); idx++) {
+          for (let idx = 0; idx < cluster.length; idx++) {
             const c = cluster[idx];
+            // Rocks past the slider count are screen-filler: only draw them when they land on screen
+            const filler = idx >= maxPerSide;
+            if (filler && idx < 8) continue;
             const sh = c.shape;
             const r = sh.r * sizeScale;
             const rx = cx + c.dxNorm * spreadPx + Math.sin(G.t * sh.wxFreq * driftSpd + sh.phaseX) * driftAmp;
             const laneY = globalPathYAt(rx);
             const ry = laneY + c.side * (corridorHalf + r * 1.08 + driftAmp + c.extraDist) + Math.cos(G.t * sh.wyFreq * driftSpd + sh.phaseY) * driftAmp;
+            if (filler && (ry < -r || ry > G.H + r)) continue;
             const entry = {
               x: rx, y: ry, r, side: c.side,
               shape: sh, flash: idx === 0 ? flash : 0, alpha: idx === 0 ? 1 : 0.88,
@@ -2624,6 +2726,7 @@
 
   // ---------- Resize & Input Wiring ----------
   function resize() {
+    if (!G.patterns.length && G.state === 'idle') snapPitchCamera();
     const rect = canvas.parentElement.getBoundingClientRect();
     G.dpr = Math.min(2, window.devicePixelRatio || 1);
     G.W = Math.max(320, Math.floor(rect.width));
@@ -2632,8 +2735,8 @@
     canvas.height = G.H * G.dpr;
     ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0);
     G.bird.x = Math.floor(G.W * ((Number(CFG.birdXFrac) || 20) / 100));
-    G.bird.y = Math.max(44, Math.min(G.H - 40, G.bird.y || G.H * 0.5));
-    G.bird.targetY = Math.max(44, Math.min(G.H - 40, G.bird.targetY || G.H * 0.5));
+    G.bird.y = Math.max(24, Math.min(G.H - 24, G.bird.y || G.H * 0.5));
+    G.bird.targetY = Math.max(24, Math.min(G.H - 24, G.bird.targetY || G.H * 0.5));
     // Re-sync existing pattern gate heights cleanly whenever canvas resizes (e.g. Cue Bar showing/hiding)
     for (const pat of G.patterns) {
       for (const g of pat.gates) {
