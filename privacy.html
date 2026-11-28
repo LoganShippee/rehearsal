@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rehearsal Privacy &amp; Student Data Policy</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --soft: #eef2fe;
+    --ink: #161d29;
+    --muted: #5b6476;
+    --line: #dce2ec;
+    --accent: #2c5be0;
+    --ok-bg: #e9f7ef;
+    --ok-ink: #15663a;
+    --warn-bg: #fff8e6;
+    --warn-ink: #7d5005;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11151d;
+      --panel: #191f2b;
+      --soft: #212a3d;
+      --ink: #eaedf4;
+      --muted: #9ca6ba;
+      --line: #2a3344;
+      --accent: #6b93ff;
+      --ok-bg: #122d20;
+      --ok-ink: #7ce2a7;
+      --warn-bg: #2e2411;
+      --warn-ink: #f7c76e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 20px;
+  }
+  .topbar-inner {
+    max-width: 920px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .brand img { width: 26px; height: 26px; border-radius: 6px; }
+  .nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--soft); }
+  .btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: transparent;
+  }
+  .wrap {
+    max-width: 920px;
+    margin: 24px auto 48px;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 22px;
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; }
+  h2 { margin: 0 0 10px; font-size: 18px; }
+  p { margin: 0 0 10px; }
+  p:last-child { margin-bottom: 0; }
+  .muted { color: var(--muted); font-size: 13.5px; }
+  .pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--ok-bg);
+    color: var(--ok-ink);
+  }
+  .callout {
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .callout.warn {
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-top: 8px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 10px;
+    border-top: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    border-top: none;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  ul { margin: 6px 0 0; padding-left: 20px; }
+  li { margin-bottom: 5px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    background: var(--soft);
+    padding: 1px 5px;
+    border-radius: 5px;
+  }
+  @media print {
+    .topbar { display: none; }
+    body { background: #fff; color: #000; font-size: 11pt; }
+    .wrap { margin: 0; max-width: none; padding: 0; gap: 10pt; }
+    .card { border-color: #ccc; page-break-inside: avoid; padding: 12pt; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="icon-192.png" alt="Rehearsal">
+        <span>Rehearsal Privacy Policy</span>
+      </div>
+      <nav class="nav">
+        <a class="btn" href="privacy-sdpc.html">1-Page SDPC Summary</a>
+        <a class="btn" href="it-whitelisting.html">IT Admin Whitelisting</a>
+        <a class="btn" href="hw.html">Student Portal</a>
+        <a class="btn" href="index.html">Rehearsal App</a>
+        <button type="button" class="btn primary" onclick="window.print()">Print / Save PDF</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <span class="pill">Effective Date: November 22, 2026</span>
+      <h1 style="margin-top:8px">Rehearsal Privacy &amp; Student Data Policy</h1>
+      <p class="muted">Written in plain language for music educators, families, school administrators, and district Data Protection Agreements (FERPA / COPPA / SOPIPA / NY Ed Law 2-d).</p>
+      <div class="callout" style="margin-top:12px">
+        <strong>Summary:</strong> Rehearsal's local classroom app stays 100% free, offline-first, and collects zero cloud data. Only teachers who opt into the optional <strong>Online Homework</strong> add-on send class assignments and student recordings to Rehearsal's homework service, and all student audio is automatically purged after <strong>90 days</strong>.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>1. Local Classroom App vs. Optional Online Homework</h2>
+      <ul>
+        <li><strong>Local Rehearsal App (Mac, Windows):</strong> Runs completely locally on the teacher's device with no account. Classes, schedules, rosters, MusicXML scores, PDFs, and classroom recordings stay in the teacher's local app folder.</li>
+        <li><strong>Web version (browser):</strong> Teachers sign in with Google or an email code. Settings, classes, schedules and events are backed up to the teacher's account; library files (scores, PDFs, recordings) stay in the browser. Student names entered in a class roster are part of that backup only if the teacher types them there. Zero student telemetry, zero crash-beacon tracking, zero ads.</li>
+        <li><strong>Optional Online Homework Add-On:</strong> Used only when a teacher signs in to create an Online Homework class, publish assignments, and review student homework takes in a Gradebook. Students access assignments via a web link — no ads, no social features, and no cross-site tracking.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2. Exact Data Inventory (What We Collect &amp; What We Never Collect)</h2>
+      <table>
+        <thead>
+          <tr><th>Category</th><th>Stored Data</th><th>Purpose &amp; Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Teacher Account</strong></td>
+            <td>Name, school email address, optional Google subject ID, subscription/license state</td>
+            <td>Sign-in (Google, or a 6-digit email code), class ownership, trial/billing status.</td>
+          </tr>
+          <tr>
+            <td><strong>Student Roster</strong></td>
+            <td>Display name (or teacher-chosen alias/first-last initial), optional voice part, optional school email (only if Google Sign-In is enabled)</td>
+            <td>Managed directly by the teacher. Teachers can use personal 6-character codes with <strong>no student email addresses at all</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>Personal Student Codes</strong></td>
+            <td>Salted PBKDF2-SHA256 hash &amp; HMAC lookup key for sign-in, plus the code itself encrypted (AES-256-GCM) so the owning teacher can view it</td>
+            <td>The server <strong>never stores plaintext personal codes</strong>. The encrypted copy is decrypted only for the owning teacher, only when they choose &ldquo;Show codes&rdquo;, and is replaced when a code is regenerated.</td>
+          </tr>
+          <tr>
+            <td><strong>Student Homework Submissions</strong></td>
+            <td>Submitted audio recording (WebM/M4A/WAV/Ogg), auto-graded percentage &amp; note timing/pitch feedback, teacher comments &amp; overrides</td>
+            <td>Visible only to that student (their own scores, audio, and comments — never internal integrity flags) and their owning teacher.</td>
+          </tr>
+          <tr>
+            <td><strong>Technical Abuse Logs</strong></td>
+            <td>Transient SHA-256 hashed IP rate-limit counters (15-minute window)</td>
+            <td>Stops brute-force guessing of student codes (20 attempts / 15 min IP limit). Automatically purged on expiry.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn" style="margin-top:12px">
+        <strong>Explicitly NOT Collected (Online Homework):</strong> No advertising profiles, no third-party ad/analytics cookies, no sale or rental of student data, no AI voice cloning or biometric voiceprint training, no access to Google Drive, Gmail, Contacts, or Google Classroom rosters for Online Homework, and no student-to-student messaging.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. 90-Day Audio Auto-Deletion &amp; Early Deletion</h2>
+      <ul>
+        <li><strong>Automatic 90-Day Expiration:</strong> Every student submission audio file in Cloudflare R2 (<code>audio/</code> prefix) has a strict 90-day lifetime enforced in two places: a Cloudflare R2 Object Lifecycle Rule and a daily 07:00 UTC scheduled cleanup job.</li>
+        <li><strong>Grades Preserved:</strong> After 90 days (or early deletion), the audio recording and its storage key are permanently removed while the numeric gradebook score and teacher comments remain for the school term.</li>
+        <li><strong>Teacher Delete Audio Now:</strong> Inside any submission review window, teachers can click <em>Delete Audio Now</em> to erase the student's recording immediately while keeping the score.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>4. FERPA, COPPA, SOPIPA &amp; NY Ed Law 2-d Commitments</h2>
+      <ul>
+        <li><strong>School Official Role (FERPA 34 CFR § 99.31(a)(1)):</strong> Rehearsal acts solely under the direction and control of the subscribing teacher or school district as an outsourced educational service provider. The school retains full ownership and control of all student education records.</li>
+        <li><strong>COPPA Direct Authorization:</strong> For students under 13, schools act as the consenting educational agent exclusively for school-directed music instruction. Personal 6-character codes require zero student emails, usernames, or Google accounts.</li>
+        <li><strong>No Secondary Commercial Use (SOPIPA / State Laws):</strong> Student data is never used for targeted advertising, behavioral profiling, or product marketing.</li>
+        <li><strong>Right to Access &amp; Deletion (Always Available, Even in Read-Only Mode):</strong> Teachers can export the Gradebook CSV, and a student's complete JSON record is available on request, or teachers can permanently delete a submission, a student, or an entire class (cascading through D1 and R2) at any time — even if a trial or subscription has ended.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>5. Security Safeguards</h2>
+      <ul>
+        <li><strong>Transport &amp; Storage Encryption:</strong> All traffic uses HTTPS/TLS 1.2+; Cloudflare D1 and R2 encrypt stored data at rest.</li>
+        <li><strong>Cryptographic Access Controls:</strong> Personal student codes use 100,000-iteration PBKDF2-SHA256 with unique 16-byte salts. Session tokens are high-entropy bearer secrets stored only as SHA-256 HMAC digests.</li>
+        <li><strong>Zero Public Roster Enumeration:</strong> The Student Portal never displays a public dropdown list of students. Students must provide both a Class Join Code and either their Personal 6-Character Code or verified Google account.</li>
+        <li><strong>Brute-Force Lockouts:</strong> 5 consecutive wrong codes trigger a 15-minute cooldown; 10 wrong codes lock code sign-in until the teacher issues a fresh code.</li>
+        <li><strong>Shared-Device Protections:</strong> Student sessions auto-expire after 24 hours on shared classroom Chromebooks; teachers have a one-click shared-computer session mode that clears on browser close.</li>
+        <li><strong>Server-Side Score Verification:</strong> Auto-graded percentage math is recomputed server-side from note results; True Sight-Read assignments lock and strip excerpts until the server-timed attempt begins.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>6. Minimal Third-Party Sub-Processors</h2>
+      <table>
+        <thead>
+          <tr><th>Provider</th><th>Role</th><th>Student Data Access</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Cloudflare, Inc.</strong> (Workers, D1, R2)</td>
+            <td>API compute, encrypted SQLite database, encrypted 90-day audio object storage</td>
+            <td>Hosts Online Homework API, gradebook records, and 90-day audio blobs under Cloudflare DPA.</td>
+          </tr>
+          <tr>
+            <td><strong>Resend, Inc.</strong></td>
+            <td>Delivers 6-digit teacher login verification emails</td>
+            <td><strong>None.</strong> Receives teacher email addresses only for one-time sign-in codes.</td>
+          </tr>
+          <tr>
+            <td><strong>Stripe, Inc.</strong></td>
+            <td>Processes optional teacher subscriptions &amp; billing portal</td>
+            <td><strong>None.</strong> Handles teacher payment/billing metadata only.</td>
+          </tr>
+          <tr>
+            <td><strong>Google LLC</strong> (Optional OAuth)</td>
+            <td>Verifies optional Sign in with Google tokens</td>
+            <td>Optional. Requests <code>openid</code>, <code>email</code>, and <code>profile</code> scopes only when Google Sign-In is chosen.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>7. Breach Notification &amp; Privacy Contact</h2>
+      <p>In the event of a confirmed security incident involving unauthorized disclosure of student education records, Rehearsal will notify affected teachers and designated district contacts without unreasonable delay and within <strong>72 hours</strong> of confirmation, detailing the scope, mitigation steps, and remediation timeline.</p>
+      <p class="muted" style="margin-top:8px">For SDPC National Data Privacy Agreement (NDPA) requests, District DPAs, or student data inquiries, contact the Rehearsal developer / administrator listed on the official Rehearsal repository or email <code>privacy@rehearsalmusic.com</code> (or your school's designated Rehearsal contact).</p>
+    </section>
+  </main>
+</body>
+</html>

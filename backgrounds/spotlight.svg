@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="room" cx="0.5" cy="0.2" r="1"><stop offset="0" stop-color="#241c33"/><stop offset="1" stop-color="#07060c"/></radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3d0" stop-opacity=".55"/><stop offset="1" stop-color="#fff3d0" stop-opacity=".06"/></linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff3d0" stop-opacity=".6"/><stop offset="1" stop-color="#fff3d0" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#room)"/>
+  <path d="M740 -20h120L1180 740H420z" fill="url(#beam)"/>
+  <ellipse cx="800" cy="745" rx="420" ry="80" fill="url(#pool)"/>
+  <rect y="760" width="1600" height="140" fill="#000" fill-opacity=".45"/>
+  <circle cx="800" cy="-10" r="40" fill="#fff3d0" fill-opacity=".9"/>
+</svg>

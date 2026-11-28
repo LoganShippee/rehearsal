@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <!-- same angle in page units for the background and the (slightly lighter, solid) notes, so they blend in -->
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1600" y2="900"><stop offset="0" stop-color="#3a1d6e"/><stop offset="1" stop-color="#14183f"/></linearGradient>
+    <linearGradient id="nt" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1600" y2="900"><stop offset="0" stop-color="#553c86"/><stop offset="1" stop-color="#32365d"/></linearGradient>
+    <g id="eighth"><ellipse rx="22" ry="16" transform="rotate(-20)"/><rect x="17" y="-100" width="6" height="100"/><path d="M23 -100c30 12 44 30 40 62c-8 -18 -20 -26 -40 -30z"/></g>
+    <g id="pair"><ellipse rx="22" ry="16" transform="rotate(-20)"/><ellipse cx="80" cy="-14" rx="22" ry="16" transform="rotate(-20 80 -14)"/><rect x="17" y="-100" width="6" height="100"/><rect x="97" y="-114" width="6" height="100"/><path d="M17 -100L103 -114v22L17 -78z"/></g>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <!-- solid shapes (no transparency), so heads, stems and beams read as one note -->
+  <g fill="url(#nt)">
+    <use href="#eighth" x="180" y="300" transform="rotate(-12 180 300)"/>
+    <use href="#pair" x="520" y="220"/>
+    <use href="#eighth" x="900" y="360" transform="rotate(10 900 360)"/>
+    <use href="#pair" x="1180" y="280" transform="rotate(-8 1180 280)"/>
+    <use href="#pair" x="260" y="700"/>
+    <use href="#eighth" x="700" y="760" transform="rotate(-10 700 760)"/>
+    <use href="#eighth" x="1040" y="720" transform="rotate(14 1040 720)"/>
+    <use href="#pair" x="1360" y="780"/>
+  </g>
+</svg>

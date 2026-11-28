@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rehearsal — 1-Page SDPC Student Data Privacy Summary</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<style>
+  @page { size: letter; margin: 0.42in; }
+  :root {
+    --bg: #eef2f7;
+    --paper: #ffffff;
+    --ink: #141a24;
+    --muted: #546072;
+    --line: #cfd7e4;
+    --soft: #eff4ff;
+    --accent: #2452d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 12.5px/1.38 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  }
+  .toolbar {
+    max-width: 8.5in;
+    margin: 12px auto 0;
+    padding: 0 12px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .btn {
+    padding: 6px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .sheet {
+    max-width: 8.5in;
+    margin: 10px auto 24px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .head h1 { margin: 0; font-size: 17px; color: var(--accent); }
+  .head .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .meta-badge {
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .box {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px 10px;
+    background: #fcfdff;
+  }
+  .box h2 {
+    margin: 0 0 4px;
+    font-size: 12.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .box p { margin: 0 0 4px; }
+  .box p:last-child { margin-bottom: 0; }
+  ul { margin: 3px 0 0; padding-left: 16px; }
+  li { margin-bottom: 2px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    margin-bottom: 10px;
+  }
+  th, td {
+    text-align: left;
+    padding: 4.5px 7px;
+    border: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { background: var(--soft); font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .foot {
+    border-top: 1px solid var(--line);
+    padding-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  @media print {
+    .toolbar { display: none; }
+    body { background: #fff; font-size: 9.5pt; line-height: 1.32; }
+    .sheet { margin: 0; border: none; border-radius: 0; padding: 0; max-width: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <a class="btn" href="privacy.html">Full Privacy Policy</a>
+    <a class="btn" href="it-whitelisting.html">IT Whitelisting Sheet</a>
+    <button type="button" class="btn primary" onclick="window.print()">Print / Save as 1-Page PDF</button>
+  </div>
+
+  <main class="sheet">
+    <div class="head">
+      <div>
+        <h1>Rehearsal Online Homework — Student Data Privacy Summary (SDPC / NDPA Brief)</h1>
+        <div class="sub">1-Page Administrator &amp; Parent Overview · FERPA / COPPA / SOPIPA / NY Ed Law 2-d Ready</div>
+      </div>
+      <div class="meta-badge">
+        <div><strong>Local Classroom App:</strong> 100% Free &amp; Offline</div>
+        <div><strong>Online Homework:</strong> Optional Teacher Add-On</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="box">
+        <h2>Service Scope &amp; Purpose</h2>
+        <p><strong>Product:</strong> Rehearsal Online Homework (sight-reading, music score practice, and vocal/instrumental recording assignments for K–12 music classrooms).</p>
+        <p><strong>Legal Role:</strong> Operates as a designated <em>School Official</em> under FERPA (34 CFR § 99.31(a)(1)) strictly under the control of the teacher/district. Never collects data in the free local app.</p>
+      </div>
+      <div class="box">
+        <h2>No-Email Classroom Mode</h2>
+        <ul>
+          <li><strong>Zero Student Emails Required:</strong> Teachers can generate random 6-character personal codes (e.g. <code>H7P-9KM</code>) stored as salted PBKDF2-SHA256 hashes for sign-in, plus an encrypted copy the owning teacher can view.</li>
+          <li><strong>No Public Rosters:</strong> Student Portal never exposes student lists or name dropdowns.</li>
+          <li><strong>Optional Google SSO:</strong> Uses <code>openid email profile</code> scopes only — never accesses Drive, Classroom, or Gmail.</li>
+        </ul>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:24%">Data Element</th>
+          <th style="width:42%">What Is Stored</th>
+          <th style="width:34%">Retention &amp; Deletion</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Student Identity</strong></td>
+          <td>Display name (or alias/initials), optional voice part, salted code hash plus encrypted code copy (or optional Google <code>sub</code> + email).</td>
+          <td>Deleted immediately on teacher Delete Student / Delete Class (even in Read-Only Mode).</td>
+        </tr>
+        <tr>
+          <td><strong>Grades &amp; Feedback</strong></td>
+          <td>Attempt scores, rhythm/pitch percentages, per-note timing/pitch breakdown, teacher comments &amp; overrides.</td>
+          <td>Gradebook CSV export anytime; a student's full JSON record is available on request; cascades on deletion.</td>
+        </tr>
+        <tr>
+          <td><strong>Audio Recordings</strong></td>
+          <td>Student performance audio (WebM / M4A / WAV / Ogg) encrypted at rest in Cloudflare R2.</td>
+          <td><strong>Auto-deleted after 90 days</strong> (R2 lifecycle + daily cron) or immediately via <em>Delete Audio Now</em>.</td>
+        </tr>
+        <tr>
+          <td><strong>Never Collected</strong></td>
+          <td colspan="2">Zero behavioral ads, zero third-party ad/analytics trackers, zero sale/licensing of data, zero biometric voiceprints or AI training on student audio, zero student social messaging.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="grid2">
+      <div class="box">
+        <h2>Security Architecture</h2>
+        <ul>
+          <li><strong>Encryption:</strong> HTTPS/TLS 1.2+ in transit; encrypted Cloudflare D1 &amp; R2 storage at rest.</li>
+          <li><strong>Auth &amp; Lockouts:</strong> 100k-round PBKDF2-SHA256 codes, HMAC-hashed session tokens, 24h Chromebook session expiry, 5-fail 15m cooldown / 10-fail lock.</li>
+          <li><strong>Anti-Tamper:</strong> Server-side score recomputation; True Sight-Read excerpts withheld until timed start.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h2>Sub-Processors &amp; Incident Response</h2>
+        <ul>
+          <li><strong>Cloudflare (Workers/D1/R2):</strong> Core API, database, 90-day audio storage.</li>
+          <li><strong>Resend &amp; Stripe:</strong> Teacher login emails &amp; teacher billing only (zero student data).</li>
+          <li><strong>Google LLC:</strong> Optional Sign-In identity check only.</li>
+          <li><strong>Breach Notice:</strong> Affected schools notified within <strong>72 hours</strong> of confirmation.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span><strong>Full Policy:</strong> <code>privacy.html</code> (<code>GET /privacy</code>) · <strong>IT Whitelisting:</strong> <code>it-whitelisting.html</code></span>
+      <span><strong>Privacy / DPA Contact:</strong> <code>privacy@rehearsalmusic.com</code></span>
+    </div>
+  </main>
+</body>
+</html>

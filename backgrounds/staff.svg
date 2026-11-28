@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16263f"/><stop offset="1" stop-color="#0b1424"/></linearGradient>
+    <g id="staff" stroke="#9fb7d9" stroke-width="3"><path d="M0 0h1600M0 28h1600M0 56h1600M0 84h1600M0 112h1600"/></g>
+    <g id="note"><ellipse cx="0" cy="0" rx="21" ry="15" transform="rotate(-20)"/><rect x="16" y="-96" width="5" height="96"/></g>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <!-- staves + barlines in one group so the fade is applied once (no darker spots where lines cross) -->
+  <g opacity=".28">
+    <use href="#staff" y="150"/><use href="#staff" y="390"/><use href="#staff" y="630"/>
+    <path d="M120 150v112M120 390v112M120 630v112M1500 150v112M1500 390v112M1500 630v112" stroke="#9fb7d9" stroke-width="3"/>
+  </g>
+  <!-- notes: fully solid (the faded look, pre-blended), so the staff lines don't show through the heads -->
+  <g fill="#5d6e8a">
+    <use href="#note" x="240" y="262"/><use href="#note" x="420" y="234"/><use href="#note" x="600" y="206"/><use href="#note" x="780" y="248"/>
+    <use href="#note" x="1000" y="206"/><use href="#note" x="1220" y="178"/><use href="#note" x="1400" y="234"/>
+    <use href="#note" x="300" y="474"/><use href="#note" x="520" y="446"/><use href="#note" x="740" y="502"/><use href="#note" x="960" y="418"/><use href="#note" x="1180" y="474"/>
+    <use href="#note" x="260" y="714"/><use href="#note" x="480" y="686"/><use href="#note" x="700" y="658"/><use href="#note" x="920" y="714"/><use href="#note" x="1140" y="686"/><use href="#note" x="1360" y="742"/>
+  </g>
+</svg>

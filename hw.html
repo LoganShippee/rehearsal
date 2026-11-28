@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#142238">
+<title>Rehearsal Online Homework — Student Portal</title>
+<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="hw.css?v=15">
+</head>
+<body class="hw-page">
+  <header class="hw-header">
+    <div class="hw-brand">
+      <img src="icon-192.png" alt="Rehearsal">
+      <h1>Rehearsal Homework</h1>
+      <span class="hw-badge" id="hw-mode-badge">Student Portal</span>
+    </div>
+    <div class="hw-header-right">
+      <span class="hw-chip" id="hw-student-chip" hidden></span>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-sync-btn" hidden title="Re-run the audio sync check for this device">Sync: -- ms</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-offline-btn" hidden title="Simulate Wi-Fi drop to test local save & Retry Upload">Offline Test: Off</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-teacher-toggle" hidden title="Preview & configure assignment settings (Preview only)">Teacher Setup ▾</button>
+      <button type="button" class="hw-chip hw-chip-btn" id="hw-signout-btn" hidden>Sign Out</button>
+      <span class="hw-chip" id="hw-dev-chip" hidden></span>
+    </div>
+  </header>
+
+  <main class="hw-main">
+    <!-- Persistent Offline Upload Queue Banner -->
+    <section class="hw-offline-banner" id="hw-offline-banner" hidden>
+      <div>
+        <strong id="hw-offline-msg">1 recording saved on this device — waiting to upload</strong>
+        <div class="small">Your work is safe locally. Reconnect to Wi-Fi and click Retry Upload.</div>
+      </div>
+      <button type="button" class="hw-btn primary" id="hw-retry-all">Retry Upload Now</button>
+    </section>
+
+    <!-- 1. Student Sign-In Screen -->
+    <section class="hw-auth-wrap" id="hw-auth-view" hidden>
+      <div class="hw-auth-card">
+        <div class="hw-auth-head">
+          <h2>Sign In to Homework</h2>
+          <p id="hw-auth-sub">Use your school Google account.</p>
+        </div>
+
+        <div class="hw-google-box" id="hw-google-box">
+          <div class="hw-google-gsi" id="hw-google-gsi"></div>
+          <button type="button" class="hw-btn hw-btn-google hw-btn-full" id="hw-google-btn">Sign in with Google</button>
+          <div class="hw-google-join" id="hw-google-join" hidden>
+            <label class="hw-field">
+              <span>First time? Enter the <strong>Class Code</strong> from your teacher</span>
+              <input type="text" class="hw-code-input" id="hw-in-gjoin" placeholder="K7M-4P2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+            <button type="button" class="hw-btn primary hw-btn-full" id="hw-google-join-go">Join Class</button>
+          </div>
+          <div class="hw-google-classes" id="hw-google-classes" hidden></div>
+        </div>
+
+        <div class="hw-divider" id="hw-code-divider"><button type="button" class="hw-code-toggle" id="hw-code-toggle" aria-expanded="false" aria-controls="hw-code-form">Use my student code instead</button></div>
+
+        <form id="hw-code-form" class="hw-auth-form" autocomplete="off">
+          <div class="hw-field-row">
+            <label class="hw-field">
+              <span>Class Code</span>
+              <input type="text" class="hw-code-input" id="hw-in-joincode" placeholder="K7M-4P2" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+            </label>
+            <label class="hw-field">
+              <span>Student Code</span>
+              <input type="text" class="hw-code-input" id="hw-in-stucode" placeholder="H7P-9KM" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+          </div>
+          <label class="hw-field">
+            <span>Your Name <small class="muted">(optional)</small></span>
+            <input type="text" id="hw-in-stuname" placeholder="Enter your name if your teacher asked for it" maxlength="100" autocomplete="off">
+          </label>
+          <div class="hw-auth-err" id="hw-auth-err" hidden role="alert"></div>
+          <button type="submit" class="hw-btn primary hw-btn-full" id="hw-code-submit">Sign In with Code</button>
+        </form>
+
+        <div class="hw-demo-bar" id="hw-demo-creds" hidden></div>
+      </div>
+    </section>
+
+    <!-- 2. My Assignments List -->
+    <section id="hw-list-view" hidden>
+      <div class="hw-glink" id="hw-glink" hidden></div>
+      <div class="hw-list-head" id="hw-list-head"></div>
+      <h2 class="hw-section-title">Homework</h2>
+      <div class="hw-asgn-grid" id="hw-asgn-grid"></div>
+      <h2 class="hw-section-title">Practice</h2>
+      <div class="hw-practice" id="hw-practice"></div>
+    </section>
+
+    <!-- 3. Active Assignment Workspace -->
+    <section id="hw-runner-wrap" hidden>
+      <!-- Teacher Preview Sandbox Banner -->
+      <section class="hw-preview-banner" id="hw-preview-banner" hidden>
+        <div class="hw-preview-banner-text">
+          <span class="hw-pill preview">Teacher Preview Sandbox</span>
+          <span id="hw-preview-msg">Testing this assignment as a student — takes stay local and are never saved to your Gradebook.</span>
+        </div>
+        <div class="hw-preview-banner-actions">
+          <button type="button" class="hw-btn primary" id="hw-preview-reset">Reset Preview</button>
+          <button type="button" class="hw-btn" id="hw-preview-close">Close Preview</button>
+        </div>
+      </section>
+
+      <!-- Collapsible Teacher Assignment Configurator (Local Preview Mode only) -->
+      <section class="hw-teacher-drawer" id="hw-teacher-drawer" hidden>
+        <div class="hw-teacher-drawer-title">
+          <span>Teacher Assignment Setup (Preview Only — Students Never See This)</span>
+          <button type="button" class="hw-btn primary" id="hw-teacher-close" style="padding:6px 13px;font-size:13px">Preview Assignment as Student →</button>
+        </div>
+        <div class="hw-tabs" aria-label="Assignment type preview">
+          <button class="hw-tab on" data-hw-tab="sight">1. Sight Reading</button>
+          <button class="hw-tab" data-hw-tab="score">2. Score Practice</button>
+          <button class="hw-tab" data-hw-tab="audio">3. Audio-Only</button>
+        </div>
+        <div class="hw-controls" id="hw-teacher-opts"></div>
+      </section>
+
+      <div class="hw-back-bar" id="hw-back-bar">
+        <button type="button" class="hw-btn primary hw-back-btn" id="hw-back-list"><span class="hw-back-arrow" aria-hidden="true">←</span> <span id="hw-back-label">All assignments</span></button>
+        <span class="hw-back-title" id="hw-back-title"></span>
+        <span class="hw-pill" id="hw-runner-attempts"></span>
+      </div>
+
+      <!-- Student-Facing Assignment Runner -->
+      <section id="hw-runner-body" class="hw-student-view"></section>
+
+      <!-- Offline-Safe Saved Takes Queue (for this assignment) -->
+      <section class="hw-card" id="hw-takes-card">
+        <div class="hw-card-head">
+          <div>
+            <h2>My Recorded Takes <span class="muted small" id="hw-takes-count">0 saved locally</span></h2>
+          </div>
+          <div class="hw-controls">
+            <button class="hw-btn" id="hw-clear-takes">Clear Local Takes</button>
+          </div>
+        </div>
+        <div class="hw-takes-list" id="hw-takes-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer style="text-align:center;padding:18px 12px;font-size:12px;color:var(--muted,#6b7385)">
+    <a href="privacy.html" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">Privacy &amp; Student Data Policy</a> · Recordings auto-delete after 90 days
+  </footer>
+
+  <!-- Mandatory Session Audio Sync Check Modal -->
+  <div class="hw-sync-overlay" id="hw-sync-overlay" hidden>
+    <div class="hw-sync-card" role="dialog" aria-modal="true" aria-labelledby="hw-sync-title">
+      <h2 id="hw-sync-title">Get ready</h2>
+      <div class="hw-sync-step">
+        <div class="hw-sync-step-head"><span class="hw-step">1</span><strong>Microphone</strong></div>
+        <p class="hw-sync-mic-msg" id="hw-sync-mic-msg">When Chrome asks, click <strong>Allow while visiting the site</strong>.</p>
+        <div class="hw-sync-meter"><div class="hw-sync-meter-fill" id="hw-sync-meter"></div></div>
+      </div>
+      <div class="hw-sync-step">
+        <div class="hw-sync-step-head"><span class="hw-step">2</span><strong>Press Space with the clicks</strong></div>
+        <div class="hw-sync-dots" id="hw-sync-dots"></div>
+        <button type="button" class="hw-sync-pad hw-sync-space" id="hw-sync-pad" disabled>
+          <span>Space</span>
+          <small>or tap here</small>
+        </button>
+        <div class="hw-sync-status" id="hw-sync-status">Wait for the 4 yellow clicks, then press Space.</div>
+      </div>
+      <div class="row" style="justify-content:center;gap:10px;flex-wrap:wrap">
+        <button type="button" class="hw-btn primary" id="hw-sync-start">Start</button>
+        <button type="button" class="hw-btn" id="hw-sync-cancel" hidden>Close</button>
+        <button type="button" class="hw-btn" id="hw-sync-signout" hidden>Sign Out</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="print-area"></div>
+
+  <!-- Lightweight standalone shim + API client + Rehearsal's real engines loaded verbatim -->
+  <script src="hw-shim.js?v=11"></script>
+  <script src="hw-api.js?v=12"></script>
+  <script src="icons.js?v=11"></script>
+  <script src="vendor/vexflow.js"></script>
+  <script src="sight.js?v=13"></script>
+  <script src="music.js?v=11"></script>
+  <script src="grade.js?v=12"></script>
+  <script src="score.js?v=13"></script>
+  <script src="hw-student.js?v=16"></script>
+</body>
+</html>
