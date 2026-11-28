@@ -1831,6 +1831,8 @@ function winBodyHTML(w) {
   if (w.id === '__tour_win') return `<div class="win-start"><div><b>Floating Window Preview</b><br><span style="font-size:13px;color:#6b7385">Use <b>Pin</b> (${IC('ico:pin')}) in the top bar to save any tool or web page as a class tab, or <b>Tile</b> (${IC('ico:tile')}) to snap it to part of the screen.</span></div></div>`;
   if (winIsNative(w)) return '';
   if (w.kind === 'sight') return `<div class="sr-host" data-sr-win="${w.id}"></div>`;
+  // Games are web-only now: a game window saved in the Mac/Windows app points to the web version instead
+  if (IS_NATIVE && (w.kind === 'rush' || w.kind === 'dash' || w.kind === 'rocket')) return `<div style="display:grid;place-items:center;height:100%;padding:20px;text-align:center"><div><p>${esc(winTitle(w))} now plays in the web version, where it runs best.</p><button class="btn" data-action="open-external" data-url="https://app.rehearsalmusic.com/${w.kind === 'rocket' ? 'gate-singer' : 'rhythm-rush'}.html">Open in browser</button></div></div>`;
   if (w.kind === 'rush' || w.kind === 'dash') return `<iframe class="rush-frame" src="rhythm-rush.html" style="width:100%;height:100%;border:0;display:block;background:#0d111d" allow="autoplay"></iframe>`;
   if (w.kind === 'rocket') return `<iframe class="rocket-frame" src="gate-singer.html" style="width:100%;height:100%;border:0;display:block;background:#0b1020" allow="microphone; autoplay"></iframe>`;
   if (w.kind === 'score') return `<div class="score-host" data-score-win="${w.id}"></div>`;
